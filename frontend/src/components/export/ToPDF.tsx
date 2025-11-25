@@ -1,4 +1,4 @@
-import React, { FC, useState, useRef } from 'react'
+import { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -7,14 +7,11 @@ import { useTheme } from '@mui/material/styles'
 import { X } from 'lucide-react'
 import MDEditor from '@uiw/react-md-editor'
 import '@uiw/react-md-editor/markdown-editor.css'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
-import generatePDF from 'react-to-pdf';
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
+import { BlobProvider, PDFDownloadLink } from '@react-pdf/renderer'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
+import useDebounce from '../../hooks/useDebounce'
+import { PdfDocument } from './PdfRenderer'
 
 export interface ToPDFProps {
   markdown: string
@@ -27,28 +24,7 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
   const lightTheme = useLightTheme()
   const account = useAccount()
   const [markdown, setMarkdown] = useState(initialMarkdown)
-  const targetRef = useRef<HTMLDivElement>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
-
-  const handleDownload = async () => {
-    if (!targetRef.current) return
-    
-    try {
-      setIsGenerating(true)
-
-      generatePDF(targetRef, {
-        filename: filename,
-        page: {
-          margin: 20
-        }
-      })
-      
-    } catch (error) {
-      console.error('Error generating PDF:', error)
-    } finally {
-      setIsGenerating(false)
-    }
-  }
+  const debouncedMarkdown = useDebounce(markdown, 1000)
 
   return (
     <Box
@@ -69,16 +45,7 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
         }}
       >
         <Typography variant="h6">Export to PDF</Typography>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={handleDownload}
-            disabled={isGenerating}
-            sx={{ mr: 1 }}
-          >
-            {isGenerating ? 'Generating...' : 'Download'}
-          </Button>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>          
           {onClose && (
             <IconButton onClick={onClose} size="small">
               <X size={18} />
@@ -130,73 +97,45 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            backgroundColor: '#525659', // Dark background for PDF viewer
           }}
         >
-          <Box
-            
-            sx={{
-              flex: 1,
-              p: 3,              
-              overflow: 'auto',              
-              ...lightTheme.scrollbar,
-              backgroundColor: '#ffffff', // Always white background for PDF preview
-              color: '#000000', // Always black text
-            }}
-          >
-            <Box 
-              ref={targetRef} 
-              style={{ padding: '20px', backgroundColor: '#ffffff', color: '#000000' }}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={{
-                  img: ({node, ...props}) => (
-                    <img 
-                      {...props} 
-                      style={{ maxWidth: '100%' }} 
-                      src={props.src?.startsWith('http') ? props.src : 
-                           props.src ? `${account.serverConfig?.filestore_prefix}/${props.src}?redirect_urls=true` : ''}
-                    />
-                  ),
-                  p: ({node, ...props}) => <div {...props} style={{ marginBottom: '16px', color: '#000000' }} />,
-                  h1: ({node, ...props}) => <h1 {...props} style={{ color: '#000000', marginBottom: '0.5em' }} />,
-                  h2: ({node, ...props}) => <h2 {...props} style={{ color: '#000000', marginBottom: '0.5em' }} />,
-                  h3: ({node, ...props}) => <h3 {...props} style={{ color: '#000000', marginBottom: '0.5em' }} />,
-                  h4: ({node, ...props}) => <h4 {...props} style={{ color: '#000000', marginBottom: '0.5em' }} />,
-                  li: ({node, ...props}) => <li {...props} style={{ color: '#000000' }} />,
-                  a: ({node, ...props}) => <a {...props} style={{ color: '#1976d2' }} />,
-                  code: ({node, className, children, ...props}) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return match ? (
-                      <pre style={{ 
-                        backgroundColor: '#f5f5f5', 
-                        padding: '1em', 
-                        borderRadius: '4px', 
-                        overflowX: 'auto',
-                        color: '#000000'
-                      }}>
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      </pre>
-                    ) : (
-                      <code className={className} style={{ 
-                        backgroundColor: '#f5f5f5', 
-                        padding: '0.2em 0.4em', 
-                        borderRadius: '3px',
-                        color: '#000000'
-                      }} {...props}>
-                        {children}
-                      </code>
+           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+             <BlobProvider document={<PdfDocument markdown={debouncedMarkdown} serverConfig={account.serverConfig} />}>
+               {((params: any) => {
+                 const { url, loading, error } = params
+                 if (loading) {
+                   return (
+                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'white' }}>
+                       <Typography>Generating PDF preview...</Typography>
+                     </Box>
+                   )
+                 }
+                 if (error) {
+                   return (
+                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ff8a80' }}>
+                       <Typography>Error generating PDF: {error.message}</Typography>
+                     </Box>
+                   )
+                 }
+                 if (!url) {
+                    return (
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'white' }}>
+                        <Typography>No PDF generated</Typography>
+                      </Box>
                     )
-                  }
-                }}
-              >
-                {markdown}
-              </ReactMarkdown>
-            </Box>
-          </Box>
+                 }
+                return (
+                  <iframe
+                    key={url}
+                    src={url}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    title="PDF Preview"
+                  />
+                )
+               }) as any}
+             </BlobProvider>
+           </Box>
         </Box>
       </Box>
     </Box>
