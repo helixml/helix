@@ -133,13 +133,14 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	extraEnv = append(extraEnv, agent.Env...)
 
 	// Display settings with defaults
+	// Use 1080p as default - AMD GPUs only support up to 1080p hardware encoding
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 3840  // 4K width
+		displayWidth = 1920  // 1080p default (AMD GPU hardware encoder limit)
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 2160  // 4K height
+		displayHeight = 1080  // 1080p default (AMD GPU hardware encoder limit)
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
