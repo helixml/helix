@@ -1061,36 +1061,40 @@ function build-sandbox() {
 
   # Export tarball if: (1) helix-sway changed, OR (2) tarball doesn't exist
   # This keeps tarball between builds for fast rebuilds
+  # Remove old compressed tarball if it exists (migrating to uncompressed)
+  [ -f helix-sway.tar.gz ] && rm -f helix-sway.tar.gz helix-sway.tar.gz.hash
+
   if [ "$NON_CACHED_STEPS" -gt 0 ]; then
     # Build had changes - must export fresh tarball
     echo "📦 Exporting fresh helix-sway tarball (build had $NON_CACHED_STEPS non-cached steps)..."
-    docker save helix-sway:latest | gzip > helix-sway.tar.gz
-    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+    # No gzip - Docker image build will compress layers anyway
+    docker save helix-sway:latest > helix-sway.tar
+    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
 
     # Generate hash file for startup optimization (skip docker load if image unchanged)
     echo "🔢 Generating image hash..."
-    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
-    echo "✅ Tarball created: helix-sway.tar.gz ($TARBALL_SIZE)"
-  elif [ ! -f helix-sway.tar.gz ]; then
+    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
+    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
+  elif [ ! -f helix-sway.tar ]; then
     # Build was cached but no tarball - create one
     echo "📦 Creating helix-sway tarball (build was cached but tarball missing)..."
-    docker save helix-sway:latest | gzip > helix-sway.tar.gz
-    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+    docker save helix-sway:latest > helix-sway.tar
+    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
 
     # Generate hash file for startup optimization
     echo "🔢 Generating image hash..."
-    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
-    echo "✅ Tarball created: helix-sway.tar.gz ($TARBALL_SIZE)"
+    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
+    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
   else
     # Build was cached AND tarball exists - reuse it (fast path!)
-    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
 
     # Update hash file if it doesn't exist or if image changed
-    if [ ! -f helix-sway.tar.gz.hash ]; then
+    if [ ! -f helix-sway.tar.hash ]; then
       echo "🔢 Generating image hash..."
-      docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
+      docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
     fi
-    echo "✅ Reusing existing tarball: helix-sway.tar.gz ($TARBALL_SIZE) (helix-sway was fully cached)"
+    echo "✅ Reusing existing tarball: helix-sway.tar ($TARBALL_SIZE) (helix-sway was fully cached)"
   fi
   echo ""
 
@@ -1116,13 +1120,13 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f helix-sway.tar.gz
+    rm -f helix-sway.tar
     return 1
   fi
 
   # Keep tarball for future builds (enables fast rebuilds when helix-sway is cached)
   # Only cleanup on failure or when explicitly requested
-  echo "✅ helix-sandbox container built successfully (kept helix-sway.tar.gz for next build)"
+  echo "✅ helix-sandbox container built successfully (kept helix-sway.tar for next build)"
   echo ""
 
   # Step 4: Restart sandbox and transfer fresh image
@@ -1184,6 +1188,9 @@ function build-sandbox() {
 # - zed: feature/external-thread-sync (external agent WebSocket sync support)
 # Verify branches before running: cd ../wolf && git branch --show-current
 function build-and-push-helix-code() {
+  # Optional: pass a tag override as first argument to force tagging even if commit doesn't match
+  local TAG_OVERRIDE="${1:-}"
+
   echo "🚀 Building and pushing Helix Code components for production deployment"
   echo "========================================================================"
   echo ""
@@ -1199,6 +1206,12 @@ function build-and-push-helix-code() {
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
   local BUILD_START=$(date +%s)
   local FAILED_BUILDS=()
+
+  # Allow tag override for building specific tags even if commit doesn't exactly match
+  if [ -n "$TAG_OVERRIDE" ]; then
+    echo "⚠️  Tag override: ${TAG_OVERRIDE} (ignoring git tag check)"
+    GIT_TAG="$TAG_OVERRIDE"
+  fi
 
   echo "📝 Commit hash: ${COMMIT_HASH}"
   if [ -n "$GIT_TAG" ]; then
@@ -1679,7 +1692,7 @@ function help() {
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo ""
   echo "Production build commands:"
-  echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
+  echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
   echo "  build-wolf         - Build Wolf container with latest source code"
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
