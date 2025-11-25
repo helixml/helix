@@ -170,6 +170,28 @@ function build-runner() {
   fi
 }
 
+function build-runner-image() {
+  echo "🐳 Building runner Docker image..."
+  local IMAGE_TAG="${1:-test}"
+  local APP_VERSION=$(git rev-parse HEAD 2>/dev/null || echo "v0.0.0+dev")
+  # Base image tag - default to latest-empty for fast test builds (skips ~16GB download)
+  # Use 'latest-small' for production builds that need full base image
+  local BASE_TAG="${2:-latest-empty}"
+
+  echo "  Output: registry.helixml.tech/helix/runner:$IMAGE_TAG"
+  echo "  Base: registry.helixml.tech/helix/runner-base:$BASE_TAG"
+  echo "  Version: $APP_VERSION"
+  echo "  Note: ROCm vLLM build takes ~10 minutes"
+  echo ""
+
+  docker build \
+    -f Dockerfile.runner \
+    --build-arg TAG="$BASE_TAG" \
+    --build-arg APP_VERSION="$APP_VERSION" \
+    -t "registry.helixml.tech/helix/runner:$IMAGE_TAG" \
+    .
+}
+
 function build-zed() {
   echo "🔨 Building Zed with External WebSocket Thread Sync..."
 
@@ -1648,6 +1670,7 @@ function help() {
   echo "Available commands:"
   echo "  build              - Build docker containers (optionally with WITH_RUNNER or WITH_DEMOS)"
   echo "  build-runner       - Build the helix-runner binary locally"
+  echo "  build-runner-image - Build the runner Docker image (includes ROCm vLLM)"
   echo "  static-compile     - Build static Go binary"
   echo "  start              - Start the development environment with tmux"
   echo "  stop               - Stop docker containers"
