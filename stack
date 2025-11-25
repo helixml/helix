@@ -737,7 +737,8 @@ function get_image_tags() {
 function push_image_tags() {
   local IMAGE_BASE=$1
   local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+  # Use exported GIT_TAG if available (from build-and-push-helix-code), otherwise detect from git
+  local GIT_TAG="${GIT_TAG:-$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")}"
 
   # Always push commit hash tag
   echo "📤 Pushing ${IMAGE_BASE}:${COMMIT_HASH}"
