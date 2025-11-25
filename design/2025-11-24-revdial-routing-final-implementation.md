@@ -418,7 +418,7 @@ if os.Getenv("HELIX_DEV_MODE") == "true" {
 ### CLI Test Session
 
 ```bash
-$ export HELIX_API_KEY="hl-c-_ii3uhebBZB11iLzHgz2A5yi5yKxcRg0Vs1ZRqehQ="
+$ export HELIX_API_KEY="hl-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 $ ./helix project fork modern-todo-app --name "RevDial Routing Test"
 ✅ Project created: 35f0e3d3-1e2e-4d69-bf41-a8dce9ac961b
