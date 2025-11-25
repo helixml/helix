@@ -647,6 +647,23 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// NEW: Create lobby instead of app for immediate auto-start
+	// Determine video buffer caps based on GPU vendor
+	// - NVIDIA uses CUDA memory for zero-copy GPU access
+	// - AMD/Intel use VA-API memory for hardware video encoding
+	// - Fallback to regular memory if GPU vendor unknown
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	videoBufferCaps := "video/x-raw"     // Default fallback
+	switch gpuVendor {
+	case "nvidia":
+		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
+	case "amd", "intel":
+		videoBufferCaps = "video/x-raw(memory:VAMemory)"
+	}
+	log.Info().
+		Str("gpu_vendor", gpuVendor).
+		Str("video_buffer_caps", videoBufferCaps).
+		Msg("🎬 Configured video buffer caps for GPU type")
+
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
@@ -659,7 +676,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			RefreshRate:             displayRefreshRate,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
+			VideoProducerBufferCaps: videoBufferCaps,
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
