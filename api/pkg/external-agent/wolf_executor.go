@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,30 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
+
+// extractHostPortAndTLS parses a URL and returns host:port and whether TLS is needed
+// Used to configure Zed's WebSocket connection to the API
+func extractHostPortAndTLS(rawURL string) (hostPort string, useTLS bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		// Fallback: assume it's already host:port
+		return rawURL, false
+	}
+
+	useTLS = parsed.Scheme == "https" || parsed.Scheme == "wss"
+	hostPort = parsed.Host
+
+	// Add default port if missing
+	if !strings.Contains(hostPort, ":") {
+		if useTLS {
+			hostPort = hostPort + ":443"
+		} else {
+			hostPort = hostPort + ":80"
+		}
+	}
+
+	return hostPort, useTLS
+}
 
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
@@ -158,20 +183,23 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	}
 	// Intel GPUs only need /dev/dri (already included)
 
+	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
+	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
+
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
-		"ZED_HELIX_URL=api:8080",
+		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
-		"ZED_HELIX_TLS=false",
+		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		"RUST_LOG=info", // Enable Rust logging for Zed
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
-		// CRITICAL: Must use Docker network hostname, not localhost, from inside container
-		"HELIX_API_URL=http://api:8080",
+		// API URL for settings sync daemon and other services
+		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
 	}
@@ -523,8 +551,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// Pass API base URL for git cloning (always api:8080 from Wolf container)
-	extraEnv = append(extraEnv, "HELIX_API_BASE_URL=http://api:8080")
+	// Pass API base URL for git cloning
+	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
@@ -1332,6 +1360,9 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
 	}
 
+	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
+	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
+
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
@@ -1342,9 +1373,9 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 		// Zed external websocket sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
-		"ZED_HELIX_URL=api:8080",         // Use Docker network service name (containers can't reach localhost)
+		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
-		"ZED_HELIX_TLS=false", // Internal Docker network, no TLS needed
+		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}

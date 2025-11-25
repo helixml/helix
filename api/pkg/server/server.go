@@ -226,10 +226,16 @@ func NewServer(
 	// Initialize connection manager for reverse dial BEFORE executor (needed for RevDial screenshot/clipboard)
 	connectionManager := connman.New()
 
+	// Use SandboxAPIURL if set (direct HTTP bypassing reverse proxy), otherwise fall back to main URL
+	sandboxAPIURL := cfg.WebServer.SandboxAPIURL
+	if sandboxAPIURL == "" {
+		sandboxAPIURL = cfg.WebServer.URL
+	}
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
-		cfg.WebServer.URL,
+		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
 		store,
 		wsChecker,
