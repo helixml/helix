@@ -266,7 +266,7 @@ services:
         - RUNNER_TOKEN=oh-hallo-insecure-token
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
-        - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
+        - HOST_APPS_STATE_FOLDER=/etc/wolf
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         - WOLF_LOG_LEVEL=DEBUG
         - GST_DEBUG=3
@@ -357,7 +357,7 @@ services:
         - RUNNER_TOKEN=oh-hallo-insecure-token
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
-        - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
+        - HOST_APPS_STATE_FOLDER=/etc/wolf
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         - WOLF_LOG_LEVEL=DEBUG
         - GST_DEBUG=3

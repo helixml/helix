@@ -2254,6 +2254,10 @@ if [ "$SANDBOX" = true ]; then
     # Generate unique Wolf instance ID (hostname)
     WOLF_ID=$(hostname)
     echo "Wolf Instance ID: $WOLF_ID"
+
+    # Generate random 4-digit PIN for auto-pairing (Wolf <-> Moonlight Web)
+    PAIRING_PIN=$(shuf -i 1000-9999 -n 1)
+    echo "Auto-pairing PIN: $PAIRING_PIN"
     echo
 
     # Configure NVIDIA runtime if needed
@@ -2277,6 +2281,7 @@ TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
+PAIRING_PIN="${PAIRING_PIN}"
 
 # Check if helix_default network exists, create it if it doesn't
 if ! docker network inspect helix_default >/dev/null 2>&1; then
@@ -2334,6 +2339,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
+    -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
     -e HOST_APPS_STATE_FOLDER=/etc/wolf \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
@@ -2388,6 +2394,7 @@ EOF
     sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${PAIRING_PIN}|${PAIRING_PIN}|g" $INSTALL_DIR/sandbox.sh
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         chmod +x $INSTALL_DIR/sandbox.sh
