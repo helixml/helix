@@ -1,0 +1,10 @@
+---
+description: Frontend frameworks, file structure
+globs: frontend/*
+alwaysApply: false
+---
+
+IMPORTANT:
+1. Use generated API client for all API calls
+2. Use react-query to first write a wrapper in frontend/src/services directory
+3. Use the wrapper in the component directly, avoid whenever possible to be passing variables from higher components to lower components as react-query hooks are global and can be used in any component.

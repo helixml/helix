@@ -1033,12 +1033,23 @@ export interface ServicesKoditEnrichmentAttributes {
 
 export interface ServicesKoditEnrichmentData {
   attributes?: ServicesKoditEnrichmentAttributes;
+  /** Added for frontend */
+  commit_sha?: string;
   id?: string;
   type?: string;
 }
 
 export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
+}
+
+export interface ServicesKoditSearchResult {
+  content?: string;
+  /** File path from DerivesFrom */
+  file_path?: string;
+  id?: string;
+  language?: string;
+  type?: string;
 }
 
 export interface ServicesSampleProjectCode {
@@ -1704,6 +1715,11 @@ export interface TypesAuthenticatedResponse {
   authenticated?: boolean;
 }
 
+export interface TypesAzureDevOps {
+  organization_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
@@ -1794,6 +1810,30 @@ export interface TypesCreateAccessGrantRequest {
   team_id?: string;
   /** User ID or email */
   user_reference?: string;
+}
+
+export interface TypesCreateBranchRequest {
+  base_branch?: string;
+  branch_name?: string;
+}
+
+export interface TypesCreateBranchResponse {
+  base_branch?: string;
+  branch_name?: string;
+  message?: string;
+  repository_id?: string;
+}
+
+export interface TypesCreatePullRequestRequest {
+  description?: string;
+  source_branch?: string;
+  target_branch?: string;
+  title?: string;
+}
+
+export interface TypesCreatePullRequestResponse {
+  id?: string;
+  message?: string;
 }
 
 export interface TypesCreateSampleRepositoryRequest {
@@ -2065,6 +2105,7 @@ export interface TypesGitHubWorkConfig {
 }
 
 export interface TypesGitRepository {
+  azure_devops?: TypesAzureDevOps;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
@@ -2100,6 +2141,7 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
+  azure_devops?: TypesAzureDevOps;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -2146,8 +2188,11 @@ export enum TypesGitRepositoryType {
 }
 
 export interface TypesGitRepositoryUpdateRequest {
+  azure_devops?: TypesAzureDevOps;
   default_branch?: string;
   description?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  external_type?: TypesExternalRepositoryType;
   external_url?: string;
   metadata?: Record<string, any>;
   name?: string;
@@ -2950,6 +2995,20 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeUser = "user",
   ProviderEndpointTypeOrg = "org",
   ProviderEndpointTypeTeam = "team",
+}
+
+export interface TypesPullRequest {
+  author?: string;
+  created_at?: string;
+  description?: string;
+  id?: string;
+  number?: number;
+  source_branch?: string;
+  state?: string;
+  target_branch?: string;
+  title?: string;
+  updated_at?: string;
+  url?: string;
 }
 
 export interface TypesQuestion {
@@ -4250,11 +4309,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6199,6 +6258,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create a new branch in a repository
+     *
+     * @tags git-repositories
+     * @name CreateGitRepositoryBranch
+     * @summary Create branch
+     * @request POST:/api/v1/git/repositories/{id}/branches
+     * @secure
+     */
+    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
+      this.request<TypesCreateBranchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/branches`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the git clone command for a repository with authentication
      *
      * @tags git-repositories
@@ -6319,10 +6398,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/git/repositories/{id}/enrichments
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
+    v1GitRepositoriesEnrichmentsDetail: (
+      id: string,
+      query?: {
+        /** Filter by enrichment type (usage, developer, living_documentation) */
+        enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
         method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific code intelligence enrichment by ID from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesEnrichmentsDetail2
+     * @summary Get enrichment by ID
+     * @request GET:/api/v1/git/repositories/{id}/enrichments/{enrichmentId}
+     * @originalName v1GitRepositoriesEnrichmentsDetail
+     * @duplicate
+     * @secure
+     */
+    v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
+      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get commits for a repository from Kodit (used for enrichment filtering)
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKoditCommitsDetail
+     * @summary Get repository commits from Kodit
+     * @request GET:/api/v1/git/repositories/{id}/kodit-commits
+     * @secure
+     */
+    v1GitRepositoriesKoditCommitsDetail: (
+      id: string,
+      query?: {
+        /** Limit number of commits (default 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, any>[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/kodit-commits`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -6347,6 +6482,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all pull requests in a repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryPullRequests
+     * @summary List pull requests
+     * @request GET:/api/v1/git/repositories/{id}/pull-requests
+     * @secure
+     */
+    listGitRepositoryPullRequests: (id: string, params: RequestParams = {}) =>
+      this.request<TypesPullRequest[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull-requests`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new pull request in a repository. Changes must be committed and pushed to the branch first.
+     *
+     * @tags git-repositories
+     * @name CreateGitRepositoryPullRequest
+     * @summary Create pull request
+     * @request POST:/api/v1/git/repositories/{id}/pull-requests
+     * @secure
+     */
+    createGitRepositoryPullRequest: (id: string, request: TypesCreatePullRequestRequest, params: RequestParams = {}) =>
+      this.request<TypesCreatePullRequestResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull-requests`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Pulls latest commits from remote and pushes local commits. Automatically merges if needed.
      *
      * @tags git-repositories
@@ -6366,6 +6539,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerPushPullResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/push-pull`,
         method: "POST",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search for code snippets in a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSearchSnippetsDetail
+     * @summary Search repository snippets
+     * @request GET:/api/v1/git/repositories/{id}/search-snippets
+     * @secure
+     */
+    v1GitRepositoriesSearchSnippetsDetail: (
+      id: string,
+      query: {
+        /** Search query */
+        query: string;
+        /** Limit number of results (default 20) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesKoditSearchResult[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/search-snippets`,
+        method: "GET",
         query: query,
         secure: true,
         format: "json",
