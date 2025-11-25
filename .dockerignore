@@ -4,3 +4,18 @@ node_modules
 venv
 vendor
 **/.venv/*
+
+# Large directories that slow down builds
+.git
+wolf-debug-dumps
+zed-build
+*.tar.gz
+frontend/node_modules
+frontend/dist
+logs
+design
+test-zed-config
+
+# Binary artifacts (these are rebuilt in the container)
+helix
+helix-runner
