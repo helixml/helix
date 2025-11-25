@@ -432,10 +432,11 @@ WRAPPER_EOF
     chmod +x "$WRAPPER_SCRIPT"
 
     # Launch terminal in background to run the wrapper script
-    # Use ghostty terminal emulator with -e flag for command execution
-    ghostty --title="Project Startup Script" \
-            --working-directory="$WORK_DIR" \
-            -e bash "$WRAPPER_SCRIPT" &
+    # Use kitty terminal emulator (ghostty has OpenGL permission issues)
+    # kitty: command goes at end without -e flag
+    kitty --title="Project Startup Script" \
+            --directory="$WORK_DIR" \
+            bash "$WRAPPER_SCRIPT" &
 
     echo "Startup script terminal launched (check right side of screen)"
 else

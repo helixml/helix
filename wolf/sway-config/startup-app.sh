@@ -109,7 +109,6 @@ custom_launcher() {
     "sway/mode",
     "sway/scratchpad",
     "custom/firefox",
-    "custom/ghostty",
     "custom/kitty",
     "custom/onlyoffice"
   ],
@@ -131,16 +130,10 @@ custom_launcher() {
     "tooltip-format": "Firefox",
     "on-click": "firefox"
   },
-  "custom/ghostty": {
-    "format": "👻",
-    "tooltip": true,
-    "tooltip-format": "Ghostty Terminal",
-    "on-click": "ghostty"
-  },
   "custom/kitty": {
     "format": "🐱",
     "tooltip": true,
-    "tooltip-format": "Kitty Terminal (fallback)",
+    "tooltip-format": "Kitty Terminal",
     "on-click": "kitty"
   },
   "custom/onlyoffice": {
@@ -223,7 +216,7 @@ EOF
     echo "bindsym \$mod+Escape exec swaymsg 'input type:keyboard xkb_switch_layout 0'" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+Return exec ghostty" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
