@@ -933,7 +933,8 @@ func (g *GPUManager) updateGPUMemoryMap() {
 		case "nvidia":
 			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 		case "amd":
-			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+			// rocm-smi --showmeminfo vram returns structured text: "GPU[X]  : VRAM Total Used Memory (B): <bytes>"
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram")
 		default:
 			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot update GPU memory map")
 			return
