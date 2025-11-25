@@ -41,6 +41,15 @@ const docTemplate = `{
                     "Admin"
                 ],
                 "summary": "Get Wolf debugging data",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -122,6 +131,13 @@ const docTemplate = `{
                         "name": "lobbyId",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to operate on",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -167,6 +183,13 @@ const docTemplate = `{
                         "description": "Session ID (client_id from Wolf)",
                         "name": "sessionId",
                         "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to operate on",
+                        "name": "wolf_instance_id",
+                        "in": "query",
                         "required": true
                     }
                 ],
@@ -10956,6 +10979,14 @@ const docTemplate = `{
                     "Wolf"
                 ],
                 "summary": "Get Wolf UI app ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID to look up Wolf instance",
+                        "name": "session_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -22326,18 +22357,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

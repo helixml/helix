@@ -802,18 +802,8 @@ function build-sway() {
     exit 1
   fi
 
-  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Sway/Zed agent images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
-    fi
-    echo "📦 Registry images pushed"
-  fi
-
   echo "✅ Sway container build completed"
+  echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
 
   # Transfer helix-sway image to sandbox's dockerd (Wolf runs inside sandbox container)
   # Only transfer if sandbox is already running (hot reload during development)
@@ -1060,23 +1050,18 @@ function build-sandbox() {
 
   # Push to registry in production mode
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    echo "📤 Pushing images to registry..."
+    echo "📤 Pushing sandbox image to registry..."
 
-    # Push helix-sway (for reference)
-    local ZED_AGENT_BASE="registry.helixml.tech/helix/zed-agent"
-    if push_image_tags "$ZED_AGENT_BASE"; then
-      echo "✅ Zed agent images pushed successfully"
-    fi
-
-    # Push helix-sandbox
+    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway tarball)
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
     else
       echo "⚠️  Failed to push sandbox images"
+      return 1
     fi
 
-    echo "📦 Registry images pushed"
+    echo "📦 Registry images pushed (helix-sway is embedded, not pushed separately)"
   fi
 
   # Restart sandbox in dev mode
@@ -1213,14 +1198,12 @@ function build-and-push-helix-code() {
     echo "✅ All images built and pushed successfully!"
     echo ""
     echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
-    echo "   • registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}"
     echo "   • registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}"
     echo ""
-    echo "📝 Note: Wolf and Moonlight Web are embedded in helix-sandbox (not deployed separately)"
+    echo "📝 Note: helix-sandbox contains Wolf + Moonlight Web + helix-sway (all embedded)"
     if [ -n "$GIT_TAG" ]; then
       echo ""
       echo "📦 Also tagged with git tag (${GIT_TAG}):"
-      echo "   • registry.helixml.tech/helix/zed-agent:${GIT_TAG}"
       echo "   • registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}"
     fi
     echo ""

@@ -4250,11 +4250,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4639,10 +4639,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/admin/agent-sandboxes/debug
      * @secure
      */
-    v1AdminAgentSandboxesDebugList: (params: RequestParams = {}) =>
+    v1AdminAgentSandboxesDebugList: (
+      query: {
+        /** Wolf instance ID to query */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServerAgentSandboxesDebugResponse, SystemHTTPError>({
         path: `/api/v1/admin/agent-sandboxes/debug`,
         method: "GET",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -4676,10 +4683,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/wolf/lobbies/{lobbyId}
      * @secure
      */
-    v1AdminWolfLobbiesDelete: (lobbyId: string, params: RequestParams = {}) =>
+    v1AdminWolfLobbiesDelete: (
+      lobbyId: string,
+      query: {
+        /** Wolf instance ID to operate on */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/admin/wolf/lobbies/${lobbyId}`,
         method: "DELETE",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -4693,10 +4708,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request DELETE:/api/v1/admin/wolf/sessions/{sessionId}
      * @secure
      */
-    v1AdminWolfSessionsDelete: (sessionId: string, params: RequestParams = {}) =>
+    v1AdminWolfSessionsDelete: (
+      sessionId: string,
+      query: {
+        /** Wolf instance ID to operate on */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/admin/wolf/sessions/${sessionId}`,
         method: "DELETE",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -10022,10 +10045,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Get Wolf UI app ID
      * @request GET:/api/v1/wolf/ui-app-id
      */
-    v1WolfUiAppIdList: (params: RequestParams = {}) =>
+    v1WolfUiAppIdList: (
+      query?: {
+        /** Session ID to look up Wolf instance */
+        session_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/wolf/ui-app-id`,
         method: "GET",
+        query: query,
         format: "json",
         ...params,
       }),

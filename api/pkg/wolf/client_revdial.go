@@ -32,6 +32,21 @@ func NewRevDialClient(connman ConnManagerInterface, instanceID string) *RevDialC
 	}
 }
 
+// connClosingReadCloser wraps a ReadCloser to also close an underlying connection
+type connClosingReadCloser struct {
+	io.ReadCloser
+	conn net.Conn
+}
+
+func (c *connClosingReadCloser) Close() error {
+	bodyErr := c.ReadCloser.Close()
+	connErr := c.conn.Close()
+	if bodyErr != nil {
+		return bodyErr
+	}
+	return connErr
+}
+
 // makeRevDialRequest makes an HTTP request over a RevDial tunnel
 func (c *RevDialClient) makeRevDialRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	// Dial Wolf instance via RevDial
@@ -40,11 +55,14 @@ func (c *RevDialClient) makeRevDialRequest(ctx context.Context, method, path str
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial Wolf instance %s via RevDial: %w", c.instanceID, err)
 	}
-	defer conn.Close()
+	// Note: We do NOT defer conn.Close() here because the response body
+	// reads from this connection. The connection is closed when the
+	// response body is closed via connClosingReadCloser wrapper.
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, body)
 	if err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
@@ -54,13 +72,21 @@ func (c *RevDialClient) makeRevDialRequest(ctx context.Context, method, path str
 
 	// Write HTTP request to RevDial connection
 	if err := httpReq.Write(conn); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to write request to RevDial connection: %w", err)
 	}
 
 	// Read HTTP response from RevDial connection
 	resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
 	if err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to read response from RevDial connection: %w", err)
+	}
+
+	// Wrap the response body to close the connection when the body is closed
+	resp.Body = &connClosingReadCloser{
+		ReadCloser: resp.Body,
+		conn:       conn,
 	}
 
 	return resp, nil
@@ -409,4 +435,62 @@ func (c *RevDialClient) GetSystemHealth(ctx context.Context) (*SystemHealthRespo
 	}
 
 	return &result, nil
+}
+
+// GetPendingPairRequests returns all pending Moonlight client pair requests via RevDial
+func (c *RevDialClient) GetPendingPairRequests() ([]PendingPairRequest, error) {
+	ctx := context.Background()
+	resp, err := c.makeRevDialRequest(ctx, "GET", "/api/v1/pair/pending", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending pair requests: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("wolf API error: %s (status %d)", string(body), resp.StatusCode)
+	}
+
+	var response struct {
+		Success  bool                 `json:"success"`
+		Requests []PendingPairRequest `json:"requests"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode pending pair requests: %w", err)
+	}
+
+	return response.Requests, nil
+}
+
+// PairClient completes the pairing process for a Moonlight client via RevDial
+func (c *RevDialClient) PairClient(pairSecret, pin string) error {
+	ctx := context.Background()
+	pairReq := map[string]string{
+		"pair_secret": pairSecret,
+		"pin":         pin,
+	}
+
+	reqBody, err := json.Marshal(pairReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal pair request: %w", err)
+	}
+
+	resp, err := c.makeRevDialRequest(ctx, "POST", "/api/v1/pair/client", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to complete pairing: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("pairing failed: %s (status %d)", string(body), resp.StatusCode)
+	}
+
+	return nil
+}
+
+// Get performs a raw GET request via RevDial (used for SSE streaming, etc.)
+func (c *RevDialClient) Get(ctx context.Context, path string) (*http.Response, error) {
+	return c.makeRevDialRequest(ctx, "GET", path, nil)
 }

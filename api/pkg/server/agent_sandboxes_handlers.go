@@ -138,50 +138,41 @@ type WolfSessionInfo struct {
 	} `json:"display_mode"`
 }
 
-// wolfSessionRaw matches Wolf's actual API response format
-type wolfSessionRaw struct {
-	ClientID         string  `json:"client_id"`
-	ClientUniqueID   *string `json:"client_unique_id,omitempty"` // Helix session ID
-	ClientIP         string  `json:"client_ip"`
-	AppID            string  `json:"app_id"`
-	VideoWidth       int     `json:"video_width"`
-	VideoHeight      int     `json:"video_height"`
-	VideoRefreshRate int     `json:"video_refresh_rate"`
-}
-
 // @Summary Get Wolf debugging data
 // @Description Retrieves combined debug data from Wolf (memory, lobbies, sessions) for the Agent Sandboxes dashboard
 // @Tags Admin
 // @Accept json
 // @Produce json
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
 // @Success 200 {object} AgentSandboxesDebugResponse
 // @Failure 401 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security ApiKeyAuth
 // @Router /api/v1/admin/agent-sandboxes/debug [get]
 func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, req *http.Request) {
-	// Get Wolf client - works with both executor types
-	type WolfClientProvider interface {
-		GetWolfClient() *wolf.Client
+	ctx := req.Context()
+
+	// Get Wolf instance ID from query parameter
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(rw, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
 	}
 
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+	// Get Wolf client provider for querying specific instances
+	type WolfClientForSessionProvider interface {
+		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
+	}
+
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := provider.GetWolfClient()
 
-	ctx := req.Context()
+	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
+
 	response := &AgentSandboxesDebugResponse{}
-
-	// Fetch system memory data
-	memoryData, err := fetchWolfMemoryData(ctx, wolfClient)
-	if err != nil {
-		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf memory data: %v", err), http.StatusInternalServerError)
-		return
-	}
-	response.Memory = memoryData
 
 	// Check WOLF_MODE to determine whether to fetch apps or lobbies
 	wolfMode := os.Getenv("WOLF_MODE")
@@ -189,82 +180,92 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		wolfMode = "lobbies" // Default (consistent with wolf_executor.go)
 	}
 
+	// Fetch system memory data
+	memoryData, err := fetchWolfMemoryData(ctx, wolfClient)
+	if err != nil {
+		log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch Wolf memory data")
+	} else {
+		response.Memory = memoryData
+	}
+
+	var rawLobbies []wolf.Lobby
+
 	if wolfMode == "lobbies" {
 		// Fetch lobbies (lobbies mode)
 		lobbiesData, err := fetchWolfLobbies(ctx, wolfClient)
 		if err != nil {
-			http.Error(rw, fmt.Sprintf("Failed to fetch Wolf lobbies: %v", err), http.StatusInternalServerError)
-			return
+			log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch Wolf lobbies")
+		} else {
+			response.Lobbies = lobbiesData
 		}
-		response.Lobbies = lobbiesData
+
+		// Fetch raw lobbies for session matching
+		rawLobbies, err = wolfClient.ListLobbies(ctx)
+		if err != nil {
+			log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch raw Wolf lobbies")
+		}
 	} else {
 		// Fetch apps (apps mode)
 		appsData, err := fetchWolfApps(ctx, wolfClient)
 		if err != nil {
-			http.Error(rw, fmt.Sprintf("Failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
-			return
+			log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch Wolf apps")
+		} else {
+			response.Apps = appsData
 		}
-		response.Apps = appsData
 	}
 
-	// Fetch sessions (both modes)
+	// Fetch sessions
 	sessionsData, err := fetchWolfSessions(ctx, wolfClient)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf sessions: %v", err), http.StatusInternalServerError)
-		return
+		log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch Wolf sessions")
 	}
 
 	// In lobbies mode, match Wolf sessions with lobbies by extracting Helix session ID
 	// from client_unique_id and matching against lobby env vars
-	// We need the full lobby data with Runner object for this matching
-	if wolfMode == "lobbies" && len(response.Lobbies) > 0 {
-		// Fetch full lobby data with Runner object (not just WolfLobbyInfo)
-		rawLobbies, err := wolfClient.ListLobbies(ctx)
-		if err == nil {
-			for i := range sessionsData {
-				session := &sessionsData[i]
-				if session.ClientUniqueID == nil {
-					continue
-				}
+	if wolfMode == "lobbies" && len(rawLobbies) > 0 {
+		for i := range sessionsData {
+			session := &sessionsData[i]
+			if session.ClientUniqueID == nil {
+				continue
+			}
 
-				// Extract Helix session ID from client_unique_id: helix-agent-{session_id}-{instance_id}
-				uniqueID := *session.ClientUniqueID
-				if !strings.HasPrefix(uniqueID, "helix-agent-") {
-					continue
-				}
+			// Extract Helix session ID from client_unique_id: helix-agent-{session_id}-{instance_id}
+			uniqueID := *session.ClientUniqueID
+			if !strings.HasPrefix(uniqueID, "helix-agent-") {
+				continue
+			}
 
-				// Remove "helix-agent-" prefix and instance ID suffix
-				parts := strings.Split(strings.TrimPrefix(uniqueID, "helix-agent-"), "-")
-				if len(parts) == 0 {
-					continue
-				}
+			// Remove "helix-agent-" prefix and instance ID suffix
+			parts := strings.Split(strings.TrimPrefix(uniqueID, "helix-agent-"), "-")
+			if len(parts) == 0 {
+				continue
+			}
 
-				// Helix session ID is everything except the last UUID part
-				// Session IDs are ~30 chars, UUIDs are 36 chars with hyphens
-				helixSessionID := strings.Join(parts[:len(parts)-1], "-")
-				if len(helixSessionID) < 20 {
-					continue // Too short to be a session ID
-				}
+			// Helix session ID is everything except the last UUID part
+			// Session IDs are ~30 chars, UUIDs are 36 chars with hyphens
+			helixSessionID := strings.Join(parts[:len(parts)-1], "-")
+			if len(helixSessionID) < 20 {
+				continue // Too short to be a session ID
+			}
 
-				// Find lobby with matching HELIX_SESSION_ID in env vars
-				for _, lobby := range rawLobbies {
-					// Parse lobby.Runner to extract env vars
-					if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
-						if envList, ok := runnerMap["env"].([]interface{}); ok {
-							for _, envVar := range envList {
-								if envStr, ok := envVar.(string); ok {
-									expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
-									if envStr == expectedEnv {
-										session.LobbyID = &lobby.ID
-										break
-									}
+			// Find lobby with matching HELIX_SESSION_ID in env vars
+			for _, lobby := range rawLobbies {
+				// Parse lobby.Runner to extract env vars
+				if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+					if envList, ok := runnerMap["env"].([]interface{}); ok {
+						for _, envVar := range envList {
+							if envStr, ok := envVar.(string); ok {
+								expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
+								if envStr == expectedEnv {
+									session.LobbyID = &lobby.ID
+									break
 								}
 							}
 						}
 					}
-					if session.LobbyID != nil {
-						break
-					}
+				}
+				if session.LobbyID != nil {
+					break
 				}
 			}
 		}
@@ -285,89 +286,138 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	// Set Wolf mode in response so frontend knows which mode is active
 	response.WolfMode = wolfMode
 
-	// GPU stats and pipeline stats are already included in memoryData from Wolf
-	response.GPUStats = memoryData.GPUStats
-	response.GStreamerPipelines = memoryData.GStreamerPipelines
+	// GPU stats and pipeline stats are already included in response.Memory from Wolf
+	if response.Memory != nil {
+		response.GPUStats = response.Memory.GPUStats
+		response.GStreamerPipelines = response.Memory.GStreamerPipelines
+	}
 
 	// Return combined data
 	writeResponse(rw, response, http.StatusOK)
 }
 
-// fetchWolfMemoryData retrieves memory usage data from Wolf
-func fetchWolfMemoryData(ctx context.Context, wolfClient *wolf.Client) (*WolfSystemMemory, error) {
-	resp, err := wolfClient.Get(ctx, "/api/v1/system/memory")
+// fetchWolfMemoryData retrieves memory usage data from Wolf via WolfClientInterface
+func fetchWolfMemoryData(ctx context.Context, wolfClient external_agent.WolfClientInterface) (*WolfSystemMemory, error) {
+	memResp, err := wolfClient.GetSystemMemory(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf memory endpoint: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Wolf memory endpoint returned status %d: %s", resp.StatusCode, string(body))
+	// Convert wolf.SystemMemoryResponse to WolfSystemMemory
+	result := &WolfSystemMemory{
+		Success:              true,
+		ProcessRSSBytes:      memResp.ProcessRSSBytes,
+		GStreamerBufferBytes: memResp.GStreamerBufferBytes,
+		TotalMemoryBytes:     memResp.TotalMemoryBytes,
 	}
 
-	var memoryData WolfSystemMemory
-	if err := json.NewDecoder(resp.Body).Decode(&memoryData); err != nil {
-		return nil, fmt.Errorf("failed to decode Wolf memory response: %w", err)
+	// Convert apps
+	if memResp.Apps != nil {
+		result.Apps = make([]WolfAppMemory, len(memResp.Apps))
+		for i, app := range memResp.Apps {
+			result.Apps[i] = WolfAppMemory{
+				AppID:       app.AppID,
+				AppName:     app.AppName,
+				Resolution:  app.Resolution,
+				ClientCount: app.ClientCount,
+			}
+		}
 	}
 
-	return &memoryData, nil
+	// Convert lobbies
+	if memResp.Lobbies != nil {
+		result.Lobbies = make([]WolfLobbyMemory, len(memResp.Lobbies))
+		for i, lobby := range memResp.Lobbies {
+			result.Lobbies[i] = WolfLobbyMemory{
+				LobbyID:     lobby.LobbyID,
+				LobbyName:   lobby.LobbyName,
+				ClientCount: lobby.ClientCount,
+				MemoryBytes: lobby.MemoryBytes,
+			}
+		}
+	}
+
+	// Convert clients (wolf.ClientMemoryInfo only has ClientID and MemoryBytes)
+	if memResp.Clients != nil {
+		result.Clients = make([]WolfClientConnection, len(memResp.Clients))
+		for i, client := range memResp.Clients {
+			result.Clients[i] = WolfClientConnection{
+				SessionID:   client.ClientID,
+				MemoryBytes: client.MemoryBytes,
+				// Note: ClientIP, Resolution, LobbyID, AppID are not available in memory endpoint
+				// They come from the sessions endpoint instead
+			}
+		}
+	}
+
+	// Convert GPU stats if available
+	if memResp.GPUStats != nil {
+		result.GPUStats = &GPUStats{
+			GPUName:               memResp.GPUStats.GPUName,
+			EncoderSessionCount:   memResp.GPUStats.EncoderSessionCount,
+			EncoderAverageFps:     memResp.GPUStats.EncoderAverageFPS,
+			EncoderAverageLatency: memResp.GPUStats.EncoderAverageLatencyUs,
+			EncoderUtilization:    memResp.GPUStats.EncoderUtilizationPercent,
+			GPUUtilization:        memResp.GPUStats.GPUUtilizationPercent,
+			MemoryUtilization:     memResp.GPUStats.MemoryUtilizationPercent,
+			MemoryUsedMB:          memResp.GPUStats.MemoryUsedMB,
+			MemoryTotalMB:         memResp.GPUStats.MemoryTotalMB,
+			TemperatureC:          memResp.GPUStats.TemperatureCelsius,
+		}
+	}
+
+	// Convert GStreamer pipelines if available
+	if memResp.GStreamerPipelines != nil {
+		result.GStreamerPipelines = &GStreamerPipelineStats{
+			ProducerPipelines: memResp.GStreamerPipelines.ProducerPipelines,
+			ConsumerPipelines: memResp.GStreamerPipelines.ConsumerPipelines,
+			TotalPipelines:    memResp.GStreamerPipelines.TotalPipelines,
+		}
+	}
+
+	return result, nil
 }
 
-// fetchWolfLobbies retrieves all lobbies from Wolf
-func fetchWolfLobbies(ctx context.Context, wolfClient *wolf.Client) ([]WolfLobbyInfo, error) {
-	resp, err := wolfClient.Get(ctx, "/api/v1/lobbies")
+// fetchWolfLobbies retrieves all lobbies from Wolf via WolfClientInterface
+func fetchWolfLobbies(ctx context.Context, wolfClient external_agent.WolfClientInterface) ([]WolfLobbyInfo, error) {
+	lobbies, err := wolfClient.ListLobbies(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf lobbies endpoint: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Wolf lobbies endpoint returned status %d: %s", resp.StatusCode, string(body))
+	// Convert wolf.Lobby to WolfLobbyInfo
+	result := make([]WolfLobbyInfo, len(lobbies))
+	for i, lobby := range lobbies {
+		result[i] = WolfLobbyInfo{
+			ID:                     lobby.ID,
+			Name:                   lobby.Name,
+			StartedByProfileID:     lobby.StartedByProfileID,
+			MultiUser:              lobby.MultiUser,
+			StopWhenEveryoneLeaves: lobby.StopWhenEveryoneLeaves,
+			PIN:                    lobby.PIN,
+		}
 	}
 
-	var lobbiesResponse struct {
-		Success bool            `json:"success"`
-		Lobbies []WolfLobbyInfo `json:"lobbies"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&lobbiesResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode Wolf lobbies response: %w", err)
-	}
-
-	if !lobbiesResponse.Success {
-		return nil, fmt.Errorf("Wolf lobbies endpoint returned success=false")
-	}
-
-	return lobbiesResponse.Lobbies, nil
+	return result, nil
 }
 
-// fetchWolfApps retrieves all apps from Wolf (apps mode)
-func fetchWolfApps(ctx context.Context, wolfClient *wolf.Client) ([]WolfAppInfo, error) {
-	resp, err := wolfClient.Get(ctx, "/api/v1/apps")
+// fetchWolfApps retrieves all apps from Wolf (apps mode) via WolfClientInterface
+func fetchWolfApps(ctx context.Context, wolfClient external_agent.WolfClientInterface) ([]WolfAppInfo, error) {
+	apps, err := wolfClient.ListApps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf apps endpoint: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Wolf apps endpoint returned status %d: %s", resp.StatusCode, string(body))
+	// Convert wolf.App to WolfAppInfo
+	result := make([]WolfAppInfo, len(apps))
+	for i, app := range apps {
+		result[i] = WolfAppInfo{
+			ID:    app.ID,
+			Title: app.Title,
+		}
 	}
 
-	var appsResponse struct {
-		Success bool          `json:"success"`
-		Apps    []WolfAppInfo `json:"apps"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&appsResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode Wolf apps response: %w", err)
-	}
-
-	if !appsResponse.Success {
-		return nil, fmt.Errorf("Wolf apps endpoint returned success=false")
-	}
-
-	return appsResponse.Apps, nil
+	return result, nil
 }
 
 // getWolfUIAppID godoc
@@ -375,23 +425,46 @@ func fetchWolfApps(ctx context.Context, wolfClient *wolf.Client) ([]WolfAppInfo,
 // @Description Get the Wolf UI app ID for lobbies mode streaming
 // @Tags Wolf
 // @Produce json
+// @Param session_id query string false "Session ID to look up Wolf instance"
 // @Success 200 {object} map[string]string
 // @Failure 500 {object} system.HTTPError
 // @Router /api/v1/wolf/ui-app-id [get]
 func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *http.Request) {
-	// Get Wolf client from executor
-	type WolfClientProvider interface {
-		GetWolfClient() *wolf.Client
+	ctx := req.Context()
+
+	// Get session ID from query parameter to determine which Wolf instance to query
+	sessionID := req.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(rw, "session_id query parameter is required to determine Wolf instance", http.StatusBadRequest)
+		return
 	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+
+	// Look up session to get Wolf instance ID
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Failed to get session: %v", err), http.StatusNotFound)
+		return
+	}
+
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		http.Error(rw, "Session has no Wolf instance ID - session may be corrupted", http.StatusInternalServerError)
+		return
+	}
+
+	// Get Wolf client for this session's Wolf instance
+	type WolfClientForSessionProvider interface {
+		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := provider.GetWolfClient()
+	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
 
 	// Fetch Wolf apps
-	apps, err := fetchWolfApps(req.Context(), wolfClient)
+	apps, err := fetchWolfApps(ctx, wolfClient)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
 		return
@@ -411,40 +484,28 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 	http.Error(rw, "Wolf UI app not found in apps list", http.StatusNotFound)
 }
 
-// fetchWolfSessions retrieves all streaming sessions from Wolf
-func fetchWolfSessions(ctx context.Context, wolfClient *wolf.Client) ([]WolfSessionInfo, error) {
-	resp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+// fetchWolfSessions retrieves all streaming sessions from Wolf via WolfClientInterface
+func fetchWolfSessions(ctx context.Context, wolfClient external_agent.WolfClientInterface) ([]WolfSessionInfo, error) {
+	wolfSessions, err := wolfClient.ListSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf sessions endpoint: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Wolf sessions endpoint returned status %d: %s", resp.StatusCode, string(body))
-	}
+	// Convert wolf.WolfStreamSession to WolfSessionInfo
+	sessions := make([]WolfSessionInfo, len(wolfSessions))
+	for i, raw := range wolfSessions {
+		// Convert string to *string for ClientUniqueID (may be empty)
+		var clientUniqueID *string
+		if raw.ClientUniqueID != "" {
+			clientUniqueID = &raw.ClientUniqueID
+		}
 
-	var sessionsResponse struct {
-		Success  bool             `json:"success"`
-		Sessions []wolfSessionRaw `json:"sessions"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&sessionsResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode Wolf sessions response: %w", err)
-	}
-
-	if !sessionsResponse.Success {
-		return nil, fmt.Errorf("Wolf sessions endpoint returned success=false")
-	}
-
-	// Transform Wolf's flat structure to our nested structure
-	sessions := make([]WolfSessionInfo, len(sessionsResponse.Sessions))
-	for i, raw := range sessionsResponse.Sessions {
 		sessions[i] = WolfSessionInfo{
 			SessionID:      raw.ClientID,
-			ClientUniqueID: raw.ClientUniqueID, // Helix session identifier (helix-agent-{session_id}-{instance_id})
+			ClientUniqueID: clientUniqueID, // Helix session identifier (helix-agent-{session_id}-{instance_id})
 			ClientIP:       raw.ClientIP,
-			AppID:          raw.AppID,
-			LobbyID:        nil, // Will be populated below by matching against lobbies
+			AppID:          raw.AppID, // May be empty string for lobbies mode
+			LobbyID:        nil, // Will be populated later by matching against lobbies
 			DisplayMode: struct {
 				Width         int  `json:"width"`
 				Height        int  `json:"height"`
@@ -585,15 +646,22 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 // @Security ApiKeyAuth
 // @Router /api/v1/admin/agent-sandboxes/events [get]
 func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+
+	// Get Wolf instance ID from query parameter
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(rw, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get Wolf client from external agent executor
 	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := wolfExecutor.GetWolfClient()
-
-	ctx := req.Context()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Connect to Wolf's SSE endpoint
 	resp, err := wolfClient.Get(ctx, "/api/v1/events")
@@ -705,16 +773,22 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		return
 	}
 
-	// Get Wolf client
-	type WolfClientProvider interface {
-		GetWolfClient() *wolf.Client
+	// Get session's Wolf instance ID for proper RevDial routing
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		wolfInstanceID = "dev" // Default for sessions created before multi-Wolf support
 	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+
+	// Get Wolf client for this session's Wolf instance
+	type WolfClientForSessionProvider interface {
+		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := provider.GetWolfClient()
+	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
 
 	// Determine the expected Wolf app ID and client_unique_id for this session
 	// These must match what the backend used in wolf_executor_apps.go
@@ -730,19 +804,20 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 	}
 	wolfAppID := fmt.Sprintf("%d", numericHash%1000000000)
 
-	// Query moonlight-web to check session state
+	// Query moonlight-web to check session state (non-fatal - unified sandbox may not have moonlight-web accessible)
+	// In unified sandbox mode, Moonlight Web runs inside the sandbox container and is only accessible via RevDial
+	var moonlightSession *MoonlightClientInfo
 	moonlightClients, err := fetchMoonlightWebSessions(ctx)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to fetch moonlight-web sessions: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Find this session's moonlight client
-	var moonlightSession *MoonlightClientInfo
-	for _, client := range moonlightClients {
-		if client.SessionID == expectedMoonlightSessionID {
-			moonlightSession = &client
-			break
+		// Log warning but continue - we can still return wolfAppID based on Wolf data alone
+		log.Warn().Err(err).Msg("Failed to fetch moonlight-web sessions (may be unified sandbox mode)")
+	} else {
+		// Find this session's moonlight client
+		for _, client := range moonlightClients {
+			if client.SessionID == expectedMoonlightSessionID {
+				moonlightSession = &client
+				break
+			}
 		}
 	}
 
@@ -833,6 +908,7 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 // @Description Stop a Wolf lobby (terminates container and releases GPU resources)
 // @Tags Admin
 // @Param lobbyId path string true "Lobby ID"
+// @Param wolf_instance_id query string true "Wolf instance ID to operate on"
 // @Success 200
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -897,13 +973,20 @@ func (apiServer *HelixAPIServer) deleteWolfLobby(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	// Get Wolf instance ID from query parameter (admin must specify which Wolf instance)
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(rw, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get Wolf client from external agent executor
 	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Stop the lobby with PIN
 	stopReq := &wolf.StopLobbyRequest{
@@ -934,6 +1017,7 @@ func (apiServer *HelixAPIServer) deleteWolfLobby(rw http.ResponseWriter, req *ht
 // @Description Stop a Wolf-UI streaming session (releases GPU memory)
 // @Tags Admin
 // @Param sessionId path string true "Session ID (client_id from Wolf)"
+// @Param wolf_instance_id query string true "Wolf instance ID to operate on"
 // @Success 200
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -951,9 +1035,17 @@ func (apiServer *HelixAPIServer) deleteWolfSession(rw http.ResponseWriter, req *
 	vars := mux.Vars(req)
 	sessionID := vars["sessionId"]
 
+	// Get Wolf instance ID from query parameter (admin must specify which Wolf instance)
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(rw, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("wolf_session_id", sessionID).
+		Str("wolf_instance_id", wolfInstanceID).
 		Msg("Admin stopping Wolf streaming session")
 
 	// Get Wolf client from external agent executor
@@ -962,7 +1054,7 @@ func (apiServer *HelixAPIServer) deleteWolfSession(rw http.ResponseWriter, req *
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Stop the session
 	err := wolfClient.StopSession(req.Context(), sessionID)

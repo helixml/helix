@@ -73,10 +73,13 @@ type connmanInterface interface {
 
 // getWolfClient returns a Wolf client for the specified instance
 // Uses RevDial to connect to Wolf API (Wolf runs in separate container/machine)
+// IMPORTANT: wolfInstanceID should ALWAYS be provided - there is no valid default
+// In multi-Wolf mode, each session is scheduled to a specific Wolf instance stored in the database
 func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface {
-	// Default to "local" if no instance ID specified
 	if wolfInstanceID == "" {
-		wolfInstanceID = "local"
+		// This is a programming error - callers must always provide the Wolf instance ID
+		// by looking it up from the session or other context
+		panic("getWolfClient called without wolfInstanceID - this is a bug, all callers must look up the Wolf instance from session/database")
 	}
 	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
@@ -1427,16 +1430,20 @@ func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bo
 	return false, nil
 }
 
-// GetWolfClient returns the Wolf client for direct access to Wolf API
-// Note: This type-asserts the interface back to the concrete type.
-// Only use this when you need direct access to wolf.Client specific methods.
-func (w *WolfExecutor) GetWolfClient() *wolf.Client {
-	if client, ok := w.getWolfClient("").(*wolf.Client); ok {
-		return client
-	}
-	// This should never happen in production, only in tests with mocks
-	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
-	return nil
+// GetWolfClient returns the Wolf client for access to Wolf API via RevDial
+// DEPRECATED: This method should not be used - use GetWolfClientForSession instead
+// Callers must always provide a Wolf instance ID by looking it up from the session
+// This method exists only for backward compatibility and will fail at runtime
+func (w *WolfExecutor) GetWolfClient() WolfClientInterface {
+	// This is a programming error - all callers should use GetWolfClientForSession
+	// with the Wolf instance ID looked up from the session/database
+	panic("GetWolfClient() called without instance ID - use GetWolfClientForSession(wolfInstanceID) instead")
+}
+
+// GetWolfClientForSession returns a Wolf client for a specific Wolf instance ID
+// This is used by handlers that need to query a session's specific Wolf instance
+func (w *WolfExecutor) GetWolfClientForSession(wolfInstanceID string) WolfClientInterface {
+	return w.getWolfClient(wolfInstanceID)
 }
 
 // validateDisplayParams validates display configuration parameters
