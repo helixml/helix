@@ -25,6 +25,13 @@ func (apiServer *HelixAPIServer) getWolfPendingPairRequests(res http.ResponseWri
 		return
 	}
 
+	// Get Wolf instance ID from query parameter
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get Wolf client from the executor
 	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
 	if !ok {
@@ -32,7 +39,7 @@ func (apiServer *HelixAPIServer) getWolfPendingPairRequests(res http.ResponseWri
 		return
 	}
 
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 	if wolfClient == nil {
 		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
 		return
@@ -101,6 +108,13 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 		return
 	}
 
+	// Get Wolf instance ID from query parameter
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get Wolf client from the executor
 	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
 	if !ok {
@@ -108,7 +122,7 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 		return
 	}
 
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 	if wolfClient == nil {
 		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
 		return
@@ -156,6 +170,13 @@ func (apiServer *HelixAPIServer) getWolfHealth(res http.ResponseWriter, req *htt
 		return
 	}
 
+	// Get Wolf instance ID from query parameter
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
 	// Get Wolf client from the executor
 	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
 	if !ok {
@@ -163,7 +184,7 @@ func (apiServer *HelixAPIServer) getWolfHealth(res http.ResponseWriter, req *htt
 		return
 	}
 
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
 	if wolfClient == nil {
 		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
 		return

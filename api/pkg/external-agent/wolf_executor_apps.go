@@ -657,15 +657,9 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
-// Note: This type-asserts the interface back to the concrete type.
-// Only use this when you need direct access to wolf.Client specific methods.
-func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
-	if client, ok := w.wolfClient.(*wolf.Client); ok {
-		return client
-	}
-	// This should never happen in production, only in tests with mocks
-	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
-	return nil
+// Returns the WolfClientInterface which works with both local and remote Wolf instances
+func (w *AppWolfExecutor) GetWolfClient() WolfClientInterface {
+	return w.wolfClient
 }
 
 // waitForZedConnection waits for the Zed instance to connect via WebSocket

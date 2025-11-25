@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import {
   Box,
   Grid,
@@ -13,6 +13,10 @@ import {
   CircularProgress,
   Divider,
   Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import MemoryIcon from '@mui/icons-material/Memory'
@@ -20,9 +24,11 @@ import VideocamIcon from '@mui/icons-material/Videocam'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import CloseIcon from '@mui/icons-material/Close'
+import StorageIcon from '@mui/icons-material/Storage'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import { TypesWolfInstanceResponse } from '../../api/api'
 
 
 
@@ -496,22 +502,42 @@ const AgentSandboxes: FC = () => {
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const snackbar = useSnackbar()
+  const [selectedWolfInstance, setSelectedWolfInstance] = useState<string>('')
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['agent-sandboxes-debug'],
+  // Fetch list of registered Wolf instances
+  const { data: wolfInstances, isLoading: isLoadingInstances } = useQuery({
+    queryKey: ['wolf-instances'],
     queryFn: async () => {
-      const response = await apiClient.v1AdminAgentSandboxesDebugList()
+      const response = await apiClient.v1WolfInstancesList()
       return response.data
     },
+    refetchInterval: 10000, // Refresh every 10s
+  })
+
+  // Auto-select first instance when list loads
+  React.useEffect(() => {
+    if (wolfInstances && wolfInstances.length > 0 && !selectedWolfInstance) {
+      setSelectedWolfInstance(wolfInstances[0].id || '')
+    }
+  }, [wolfInstances, selectedWolfInstance])
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['agent-sandboxes-debug', selectedWolfInstance],
+    queryFn: async () => {
+      if (!selectedWolfInstance) return null
+      const response = await apiClient.v1AdminAgentSandboxesDebugList({ wolf_instance_id: selectedWolfInstance })
+      return response.data
+    },
+    enabled: !!selectedWolfInstance, // Only fetch when an instance is selected
     refetchInterval: 5000,
   })
 
   // Mutation to stop Wolf lobby
   const stopLobbyMutation = useMutation({
-    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId),
+    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId, { wolf_instance_id: selectedWolfInstance }),
     onSuccess: () => {
       snackbar.success('Lobby stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedWolfInstance] })
     },
     onError: (err: any) => {
       snackbar.error(`Failed to stop lobby: ${err.message || 'Unknown error'}`)
@@ -520,10 +546,10 @@ const AgentSandboxes: FC = () => {
 
   // Mutation to stop Wolf streaming session
   const stopSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId),
+    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId, { wolf_instance_id: selectedWolfInstance }),
     onSuccess: () => {
       snackbar.success('Streaming session stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedWolfInstance] })
     },
     onError: (err: any) => {
       snackbar.error(`Failed to stop session: ${err.message || 'Unknown error'}`)
@@ -537,14 +563,65 @@ const AgentSandboxes: FC = () => {
   const containers = isAppsMode ? apps : lobbies
   const sessions = data?.sessions || []
 
+  // Helper to get instance display name
+  const getInstanceDisplayName = (instance: TypesWolfInstanceResponse) => {
+    const status = instance.status === 'healthy' ? '🟢' : instance.status === 'unhealthy' ? '🟡' : '🔴'
+    return `${status} ${instance.name} (${instance.current_sandboxes || 0}/${instance.max_sandboxes || 10} sandboxes)`
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Agent Sandboxes Dashboard</Typography>
-        <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
-          {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 300 }}>
+            <InputLabel id="wolf-instance-label">Wolf Instance</InputLabel>
+            <Select
+              labelId="wolf-instance-label"
+              value={selectedWolfInstance}
+              label="Wolf Instance"
+              onChange={(e) => setSelectedWolfInstance(e.target.value)}
+              disabled={isLoadingInstances || !wolfInstances?.length}
+              startAdornment={<StorageIcon sx={{ mr: 1, color: 'text.secondary' }} />}
+            >
+              {wolfInstances?.map((instance) => (
+                <MenuItem key={instance.id} value={instance.id}>
+                  {getInstanceDisplayName(instance)}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <IconButton onClick={() => refetch()} disabled={isLoading || !selectedWolfInstance} sx={{ color: 'primary.main' }}>
+            {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
+          </IconButton>
+        </Box>
       </Box>
+
+      {/* No Wolf instances available */}
+      {!isLoadingInstances && (!wolfInstances || wolfInstances.length === 0) && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          No Wolf sandbox instances are currently registered. Install a sandbox using:
+          <br />
+          <code>export RUNNER_TOKEN=YOUR_TOKEN && ./install.sh --sandbox --controlplane-url https://your-api.com</code>
+        </Alert>
+      )}
+
+      {/* Wolf instances summary */}
+      {wolfInstances && wolfInstances.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary">
+            {wolfInstances.length} Wolf instance{wolfInstances.length !== 1 ? 's' : ''} registered
+            {' • '}
+            {wolfInstances.filter(i => i.status === 'healthy').length} healthy
+            {selectedWolfInstance && (
+              <>
+                {' • '}
+                Viewing: <strong>{wolfInstances.find(i => i.id === selectedWolfInstance)?.name}</strong>
+              </>
+            )}
+          </Typography>
+        </Box>
+      )}
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Monitor Wolf streaming infrastructure: GStreamer pipelines, {isAppsMode ? 'direct connections' : 'interpipe connections'}, memory usage, and

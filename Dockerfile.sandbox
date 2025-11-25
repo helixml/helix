@@ -323,12 +323,12 @@ RUN chmod +x /usr/local/bin/revdial-client
 # (Following Wolf's pattern: /etc/cont-init.d/*.sh runs before main process)
 # ====================================================================
 
-# 06: Initialize and start Moonlight Web (runs after Wolf config init)
-# Use the upstream init script with modified Wolf address (localhost instead of wolf)
-RUN cat > /etc/cont-init.d/06-start-moonlight-web.sh << 'EOF'
+# 06: Initialize Moonlight Web config (startup moved to startup-app.sh to run AFTER Wolf)
+# Use the upstream init script with modified Wolf address (127.0.0.1 instead of wolf)
+RUN cat > /etc/cont-init.d/06-init-moonlight-config.sh << 'EOF'
 #!/bin/bash
 set -e
-echo "🌙 Initializing Moonlight Web..."
+echo "🌙 Initializing Moonlight Web config..."
 
 DATA_FILE="/opt/moonlight-web/server/data.json"
 CONFIG_FILE="/opt/moonlight-web/server/config.json"
@@ -340,8 +340,10 @@ mkdir -p /opt/moonlight-web/server
 # Initialize data.json if it doesn't exist or is empty
 if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
     echo "🔧 Initializing moonlight-web data.json from template..."
-    # Wolf is on localhost in unified sandbox container
-    sed 's/"address": "wolf"/"address": "localhost"/' "$DATA_TEMPLATE" > "$DATA_FILE"
+    # Wolf is on 127.0.0.1 in unified sandbox container
+    # Must use 127.0.0.1 NOT localhost - Wolf only listens on IPv4, and "localhost"
+    # resolves to IPv6 first on modern Linux, causing "LikelyOffline" errors
+    sed 's/"address": "wolf"/"address": "127.0.0.1"/' "$DATA_TEMPLATE" > "$DATA_FILE"
     HELIX_HOSTNAME=${HELIX_HOSTNAME:-local}
     sed -i "s/{{HELIX_HOSTNAME}}/$HELIX_HOSTNAME/g" "$DATA_FILE"
     echo "✅ moonlight-web data.json initialized"
@@ -371,66 +373,75 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
     echo "✅ moonlight-web config.json initialized"
 fi
 
-# Start Moonlight Web daemon in background (redirect to stdout with prefix)
-cd /opt/moonlight-web
-./moonlight-web 2>&1 | sed 's/^/[MOONLIGHT] /' &
-MOONLIGHT_PID=$!
-echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
+# NOTE: Moonlight Web startup moved to startup-app.sh to ensure Wolf is running first
+# This avoids the "LikelyOffline" error caused by Moonlight trying to connect before Wolf
+echo "✅ Moonlight Web config ready (startup deferred to after Wolf)"
 EOF
-RUN chmod +x /etc/cont-init.d/06-start-moonlight-web.sh
+RUN chmod +x /etc/cont-init.d/06-init-moonlight-config.sh
 
 # 06b: Auto-pair Moonlight Web with Wolf (runs AFTER both are started)
 # This script is sourced by startup-app.sh after Wolf starts
 RUN cat > /opt/moonlight-web/auto-pair.sh << 'EOF'
 #!/bin/bash
 # Auto-pair Moonlight Web with Wolf
-# Both services must be running before this executes
+# Based on original moonlight-web-stream/server-templates/init-moonlight-config.sh logic
 
-echo "🔗 Auto-pairing Moonlight Web with Wolf..."
+DATA_FILE="/opt/moonlight-web/server/data.json"
 
-# Wait for Wolf API to be ready
-MAX_ATTEMPTS=10
-ATTEMPT=0
-while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-    if curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/config >/dev/null 2>&1; then
-        echo "✅ Wolf API is ready"
+# Check if already paired (skip if paired section exists in data.json)
+if grep -q '"paired"' "$DATA_FILE" 2>/dev/null; then
+    echo "ℹ️  moonlight-web already paired with Wolf, skipping auto-pair"
+    exit 0
+fi
+
+echo "🔗 Auto-pairing moonlight-web with Wolf..."
+
+# Wait for Wolf to be ready (check if Wolf's Moonlight port 47989 is accepting connections)
+# Original script checked TCP port, not API endpoint (API takes longer to init)
+echo "⏳ Waiting for Wolf to be ready..."
+for i in {1..60}; do
+    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' 2>/dev/null; then
+        echo "✅ Wolf port 47989 is responding"
+        # Wait additional 5 seconds for HTTPS endpoint to fully initialize
+        # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
+        echo "⏳ Waiting 5s for Wolf HTTPS endpoint to initialize..."
+        sleep 5
+        echo "✅ Wolf is ready for pairing"
         break
     fi
-    echo "⏳ Waiting for Wolf API... ($ATTEMPT/$MAX_ATTEMPTS)"
+    if [ $i -eq 60 ]; then
+        echo "❌ Wolf failed to start within 60 seconds, skipping auto-pair"
+        exit 0  # Don't fail the container, just skip pairing
+    fi
     sleep 1
-    ATTEMPT=$((ATTEMPT + 1))
 done
 
-if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
-    echo "⚠️  Wolf API not ready after ${MAX_ATTEMPTS}s, skipping auto-pairing"
-    exit 0
-fi
-
-# Get Wolf's pairing PIN
-WOLF_PIN=$(curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/pairing/pin | jq -r '.pin' 2>/dev/null)
-if [ -z "$WOLF_PIN" ] || [ "$WOLF_PIN" = "null" ]; then
-    echo "⚠️  Failed to get Wolf pairing PIN, skipping auto-pairing"
-    exit 0
-fi
-
-echo "🔐 Got Wolf pairing PIN: $WOLF_PIN"
-
-# Pair Moonlight Web with Wolf
-MOONLIGHT_CREDS=${MOONLIGHT_CREDENTIALS:-helix}
-PAIR_RESPONSE=$(curl -s -X POST http://localhost:8080/api/host/pair \
-    -H "Authorization: Bearer $MOONLIGHT_CREDS" \
+# Trigger pairing via Moonlight Web API (which will connect to Wolf and complete pairing)
+CREDS="${MOONLIGHT_CREDENTIALS:-helix}"
+PAIR_RESPONSE=$(curl -s -X POST http://localhost:8080/api/pair \
+    -H "Authorization: Bearer $CREDS" \
     -H "Content-Type: application/json" \
-    -d "{\"pin\": \"$WOLF_PIN\"}")
+    -d '{"host_id":0}' 2>&1)
 
-if echo "$PAIR_RESPONSE" | grep -q "success\|paired"; then
-    echo "✅ Moonlight Web auto-paired with Wolf"
+echo "📡 Pairing response: $PAIR_RESPONSE"
+
+# Wait a moment for pairing to complete and data.json to be updated
+sleep 1
+
+# Check if pairing succeeded by looking for paired section in data.json
+# (more reliable than parsing chunked HTTP response)
+if grep -q '"paired"' "$DATA_FILE"; then
+    echo "✅ Auto-pairing with Wolf completed successfully"
 else
-    echo "⚠️  Auto-pairing response: $PAIR_RESPONSE"
+    echo "❌ Auto-pairing failed - paired section not found in data.json"
+    echo "   This may be expected if Wolf is not fully initialized yet"
+    echo "   Pairing can be completed manually via Moonlight Web UI"
 fi
 EOF
 RUN chmod +x /opt/moonlight-web/auto-pair.sh
 
-# 07: Start RevDial clients for Wolf and Moonlight Web (optional, only if HELIX_API_URL is set)
+# 07: Start Wolf RevDial client (optional, only if HELIX_API_URL is set)
+# NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web
 RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
 #!/bin/bash
 set -e
@@ -442,32 +453,25 @@ if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
 fi
 
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-echo "🔗 Starting RevDial clients..."
+echo "🔗 Starting Wolf RevDial client..."
 echo "   Control Plane: $HELIX_API_URL"
 echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 
 # Start Wolf API RevDial client (proxies Wolf Unix socket, redirect to stdout with prefix)
 # Use cgo DNS resolver to work around Go DNS issues in Docker
+# Use sed -u for unbuffered output (otherwise logs don't appear)
 GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
     -server "$HELIX_API_URL/api/v1/revdial" \
     -runner-id "wolf-$WOLF_INSTANCE_ID" \
     -token "$RUNNER_TOKEN" \
     -local "unix:///var/run/wolf/wolf.sock" \
-    2>&1 | sed 's/^/[WOLF-REVDIAL] /' &
+    2>&1 | sed -u 's/^/[WOLF-REVDIAL] /' &
 WOLF_REVDIAL_PID=$!
-
-# Start Moonlight Web API RevDial client (proxies Moonlight Web HTTP server, redirect to stdout)
-# Use cgo DNS resolver to work around Go DNS issues in Docker
-GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
-    -server "$HELIX_API_URL/api/v1/revdial" \
-    -runner-id "moonlight-$WOLF_INSTANCE_ID" \
-    -token "$RUNNER_TOKEN" \
-    -local "127.0.0.1:8080" \
-    2>&1 | sed 's/^/[MOONLIGHT-REVDIAL] /' &
-MOONLIGHT_REVDIAL_PID=$!
-
 echo "✅ Wolf RevDial client started (PID: $WOLF_REVDIAL_PID)"
-echo "✅ Moonlight Web RevDial client started (PID: $MOONLIGHT_REVDIAL_PID)"
+
+# NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web starts
+# This ensures Moonlight Web is ready to accept connections before RevDial connects
+echo "ℹ️  Moonlight Web RevDial will start after Moonlight Web (in startup-app.sh)"
 EOF
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
@@ -527,8 +531,11 @@ set -e
 #   - dockerd is running (started by 04-start-dockerd.sh)
 #   - Wolf config is initialized (05-init-wolf-config.sh)
 #   - Moonlight Web config is initialized (06-init-moonlight-config.sh)
-#   - Moonlight Web daemon is running (07-start-moonlight-web.sh)
-#   - RevDial client daemon is running if configured (08-start-revdial-client.sh)
+#   - RevDial clients started (07-start-revdial-clients.sh) - Wolf RevDial only
+#
+# IMPORTANT: Moonlight Web MUST start AFTER Wolf to avoid "LikelyOffline" errors
+# Moonlight Web tries to connect to Wolf on startup to cache host info.
+# If Wolf isn't ready, the connection fails and is cached as "offline".
 
 echo "🐺 Starting Wolf (main process)..."
 
@@ -548,13 +555,49 @@ export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
 export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
 cp /wolf/fake-udev $WOLF_DOCKER_FAKE_UDEV_PATH
 
-# Start auto-pairing in background (after Wolf starts)
-# This runs async so it doesn't block Wolf startup
-(sleep 5 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed 's/^/[PAIRING] /' &
-
-# Start Wolf in foreground (main process, keeps container alive)
+# Start Wolf in background so we can start Moonlight Web after it's ready
 cd /wolf
-exec /wolf/wolf
+/wolf/wolf &
+WOLF_PID=$!
+
+# Wait for Wolf HTTP server to be ready (port 47989)
+echo "⏳ Waiting for Wolf HTTP server..."
+for i in {1..30}; do
+    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/47989' 2>/dev/null; then
+        echo "✅ Wolf HTTP server is ready"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "⚠️  Wolf HTTP server not ready after 30s, continuing anyway..."
+    fi
+    sleep 1
+done
+
+# Now start Moonlight Web (Wolf is running, so it can cache host info correctly)
+echo "🌙 Starting Moonlight Web..."
+cd /opt/moonlight-web
+./moonlight-web 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
+MOONLIGHT_PID=$!
+echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
+
+# Start Moonlight Web RevDial client (if HELIX_API_URL is set)
+if [ -n "$HELIX_API_URL" ]; then
+    echo "🔗 Starting Moonlight Web RevDial client..."
+    /usr/local/bin/revdial-client \
+        -server "$HELIX_API_URL/api/v1/revdial" \
+        -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
+        -token "${RUNNER_TOKEN:-}" \
+        -local "127.0.0.1:8080" \
+        2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
+    echo "✅ Moonlight Web RevDial client started (PID: $!)"
+fi
+
+# Start auto-pairing in background (gives Moonlight Web time to fully initialize)
+(sleep 3 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed -u 's/^/[PAIRING] /' &
+
+# Wait for Wolf process (keeps container alive)
+echo "🐺 Wolf running (PID: $WOLF_PID), waiting..."
+wait $WOLF_PID
 EOF
 RUN chmod +x /opt/gow/startup-app.sh
 

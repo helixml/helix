@@ -7334,18 +7334,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -7752,6 +7752,12 @@ paths:
       - application/json
       description: Retrieves combined debug data from Wolf (memory, lobbies, sessions)
         for the Agent Sandboxes dashboard
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       produces:
       - application/json
       responses:
@@ -7806,6 +7812,11 @@ paths:
         name: lobbyId
         required: true
         type: string
+      - description: Wolf instance ID to operate on
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -7833,6 +7844,11 @@ paths:
       - description: Session ID (client_id from Wolf)
         in: path
         name: sessionId
+        required: true
+        type: string
+      - description: Wolf instance ID to operate on
+        in: query
+        name: wolf_instance_id
         required: true
         type: string
       responses:
@@ -14699,6 +14715,11 @@ paths:
   /api/v1/wolf/ui-app-id:
     get:
       description: Get the Wolf UI app ID for lobbies mode streaming
+      parameters:
+      - description: Session ID to look up Wolf instance
+        in: query
+        name: session_id
+        type: string
       produces:
       - application/json
       responses:

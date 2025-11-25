@@ -114,14 +114,12 @@ AUTO=true
 CLI=false
 CONTROLPLANE=false
 RUNNER=false
-EXTERNAL_ZED_AGENT=false
 SANDBOX=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
 CODE=""
 API_HOST=""
-CONTROLPLANE_URL=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
 OPENAI_API_KEY=""
@@ -133,8 +131,6 @@ PROXY=https://get.helixml.tech
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
-EXTERNAL_ZED_RUNNER_ID=""
-EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
@@ -244,15 +240,13 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
-  --external-zed-agent     Install the external Zed agent runner (connects to existing controlplane)
   --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
-  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
-  --controlplane-url <url> Specify the control plane URL for sandbox mode (required with --sandbox)
-  --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
+  --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
+  --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
@@ -261,8 +255,6 @@ Options:
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
-  --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
-  --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   --split-runners <n>      Split GPUs across N runner containers (default: 1, must divide evenly into total GPU count)
   --exclude-gpu <id>       Exclude specific GPU(s) from runner (can be specified multiple times, e.g., --exclude-gpu 0 --exclude-gpu 1)
   -y                       Auto approve the installation
@@ -293,33 +285,29 @@ Examples:
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-8. Install external Zed agent to connect to existing controlplane:
-   ./install.sh --external-zed-agent --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
-
-9. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
-10. Install CLI and controlplane with custom embeddings provider:
+9. Install CLI and controlplane with custom embeddings provider:
    ./install.sh --cli --controlplane --embeddings-provider openai
 
-11. Install on Windows Git Bash (requires Docker Desktop):
-   ./install.sh --cli --controlplane
+10. Install on Windows Git Bash (requires Docker Desktop):
+    ./install.sh --cli --controlplane
 
-12. Install with Helix Code (auto-enables --cli --controlplane):
-   ./install.sh --code --api-host https://helix.mycompany.com
+11. Install with Helix Code (auto-enables --cli --controlplane):
+    ./install.sh --code --api-host https://helix.mycompany.com
 
-13. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
-   ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+12. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
+    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
 
-14. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
-   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
+13. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
+    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
 
-15. Install runner excluding GPU 0 (use GPUs 1-7 only):
-   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
+14. Install runner excluding GPU 0 (use GPUs 1-7 only):
+    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
-16. Install sandbox node (Wolf + Moonlight Web + RevDial client):
-   export RUNNER_TOKEN=YOUR_RUNNER_TOKEN
-   ./install.sh --sandbox --controlplane-url https://helix.mycompany.com
+15. Install sandbox node (Wolf + Moonlight Web + RevDial client):
+    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
 EOF
 }
@@ -378,11 +366,6 @@ while [[ $# -gt 0 ]]; do
             AUTO=false
             shift
             ;;
-        --external-zed-agent)
-            EXTERNAL_ZED_AGENT=true
-            AUTO=false
-            shift
-            ;;
         --sandbox)
             SANDBOX=true
             AUTO=false
@@ -410,14 +393,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --api-host)
             API_HOST="$2"
-            shift 2
-            ;;
-        --controlplane-url=*)
-            CONTROLPLANE_URL="${1#*=}"
-            shift
-            ;;
-        --controlplane-url)
-            CONTROLPLANE_URL="$2"
             shift 2
             ;;
         --runner-token=*)
@@ -506,22 +481,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cli-install-path)
             CLI_INSTALL_PATH="$2"
-            shift 2
-            ;;
-        --external-zed-runner-id=*)
-            EXTERNAL_ZED_RUNNER_ID="${1#*=}"
-            shift
-            ;;
-        --external-zed-runner-id)
-            EXTERNAL_ZED_RUNNER_ID="$2"
-            shift 2
-            ;;
-        --external-zed-concurrency=*)
-            EXTERNAL_ZED_CONCURRENCY="${1#*=}"
-            shift
-            ;;
-        --external-zed-concurrency)
-            EXTERNAL_ZED_CONCURRENCY="$2"
             shift 2
             ;;
         --split-runners=*)
@@ -755,7 +714,7 @@ install_docker_compose_only() {
 DOCKER_CMD="docker"
 
 # Only check docker sudo if we need docker (i.e., not CLI-only installation)
-if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ] && [ "$SANDBOX" = false ]; then
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$SANDBOX" = false ]; then
     NEED_SUDO="false"
 else
     # Docker is needed - check if it's installed
@@ -1151,37 +1110,13 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     fi
 fi
 
-if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-    # When installing external Zed agent, both API_HOST and RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
-        echo "to connect to an external controlplane, for example:"
-        echo
-        echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-        echo
-        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-        exit 1
-    fi
-fi
-
 if [ "$SANDBOX" = true ]; then
-    # When installing sandbox node, both CONTROLPLANE_URL and RUNNER_TOKEN are required
-    if [ -z "$CONTROLPLANE_URL" ]; then
-        echo "Error: When installing sandbox node, you must specify --controlplane-url"
+    # When installing sandbox node, both API_HOST and RUNNER_TOKEN are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing sandbox node, you must specify --api-host and --runner-token"
         echo "to connect to an external controlplane, for example:"
         echo
-        echo "export RUNNER_TOKEN=YOUR_RUNNER_TOKEN"
-        echo "./install.sh --sandbox --controlplane-url https://your-controlplane-domain.com"
-        echo
-        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-        exit 1
-    fi
-    if [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: When installing sandbox node, you must set RUNNER_TOKEN environment variable"
-        echo "to connect to an external controlplane, for example:"
-        echo
-        echo "export RUNNER_TOKEN=YOUR_RUNNER_TOKEN"
-        echo "./install.sh --sandbox --controlplane-url https://your-controlplane-domain.com"
+        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
         echo
         echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
         exit 1
@@ -1248,7 +1183,7 @@ gather_modifications() {
     fi
 
     # Check if Docker needs to be installed
-    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ] || [ "$SANDBOX" = true ]; then
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
         if check_docker_needed; then
             # Only add Docker installation for Ubuntu/Debian/Fedora on Linux
             if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
@@ -1288,10 +1223,6 @@ gather_modifications() {
         fi
     fi
 
-    if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-        modifications+="  - Build Zed agent Docker image\n"
-        modifications+="  - Install External Zed Agent runner script\n"
-    fi
 
     if [ "$SANDBOX" = true ]; then
         modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
@@ -1332,7 +1263,7 @@ ask_for_approval() {
 ask_for_approval
 
 # Install Docker if needed and approved (only after user approval)
-if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ] || [ "$SANDBOX" = true ]; then
+if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
     if check_docker_needed; then
         install_docker
 
@@ -2234,76 +2165,12 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
-# Install external Zed agent if requested
-if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-    # Set default runner ID if not provided
-    if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
-        EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
-    fi
-
-    echo -e "\nInstalling External Zed Agent..."
-
-    # Download the external Zed agent scripts
-    echo "Downloading external Zed agent scripts..."
-    if [ "$ENVIRONMENT" = "gitbash" ]; then
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
-        chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
-    else
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
-        sudo chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
-        # Change ownership to current user
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/run-external-zed-agent.sh"
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/external-zed-agent.env.example"
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/Dockerfile.zed-agent"
-    fi
-
-    # Create environment file with user settings
-    ENV_FILE="$INSTALL_DIR/external-zed-agent.env"
-    cat << EOF > "$ENV_FILE"
-# External Zed Agent Configuration
-API_HOST=$API_HOST
-API_TOKEN=$RUNNER_TOKEN
-RUNNER_ID=$EXTERNAL_ZED_RUNNER_ID
-CONCURRENCY=$EXTERNAL_ZED_CONCURRENCY
-MAX_TASKS=0
-SESSION_TIMEOUT=3600
-WORKSPACE_DIR=/tmp/zed-workspaces
-DISPLAY_NUM=1
-LOG_LEVEL=info
-DOCKER_IMAGE=helix-zed-agent:latest
-CONTAINER_NAME=helix-external-zed-agent
-EOF
-
-    echo "External Zed Agent has been installed to $INSTALL_DIR"
-    echo "┌───────────────────────────────────────────────────────────────────────────"
-    echo "│ To complete the External Zed Agent setup:"
-    echo "│"
-    echo "│ 1. Build the Zed agent Docker image:"
-    echo "│    cd $INSTALL_DIR"
-    echo "│    # First, build Zed with external sync support (requires Helix source)"
-    echo "│    # ./stack build-zed"
-    echo "│    # docker build -f Dockerfile.zed-agent -t helix-zed-agent:latest ."
-    echo "│"
-    echo "│ 2. Start the external Zed agent:"
-    echo "│    source $INSTALL_DIR/external-zed-agent.env"
-    echo "│    $INSTALL_DIR/run-external-zed-agent.sh"
-    echo "│"
-    echo "│ The agent will connect to: $API_HOST"
-    echo "│ Runner ID: $EXTERNAL_ZED_RUNNER_ID"
-    echo "│ Concurrency: $EXTERNAL_ZED_CONCURRENCY"
-    echo "└───────────────────────────────────────────────────────────────────────────"
-fi
-
 # Install sandbox node if requested
 if [ "$SANDBOX" = true ]; then
     echo -e "\nInstalling Helix Sandbox Node (Wolf + Moonlight Web + RevDial client)..."
     echo "=================================================="
     echo
-    echo "Control Plane: $CONTROLPLANE_URL"
+    echo "API Host: $API_HOST"
     echo "Runner Token: ${RUNNER_TOKEN:0:20}..."
     echo
 
@@ -2438,7 +2305,7 @@ EOF
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${HELIX_API_URL}|${CONTROLPLANE_URL}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${WOLF_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
@@ -2465,7 +2332,7 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ✅ Helix Sandbox Node installed successfully!"
     echo "│"
-    echo "│ Connected to: $CONTROLPLANE_URL"
+    echo "│ Connected to: $API_HOST"
     echo "│ Wolf Instance ID: $WOLF_ID"
     echo "│"
     echo "│ To check logs:"
@@ -2501,12 +2368,8 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
     echo
-    echo "To connect an external Zed agent to this controlplane:"
-    echo "./install.sh --external-zed-agent --api-host $API_HOST --runner-token $RUNNER_TOKEN"
-    echo
     echo "To connect a sandbox node to this controlplane:"
-    echo "export RUNNER_TOKEN=$RUNNER_TOKEN"
-    echo "./install.sh --sandbox --controlplane-url $API_HOST"
+    echo "./install.sh --sandbox --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."

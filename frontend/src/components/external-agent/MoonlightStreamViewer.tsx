@@ -118,8 +118,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       if (wolfLobbyId) {
         // Lobbies mode: Fetch Wolf UI app ID dynamically from Wolf
+        // Pass session_id to identify which Wolf instance to query
         try {
-          const response = await fetch('/api/v1/wolf/ui-app-id', {
+          const response = await fetch(`/api/v1/wolf/ui-app-id?session_id=${encodeURIComponent(sessionId)}`, {
             headers: {
               'Authorization': `Bearer ${account.user?.token || ''}`,
             },
@@ -129,7 +130,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             actualAppId = parseInt(data.wolf_ui_app_id, 10);
             console.log(`MoonlightStreamViewer: Using Wolf UI app ID ${actualAppId} for lobbies mode, lobby ${wolfLobbyId}`);
           } else {
-            console.warn('MoonlightStreamViewer: Failed to fetch Wolf UI app ID, using default 0');
+            const errorText = await response.text();
+            console.warn(`MoonlightStreamViewer: Failed to fetch Wolf UI app ID: ${errorText}`);
             actualAppId = 0;
           }
         } catch (err) {
