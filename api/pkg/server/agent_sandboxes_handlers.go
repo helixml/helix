@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -273,11 +273,11 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 
 	response.Sessions = sessionsData
 
-	// Fetch moonlight-web client connections
-	moonlightClients, err := fetchMoonlightWebSessions(ctx)
+	// Fetch moonlight-web client connections via RevDial
+	moonlightClients, err := apiServer.fetchMoonlightWebSessions(ctx, wolfInstanceID)
 	if err != nil {
 		// Non-fatal - just log and continue without moonlight-web data
-		fmt.Printf("Warning: Failed to fetch moonlight-web sessions: %v\n", err)
+		log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch moonlight-web sessions via RevDial")
 		response.MoonlightClients = []MoonlightClientInfo{}
 	} else {
 		response.MoonlightClients = moonlightClients
@@ -526,13 +526,24 @@ func fetchWolfSessions(ctx context.Context, wolfClient external_agent.WolfClient
 	return sessions, nil
 }
 
-// fetchMoonlightWebSessions retrieves all client connections from moonlight-web
-func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, error) {
-	// Get moonlight-web URL from environment or use default
-	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
-	if moonlightWebURL == "" {
-		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
+// fetchMoonlightWebSessions retrieves all client connections from moonlight-web via RevDial
+func (apiServer *HelixAPIServer) fetchMoonlightWebSessions(ctx context.Context, wolfInstanceID string) ([]MoonlightClientInfo, error) {
+	// Determine moonlight runner ID from wolf instance ID
+	moonlightRunnerID := "moonlight-" + wolfInstanceID
+	if wolfInstanceID == "" {
+		// Fallback to environment variable or dev default
+		moonlightRunnerID = os.Getenv("MOONLIGHT_RUNNER_ID")
+		if moonlightRunnerID == "" {
+			moonlightRunnerID = "moonlight-dev"
+		}
 	}
+
+	// Dial Moonlight Web via RevDial
+	conn, err := apiServer.connman.Dial(ctx, moonlightRunnerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial moonlight-web via RevDial (runner_id=%s): %w", moonlightRunnerID, err)
+	}
+	defer conn.Close()
 
 	// Check mode to determine which endpoint to query
 	moonlightMode := os.Getenv("MOONLIGHT_WEB_MODE")
@@ -540,26 +551,21 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 		moonlightMode = "single" // Default to single mode (session-persistence)
 	}
 
-	// Build request URL based on mode
-	var url string
+	// Build request path based on mode
+	var path string
 	if moonlightMode == "multi" {
-		// Multi-WebRTC mode: query streamers API
-		url = fmt.Sprintf("%s/api/streamers", moonlightWebURL)
+		path = "/api/streamers"
 	} else {
-		// Single mode: query sessions API
-		url = fmt.Sprintf("%s/api/sessions", moonlightWebURL)
+		path = "/api/sessions"
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://moonlight-web"+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.URL.Path = path
+	req.RequestURI = path
 
 	// Set authentication header (moonlight-web uses MOONLIGHT_CREDENTIALS)
 	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
@@ -567,10 +573,15 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", credentials))
 	}
 
-	// Execute request
-	resp, err := client.Do(req)
+	// Write HTTP request to RevDial connection
+	if err := req.Write(conn); err != nil {
+		return nil, fmt.Errorf("failed to write request to RevDial connection: %w", err)
+	}
+
+	// Read HTTP response from RevDial connection
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to request moonlight-web endpoint: %w", err)
+		return nil, fmt.Errorf("failed to read response from RevDial connection: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -804,13 +815,12 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 	}
 	wolfAppID := fmt.Sprintf("%d", numericHash%1000000000)
 
-	// Query moonlight-web to check session state (non-fatal - unified sandbox may not have moonlight-web accessible)
-	// In unified sandbox mode, Moonlight Web runs inside the sandbox container and is only accessible via RevDial
+	// Query moonlight-web via RevDial to check session state
 	var moonlightSession *MoonlightClientInfo
-	moonlightClients, err := fetchMoonlightWebSessions(ctx)
+	moonlightClients, err := apiServer.fetchMoonlightWebSessions(ctx, wolfInstanceID)
 	if err != nil {
 		// Log warning but continue - we can still return wolfAppID based on Wolf data alone
-		log.Warn().Err(err).Msg("Failed to fetch moonlight-web sessions (may be unified sandbox mode)")
+		log.Warn().Err(err).Str("wolf_instance_id", wolfInstanceID).Msg("Failed to fetch moonlight-web sessions via RevDial")
 	} else {
 		// Find this session's moonlight client
 		for _, client := range moonlightClients {
