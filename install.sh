@@ -2163,7 +2163,8 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     elif [ "\$GPU_VENDOR" = "amd" ]; then
         # AMD: Use device pass-through + ROCR_VISIBLE_DEVICES env var
         # Note: ROCR_VISIBLE_DEVICES uses GPU IDs (0,1,2) same as CUDA
-        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+        # Note: --group-add not needed since container runs with --ipc=host and device access
+        GPU_FLAGS="--device /dev/kfd --device /dev/dri"
         ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
     else
         echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
@@ -2285,7 +2286,8 @@ if [ "$GPU_VENDOR" = "nvidia" ]; then
     GPU_FLAGS="--gpus all --runtime nvidia"
     GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
 elif [ "$GPU_VENDOR" = "amd" ]; then
-    GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+    # Note: --group-add not needed since container runs privileged with device access
+    GPU_FLAGS="--device /dev/kfd --device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_TYPE=amd"
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
