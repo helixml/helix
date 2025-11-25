@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -469,13 +470,28 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	extraEnv = append(extraEnv, agent.Env...)
 
 	// Extract video settings from agent config (Phase 3.5) with defaults
+	// Environment variables can override defaults (useful for AMD GPUs with VA-API encoder limits)
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 3840 // 4K default for consistent resolution
+		if envWidth := os.Getenv("DEFAULT_DISPLAY_WIDTH"); envWidth != "" {
+			if w, err := strconv.Atoi(envWidth); err == nil {
+				displayWidth = w
+			}
+		}
+		if displayWidth == 0 {
+			displayWidth = 3840 // 4K default for consistent resolution
+		}
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 2160 // 4K default for consistent resolution
+		if envHeight := os.Getenv("DEFAULT_DISPLAY_HEIGHT"); envHeight != "" {
+			if h, err := strconv.Atoi(envHeight); err == nil {
+				displayHeight = h
+			}
+		}
+		if displayHeight == 0 {
+			displayHeight = 2160 // 4K default for consistent resolution
+		}
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
