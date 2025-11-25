@@ -1492,14 +1492,12 @@ func (w *WolfExecutor) GetWolfClientForSession(wolfInstanceID string) WolfClient
 }
 
 // validateDisplayParams validates display configuration parameters
-// Note: AMD GPUs only support hardware encoding up to 1920x1080 (1080p)
-// Higher resolutions will fall back to software encoding (slow)
 func validateDisplayParams(width, height, fps int) error {
-	if width < 800 || width > 1920 {
-		return fmt.Errorf("invalid display width: %d (must be 800-1920, AMD GPU limit)", width)
+	if width < 800 || width > 7680 {
+		return fmt.Errorf("invalid display width: %d (must be 800-7680)", width)
 	}
-	if height < 600 || height > 1080 {
-		return fmt.Errorf("invalid display height: %d (must be 600-1080, AMD GPU limit)", height)
+	if height < 600 || height > 4320 {
+		return fmt.Errorf("invalid display height: %d (must be 600-4320)", height)
 	}
 	if fps < 30 || fps > 144 {
 		return fmt.Errorf("invalid display fps: %d (must be 30-144)", fps)

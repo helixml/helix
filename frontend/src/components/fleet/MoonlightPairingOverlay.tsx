@@ -212,14 +212,14 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
           <>
             <Alert severity="error" sx={{ mb: 2, fontWeight: 'bold' }}>
               <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-                CRITICAL: Your Moonlight client MUST connect at 4K resolution @ 60Hz (3840x2160 @ 60fps)
+                CRITICAL: Your Moonlight client MUST connect at 1080p resolution @ 60Hz (1920x1080 @ 60fps)
               </Typography>
               <Typography variant="body2">
                 Using any other resolution or frame rate will result in severe video corruption and unusable streaming quality.
-                Before connecting, configure your Moonlight client's streaming settings to exactly 4K @ 60Hz.
+                Before connecting, configure your Moonlight client's streaming settings to exactly 1080p @ 60Hz.
               </Typography>
               <Typography variant="caption" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
-                In Moonlight settings: Video → Resolution: 4K (3840x2160) → Frame rate: 60 FPS
+                In Moonlight settings: Video → Resolution: 1080p (1920x1080) → Frame rate: 60 FPS
               </Typography>
             </Alert>
 
@@ -233,7 +233,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
             </Alert>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              After adding the PC and configuring 4K @ 60Hz settings, Moonlight will show a 4-digit PIN. Select the pairing request below and enter that PIN to complete the connection.
+              After adding the PC and configuring 1080p @ 60Hz settings, Moonlight will show a 4-digit PIN. Select the pairing request below and enter that PIN to complete the connection.
             </Typography>
 
             {error && (
@@ -318,7 +318,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
 
                 <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>
                   <Typography variant="body2" fontWeight="bold">
-                    ⚠️ REMINDER: Ensure Moonlight is set to 4K @ 60Hz before connecting!
+                    ⚠️ REMINDER: Ensure Moonlight is set to 1080p @ 60Hz before connecting!
                   </Typography>
                   <Typography variant="caption">
                     Other resolutions/framerates will cause video corruption

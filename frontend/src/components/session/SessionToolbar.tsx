@@ -409,7 +409,7 @@ export const SessionToolbar: FC<{
                   }}
                 >
                   <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'warning.main', lineHeight: 1, whiteSpace: 'nowrap' }}>
-                    ⚠️ Moonlight: Use 4K @ 60Hz (3840x2160 @ 60fps)
+                    ⚠️ Moonlight: Use 1080p @ 60Hz (1920x1080 @ 60fps)
                   </Typography>
                 </Box>
 
