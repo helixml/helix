@@ -248,7 +248,7 @@ services:
     # Replaces separate wolf and moonlight-web services with a single unified container
     # Built with: ./stack build-sandbox
     sandbox:
-      profiles: [wolf]  # Keep 'wolf' profile for backward compatibility
+      profiles: [code]  # NVIDIA GPU sandbox
       image: helix-sandbox:latest
       networks:
         default:
@@ -337,6 +337,93 @@ services:
         retries: 3
         start_period: 10s
 
+    # Unified Helix Sandbox for AMD GPUs - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+    # Uses device pass-through instead of nvidia runtime
+    sandbox-amd:
+      profiles: [code-amd]
+      image: helix-sandbox:latest
+      networks:
+        default:
+          ipv4_address: 172.19.0.50
+      environment:
+        # No NVIDIA environment variables for AMD
+        - GPU_TYPE=amd
+        # Helix dev mode (enables bind-mounts for hot reload)
+        - HELIX_DEV_MODE=true
+        - ZED_IMAGE=helix-sway:latest
+        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+        - HELIX_API_URL=http://api:8080
+        - WOLF_INSTANCE_ID=local
+        - RUNNER_TOKEN=oh-hallo-insecure-token
+        # Wolf configuration (legacy env vars for compatibility)
+        - XDG_RUNTIME_DIR=/tmp/sockets
+        - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
+        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+        - WOLF_LOG_LEVEL=DEBUG
+        - GST_DEBUG=3
+        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+        - WOLF_INTERNAL_IP=172.19.0.50
+        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+        - WOLF_USE_ZERO_COPY=TRUE
+        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+        - GOP_SIZE=${GOP_SIZE:-120}
+        # Moonlight Web configuration
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+        # RevDial connection (enables Wolf and Moonlight Web to connect to API)
+        # Dev mode uses RevDial for consistency with production architecture
+        - HELIX_API_URL=http://api:8080
+        - WOLF_INSTANCE_ID=dev
+        - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
+      privileged: true  # Required for Docker-in-Docker
+      volumes:
+        # Wolf configuration and state
+        - ./wolf/:/etc/wolf/cfg/:rw
+        - /tmp/sockets:/tmp/sockets:rw
+        - wolf-docker-storage:/var/lib/docker
+        - /dev/:/dev/:rw
+        - /run/udev:/run/udev:rw
+        - /var/run/wolf:/var/run/wolf:rw
+        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+        # Dev bind-mounts for hot reload (Zed + Sway config)
+        - ./zed-build:/helix-dev/zed-build:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:ro
+        # Moonlight Web configuration
+        - ./moonlight-web-config:/app/server:rw
+      device_cgroup_rules:
+        - 'c 13:* rmw'
+      devices:
+        - /dev/dri
+        - /dev/uinput
+        - /dev/uhid
+      ports:
+        # Moonlight protocol ports (Wolf)
+        - "47984:47984"     # HTTPS
+        - "47989:47989"     # HTTP (pairing, serverinfo)
+        - "48010:48010"     # RTSP
+        - "47415:47415/udp" # Discovery
+        - "47999:47999/udp" # Control
+        - "48100:48100/udp" # Video RTP
+        - "48200:48200/udp" # Audio RTP
+        # Moonlight Web UI + WebRTC
+        - "8081:8080"                      # Web interface
+        - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
+      # No nvidia runtime for AMD - uses device pass-through instead
+      cap_add:
+        - SYS_PTRACE  # Thread diagnostics
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 10s
+
     # GPU-enabled runner (for LLM inference)
     runner_gpu:
         <<: *runner-config
@@ -363,6 +450,34 @@ services:
                         - driver: nvidia
                           count: all
                           capabilities: [gpu]
+
+    # AMD GPU runner (for LLM inference with ROCm)
+    runner_gpu_amd:
+        <<: *runner-config
+        profiles: ["runner_gpu_amd"]
+        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
+        build:
+            context: .
+            dockerfile: Dockerfile.runner
+            args:
+                TAG: 2025-08-13c-large
+        environment:
+            # Runner configuration
+            - API_HOST=http://172.17.0.1:8080
+            - API_TOKEN=oh-hallo-insecure-token
+            - RUNNER_ID=dev-gpu-runner-amd
+            - LOG_LEVEL=debug
+            - HELIX_COMMAND=runner
+            # Prevent toolchain downloads
+            - GOTOOLCHAIN=local
+            # ROCm configuration
+            - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
+        devices:
+            - /dev/kfd
+            - /dev/dri
+        group_add:
+            - video
+            - render
 
     demos:
         profiles: ["demos"]
