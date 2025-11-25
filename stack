@@ -1057,9 +1057,9 @@ function build-sandbox() {
   # Cached builds only have "#N CACHED" lines
   # Non-cached builds have lines like "#N exporting layers 3.3s done" (lowercase "done")
   # Count lines with lowercase "done" (actual work) vs uppercase "DONE" (stage completion)
-  # Exclude Docker metadata operations: exporting, transferring, writing, naming
+  # Exclude Docker metadata operations: exporting, transferring, writing, naming, resolve
   # Note: grep returns exit 1 when no matches, so use || true to avoid pipefail exiting
-  NON_CACHED_STEPS=$(echo "$BUILD_OUTPUT" | grep -E "^#[0-9]+ .* [0-9]+\.[0-9]+s done$" | grep -v -E "exporting|transferring|writing image|naming to" | wc -l || true)
+  NON_CACHED_STEPS=$(echo "$BUILD_OUTPUT" | grep -E "^#[0-9]+ .* [0-9]+\.[0-9]+s done$" | grep -v -E "exporting|transferring|writing image|naming to|resolve" | wc -l || true)
 
   # Export tarball if: (1) helix-sway changed, OR (2) tarball doesn't exist
   # This keeps tarball between builds for fast rebuilds
