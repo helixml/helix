@@ -75,7 +75,6 @@ require (
 	github.com/typesense/typesense-go/v2 v2.0.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
-	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
 	golang.org/x/crypto v0.41.0
 	golang.org/x/exp v0.0.0-20250531010427-b6e5de432a8b
 	golang.org/x/oauth2 v0.30.0
