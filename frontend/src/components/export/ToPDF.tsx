@@ -36,7 +36,12 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
     try {
       setIsGenerating(true)
 
-      generatePDF(targetRef, {filename: filename})
+      generatePDF(targetRef, {
+        filename: filename,
+        page: {
+          margin: 20
+        }
+      })
       
     } catch (error) {
       console.error('Error generating PDF:', error)
@@ -128,16 +133,20 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
           }}
         >
           <Box
+            
             sx={{
               flex: 1,
-              overflow: 'auto',
-              p: 3,
+              p: 3,              
+              overflow: 'auto',              
               ...lightTheme.scrollbar,
               backgroundColor: '#ffffff', // Always white background for PDF preview
               color: '#000000', // Always black text
             }}
           >
-            <div ref={targetRef} style={{ padding: '20px', backgroundColor: '#ffffff', color: '#000000' }}>
+            <Box 
+              ref={targetRef} 
+              style={{ padding: '20px', backgroundColor: '#ffffff', color: '#000000' }}
+            >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw]}
@@ -186,7 +195,7 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
               >
                 {markdown}
               </ReactMarkdown>
-            </div>
+            </Box>
           </Box>
         </Box>
       </Box>
