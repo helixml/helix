@@ -537,7 +537,7 @@ set -e
 # Moonlight Web tries to connect to Wolf on startup to cache host info.
 # If Wolf isn't ready, the connection fails and is cached as "offline".
 
-echo "🐺 Starting Wolf (main process)..."
+echo "🐺 Starting Wolf (main process with automatic restart)..."
 
 # Make sure Wolf config folder exists
 export WOLF_CFG_FOLDER=$HOST_APPS_STATE_FOLDER/cfg
@@ -555,49 +555,122 @@ export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
 export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
 cp /wolf/fake-udev $WOLF_DOCKER_FAKE_UDEV_PATH
 
-# Start Wolf in background so we can start Moonlight Web after it's ready
-cd /wolf
-/wolf/wolf &
-WOLF_PID=$!
+# Track restart state
+WOLF_RESTART_COUNT=0
+MAX_RESTARTS=10
+RESTART_WINDOW=300  # 5 minutes
+RESTART_TIMESTAMPS=()
 
-# Wait for Wolf HTTP server to be ready (port 47989)
-echo "⏳ Waiting for Wolf HTTP server..."
-for i in {1..30}; do
-    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/47989' 2>/dev/null; then
-        echo "✅ Wolf HTTP server is ready"
-        break
+# Function to start Wolf with supervision
+start_wolf() {
+    cd /wolf
+    /wolf/wolf &
+    WOLF_PID=$!
+    echo "🐺 Wolf started (PID: $WOLF_PID)"
+}
+
+# Function to wait for Wolf HTTP server
+wait_for_wolf() {
+    echo "⏳ Waiting for Wolf HTTP server..."
+    for i in {1..30}; do
+        if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/47989' 2>/dev/null; then
+            echo "✅ Wolf HTTP server is ready"
+            return 0
+        fi
+        if [ $i -eq 30 ]; then
+            echo "⚠️  Wolf HTTP server not ready after 30s"
+            return 1
+        fi
+        sleep 1
+    done
+}
+
+# Function to start Moonlight Web (called once on first Wolf start)
+MOONLIGHT_STARTED=false
+start_moonlight_web() {
+    if [ "$MOONLIGHT_STARTED" = true ]; then
+        return
     fi
-    if [ $i -eq 30 ]; then
-        echo "⚠️  Wolf HTTP server not ready after 30s, continuing anyway..."
+
+    echo "🌙 Starting Moonlight Web..."
+    cd /opt/moonlight-web
+    ./moonlight-web 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
+    MOONLIGHT_PID=$!
+    echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
+
+    # Start Moonlight Web RevDial client (if HELIX_API_URL is set)
+    if [ -n "$HELIX_API_URL" ]; then
+        echo "🔗 Starting Moonlight Web RevDial client..."
+        /usr/local/bin/revdial-client \
+            -server "$HELIX_API_URL/api/v1/revdial" \
+            -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
+            -token "${RUNNER_TOKEN:-}" \
+            -local "127.0.0.1:8080" \
+            2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
+        echo "✅ Moonlight Web RevDial client started (PID: $!)"
     fi
-    sleep 1
+
+    # Start auto-pairing in background (gives Moonlight Web time to fully initialize)
+    (sleep 3 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed -u 's/^/[PAIRING] /' &
+
+    MOONLIGHT_STARTED=true
+}
+
+# Function to check if we should restart (rate limiting)
+should_restart() {
+    local NOW=$(date +%s)
+
+    # Remove old timestamps outside the window
+    local NEW_TIMESTAMPS=()
+    for TS in "${RESTART_TIMESTAMPS[@]}"; do
+        if [ $((NOW - TS)) -lt $RESTART_WINDOW ]; then
+            NEW_TIMESTAMPS+=("$TS")
+        fi
+    done
+    RESTART_TIMESTAMPS=("${NEW_TIMESTAMPS[@]}")
+
+    # Check if we've exceeded max restarts in window
+    if [ ${#RESTART_TIMESTAMPS[@]} -ge $MAX_RESTARTS ]; then
+        echo "❌ Wolf has crashed $MAX_RESTARTS times in the last $RESTART_WINDOW seconds"
+        echo "   Giving up to prevent crash loop. Check logs for root cause."
+        return 1
+    fi
+
+    # Record this restart
+    RESTART_TIMESTAMPS+=("$NOW")
+    return 0
+}
+
+# Initial Wolf start
+start_wolf
+wait_for_wolf
+
+# Start Moonlight Web after Wolf is ready
+start_moonlight_web
+
+# Main supervision loop - restart Wolf if it crashes
+while true; do
+    wait $WOLF_PID
+    EXIT_CODE=$?
+
+    echo "⚠️  Wolf exited with code $EXIT_CODE at $(date -Iseconds)"
+
+    # Check if we should restart
+    if ! should_restart; then
+        echo "🛑 Too many restarts, exiting container"
+        exit 1
+    fi
+
+    WOLF_RESTART_COUNT=$((WOLF_RESTART_COUNT + 1))
+    echo "🔄 Restarting Wolf (restart #$WOLF_RESTART_COUNT)..."
+
+    # Brief pause before restart
+    sleep 2
+
+    # Restart Wolf
+    start_wolf
+    wait_for_wolf || echo "⚠️  Wolf may not be fully ready, continuing supervision..."
 done
-
-# Now start Moonlight Web (Wolf is running, so it can cache host info correctly)
-echo "🌙 Starting Moonlight Web..."
-cd /opt/moonlight-web
-./moonlight-web 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
-MOONLIGHT_PID=$!
-echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
-
-# Start Moonlight Web RevDial client (if HELIX_API_URL is set)
-if [ -n "$HELIX_API_URL" ]; then
-    echo "🔗 Starting Moonlight Web RevDial client..."
-    /usr/local/bin/revdial-client \
-        -server "$HELIX_API_URL/api/v1/revdial" \
-        -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
-        -token "${RUNNER_TOKEN:-}" \
-        -local "127.0.0.1:8080" \
-        2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
-    echo "✅ Moonlight Web RevDial client started (PID: $!)"
-fi
-
-# Start auto-pairing in background (gives Moonlight Web time to fully initialize)
-(sleep 3 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed -u 's/^/[PAIRING] /' &
-
-# Wait for Wolf process (keeps container alive)
-echo "🐺 Wolf running (PID: $WOLF_PID), waiting..."
-wait $WOLF_PID
 EOF
 RUN chmod +x /opt/gow/startup-app.sh
 

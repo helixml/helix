@@ -344,7 +344,7 @@ function start() {
   # Check if Wolf container exists, build if needed
   if ! docker image inspect wolf:helix-fixed &> /dev/null; then
     echo "🐺 Wolf container not found, building automatically..."
-    rebuild-wolf || {
+    build-wolf || {
       echo "❌ Failed to build Wolf. Please check the error messages above."
       exit 1
     }
@@ -736,8 +736,8 @@ function push_image_tags() {
   return 0
 }
 
-function rebuild-wolf() {
-  echo "🐺 Rebuilding Wolf container with latest source code..."
+function build-wolf() {
+  echo "🐺 Building Wolf container with latest source code..."
 
   # Check if Wolf source directory exists
   if [ ! -d "../wolf" ]; then
@@ -749,7 +749,7 @@ function rebuild-wolf() {
     echo "  cd .."
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
-    echo "  ./stack rebuild-wolf"
+    echo "  ./stack build-wolf"
     exit 1
   fi
 
@@ -982,7 +982,7 @@ function build-sandbox() {
 
   # Build Wolf (skip container restart - we'll restart sandbox instead)
   echo "🐺 Building Wolf..."
-  if ! SKIP_DEV_RESTART=1 rebuild-wolf; then
+  if ! SKIP_DEV_RESTART=1 build-wolf; then
     echo "❌ Failed to build Wolf"
     return 1
   fi
@@ -1192,7 +1192,7 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if rebuild-wolf; then
+  if build-wolf; then
     echo "✅ Wolf built and pushed successfully"
     COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
@@ -1657,7 +1657,7 @@ function help() {
   echo "Production build commands:"
   echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
-  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
+  echo "  build-wolf         - Build Wolf container with latest source code"
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
   echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
