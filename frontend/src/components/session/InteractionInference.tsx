@@ -16,7 +16,10 @@ import TextField from '@mui/material/TextField'
 import CopyButtonWithCheck from './CopyButtonWithCheck'
 import ToolStepsWidget from './ToolStepsWidget'
 
-import { ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Download } from 'lucide-react'
+
+import ExportDocument from '../export/ExportDocument'
+import ToPDF from '../export/ToPDF'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -93,6 +96,7 @@ export const InteractionInference: FC<{
     const account = useAccount()
     const router = useRouter()
     const [viewingError, setViewingError] = useState(false)
+    const [viewingExport, setViewingExport] = useState(false)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
     const [internalIsEditing, setInternalIsEditing] = useState(false)
     const [internalEditedMessage, setInternalEditedMessage] = useState(message || '')
@@ -265,9 +269,27 @@ export const InteractionInference: FC<{
                               <RefreshIcon sx={{ fontSize: 20 }} />
                             </IconButton>
                           </Tooltip>
+
                           <CopyButtonWithCheck text={message || ''} alwaysVisible={isLastInteraction} />
-                            
-                          
+
+                          <Tooltip title="Export to PDF">
+                            <IconButton
+                              onClick={() => setViewingExport(true)}
+                              size="small"
+                              className="export-btn"
+                              sx={theme => ({
+                                mt: 0.5,
+                                color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                                '&:hover': {
+                                  color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                                },
+                              })}
+                              aria-label="export"
+                            >
+                              <Download size={16} />
+                            </IconButton>
+                          </Tooltip>
+                                                      
                           <Tooltip title="Love this">
                             <IconButton
                               onClick={() => handleFeedback(TypesFeedback.FeedbackLike)}
@@ -400,6 +422,20 @@ export const InteractionInference: FC<{
                 setViewingError(false)
               }}
             />
+          )
+        }
+        {
+          viewingExport && (
+            <ExportDocument
+              open={viewingExport}
+              onClose={() => setViewingExport(false)}
+            >
+              <ToPDF
+                markdown={message || ''}
+                onClose={() => setViewingExport(false)}
+                filename={`${session.name}-${interaction.id || 'export'}.pdf`}
+              />
+            </ExportDocument>
           )
         }
         {
