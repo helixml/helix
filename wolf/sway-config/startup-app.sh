@@ -110,6 +110,7 @@ custom_launcher() {
     "sway/scratchpad",
     "custom/firefox",
     "custom/ghostty",
+    "custom/kitty",
     "custom/onlyoffice"
   ],
   "modules-center": [
@@ -135,6 +136,12 @@ custom_launcher() {
     "tooltip": true,
     "tooltip-format": "Ghostty Terminal",
     "on-click": "ghostty"
+  },
+  "custom/kitty": {
+    "format": "🐱",
+    "tooltip": true,
+    "tooltip-format": "Kitty Terminal (fallback)",
+    "on-click": "kitty"
   },
   "custom/onlyoffice": {
     "format": "📄",
