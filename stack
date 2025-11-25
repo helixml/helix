@@ -1241,7 +1241,8 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 [2/$TOTAL_BUILDS] Building Sway+Zed agent (PDEs/External Agents)..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if build-sway; then
+  # Skip transfer - image will be embedded in sandbox tarball
+  if SKIP_SWAY_TRANSFER=1 build-sway; then
     echo "✅ Sway+Zed agent built and pushed successfully"
     COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
