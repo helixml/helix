@@ -226,9 +226,16 @@ export default function DesignReviewViewer({
   }, [open, showCommentForm, showSubmitDialog])
 
   // Recalculate comment positions when comments change or are rendered
+  // Use comment IDs as a stable dependency to avoid infinite loops
+  const inlineCommentIds = useMemo(
+    () => inlineComments.map(c => c.id).join(','),
+    [inlineComments]
+  )
+
   useEffect(() => {
     if (!documentRef.current || inlineComments.length === 0) {
-      setCommentPositions(new Map())
+      // Only update if positions map is not empty to avoid unnecessary state updates
+      setCommentPositions(prev => prev.size === 0 ? prev : new Map())
       return
     }
 
@@ -281,11 +288,18 @@ export default function DesignReviewViewer({
         newPositions.set(comment.id, adjustedY)
       })
 
-      setCommentPositions(newPositions)
+      // Only update state if positions actually changed
+      setCommentPositions(prev => {
+        if (prev.size !== newPositions.size) return newPositions
+        for (const [id, pos] of newPositions) {
+          if (prev.get(id) !== pos) return newPositions
+        }
+        return prev // Return same reference if no changes
+      })
     })
 
     return () => cancelAnimationFrame(rafId)
-  }, [inlineComments, activeTab, allComments]) // Recalculate when comments change (including agent responses)
+  }, [inlineCommentIds, activeTab]) // Use stable string of IDs instead of array reference
 
   // Helper to find the Y position of quoted text in the document
   const findQuotedTextPosition = (quotedText: string): number | null => {
@@ -735,7 +749,7 @@ export default function DesignReviewViewer({
       >
         {/* Resize Handles */}
         {position === 'center' && getResizeHandles().map((handle) => (
-          <Box key={handle.position} {...handle} />
+          <Box key={handle.direction} {...handle} />
         ))}
 
         {/* Draggable Title Bar */}
