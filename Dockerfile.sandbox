@@ -164,7 +164,8 @@ COPY --from=wolf-upstream $GST_PLUGIN_PATH /usr/local/lib/x86_64-linux-gnu/gstre
 COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib/
 
 # Copy Wolf's init scripts and config template
-RUN mkdir -p /opt/wolf-defaults /opt/images
+# Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
+RUN mkdir -p /opt/wolf-defaults /opt/images /etc/wolf/cfg
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
