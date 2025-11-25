@@ -225,9 +225,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
 
-  const isActive = (path: string) => {
+  const isActive = (path: string | string[]) => {
     const routeName = router.name
-    return routeName === path || routeName === 'org_' + path
+    const paths = Array.isArray(path) ? path : [path]
+    return paths.some(p =>
+      routeName === p ||
+      routeName === 'org_' + p ||
+      routeName.startsWith(p + '-') ||
+      routeName.startsWith('org_' + p + '-')
+    )
   }
 
   const listOrgs = useMemo(() => {
@@ -372,15 +378,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
-        isActive: isActive('apps'),
+        isActive: isActive(['apps', 'app']),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
       },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View spec tasks kanban board",
-        isActive: isActive('spec-tasks'),
-        onClick: () => orgNavigateTo('spec-tasks'),
+        tooltip: "View projects",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: () => orgNavigateTo('projects'),
         label: "Projects",
       },
       {
