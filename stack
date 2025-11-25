@@ -12,28 +12,83 @@ export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 
-# Helper function to check for NVIDIA GPU and set appropriate variables
+# Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
 
-  if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
-    # CPU mode
-    if [[ -n "$FORCE_CPU" ]]; then
-      echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
-    else
-      echo "❌ No NVIDIA GPU detected, running without GPU support"
-    fi
+  if [[ -n "$FORCE_CPU" ]]; then
+    # Forced CPU mode
+    echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
     export RUNNER_CONTAINER="runner"
     export RUNNER_PROFILE="--profile runner"
     export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
     export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
-  else
-    # GPU mode
+  elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    # NVIDIA GPU mode
     echo "🚀 NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    # AMD GPU mode (ROCm)
+    echo "🚀 AMD GPU detected (ROCm), using AMD GPU support"
+    export RUNNER_CONTAINER="runner_gpu_amd"
+    export RUNNER_PROFILE="--profile runner_gpu_amd"
+    export DEV_CPU_ONLY_CMD=""
+    export VLLM_ENV_VARS=""
+  else
+    # CPU mode (fallback)
+    echo "❌ No supported GPU detected, running without GPU support"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  fi
+}
+
+# Helper function to detect GPU type and set appropriate sandbox profile
+# Sets COMPOSE_PROFILES to include 'code' (NVIDIA) or 'code-amd' (AMD/Intel) if not already set
+function setup_sandbox_profile() {
+  # Load existing .env if present
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+
+  # If COMPOSE_PROFILES already contains 'code', don't override
+  if [[ "$COMPOSE_PROFILES" == *"code"* ]]; then
+    echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
+    return
+  fi
+
+  # Auto-detect GPU type
+  local gpu_profile=""
+
+  # Check for NVIDIA GPU first
+  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    gpu_profile="code"
+    echo "🎮 NVIDIA GPU detected, using 'code' sandbox profile"
+  # Check for AMD GPU (ROCm)
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    gpu_profile="code-amd"
+    echo "🎮 AMD GPU detected (ROCm), using 'code-amd' sandbox profile"
+  # Check for Intel GPU (or generic /dev/dri)
+  elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
+    gpu_profile="code-amd"  # Intel uses same profile as AMD (no nvidia runtime)
+    echo "🎮 Intel/Generic GPU detected, using 'code-amd' sandbox profile"
+  else
+    echo "⚠️  No GPU detected, sandbox features may not work"
+    return
+  fi
+
+  # Add to COMPOSE_PROFILES if we detected a GPU
+  if [[ -n "$gpu_profile" ]]; then
+    if [[ -n "$COMPOSE_PROFILES" ]]; then
+      export COMPOSE_PROFILES="${COMPOSE_PROFILES},${gpu_profile}"
+    else
+      export COMPOSE_PROFILES="$gpu_profile"
+    fi
+    echo "📋 COMPOSE_PROFILES set to: $COMPOSE_PROFILES"
   fi
 }
 
@@ -323,6 +378,9 @@ function start() {
   # Setup runner profiles first
   setup_runner_profile
 
+  # Setup sandbox profile based on GPU detection
+  setup_sandbox_profile
+
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
@@ -563,8 +621,11 @@ function up() {
     echo "✅ Wolf repository cloned successfully"
   fi
 
-  # Wolf services are optional via --profile wolf flag
-  # To enable Wolf and Moonlight Web: ./stack up --profile wolf
+  # Setup sandbox profile based on GPU detection (if not already in .env)
+  setup_sandbox_profile
+
+  # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
+  # Profile 'code' = NVIDIA GPU, 'code-amd' = AMD/Intel GPU
 
   docker compose -f docker-compose.dev.yaml up -d $@
 }

@@ -204,6 +204,7 @@ RUN mkdir -p /home/retro/.config/zed && \
   },
   "agent_servers": {
     "qwen": {
+      "type": "custom",
       "command": "qwen",
       "args": [
         "--experimental-acp",
