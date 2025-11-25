@@ -211,8 +211,12 @@ EOF
     echo "# Configure display scaling for WL-1 (1x for 1080p)" >> $HOME/.config/sway/config
     echo "output WL-1 scale 1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
-    echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config
+    echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
+    echo "# Click 'us' in waybar or press Alt+Shift to switch layouts" >> $HOME/.config/sway/config
+    echo "input type:keyboard {" >> $HOME/.config/sway/config
+    echo "    xkb_layout \"us,gb,fr\"" >> $HOME/.config/sway/config
+    echo "    xkb_options \"caps:ctrl_nocaps,grp:alt_shift_toggle\"" >> $HOME/.config/sway/config
+    echo "}" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Workaround for Moonlight keyboard modifier state desync bug" >> $HOME/.config/sway/config
     echo "# Press Super+Escape to reset all modifier keys if they get stuck" >> $HOME/.config/sway/config

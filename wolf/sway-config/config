@@ -11,4 +11,11 @@ output * bg /usr/share/backgrounds/helix-logo.png fill
 # Configure display scaling for WL-1 (1x for 1080p)
 output WL-1 scale 1
 
+# Keyboard configuration: US, UK, French layouts with Caps Lock as Ctrl
+# Click 'us' in waybar or press Alt+Shift to switch layouts
+input type:keyboard {
+    xkb_layout "us,gb,fr"
+    xkb_options "caps:ctrl_nocaps,grp:alt_shift_toggle"
+}
+
 # Note: Key bindings are added in startup-app.sh (after $mod is defined)
