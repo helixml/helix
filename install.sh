@@ -2335,7 +2335,6 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -p 47999:47999/udp \
     -p 48100:48100/udp \
     -p 48200:48200/udp \
-    -p 8081:8080 \
     -p 40000-40100:40000-40100/udp \
     registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
 
@@ -2403,7 +2402,6 @@ EOF
     echo "│ ⚠️  For native Moonlight client connections, also open:"
     echo "│   - TCP 47984, 47989, 48010: Moonlight protocol"
     echo "│   - UDP 47415, 47999, 48100, 48200: Moonlight streaming"
-    echo "│   - TCP 8081: Moonlight Web UI"
     echo "│"
     echo "│ ⚠️  Ensure the control plane has these ports open:"
     echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"
