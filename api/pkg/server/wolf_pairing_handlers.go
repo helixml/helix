@@ -158,6 +158,7 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 // @Summary Get Wolf system health
 // @Description Get Wolf system health status including thread heartbeat monitoring and deadlock detection
 // @Tags Wolf
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
 // @Success 200 {object} wolf.SystemHealthResponse
 // @Failure 401 {string} string "Unauthorized"
 // @Failure 503 {string} string "Wolf not available"

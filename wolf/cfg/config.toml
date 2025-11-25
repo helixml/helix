@@ -292,6 +292,39 @@ pMB7mmwld9hzPxM6kGe22ctiG8xJ7rQg9qJzZHWS+GOxsgeoYoTGsTL7kCbQkk9O\r
     run_uid = 1000
     v_scroll_acceleration = 1.0
 
+[[paired_clients]]
+app_state_folder = '12452704210079152070'
+client_cert = """-----BEGIN CERTIFICATE-----\r
+MIIDhzCCAm+gAwIBAgIBADANBgkqhkiG9w0BAQsFADCBhjELMAkGA1UEBhMCVVMx\r
+CzAJBgNVBAgMAkNBMRYwFAYDVQQHDA1TYW4gRnJhbmNpc2NvMRkwFwYDVQQKDBBN\r
+b29ubGlnaHQgQ2xpZW50MTcwNQYDVQQDDC5tb29ubGlnaHQtMjUyNTk3NDctMzYx\r
+MC00N2M5LWFkNWItYTFkYmQ2NTczNzNhMB4XDTI1MTEyNTAzMjEwN1oXDTI2MTEy\r
+NTAzMjEwN1owgYYxCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJDQTEWMBQGA1UEBwwN\r
+U2FuIEZyYW5jaXNjbzEZMBcGA1UECgwQTW9vbmxpZ2h0IENsaWVudDE3MDUGA1UE\r
+AwwubW9vbmxpZ2h0LTI1MjU5NzQ3LTM2MTAtNDdjOS1hZDViLWExZGJkNjU3Mzcz\r
+YTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANRthxycxV2+FjqjioNJ\r
+Ria7i5UtXIwHgELB6AbyHSvZyANchvCf/dTIIp/Ch2tSkJRVwmnVU+sbQQ9YFrWB\r
+ZPy+GEjOw2D9qLBCDrflVDDQB4da3OHGQyyJ2DydlPK8onGAG5AkW0tXEkpmGCa6\r
+ioWTomKndArZ//QAdRYOMp4LDLCXXd3uUc/kqruG/hgROEjMJ3/OxMEE8wWN51Ry\r
+ashAxjEuSUrKJtCSOwvVrrisk/wuCVXdRot/sa1FZ9KyhO2pZ64AuRg6Z67NbAmk\r
++uEB1tq4LrAqTAszlNUSokleT6xJZwgkqR/RZsoo2AFwAbSd7rQX6yCNQmZ4/yCh\r
+e4sCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEAM/7hl9N6e+kijjvND7awIdwbmKZ3\r
+z5HkbaRWOVbaKossnBM7w7Oequw3l5Q1QS42LamoMy4mBoF1D/4IQyKrHg9uS0He\r
+zHu0twUbXvmpaX6FgilatuqSmcUPMI+3Nb/bFc2+cNOl66YL10NxZ+x/ud8alJhA\r
+r136fygTd7bu2kwKx19tP74gRJG3QbJQ1O7R2vLsP+xfugzowN2hvC9TFn69v4PR\r
+VQO3Ul+ZLIRhz2FWapPJDdyraJMih+2TGuIYy0f6LolujVXZpB07z3lMMzEyWhZw\r
+owzadhYiiYSRZKjsTftGWP5ivxlrKugRqKKWJ4gf4x9Na/COiZulaorRpw==\r
+-----END CERTIFICATE-----\r
+"""
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
 [[profiles]]
 id = 'moonlight-profile-id'
 

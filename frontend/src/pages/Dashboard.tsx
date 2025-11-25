@@ -1,18 +1,24 @@
 import ClearIcon from "@mui/icons-material/Clear";
+import StorageIcon from "@mui/icons-material/Storage";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
+import FormControl from "@mui/material/FormControl";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import FormGroup from "@mui/material/FormGroup";
 import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper/Paper";
+import Select from "@mui/material/Select";
 import Switch from "@mui/material/Switch";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import React, { FC, useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import LLMCallsTable from "../components/dashboard/LLMCallsTable";
 import Interaction from "../components/session/Interaction";
 import RunnerSummary from "../components/session/RunnerSummary";
@@ -65,8 +71,28 @@ const Dashboard: FC = () => {
     const [active, setActive] = useState(START_ACTIVE);
     const [sessionFilter, setSessionFilter] = useState("");
     const [agentSandboxSubTab, setAgentSandboxSubTab] = useState("overview");
+    const [selectedSandboxId, setSelectedSandboxId] = useState<string>("");
+    const apiClient = api.getApiClient();
 
     const { session_id, tab, filter_sessions } = router.params;
+
+    // Fetch list of registered sandbox instances for the agent_sandboxes tab
+    const { data: sandboxInstances, isLoading: isLoadingSandboxes } = useQuery({
+        queryKey: ["sandbox-instances"],
+        queryFn: async () => {
+            const response = await apiClient.v1WolfInstancesList();
+            return response.data;
+        },
+        enabled: tab === "agent_sandboxes",
+        refetchInterval: 10000,
+    });
+
+    // Auto-select first sandbox when list loads
+    useEffect(() => {
+        if (sandboxInstances && sandboxInstances.length > 0 && !selectedSandboxId) {
+            setSelectedSandboxId(sandboxInstances[0].id || "");
+        }
+    }, [sandboxInstances, selectedSandboxId]);
 
     const onViewSession = useCallback((session_id: string) => {
         router.setParams({
@@ -630,6 +656,38 @@ const Dashboard: FC = () => {
 
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box sx={{ width: "100%" }}>
+                        {/* Global Sandbox Selector - applies to all sub-tabs */}
+                        <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2 }}>
+                            <FormControl size="small" sx={{ minWidth: 350 }}>
+                                <InputLabel id="sandbox-selector-label">Agent Sandbox</InputLabel>
+                                <Select
+                                    labelId="sandbox-selector-label"
+                                    value={selectedSandboxId}
+                                    label="Agent Sandbox"
+                                    onChange={(e) => setSelectedSandboxId(e.target.value)}
+                                    disabled={isLoadingSandboxes || !sandboxInstances?.length}
+                                    startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
+                                >
+                                    {sandboxInstances?.map((instance) => (
+                                        <MenuItem key={instance.id} value={instance.id}>
+                                            {instance.status === "healthy" ? "🟢" : instance.status === "unhealthy" ? "🟡" : "🔴"}{" "}
+                                            {instance.name} ({instance.current_sandboxes || 0}/{instance.max_sandboxes || 10} sessions)
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            {sandboxInstances && sandboxInstances.length > 0 && (
+                                <Typography variant="body2" color="text.secondary">
+                                    {sandboxInstances.length} sandbox{sandboxInstances.length !== 1 ? "es" : ""} registered
+                                </Typography>
+                            )}
+                            {!isLoadingSandboxes && (!sandboxInstances || sandboxInstances.length === 0) && (
+                                <Typography variant="body2" color="warning.main">
+                                    No agent sandboxes registered
+                                </Typography>
+                            )}
+                        </Box>
+
                         <Paper sx={{ mb: 2 }}>
                             <Tabs
                                 value={agentSandboxSubTab}
@@ -642,9 +700,9 @@ const Dashboard: FC = () => {
                             </Tabs>
                         </Paper>
 
-                        {agentSandboxSubTab === "overview" && <AgentSandboxes />}
-                        {agentSandboxSubTab === "wolf_health" && <WolfHealthPanel />}
-                        {agentSandboxSubTab === "moonlight" && <MoonlightMonitor />}
+                        {agentSandboxSubTab === "overview" && <AgentSandboxes selectedSandboxId={selectedSandboxId} />}
+                        {agentSandboxSubTab === "wolf_health" && <WolfHealthPanel sandboxInstanceId={selectedSandboxId} />}
+                        {agentSandboxSubTab === "moonlight" && <MoonlightMonitor sandboxInstanceId={selectedSandboxId} />}
                     </Box>
                 )}
 

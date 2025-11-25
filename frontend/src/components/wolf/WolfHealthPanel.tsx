@@ -35,9 +35,22 @@ const formatUptime = (seconds: number): string => {
   }
 }
 
-const WolfHealthPanel: React.FC = () => {
-  const { data: health, isLoading, error } = useWolfHealth()
+interface WolfHealthPanelProps {
+  sandboxInstanceId: string;
+}
+
+const WolfHealthPanel: React.FC<WolfHealthPanelProps> = ({ sandboxInstanceId }) => {
+  const { data: health, isLoading, error } = useWolfHealth({ sandboxInstanceId, enabled: !!sandboxInstanceId })
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+
+  // Show message if no sandbox selected
+  if (!sandboxInstanceId) {
+    return (
+      <Alert severity="info">
+        Select an agent sandbox from the dropdown above to view Wolf health.
+      </Alert>
+    )
+  }
 
   const toggleRow = (tid: number) => {
     setExpandedRows(prev => {
