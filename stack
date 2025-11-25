@@ -1042,61 +1042,43 @@ function build-sandbox() {
   # Build helix-sway image (Sway + Zed desktop environment)
   echo "🔨 Building helix-sway:latest..."
 
-  # Capture build output to check if it was cached
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  BUILD_OUTPUT=$(SKIP_SWAY_TRANSFER=1 build-sway 2>&1)
-  BUILD_EXIT=$?
-  echo "$BUILD_OUTPUT"
+  # Get image hash BEFORE build (if image exists)
+  HASH_BEFORE=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
 
-  if [ $BUILD_EXIT -ne 0 ]; then
+  # Skip image transfer since we'll restart sandbox with new embedded tarball
+  if ! SKIP_SWAY_TRANSFER=1 build-sway; then
     echo "❌ Failed to build helix-sway"
     return 1
   fi
 
-  # Check if build had any non-cached layers
-  # Cached builds show "#N [stage N/M] ... CACHED"
-  # Non-cached builds show "#N [stage N/M] ... DONE X.Xs" (uppercase DONE with timing)
-  # Count stage lines with "DONE" followed by timing (actual work done)
-  # Exclude: CACHED lines, exporting/transferring/writing metadata operations
-  # Note: grep returns exit 1 when no matches, so use || true to avoid pipefail exiting
-  NON_CACHED_STEPS=$(echo "$BUILD_OUTPUT" | grep -E "^#[0-9]+ .*DONE [0-9]+\.[0-9]+s$" | grep -v -E "exporting|transferring|writing image|naming to|resolve" | wc -l || true)
+  # Get image hash AFTER build
+  HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
 
-  # Export tarball if: (1) helix-sway changed, OR (2) tarball doesn't exist
-  # This keeps tarball between builds for fast rebuilds
   # Remove old compressed tarball if it exists (migrating to uncompressed)
   [ -f helix-sway.tar.gz ] && rm -f helix-sway.tar.gz helix-sway.tar.gz.hash
 
-  if [ "$NON_CACHED_STEPS" -gt 0 ]; then
-    # Build had changes - must export fresh tarball
-    echo "📦 Exporting fresh helix-sway tarball (build had $NON_CACHED_STEPS non-cached steps)..."
+  # Compare hashes to detect if image actually changed
+  if [ "$HASH_BEFORE" != "$HASH_AFTER" ]; then
+    # Image changed - must export fresh tarball
+    echo "📦 Exporting fresh helix-sway tarball (image hash changed: ${HASH_BEFORE:-none} -> $HASH_AFTER)..."
     # No gzip - Docker image build will compress layers anyway
     docker save helix-sway:latest > helix-sway.tar
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-
-    # Generate hash file for startup optimization (skip docker load if image unchanged)
-    echo "🔢 Generating image hash..."
-    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
+    echo "$HASH_AFTER" > helix-sway.tar.hash
     echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
   elif [ ! -f helix-sway.tar ]; then
-    # Build was cached but no tarball - create one
-    echo "📦 Creating helix-sway tarball (build was cached but tarball missing)..."
+    # Image unchanged but no tarball - create one
+    echo "📦 Creating helix-sway tarball (image unchanged but tarball missing)..."
     docker save helix-sway:latest > helix-sway.tar
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-
-    # Generate hash file for startup optimization
-    echo "🔢 Generating image hash..."
-    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
+    echo "$HASH_AFTER" > helix-sway.tar.hash
     echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
   else
-    # Build was cached AND tarball exists - reuse it (fast path!)
+    # Image unchanged AND tarball exists - fast path!
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-
-    # Update hash file if it doesn't exist or if image changed
-    if [ ! -f helix-sway.tar.hash ]; then
-      echo "🔢 Generating image hash..."
-      docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.hash
-    fi
-    echo "✅ Reusing existing tarball: helix-sway.tar ($TARBALL_SIZE) (helix-sway was fully cached)"
+    # Update hash file if missing
+    [ ! -f helix-sway.tar.hash ] && echo "$HASH_AFTER" > helix-sway.tar.hash
+    echo "✅ Reusing existing tarball: helix-sway.tar ($TARBALL_SIZE) (image hash unchanged: $HASH_AFTER)"
   fi
   echo ""
 
