@@ -53,8 +53,15 @@ type GitRepository struct {
 	// TODO: OAuth support using our providers
 	// TODO: SSH key
 
+	AzureDevOps *AzureDevOps `gorm:"type:jsonb;serializer:json" json:"azure_devops"`
+
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
+}
+
+type AzureDevOps struct {
+	OrganizationURL     string `json:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token"`
 }
 
 // TableName overrides the table name
@@ -90,6 +97,8 @@ type GitRepositoryCreateRequest struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
+	AzureDevOps *AzureDevOps `json:"azure_devops,omitempty"`
+
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 }
 
@@ -101,6 +110,8 @@ type GitRepositoryUpdateRequest struct {
 	Username      string                 `json:"username,omitempty"`
 	Password      string                 `json:"password,omitempty"`
 	ExternalURL   string                 `json:"external_url,omitempty"`
+	ExternalType  ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
+	AzureDevOps   *AzureDevOps           `json:"azure_devops,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -168,4 +179,42 @@ type Commit struct {
 	Author    string    `json:"author"`
 	Email     string    `json:"email"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+type CreateBranchRequest struct {
+	BranchName string `json:"branch_name"`
+	BaseBranch string `json:"base_branch,omitempty"`
+}
+
+type CreateBranchResponse struct {
+	RepositoryID string `json:"repository_id"`
+	BranchName   string `json:"branch_name"`
+	BaseBranch   string `json:"base_branch"`
+	Message      string `json:"message"`
+}
+
+type PullRequest struct {
+	ID           string    `json:"id"`
+	Number       int       `json:"number"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	State        string    `json:"state"`
+	SourceBranch string    `json:"source_branch"`
+	TargetBranch string    `json:"target_branch"`
+	Author       string    `json:"author"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	URL          string    `json:"url,omitempty"`
+}
+
+type CreatePullRequestRequest struct {
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	SourceBranch string `json:"source_branch"`
+	TargetBranch string `json:"target_branch"`
+}
+
+type CreatePullRequestResponse struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
 }

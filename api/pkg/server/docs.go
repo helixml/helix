@@ -2769,6 +2769,69 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new branch in a repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create branch",
+                "operationId": "createGitRepositoryBranch",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Create branch request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateBranchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateBranchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/git/repositories/{id}/clone-command": {
@@ -3045,6 +3108,18 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by enrichment type (usage, developer, living_documentation)",
+                        "name": "enrichment_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by commit SHA",
+                        "name": "commit_sha",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3052,6 +3127,115 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/services.KoditEnrichmentListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/enrichments/{enrichmentId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific code intelligence enrichment by ID from Kodit",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get enrichment by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Enrichment ID",
+                        "name": "enrichmentId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.KoditEnrichmentData"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/kodit-commits": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get commits for a repository from Kodit (used for enrichment filtering)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get repository commits from Kodit",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of commits (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
                         }
                     },
                     "404": {
@@ -3116,6 +3300,125 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pull-requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all pull requests in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List pull requests",
+                "operationId": "listGitRepositoryPullRequests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.PullRequest"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new pull request in a repository. Changes must be committed and pushed to the branch first.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create pull request",
+                "operationId": "createGitRepositoryPullRequest",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Create pull request request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreatePullRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreatePullRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/push-pull": {
             "post": {
                 "security": [
@@ -3152,6 +3455,74 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.PushPullResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/search-snippets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Search for code snippets in a repository from Kodit",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Search repository snippets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results (default 20)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/services.KoditSearchResult"
+                            }
                         }
                     },
                     "400": {
@@ -14294,6 +14665,10 @@ const docTemplate = `{
                 "attributes": {
                     "$ref": "#/definitions/services.KoditEnrichmentAttributes"
                 },
+                "commit_sha": {
+                    "description": "Added for frontend",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -14310,6 +14685,27 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/services.KoditEnrichmentData"
                     }
+                }
+            }
+        },
+        "services.KoditSearchResult": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "file_path": {
+                    "description": "File path from DerivesFrom",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
@@ -16053,6 +16449,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AzureDevOps": {
+            "type": "object",
+            "properties": {
+                "organization_url": {
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AzureDevOpsTrigger": {
             "type": "object",
             "properties": {
@@ -16267,6 +16674,62 @@ const docTemplate = `{
                 },
                 "user_reference": {
                     "description": "User ID or email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateBranchRequest": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateBranchResponse": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch_name": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatePullRequestRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "source_branch": {
+                    "type": "string"
+                },
+                "target_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatePullRequestResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "message": {
                     "type": "string"
                 }
             }
@@ -16950,6 +17413,9 @@ const docTemplate = `{
         "types.GitRepository": {
             "type": "object",
             "properties": {
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
+                },
                 "branches": {
                     "type": "array",
                     "items": {
@@ -17039,6 +17505,9 @@ const docTemplate = `{
         "types.GitRepositoryCreateRequest": {
             "type": "object",
             "properties": {
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
+                },
                 "default_branch": {
                     "type": "string"
                 },
@@ -17157,11 +17626,22 @@ const docTemplate = `{
         "types.GitRepositoryUpdateRequest": {
             "type": "object",
             "properties": {
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
+                },
                 "default_branch": {
                     "type": "string"
                 },
                 "description": {
                     "type": "string"
+                },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
                 },
                 "external_url": {
                     "type": "string"
@@ -19164,6 +19644,44 @@ const docTemplate = `{
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.PullRequest": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "source_branch": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "target_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
         },
         "types.Question": {
             "type": "object",
@@ -22366,18 +22884,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

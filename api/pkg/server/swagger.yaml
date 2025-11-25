@@ -1698,6 +1698,9 @@ definitions:
     properties:
       attributes:
         $ref: '#/definitions/services.KoditEnrichmentAttributes'
+      commit_sha:
+        description: Added for frontend
+        type: string
       id:
         type: string
       type:
@@ -1709,6 +1712,20 @@ definitions:
         items:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
+    type: object
+  services.KoditSearchResult:
+    properties:
+      content:
+        type: string
+      file_path:
+        description: File path from DerivesFrom
+        type: string
+      id:
+        type: string
+      language:
+        type: string
+      type:
+        type: string
     type: object
   services.SampleProjectCode:
     properties:
@@ -2927,6 +2944,13 @@ definitions:
       authenticated:
         type: boolean
     type: object
+  types.AzureDevOps:
+    properties:
+      organization_url:
+        type: string
+      personal_access_token:
+        type: string
+    type: object
   types.AzureDevOpsTrigger:
     properties:
       enabled:
@@ -3072,6 +3096,42 @@ definitions:
         type: string
       user_reference:
         description: User ID or email
+        type: string
+    type: object
+  types.CreateBranchRequest:
+    properties:
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+    type: object
+  types.CreateBranchResponse:
+    properties:
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+    type: object
+  types.CreatePullRequestRequest:
+    properties:
+      description:
+        type: string
+      source_branch:
+        type: string
+      target_branch:
+        type: string
+      title:
+        type: string
+    type: object
+  types.CreatePullRequestResponse:
+    properties:
+      id:
+        type: string
+      message:
         type: string
     type: object
   types.CreateSampleRepositoryRequest:
@@ -3533,6 +3593,8 @@ definitions:
     type: object
   types.GitRepository:
     properties:
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       branches:
         items:
           type: string
@@ -3594,6 +3656,8 @@ definitions:
     type: object
   types.GitRepositoryCreateRequest:
     properties:
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:
@@ -3675,10 +3739,16 @@ definitions:
     - GitRepositoryTypeCode
   types.GitRepositoryUpdateRequest:
     properties:
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:
         type: string
+      external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
       metadata:
@@ -5072,6 +5142,31 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.PullRequest:
+    properties:
+      author:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      number:
+        type: integer
+      source_branch:
+        type: string
+      state:
+        type: string
+      target_branch:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      url:
+        type: string
+    type: object
   types.Question:
     properties:
       created:
@@ -7334,18 +7429,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -9490,6 +9585,47 @@ paths:
       summary: List repository branches
       tags:
       - git-repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new branch in a repository
+      operationId: createGitRepositoryBranch
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Create branch request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CreateBranchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create branch
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/clone-command:
     get:
       description: Get the git clone command for a repository with authentication
@@ -9662,6 +9798,14 @@ paths:
         name: id
         required: true
         type: string
+      - description: Filter by enrichment type (usage, developer, living_documentation)
+        in: query
+        name: enrichment_type
+        type: string
+      - description: Filter by commit SHA
+        in: query
+        name: commit_sha
+        type: string
       produces:
       - application/json
       responses:
@@ -9680,6 +9824,76 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository enrichments
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/enrichments/{enrichmentId}:
+    get:
+      description: Get a specific code intelligence enrichment by ID from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enrichment ID
+        in: path
+        name: enrichmentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentData'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get enrichment by ID
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/kodit-commits:
+    get:
+      description: Get commits for a repository from Kodit (used for enrichment filtering)
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Limit number of commits (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository commits from Kodit
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:
@@ -9710,6 +9924,84 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository indexing status
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/pull-requests:
+    get:
+      description: List all pull requests in a repository
+      operationId: listGitRepositoryPullRequests
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PullRequest'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List pull requests
+      tags:
+      - git-repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new pull request in a repository. Changes must be committed
+        and pushed to the branch first.
+      operationId: createGitRepositoryPullRequest
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Create pull request request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.CreatePullRequestResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create pull request
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/push-pull:
@@ -9749,6 +10041,50 @@ paths:
       security:
       - BearerAuth: []
       summary: Push and pull repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/search-snippets:
+    get:
+      description: Search for code snippets in a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Limit number of results (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.KoditSearchResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Search repository snippets
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/tree:
