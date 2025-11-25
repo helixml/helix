@@ -995,7 +995,8 @@ function build-sandbox() {
   echo ""
 
   local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+  # Use exported GIT_TAG if available (from build-and-push-helix-code), otherwise detect from git
+  local GIT_TAG="${GIT_TAG:-$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")}"
 
   # Step 0: Build Wolf and Moonlight Web (fast if unchanged due to Docker cache)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1212,6 +1213,9 @@ function build-and-push-helix-code() {
     echo "⚠️  Tag override: ${TAG_OVERRIDE} (ignoring git tag check)"
     GIT_TAG="$TAG_OVERRIDE"
   fi
+
+  # Export GIT_TAG so build-sandbox and other functions can use it
+  export GIT_TAG
 
   echo "📝 Commit hash: ${COMMIT_HASH}"
   if [ -n "$GIT_TAG" ]; then
