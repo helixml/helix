@@ -2325,7 +2325,7 @@ eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     --device /dev/dri \
     --device /dev/uinput \
     --device /dev/uhid \
-    --device-cgroup-rule 'c 13:* rmw' \
+    --device-cgroup-rule="c 13:* rmw" \
     -p 47984:47984 \
     -p 47989:47989 \
     -p 48010:48010 \
