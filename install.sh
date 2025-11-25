@@ -2304,7 +2304,9 @@ echo "  Max Sandboxes: $MAX_SANDBOXES"
 echo "  TURN Server: $TURN_PUBLIC_IP"
 
 # Run the sandbox container
-eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
+# Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
+# shellcheck disable=SC2086
+docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     --privileged \
     --restart=always -d \
     --name helix-sandbox \
@@ -2325,7 +2327,7 @@ eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     --device /dev/dri \
     --device /dev/uinput \
     --device /dev/uhid \
-    --device-cgroup-rule="c 13:* rmw" \
+    --device-cgroup-rule='c 13:* rmw' \
     -p 47984:47984 \
     -p 47989:47989 \
     -p 48010:48010 \
