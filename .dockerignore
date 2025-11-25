@@ -6,7 +6,7 @@ vendor
 **/.venv/*
 
 # Large directories that slow down builds
-.git
+# Note: .git is NOT ignored - needed by main Dockerfile for version info
 wolf-debug-dumps
 zed-build
 *.tar.gz
