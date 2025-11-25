@@ -275,6 +275,14 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		err := collector.Visit(url)
 		if err != nil {
 			log.Warn().Err(err).Str("url", url).Msg("Error visiting URL")
+			crawledMu.Lock()
+			crawledDocs = append(crawledDocs, &types.CrawledDocument{
+				SourceURL:  url,
+				StatusCode: 0,
+				DurationMs: 0,
+				Message:    err.Error(),
+			})
+			crawledMu.Unlock()
 
 			// Continue with the next URL instead of returning
 			continue
