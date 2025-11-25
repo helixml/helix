@@ -226,8 +226,8 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                         localConfig.display_width === 3456 && localConfig.display_height === 2234 ? 'macbook-16' :
                         localConfig.display_width === 2880 && localConfig.display_height === 1864 ? 'macbook-15' :
                         localConfig.display_width === 5120 && localConfig.display_height === 2880 ? '5k' :
-                        localConfig.display_width === 3840 && localConfig.display_height === 2160 ? 'fhd' :
-                        localConfig.display_width === 1920 && localConfig.display_height === 1080 ? '4k' :
+                        localConfig.display_width === 3840 && localConfig.display_height === 2160 ? '4k' :
+                        localConfig.display_width === 1920 && localConfig.display_height === 1080 ? 'fhd' :
                         localConfig.display_width === 1179 && localConfig.display_height === 2496 ? 'iphone-15-pro' :
                         'custom'
                       }
