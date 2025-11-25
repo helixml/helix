@@ -148,6 +148,15 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
+# Copy helix-sway tarball EARLY (rarely changes, ~3GB)
+# This maximizes cache hits - changes to scripts/binaries below won't
+# invalidate this large layer, making pushes much faster
+# ====================================================================
+RUN mkdir -p /opt/images
+COPY helix-sway.tar /opt/images/helix-sway.tar
+COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
+
+# ====================================================================
 # Copy Wolf binaries and setup
 # ====================================================================
 
@@ -165,14 +174,10 @@ COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib
 
 # Copy Wolf's init scripts and config template
 # Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
-RUN mkdir -p /opt/wolf-defaults /opt/images /etc/wolf/cfg
+RUN mkdir -p /opt/wolf-defaults /etc/wolf/cfg
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
-
-# Copy helix-sway tarball and hash file (will be loaded by start-dockerd.sh)
-COPY helix-sway.tar /opt/images/helix-sway.tar
-COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
 
 # Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
 COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
