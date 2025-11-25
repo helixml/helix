@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -40,7 +39,9 @@ func newRunnerOptions() *RunnerOptions {
 			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
-			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", filepath.Join(os.TempDir(), "helix-cache")),
+			// Default cache dir: /root/.cache/huggingface in Docker (persistent storage, models baked there)
+			// Falls back to temp dir on non-Linux systems (macOS) where /root doesn't exist
+			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", getDefaultCacheDir()),
 			WebServer: runner.WebServer{
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
 				Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
@@ -245,6 +246,19 @@ func initializeModelsCache(cfg *config.RunnerConfig) error {
 	}
 
 	return nil
+}
+
+// getDefaultCacheDir returns the appropriate cache directory based on the platform.
+// On Linux (Docker), we use /root/.cache/huggingface which is often bind-mounted
+// as persistent storage and matches where initializeModelsCache copies models.
+// On other platforms (macOS), we use a temp directory to avoid "read-only file system" errors.
+func getDefaultCacheDir() string {
+	// Check if /root exists and is writable (Linux/Docker)
+	if info, err := os.Stat("/root"); err == nil && info.IsDir() {
+		return "/root/.cache/huggingface"
+	}
+	// Fall back to temp directory (macOS, etc.)
+	return os.TempDir()
 }
 
 // Utility functions for environment variable handling
