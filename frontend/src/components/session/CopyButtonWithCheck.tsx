@@ -27,7 +27,6 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
         className="copy-btn"
         sx={theme => ({
           mt: 0.5,
-          mr: 1,
           padding: '2px',
           background: 'none',
           color: theme.palette.mode === 'light' ? '#222' : '#bbb',

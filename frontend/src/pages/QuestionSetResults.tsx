@@ -8,9 +8,12 @@ import IconButton from '@mui/material/IconButton'
 import Link from '@mui/material/Link'
 import { useTheme } from '@mui/material/styles'
 import { Edit, Info } from 'lucide-react'
+import pdfIcon from '../../assets/img/pdf-icon.png'
 
 import Markdown from '../components/session/Markdown'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import ExportDocument from '../components/export/ExportDocument'
+import ToPDF from '../components/export/ToPDF'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -31,6 +34,7 @@ const QuestionSetResults: FC = () => {
   const executionId = router.params.execution_id
 
   const [activeSection, setActiveSection] = useState<string>('')
+  const [exportOpen, setExportOpen] = useState(false)
   const scrollContainerRef = React.useRef<HTMLDivElement>(null)
 
   const { data: questionSet } = useQuestionSet(questionSetId || '', {
@@ -96,6 +100,28 @@ const QuestionSetResults: FC = () => {
 
     return () => scrollContainer.removeEventListener('scroll', handleScroll)
   }, [executionResults])
+
+  const generateMarkdown = useMemo(() => {
+    if (!executionResults?.results || executionResults.results.length === 0) {
+      return ''
+    }
+
+    let markdown = `# Question Set Results\n\n`
+    if (questionSet?.created) {
+      markdown += `*Created on ${new Date(questionSet.created).toLocaleDateString()}*\n\n`
+    }
+    markdown += `---\n\n`
+
+    executionResults.results.forEach((res, index) => {
+      markdown += `## ${res.question}\n\n`
+      if (res.response) {
+        markdown += `${res.response}\n\n`
+      }
+      markdown += `---\n\n`
+    })
+
+    return markdown
+  }, [executionResults, questionSet])
 
   if (!executionId || !questionSetId) {
     return (
@@ -182,19 +208,32 @@ const QuestionSetResults: FC = () => {
               >
                 Question Set Results
               </Typography>
-              {questionSetId && (
-                <Tooltip title="Edit Question Set">
-                  <IconButton
-                    color="secondary"
-                    size="small"
-                    onClick={() => {
-                      account.orgNavigate('qa', {}, { questionSetId })
-                    }}
-                  >
-                    <Edit size={18} />
-                  </IconButton>
-                </Tooltip>
-              )}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                {executionResults?.results && executionResults.results.length > 0 && (
+                    <Tooltip title="Export to PDF">
+                      <IconButton
+                        color="secondary"
+                        size="small"
+                        onClick={() => setExportOpen(true)}
+                      >
+                        <img src={pdfIcon} alt="Export to PDF" style={{ width: 18, height: 18 }} />
+                      </IconButton>
+                    </Tooltip>
+                )}
+                {questionSetId && (
+                  <Tooltip title="Edit Question Set">
+                    <IconButton
+                      color="secondary"
+                      size="small"
+                      onClick={() => {
+                        account.orgNavigate('qa', {}, { questionSetId })
+                      }}
+                    >
+                      <Edit size={18} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
             </Box>
             {questionSet?.created && (
               <Typography variant="caption" sx={{ color: 'gray' }}>
@@ -402,6 +441,14 @@ const QuestionSetResults: FC = () => {
           )}
         </Box>
       </Box>
+
+      <ExportDocument open={exportOpen} onClose={() => setExportOpen(false)}>
+        <ToPDF
+          markdown={generateMarkdown}
+          filename={`question-set-results-${executionId}.pdf`}
+          onClose={() => setExportOpen(false)}
+        />
+      </ExportDocument>
     </Box>
   )
 }
