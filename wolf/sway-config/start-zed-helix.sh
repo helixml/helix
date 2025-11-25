@@ -62,19 +62,23 @@ fi
 
 # Configure git credentials for HTTP operations (MUST happen before cloning!)
 # Use user's API token for RBAC-enforced git operations
-if [ -n "$USER_API_TOKEN" ]; then
+if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
     # Set up git credential helper to use user's API token
-    # Format: http://api:{user-token}@api:8080/git/{repo-id}
+    # Format: http://api:{user-token}@{helix-api-host}/git/{repo-id}
     # This ensures RBAC is enforced - agent can only access repos user has access to
     git config --global credential.helper 'store --file ~/.git-credentials'
 
-    # Write credentials for api:8080 domain
-    echo "http://api:${USER_API_TOKEN}@api:8080" > ~/.git-credentials
+    # Extract host from HELIX_API_BASE_URL (e.g., "http://axa-private.helix.ml:8080" -> "axa-private.helix.ml:8080")
+    GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
+    GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
+
+    # Write credentials for the API host
+    echo "${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}" > ~/.git-credentials
     chmod 600 ~/.git-credentials
 
-    echo "✅ Git credentials configured (user's API token for RBAC)"
+    echo "✅ Git credentials configured for $GIT_API_HOST (user's API token for RBAC)"
 else
-    echo "⚠️  USER_API_TOKEN not set - git operations will fail"
+    echo "⚠️  USER_API_TOKEN or HELIX_API_BASE_URL not set - git operations will fail"
 fi
 echo ""
 
@@ -108,9 +112,11 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         fi
 
         # Clone repository using HTTP with credentials in URL
-        # Token will be visible in 'git remote -v' but makes push/pull work seamlessly
-        echo "  📥 Cloning from http://api:8080/git/$REPO_ID..."
-        GIT_CLONE_URL="http://api:${USER_API_TOKEN}@api:8080/git/${REPO_ID}"
+        # Use HELIX_API_BASE_URL (e.g., http://axa-private.helix.ml:8080) not hardcoded api:8080
+        GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
+        GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
+        echo "  📥 Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
+        GIT_CLONE_URL="${GIT_API_PROTOCOL}://api:${USER_API_TOKEN}@${GIT_API_HOST}/git/${REPO_ID}"
 
         if git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
             echo "  ✅ Successfully cloned to $CLONE_DIR"
