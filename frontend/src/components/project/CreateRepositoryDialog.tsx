@@ -33,14 +33,14 @@ const CreateRepositoryDialog: FC<CreateRepositoryDialogProps> = ({
 }) => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [koditIndexing, setKoditIndexing] = useState(true)
+  const [koditIndexing, setKoditIndexing] = useState(false)
 
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
       setName('')
       setDescription('')
-      setKoditIndexing(true)
+      setKoditIndexing(false)
     }
   }, [open])
 
@@ -79,6 +79,7 @@ const CreateRepositoryDialog: FC<CreateRepositoryDialogProps> = ({
           />
 
           <FormControlLabel
+            disabled={true}
             control={
               <Switch
                 checked={koditIndexing}
@@ -104,7 +105,7 @@ const CreateRepositoryDialog: FC<CreateRepositoryDialogProps> = ({
           </Alert>
         </Stack>
       </DialogContent>
-      <DialogActions>        
+      <DialogActions>
         <Button
           onClick={handleSubmit}
           color="secondary"
