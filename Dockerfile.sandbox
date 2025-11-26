@@ -316,7 +316,7 @@ COPY --from=moonlight-web-upstream /app/static /opt/moonlight-web/static
 # Copy Moonlight Web templates and init script
 RUN mkdir -p /opt/moonlight-web/templates /opt/moonlight-web/server
 COPY --from=moonlight-web-upstream /app/templates/ /opt/moonlight-web/templates/
-COPY --from=moonlight-web-upstream /app/init-moonlight-config.sh /opt/moonlight-web/init-moonlight-config.sh
+COPY --from=moonlight-web-upstream /app/server/init-moonlight-config.sh /opt/moonlight-web/init-moonlight-config.sh
 RUN chmod +x /opt/moonlight-web/init-moonlight-config.sh
 
 # Create symlinks for Moonlight Web init script compatibility
