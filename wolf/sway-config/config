@@ -13,9 +13,14 @@ output WL-1 scale 1
 
 # Keyboard configuration: US, UK, French layouts with Caps Lock as Ctrl
 # Click 'us' in waybar or press Alt+Shift to switch layouts
+# CRITICAL: Disable Sway's key repeat - it conflicts with Moonlight's key handling
+# and causes stuck keys when the repeat thread races with key release events.
+# The browser/client side should handle key repeat if needed.
 input type:keyboard {
     xkb_layout "us,gb,fr"
     xkb_options "caps:ctrl_nocaps,grp:alt_shift_toggle"
+    repeat_delay 0
+    repeat_rate 0
 }
 
 # Note: Key bindings are added in startup-app.sh (after $mod is defined)
