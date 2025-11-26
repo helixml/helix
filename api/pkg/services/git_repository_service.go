@@ -424,10 +424,10 @@ func (s *GitRepositoryService) CreateSampleRepository(
 			InitialFiles:   initialFiles,
 			DefaultBranch:  "main",
 			Metadata: map[string]interface{}{
-				"sample_type":    request.SampleType,
-				"created_from":   "sample",
-				"kodit_indexing": request.KoditIndexing,
+				"sample_type":  request.SampleType,
+				"created_from": "sample",
 			},
+			KoditIndexing: request.KoditIndexing,
 		}
 
 		repo, err := s.CreateRepository(ctx, request)

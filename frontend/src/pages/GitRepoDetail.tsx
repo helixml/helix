@@ -230,7 +230,7 @@ const GitRepoDetail: FC = () => {
       setEditName(repository.name || '')
       setEditDescription(repository.description || '')
       setEditDefaultBranch(repository.default_branch || '')
-      setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditKoditIndexing(repository.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
       setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
@@ -265,7 +265,7 @@ const GitRepoDetail: FC = () => {
       setEditName(repository.name || '')
       setEditDescription(repository.description || '')
       setEditDefaultBranch(repository.default_branch || '')
-      setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditKoditIndexing(repository.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
       setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
@@ -625,7 +625,7 @@ const GitRepoDetail: FC = () => {
                     size="small"
                   />
                 )}
-                {repository.metadata?.kodit_indexing && (
+                {repository.kodit_indexing && (
                   <Chip
                     icon={<Brain size={12} />}
                     label="Code Intelligence"

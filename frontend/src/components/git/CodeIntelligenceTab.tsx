@@ -54,10 +54,10 @@ interface CodeIntelligenceTabProps {
 const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId, commitSha }) => {
   const router = useRouter()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
-  const { data: koditStatusData } = useKoditStatus(repoId, { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
+  const { data: koditStatusData } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
 
   // Fetch commits for the dropdown
-  const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
+  const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: repoId && repository.kodit_indexing })
 
   const [selectedEnrichmentId, setSelectedEnrichmentId] = useState<string | null>(null)
   const enrichmentDrawerOpen = !!selectedEnrichmentId
@@ -79,7 +79,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     debouncedSearchQuery,
     20,
     commitSha,
-    { enabled: !!repoId && !!repository?.metadata?.kodit_indexing && debouncedSearchQuery.trim().length > 0 }
+    { enabled: repoId && repository.kodit_indexing && debouncedSearchQuery.trim().length > 0 }
   )
 
   const handleCommitChange = (newCommitSha: string) => {
@@ -97,7 +97,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
   return (
     <>
       <Box sx={{ maxWidth: 1200 }}>
-        {repository.metadata?.kodit_indexing ? (
+        {repository.kodit_indexing ? (
           <Box sx={{ mb: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -445,7 +445,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
               )
             })}
           </Stack>
-        ) : repository.metadata?.kodit_indexing ? (
+        ) : repository.kodit_indexing ? (
           <Box sx={{ textAlign: 'center', py: 8 }}>
             <Brain size={48} color="#656d76" style={{ marginBottom: 16, opacity: 0.5 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>

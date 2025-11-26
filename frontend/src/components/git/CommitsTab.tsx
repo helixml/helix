@@ -145,7 +145,7 @@ const CommitsTab: FC<CommitsTabProps> = ({
                       >
                         {commit.sha.substring(0, 7)}
                       </Typography>
-                      {repository?.metadata?.kodit_indexing && onViewEnrichments && (
+                      {repository.kodit_indexing && onViewEnrichments && (
                         <Tooltip
                           title="View code intelligence for this commit"
                           placement="top"
