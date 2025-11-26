@@ -158,7 +158,7 @@ func (m *MockStoreForWolf) ListWolfInstances(ctx context.Context) ([]*types.Wolf
 func (m *MockStoreForWolf) RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error {
 	return nil
 }
-func (m *MockStoreForWolf) UpdateWolfHeartbeat(ctx context.Context, id string) error {
+func (m *MockStoreForWolf) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
 	return nil
 }
 func (m *MockStoreForWolf) UpdateWolfStatus(ctx context.Context, id string, status string) error {
