@@ -1049,8 +1049,24 @@ func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash stri
 
 		taskID := dirName[lastUnderscore+1:]
 
-		// Validate it looks like a UUID (8-4-4-4-12 format)
-		if len(taskID) >= 32 && strings.Contains(taskID, "-") {
+		// Validate it looks like a valid task ID
+		// Supported formats:
+		// 1. Current format: "spt_<ulid>", e.g., "spt_01jdfg5h2k3m4n5p6q7r8s9t0u"
+		// 2. Legacy UUID format: 8-4-4-4-12 (36 chars with dashes), e.g., "014930c9-3031-4bd0-b0cc-19741947665c"
+		// 3. Legacy timestamp format: "task_<nanoseconds>", e.g., "task_1764170879478485974"
+		isValidUUID := len(taskID) == 36 && strings.Count(taskID, "-") == 4
+		isValidSpecTaskID := strings.HasPrefix(taskID, "spt_")
+
+		// For legacy task_ prefix format, extract the full task ID from directory name
+		if !isValidUUID && !isValidSpecTaskID && strings.Contains(dirName, "task_") {
+			taskPrefixIdx := strings.LastIndex(dirName, "task_")
+			if taskPrefixIdx != -1 {
+				taskID = dirName[taskPrefixIdx:]
+			}
+		}
+
+		// Accept current sptask_ format, legacy UUID format, or legacy task_ prefix format
+		if isValidSpecTaskID || isValidUUID || strings.HasPrefix(taskID, "task_") {
 			taskIDSet[taskID] = true
 			log.Debug().
 				Str("file", file).

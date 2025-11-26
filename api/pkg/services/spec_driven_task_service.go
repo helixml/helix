@@ -929,7 +929,7 @@ func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.
 }
 
 func generateTaskID() string {
-	return fmt.Sprintf("task_%d", time.Now().UnixNano())
+	return system.GenerateSpecTaskID()
 }
 
 func generateTaskNameFromPrompt(prompt string) string {
