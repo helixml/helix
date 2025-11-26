@@ -1061,23 +1061,29 @@ function build-sandbox() {
   if [ "$HASH_BEFORE" != "$HASH_AFTER" ]; then
     # Image changed - must export fresh tarball
     echo "📦 Exporting fresh helix-sway tarball (image hash changed: ${HASH_BEFORE:-none} -> $HASH_AFTER)..."
-    # No gzip - Docker image build will compress layers anyway
-    docker save helix-sway:latest > helix-sway.tar
+    # Tag with commit hash for versioning (in addition to :latest)
+    docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
+    # Save with both tags so DinD gets versioned tag after load
+    docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
     echo "$HASH_AFTER" > helix-sway.tar.hash
-    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
+    echo "${COMMIT_HASH}" > helix-sway.version
+    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
   elif [ ! -f helix-sway.tar ]; then
     # Image unchanged but no tarball - create one
     echo "📦 Creating helix-sway tarball (image unchanged but tarball missing)..."
-    docker save helix-sway:latest > helix-sway.tar
+    docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
+    docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
     echo "$HASH_AFTER" > helix-sway.tar.hash
-    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE)"
+    echo "${COMMIT_HASH}" > helix-sway.version
+    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
   else
     # Image unchanged AND tarball exists - fast path!
     TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-    # Update hash file if missing
+    # Update hash/version files if missing
     [ ! -f helix-sway.tar.hash ] && echo "$HASH_AFTER" > helix-sway.tar.hash
+    [ ! -f helix-sway.version ] && echo "${COMMIT_HASH}" > helix-sway.version
     echo "✅ Reusing existing tarball: helix-sway.tar ($TARBALL_SIZE) (image hash unchanged: $HASH_AFTER)"
   fi
   echo ""
