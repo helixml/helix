@@ -229,10 +229,31 @@ func (apiServer *HelixAPIServer) getWolfKeyboardState(res http.ResponseWriter, r
 	}
 
 	// Get Wolf instance ID from query parameter
+	// The frontend may pass a session ID, in which case we look up the wolf_instance_id from the session
 	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
 	if wolfInstanceID == "" {
 		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
 		return
+	}
+
+	// Check if the provided ID looks like a session ID (starts with "ses_")
+	// If so, look up the actual wolf_instance_id from the session
+	if len(wolfInstanceID) > 4 && wolfInstanceID[:4] == "ses_" {
+		session, err := apiServer.Store.GetSession(req.Context(), wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", wolfInstanceID).Msg("Failed to get session")
+			http.Error(res, fmt.Sprintf("Session not found: %s", wolfInstanceID), http.StatusNotFound)
+			return
+		}
+		if session.WolfInstanceID == "" {
+			http.Error(res, "Session does not have a Wolf instance ID assigned", http.StatusBadRequest)
+			return
+		}
+		wolfInstanceID = session.WolfInstanceID
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Resolved session ID to Wolf instance ID")
 	}
 
 	// Get Wolf client from the executor
@@ -285,17 +306,38 @@ func (apiServer *HelixAPIServer) resetWolfKeyboardState(res http.ResponseWriter,
 	}
 
 	// Get Wolf instance ID from query parameter
+	// The frontend may pass a session ID, in which case we look up the wolf_instance_id from the session
 	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
 	if wolfInstanceID == "" {
 		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	// Get session ID from query parameter
+	// Get session ID from query parameter (this is the Wolf session ID for the keyboard reset)
 	sessionID := req.URL.Query().Get("session_id")
 	if sessionID == "" {
 		http.Error(res, "session_id query parameter is required", http.StatusBadRequest)
 		return
+	}
+
+	// Check if the provided wolf_instance_id looks like a session ID (starts with "ses_")
+	// If so, look up the actual wolf_instance_id from the session
+	if len(wolfInstanceID) > 4 && wolfInstanceID[:4] == "ses_" {
+		session, err := apiServer.Store.GetSession(req.Context(), wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", wolfInstanceID).Msg("Failed to get session")
+			http.Error(res, fmt.Sprintf("Session not found: %s", wolfInstanceID), http.StatusNotFound)
+			return
+		}
+		if session.WolfInstanceID == "" {
+			http.Error(res, "Session does not have a Wolf instance ID assigned", http.StatusBadRequest)
+			return
+		}
+		wolfInstanceID = session.WolfInstanceID
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Resolved session ID to Wolf instance ID")
 	}
 
 	// Get Wolf client from the executor
