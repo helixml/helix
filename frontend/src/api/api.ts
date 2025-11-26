@@ -4520,6 +4520,33 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
+export interface WolfKeyboardModifierState {
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+  shift?: boolean;
+}
+
+export interface WolfKeyboardResetResponse {
+  message?: string;
+  released_keys?: string[];
+  success?: boolean;
+}
+
+export interface WolfKeyboardStateResponse {
+  sessions?: WolfSessionKeyboardState[];
+  success?: boolean;
+}
+
+export interface WolfSessionKeyboardState {
+  device_name?: string;
+  modifier_state?: WolfKeyboardModifierState;
+  pressed_key_names?: string[];
+  pressed_keys?: number[];
+  session_id?: string;
+  timestamp_ms?: number;
+}
+
 export interface WolfSystemHealthResponse {
   /** Tests if GStreamer type lock is available */
   can_create_new_pipelines?: boolean;
@@ -10242,6 +10269,56 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<WolfSystemHealthResponse, string>({
         path: `/api/v1/wolf/health`,
         method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get current keyboard state for all streaming sessions, useful for debugging stuck keys
+     *
+     * @tags Wolf
+     * @name V1WolfKeyboardStateList
+     * @summary Get Wolf keyboard state
+     * @request GET:/api/v1/wolf/keyboard-state
+     * @secure
+     */
+    v1WolfKeyboardStateList: (
+      query: {
+        /** Wolf instance ID to query */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<WolfKeyboardStateResponse, string>({
+        path: `/api/v1/wolf/keyboard-state`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Reset keyboard state for a session, releasing all stuck keys
+     *
+     * @tags Wolf
+     * @name V1WolfKeyboardStateResetCreate
+     * @summary Reset Wolf keyboard state
+     * @request POST:/api/v1/wolf/keyboard-state/reset
+     * @secure
+     */
+    v1WolfKeyboardStateResetCreate: (
+      query: {
+        /** Wolf instance ID to query */
+        wolf_instance_id: string;
+        /** Session ID to reset keyboard for */
+        session_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<WolfKeyboardResetResponse, string>({
+        path: `/api/v1/wolf/keyboard-state/reset`,
+        method: "POST",
         query: query,
         secure: true,
         ...params,
