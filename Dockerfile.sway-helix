@@ -89,9 +89,10 @@ RUN mkdir -p /usr/share/backgrounds && \
 RUN mkdir -p /cfg/sway
 ADD wolf/sway-config/config /cfg/sway/custom-cfg
 
-# Copy and setup Zed startup script
+# Copy and setup Zed startup script and helper scripts
 ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh
+ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
 
 # Copy GOW startup script
 ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh

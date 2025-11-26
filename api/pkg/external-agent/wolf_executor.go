@@ -240,6 +240,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 			"/helix-dev/zed-build:/zed-build:ro",
 			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
 			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
+			"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
 		)
 	} else {
 		log.Debug().Msg("Production mode - using files baked into helix-sway image")
@@ -1436,6 +1437,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 			"/helix-dev/zed-build:/zed-build:ro",
 			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
 			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
+			"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
 		)
 	}
 
