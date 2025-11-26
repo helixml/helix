@@ -9,7 +9,9 @@ import {
   VolumeUp,
   VolumeOff,
   BarChart,
+  Keyboard,
 } from '@mui/icons-material';
+import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
@@ -89,6 +91,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
+  const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
   const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
 
   // Clipboard sync state
@@ -847,6 +850,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         return;
       }
 
+      // CRITICAL: Filter out browser auto-repeat events!
+      // When you hold a key, the browser fires repeated keydown events with event.repeat=true.
+      // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
+      // Forwarding browser repeats causes key flooding and stuck key issues.
+      if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       // Double-Escape to reset stuck modifiers (common workaround for Moonlight caps lock bug)
       if (event.code === 'Escape') {
         const now = Date.now();
@@ -1076,6 +1089,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </IconButton>
         <IconButton
           size="small"
+          onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
+          sx={{ color: showKeyboardPanel ? 'primary.main' : 'white' }}
+          title="Keyboard State Monitor"
+        >
+          <Keyboard fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
           onClick={toggleFullscreen}
           sx={{ color: 'white' }}
           title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1258,6 +1279,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {!stats.video.codec && <div>Waiting for video data...</div>}
           </Box>
         </Box>
+      )}
+
+      {/* Keyboard State Monitor Panel */}
+      {showKeyboardPanel && sessionId && (
+        <KeyboardObservabilityPanel
+          sandboxInstanceId={sessionId}
+          onClose={() => setShowKeyboardPanel(false)}
+        />
       )}
     </Box>
   );

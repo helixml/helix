@@ -60,6 +60,8 @@ RUN apt-get update && apt-get install -y \
     grim lsof \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
+    # Input device testing tools for keyboard state observability
+    evtest evemu-tools \
     # Shell and Git for repository access
     bash git openssh-client \
     # Emoji and icon fonts for waybar
