@@ -19,11 +19,11 @@ interface BranchSelectProps {
   size?: 'small' | 'medium'
 }
 
-const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
-  if (branches.length === 0) {
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
+  if (!branches || branches.length === 0) {
     return ''
   }
-  
+
   if (branches.includes('main')) {
     return 'main'
   }
@@ -35,7 +35,7 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
     return defaultBranch
   }
 
-  return branches[0]
+  return branches[0] || ''
 }
 
 const BranchSelect: FC<BranchSelectProps> = ({
@@ -74,7 +74,7 @@ const BranchSelect: FC<BranchSelectProps> = ({
           )}
           sx={{ fontWeight: 500 }}
         >
-          {branches.map((branch) => (
+          {branches?.map((branch) => (
             <MenuItem key={branch} value={branch}>
               {branch}
             </MenuItem>
