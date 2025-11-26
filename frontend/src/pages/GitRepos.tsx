@@ -27,6 +27,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
+import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -55,13 +56,11 @@ const GitRepos: FC = () => {
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)  
+  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
+  const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
   const [selectedSampleType, setSelectedSampleType] = useState('')
   const [demoRepoName, setDemoRepoName] = useState('')
   const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
-  const [repoName, setRepoName] = useState('')
-  const [repoDescription, setRepoDescription] = useState('')
-  const [koditIndexing, setKoditIndexing] = useState(true)
 
   // External repository states
   const [externalRepoName, setExternalRepoName] = useState('')
@@ -117,16 +116,16 @@ const GitRepos: FC = () => {
     }
   }
 
-  const handleCreateCustomRepo = async () => {
-    if (!repoName.trim() || !ownerId) return
+  const handleCreateCustomRepo = async (name: string, description: string, koditIndexing: boolean) => {
+    if (!name.trim() || !ownerId) return
 
     setCreating(true)
     setCreateError('')
     try {
       const apiClient = api.getApiClient()
       await apiClient.v1GitRepositoriesCreate({
-        name: repoName,
-        description: repoDescription,
+        name,
+        description,
         owner_id: ownerId,
         repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
@@ -139,13 +138,11 @@ const GitRepos: FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
       setCreateDialogOpen(false)
-      setRepoName('')
-      setRepoDescription('')
-      setKoditIndexing(true)
       setCreateError('')
     } catch (error) {
       console.error('Failed to create repository:', error)
       setCreateError(error instanceof Error ? error.message : 'Failed to create repository')
+      throw error // Re-throw so CreateRepositoryDialog knows it failed
     } finally {
       setCreating(false)
     }
@@ -473,81 +470,16 @@ const GitRepos: FC = () => {
         </Dialog>
 
         {/* Custom Repository Dialog */}
-        <Dialog open={createDialogOpen} onClose={() => {
-          setCreateDialogOpen(false)
-          setCreateError('')
-        }} maxWidth="sm" fullWidth>
-          <DialogTitle>Create New Repository</DialogTitle>
-          <DialogContent>
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              {createError && (
-                <Alert severity="error" onClose={() => setCreateError('')}>
-                  {createError}
-                </Alert>
-              )}
-
-              <TextField
-                label="Repository Name"
-                fullWidth
-                value={repoName}
-                onChange={(e) => setRepoName(e.target.value)}
-                helperText="Enter a name for your repository"
-                autoFocus
-              />
-
-              <TextField
-                label="Description"
-                fullWidth
-                multiline
-                rows={3}
-                value={repoDescription}
-                onChange={(e) => setRepoDescription(e.target.value)}
-                helperText="Describe the purpose of this repository"
-              />
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={koditIndexing}
-                    onChange={(e) => setKoditIndexing(e.target.checked)}
-                    color="primary"
-                  />
-                }
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Brain size={18} />
-                    <Typography variant="body2">
-                      Enable Code Intelligence
-                    </Typography>
-                  </Box>
-                }
-              />
-
-              <Alert severity="info">
-                {koditIndexing
-                  ? 'Code Intelligence enabled: Kodit will index this repository to provide code snippets and architectural summaries via MCP server.'
-                  : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
-                }
-              </Alert>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => {
-              setCreateDialogOpen(false)
-              setRepoName('')
-              setRepoDescription('')
-              setKoditIndexing(true)
-              setCreateError('')
-            }}>Cancel</Button>
-            <Button
-              onClick={handleCreateCustomRepo}
-              variant="contained"
-              disabled={!repoName.trim() || creating}
-            >
-              {creating ? <CircularProgress size={20} /> : 'Create'}
-            </Button>
-          </DialogActions>
-        </Dialog>      
+        <CreateRepositoryDialog
+          open={createDialogOpen}
+          onClose={() => {
+            setCreateDialogOpen(false)
+            setCreateError('')
+          }}
+          onSubmit={handleCreateCustomRepo}
+          isCreating={creating}
+          error={createError}
+        />
       </Container>
     </Page>
   )
