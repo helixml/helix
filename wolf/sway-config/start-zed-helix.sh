@@ -157,32 +157,81 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
         if [ "$BRANCH_EXISTS" = false ]; then
             echo "  📝 Creating helix-specs orphan branch (empty)..."
 
-            # Detect the default branch (could be main or master)
+            # Detect the current branch (what we need to return to after creating orphan)
+            # For empty repos, this is whatever branch git init created (usually master)
+            CURRENT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" branch --show-current 2>/dev/null)
+
+            # Detect the default branch from remote (could be main or master)
+            # For empty repos, there may be no remote branches yet
             REPO_DEFAULT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
             if [ -z "$REPO_DEFAULT_BRANCH" ]; then
-                # Fallback: try main first, then master
+                # Fallback: try main first, then master on remote
                 if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
                     REPO_DEFAULT_BRANCH="main"
                 elif git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
                     REPO_DEFAULT_BRANCH="master"
+                elif [ -n "$CURRENT_BRANCH" ]; then
+                    # Empty repo - use current branch (what git clone created)
+                    REPO_DEFAULT_BRANCH="$CURRENT_BRANCH"
                 else
                     REPO_DEFAULT_BRANCH="main"  # Last resort fallback
                 fi
             fi
 
+            echo "  📍 Current branch: ${CURRENT_BRANCH:-none}, will return to: $REPO_DEFAULT_BRANCH"
+
+            # Check if repo is empty (no commits on any branch)
+            REPO_IS_EMPTY=false
+            if ! git -C "$PRIMARY_REPO_PATH" rev-parse HEAD >/dev/null 2>&1; then
+                REPO_IS_EMPTY=true
+                echo "  📝 Repository is empty (no commits yet)"
+            fi
+
             # 1. Create orphan branch (no parent, no files)
-            # 2. Commit empty state
-            # 3. Push to remote
-            # 4. Switch back to default branch
-            if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-specs 2>&1 && \
-               (git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 || true) && \
-               git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" push origin helix-specs 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1; then
-                echo "  ✅ helix-specs orphan branch created (empty, no code files)"
-                BRANCH_EXISTS=true
+            # 2. Remove any staged files (only if not empty repo)
+            # 3. Commit empty state
+            # 4. Push to remote
+            # 5. Switch back to default branch (or create it if empty repo)
+            CREATE_SUCCESS=false
+            if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-specs 2>&1; then
+                # Only try to remove files if repo has content
+                if [ "$REPO_IS_EMPTY" = false ]; then
+                    git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 || true
+                fi
+                # Reset index for clean state
+                git -C "$PRIMARY_REPO_PATH" reset 2>&1 || true
+
+                if git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
+                   git -C "$PRIMARY_REPO_PATH" push origin helix-specs 2>&1; then
+                    echo "  ✅ helix-specs orphan branch created and pushed"
+                    CREATE_SUCCESS=true
+                    BRANCH_EXISTS=true
+                fi
+            fi
+
+            # Return to original branch
+            if [ "$CREATE_SUCCESS" = true ]; then
+                if [ "$REPO_IS_EMPTY" = true ]; then
+                    # For empty repos, create the default branch with an initial commit
+                    # so we have somewhere to return to
+                    if ! git -C "$PRIMARY_REPO_PATH" show-ref --verify "refs/heads/$REPO_DEFAULT_BRANCH" >/dev/null 2>&1; then
+                        echo "  📝 Creating initial $REPO_DEFAULT_BRANCH branch..."
+                        git -C "$PRIMARY_REPO_PATH" checkout --orphan "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                        git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
+                        git -C "$PRIMARY_REPO_PATH" push -u origin "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                    else
+                        git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                    fi
+                else
+                    git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                fi
+                echo "  ✅ Returned to $REPO_DEFAULT_BRANCH branch"
             else
                 echo "  ⚠️  Failed to create helix-specs orphan branch"
+                # Try to return to original state
+                if [ -n "$CURRENT_BRANCH" ]; then
+                    git -C "$PRIMARY_REPO_PATH" checkout "$CURRENT_BRANCH" 2>&1 || true
+                fi
             fi
         fi
 
