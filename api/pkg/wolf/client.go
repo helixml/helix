@@ -734,3 +734,120 @@ func (c *Client) GetSystemHealth(ctx context.Context) (*SystemHealthResponse, er
 
 	return &result, nil
 }
+
+// KeyboardModifierState represents the state of modifier keys
+type KeyboardModifierState struct {
+	Shift bool `json:"shift"`
+	Ctrl  bool `json:"ctrl"`
+	Alt   bool `json:"alt"`
+	Meta  bool `json:"meta"`
+}
+
+// KeyboardLayerState represents one layer of keyboard state (Wolf/Inputtino/Evdev)
+type KeyboardLayerState struct {
+	PressedKeys     []int32               `json:"pressed_keys"`      // Key codes (VK for wolf/inputtino, KEY_* for evdev)
+	PressedKeyNames []string              `json:"pressed_key_names"` // Human-readable names
+	ModifierState   KeyboardModifierState `json:"modifier_state"`
+}
+
+// SessionKeyboardState represents keyboard state for a single session
+type SessionKeyboardState struct {
+	SessionID   string `json:"session_id"`
+	TimestampMS int64  `json:"timestamp_ms"`
+	DeviceName  string `json:"device_name"`
+	DeviceNode  string `json:"device_node"` // e.g., /dev/input/event15
+
+	// Three layers of keyboard state for debugging:
+	WolfState      KeyboardLayerState `json:"wolf_state"`      // Wolf's view - Moonlight events received
+	InputtinoState KeyboardLayerState `json:"inputtino_state"` // Inputtino's internal cur_press_keys
+	EvdevState     KeyboardLayerState `json:"evdev_state"`     // Kernel's evdev state
+
+	// Mismatch detection
+	HasMismatch         bool   `json:"has_mismatch"`
+	MismatchDescription string `json:"mismatch_description"`
+
+	// Legacy fields for backwards compatibility
+	PressedKeys     []int32               `json:"pressed_keys"`
+	PressedKeyNames []string              `json:"pressed_key_names"`
+	ModifierState   KeyboardModifierState `json:"modifier_state"`
+}
+
+// KeyboardStateResponse represents Wolf's response for keyboard state
+type KeyboardStateResponse struct {
+	Success  bool                   `json:"success"`
+	Sessions []SessionKeyboardState `json:"sessions"`
+}
+
+// KeyboardResetRequest represents a request to reset keyboard state for a session
+type KeyboardResetRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+// KeyboardResetResponse represents the response from a keyboard reset
+type KeyboardResetResponse struct {
+	Success      bool     `json:"success"`
+	ReleasedKeys []string `json:"released_keys"`
+	Message      string   `json:"message"`
+}
+
+// GetKeyboardState retrieves the current keyboard state for all sessions from Wolf
+func (c *Client) GetKeyboardState(ctx context.Context) (*KeyboardStateResponse, error) {
+	resp, err := c.Get(ctx, "/api/v1/keyboard/state")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keyboard state: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result KeyboardStateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
+}
+
+// ResetKeyboardState releases all stuck keys for a given session
+func (c *Client) ResetKeyboardState(ctx context.Context, sessionID string) (*KeyboardResetResponse, error) {
+	reqBody := KeyboardResetRequest{SessionID: sessionID}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1/keyboard/reset", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result KeyboardResetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
+}

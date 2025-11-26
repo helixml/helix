@@ -660,6 +660,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/wolf/ui-app-id", apiServer.getWolfUIAppID).Methods("GET")
 	// Wolf system health monitoring (thread heartbeats, deadlock detection)
 	authRouter.HandleFunc("/wolf/health", apiServer.getWolfHealth).Methods("GET")
+	// Wolf keyboard state observability (debugging stuck keys, modifier state)
+	authRouter.HandleFunc("/wolf/keyboard-state", apiServer.getWolfKeyboardState).Methods("GET")
+	authRouter.HandleFunc("/wolf/keyboard-state/reset", apiServer.resetWolfKeyboardState).Methods("POST")
 
 	// Wolf instance registry routes (multi-Wolf support)
 	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")

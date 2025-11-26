@@ -208,3 +208,164 @@ func (apiServer *HelixAPIServer) getWolfHealth(res http.ResponseWriter, req *htt
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(healthResponse)
 }
+
+// getWolfKeyboardState handles GET /api/v1/wolf/keyboard-state
+// Returns keyboard state for all streaming sessions (pressed keys, modifiers)
+//
+// @Summary Get Wolf keyboard state
+// @Description Get current keyboard state for all streaming sessions, useful for debugging stuck keys
+// @Tags Wolf
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
+// @Success 200 {object} wolf.KeyboardStateResponse
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 503 {string} string "Wolf not available"
+// @Router /api/v1/wolf/keyboard-state [get]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) getWolfKeyboardState(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get Wolf instance ID from query parameter
+	// The frontend may pass a session ID, in which case we look up the wolf_instance_id from the session
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the provided ID looks like a session ID (starts with "ses_")
+	// If so, look up the actual wolf_instance_id from the session
+	if len(wolfInstanceID) > 4 && wolfInstanceID[:4] == "ses_" {
+		session, err := apiServer.Store.GetSession(req.Context(), wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", wolfInstanceID).Msg("Failed to get session")
+			http.Error(res, fmt.Sprintf("Session not found: %s", wolfInstanceID), http.StatusNotFound)
+			return
+		}
+		if session.WolfInstanceID == "" {
+			http.Error(res, "Session does not have a Wolf instance ID assigned", http.StatusBadRequest)
+			return
+		}
+		wolfInstanceID = session.WolfInstanceID
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Resolved session ID to Wolf instance ID")
+	}
+
+	// Get Wolf client from the executor
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
+	if wolfClient == nil {
+		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	keyboardState, err := wolfClient.GetKeyboardState(req.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get Wolf keyboard state")
+		http.Error(res, fmt.Sprintf("Failed to get keyboard state: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Int("session_count", len(keyboardState.Sessions)).
+		Msg("Retrieved Wolf keyboard state")
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(keyboardState)
+}
+
+// resetWolfKeyboardState handles POST /api/v1/wolf/keyboard-state/reset
+// Resets keyboard state for a specific session (clears stuck keys)
+//
+// @Summary Reset Wolf keyboard state
+// @Description Reset keyboard state for a session, releasing all stuck keys
+// @Tags Wolf
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
+// @Param session_id query string true "Session ID to reset keyboard for"
+// @Success 200 {object} wolf.KeyboardResetResponse
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 503 {string} string "Wolf not available"
+// @Router /api/v1/wolf/keyboard-state/reset [post]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) resetWolfKeyboardState(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get Wolf instance ID from query parameter
+	// The frontend may pass a session ID, in which case we look up the wolf_instance_id from the session
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get session ID from query parameter (this is the Wolf session ID for the keyboard reset)
+	sessionID := req.URL.Query().Get("session_id")
+	if sessionID == "" {
+		http.Error(res, "session_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the provided wolf_instance_id looks like a session ID (starts with "ses_")
+	// If so, look up the actual wolf_instance_id from the session
+	if len(wolfInstanceID) > 4 && wolfInstanceID[:4] == "ses_" {
+		session, err := apiServer.Store.GetSession(req.Context(), wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", wolfInstanceID).Msg("Failed to get session")
+			http.Error(res, fmt.Sprintf("Session not found: %s", wolfInstanceID), http.StatusNotFound)
+			return
+		}
+		if session.WolfInstanceID == "" {
+			http.Error(res, "Session does not have a Wolf instance ID assigned", http.StatusBadRequest)
+			return
+		}
+		wolfInstanceID = session.WolfInstanceID
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Resolved session ID to Wolf instance ID")
+	}
+
+	// Get Wolf client from the executor
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
+	if wolfClient == nil {
+		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	resetResponse, err := wolfClient.ResetKeyboardState(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to reset Wolf keyboard state")
+		http.Error(res, fmt.Sprintf("Failed to reset keyboard state: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("session_id", sessionID).
+		Int("released_count", len(resetResponse.ReleasedKeys)).
+		Msg("Reset Wolf keyboard state")
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(resetResponse)
+}

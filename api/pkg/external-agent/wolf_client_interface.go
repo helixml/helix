@@ -24,6 +24,9 @@ type WolfClientInterface interface {
 	// Pairing operations (used by Wolf pairing handlers)
 	GetPendingPairRequests() ([]wolf.PendingPairRequest, error)
 	PairClient(pairSecret, pin string) error
+	// Keyboard state observability (used for debugging stuck modifier keys)
+	GetKeyboardState(ctx context.Context) (*wolf.KeyboardStateResponse, error)
+	ResetKeyboardState(ctx context.Context, sessionID string) (*wolf.KeyboardResetResponse, error)
 	// Raw HTTP access (used for SSE streaming)
 	Get(ctx context.Context, path string) (*http.Response, error)
 }
