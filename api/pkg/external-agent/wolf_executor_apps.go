@@ -61,6 +61,9 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 		log.Info().Msg("Wolf executor (apps mode) initialized (production mode - using files baked into image)")
 	}
 
+	// Resolve ZED_IMAGE: prefer versioned tag from embedded metadata
+	resolvedZedImage := resolveZedImage(zedImage)
+
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
@@ -68,7 +71,7 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 		wsChecker:         wsChecker,
 		store:             store,
 		sessions:          make(map[string]*ZedSession),
-		zedImage:          zedImage,
+		zedImage:          resolvedZedImage,
 		helixAPIURL:       helixAPIURL,
 		helixAPIToken:     helixAPIToken,
 		workspaceBasePath: "/opt/helix/filestore/workspaces",
@@ -826,6 +829,53 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 }
 
 // Helper functions shared between apps and lobbies executors
+
+// resolveZedImage determines the correct helix-sway image tag to use
+// Priority: 1) ZED_IMAGE env var if explicitly set to versioned tag
+//
+//	2) Version from /opt/images/helix-sway.version (embedded at build time)
+//	3) Fallback to :latest for backwards compatibility
+func resolveZedImage(envZedImage string) string {
+	const versionFile = "/opt/images/helix-sway.version"
+
+	// If env var is set to something other than default :latest, use it
+	if envZedImage != "" && envZedImage != "helix-sway:latest" {
+		log.Info().
+			Str("zed_image", envZedImage).
+			Msg("Using ZED_IMAGE from environment (non-default)")
+		return envZedImage
+	}
+
+	// Try to read version from embedded metadata file
+	versionBytes, err := os.ReadFile(versionFile)
+	if err == nil {
+		version := strings.TrimSpace(string(versionBytes))
+		if version != "" {
+			versionedImage := fmt.Sprintf("helix-sway:%s", version)
+			log.Info().
+				Str("version", version).
+				Str("zed_image", versionedImage).
+				Str("version_file", versionFile).
+				Msg("Using versioned helix-sway image from embedded metadata")
+			return versionedImage
+		}
+	} else if !os.IsNotExist(err) {
+		log.Warn().
+			Err(err).
+			Str("version_file", versionFile).
+			Msg("Failed to read helix-sway version file")
+	}
+
+	// Fallback to :latest (backwards compatibility)
+	fallbackImage := envZedImage
+	if fallbackImage == "" {
+		fallbackImage = "helix-sway:latest"
+	}
+	log.Info().
+		Str("zed_image", fallbackImage).
+		Msg("Using default helix-sway:latest (no version file found)")
+	return fallbackImage
+}
 
 // getShortID returns last 4 characters of an ID for compact display names
 func getShortID(id string) string {
