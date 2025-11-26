@@ -4700,17 +4700,17 @@ func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta
 }
 
 // UpdateWolfHeartbeat mocks base method.
-func (m *MockStore) UpdateWolfHeartbeat(ctx context.Context, id string) error {
+func (m *MockStore) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateWolfHeartbeat", ctx, id)
+	ret := m.ctrl.Call(m, "UpdateWolfHeartbeat", ctx, id, swayVersion)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateWolfHeartbeat indicates an expected call of UpdateWolfHeartbeat.
-func (mr *MockStoreMockRecorder) UpdateWolfHeartbeat(ctx, id any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateWolfHeartbeat(ctx, id, swayVersion any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWolfHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateWolfHeartbeat), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWolfHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateWolfHeartbeat), ctx, id, swayVersion)
 }
 
 // UpdateWolfStatus mocks base method.

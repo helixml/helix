@@ -519,7 +519,7 @@ echo "ℹ️  Moonlight Web RevDial will start after Moonlight Web (in startup-a
 EOF
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
-# 08: Start Wolf instance heartbeat (sends periodic heartbeats to API)
+# 08: Start Wolf instance heartbeat (sends periodic heartbeats to API with sway version)
 RUN cat > /etc/cont-init.d/08-start-wolf-heartbeat.sh << 'EOF'
 #!/bin/bash
 set -e
@@ -533,15 +533,30 @@ fi
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
 echo "💓 Starting Wolf heartbeat service for instance: $WOLF_INSTANCE_ID"
 
+# Read sway version from embedded metadata (set at build time)
+SWAY_VERSION=""
+if [ -f /opt/images/helix-sway.version ]; then
+    SWAY_VERSION=$(cat /opt/images/helix-sway.version)
+    echo "📦 Reporting helix-sway version: ${SWAY_VERSION}"
+fi
+
 # Start heartbeat loop in background
 (
     while true; do
-        # Send heartbeat to API
+        # Build heartbeat request body with sway version
+        HEARTBEAT_BODY="{}"
+        if [ -n "$SWAY_VERSION" ]; then
+            HEARTBEAT_BODY="{\"sway_version\": \"${SWAY_VERSION}\"}"
+        fi
+
+        # Send heartbeat to API with version metadata
         if curl -sf -X POST \
             -H "Authorization: Bearer $RUNNER_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$HEARTBEAT_BODY" \
             "$HELIX_API_URL/api/v1/wolf-instances/$WOLF_INSTANCE_ID/heartbeat" \
             >/dev/null 2>&1; then
-            echo "[$(date -Iseconds)] ✅ Heartbeat sent successfully"
+            echo "[$(date -Iseconds)] ✅ Heartbeat sent (sway: ${SWAY_VERSION:-unknown})"
         else
             echo "[$(date -Iseconds)] ⚠️  Heartbeat failed (API may not be ready yet)"
         fi

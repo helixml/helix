@@ -11,7 +11,8 @@ type WolfInstance struct {
 	LastHeartbeat      time.Time `gorm:"index" json:"last_heartbeat"`
 	ConnectedSandboxes int       `gorm:"default:0" json:"connected_sandboxes"`
 	MaxSandboxes       int       `gorm:"default:10" json:"max_sandboxes"`
-	GPUType            string    `gorm:"type:varchar(100)" json:"gpu_type"` // nvidia, amd, none
+	GPUType            string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, none
+	SwayVersion        string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (commit hash)
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -31,6 +32,11 @@ type WolfInstanceRequest struct {
 	GPUType      string `json:"gpu_type,omitempty"`
 }
 
+// WolfHeartbeatRequest is the request body for Wolf instance heartbeat
+type WolfHeartbeatRequest struct {
+	SwayVersion string `json:"sway_version,omitempty"` // helix-sway image version (commit hash)
+}
+
 // WolfInstanceResponse is the API response for a Wolf instance
 type WolfInstanceResponse struct {
 	ID                 string    `json:"id"`
@@ -41,6 +47,7 @@ type WolfInstanceResponse struct {
 	ConnectedSandboxes int       `json:"connected_sandboxes"`
 	MaxSandboxes       int       `json:"max_sandboxes"`
 	GPUType            string    `json:"gpu_type"`
+	SwayVersion        string    `json:"sway_version"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -56,6 +63,7 @@ func (w *WolfInstance) ToResponse() *WolfInstanceResponse {
 		ConnectedSandboxes: w.ConnectedSandboxes,
 		MaxSandboxes:       w.MaxSandboxes,
 		GPUType:            w.GPUType,
+		SwayVersion:        w.SwayVersion,
 		CreatedAt:          w.CreatedAt,
 		UpdatedAt:          w.UpdatedAt,
 	}

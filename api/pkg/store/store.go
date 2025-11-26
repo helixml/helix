@@ -582,7 +582,7 @@ type Store interface {
 
 	// Wolf instance methods
 	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
-	UpdateWolfHeartbeat(ctx context.Context, id string) error
+	UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error
 	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
 	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
 	DeregisterWolfInstance(ctx context.Context, id string) error

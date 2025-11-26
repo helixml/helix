@@ -74,8 +74,12 @@ func (apiServer *HelixAPIServer) registerWolfInstance(rw http.ResponseWriter, r 
 
 // wolfInstanceHeartbeat godoc
 // @Summary Send heartbeat for a Wolf instance
-// @Description Update the last heartbeat timestamp for a Wolf instance
+// @Description Update the last heartbeat timestamp and optional metadata for a Wolf instance
 // @Tags    wolf
+// @Accept  json
+// @Produce json
+// @Param id path string true "Wolf instance ID"
+// @Param request body types.WolfHeartbeatRequest false "Heartbeat metadata"
 // @Success 200 {string} string "OK"
 // @Failure 404 {string} string "Wolf instance not found"
 // @Failure 500 {string} string "Internal server error"
@@ -85,7 +89,16 @@ func (apiServer *HelixAPIServer) wolfInstanceHeartbeat(rw http.ResponseWriter, r
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	err := apiServer.Store.UpdateWolfHeartbeat(r.Context(), id)
+	// Parse optional request body for metadata (sway_version, etc.)
+	var req types.WolfHeartbeatRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			// Non-fatal: old clients may send empty body
+			log.Debug().Err(err).Str("wolf_id", id).Msg("error decoding heartbeat request body (ignoring)")
+		}
+	}
+
+	err := apiServer.Store.UpdateWolfHeartbeat(r.Context(), id, req.SwayVersion)
 	if err != nil {
 		if err == store.ErrNotFound {
 			http.Error(rw, "Wolf instance not found", http.StatusNotFound)
@@ -94,6 +107,14 @@ func (apiServer *HelixAPIServer) wolfInstanceHeartbeat(rw http.ResponseWriter, r
 		log.Error().Err(err).Str("wolf_id", id).Msg("error updating Wolf heartbeat")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Log version if provided (helps debugging)
+	if req.SwayVersion != "" {
+		log.Debug().
+			Str("wolf_id", id).
+			Str("sway_version", req.SwayVersion).
+			Msg("Wolf heartbeat received with sway version")
 	}
 
 	writeResponse(rw, map[string]string{"status": "ok"}, http.StatusOK)
