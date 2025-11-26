@@ -101,14 +101,14 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   const tableData = useMemo(() => {
     return paginatedRepositories.map((repo: TypesGitRepository) => {
       const updatedAt = repo.updated_at || repo.created_at
-      const updatedTime = updatedAt 
-        ? new Date(updatedAt).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })
+      const updatedTime = updatedAt
+        ? new Date(updatedAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
         : 'Never'
 
       return {
@@ -151,7 +151,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
                     sx={{ height: 20, fontSize: '0.75rem' }}
                   />
                 )}
-                {repo.metadata?.kodit_indexing && (
+                {repo.kodit_indexing && (
                   <Chip
                     icon={<Brain size={12} />}
                     label="Code Intelligence"
@@ -210,7 +210,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
             <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
             <span style={{ fontWeight: 600 }}>repositories</span>
           </Typography>
-        </Box>        
+        </Box>
       </Box>
 
       {filteredRepositories.length === 0 && searchQuery ? (

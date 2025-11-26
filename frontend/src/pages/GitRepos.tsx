@@ -20,7 +20,7 @@ import {
   Select,
   MenuItem,
   FormControlLabel,
-  Switch, 
+  Switch,
 } from '@mui/material'
 import { GitBranch, Plus, Brain, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -331,7 +331,7 @@ const GitRepos: FC = () => {
                           sx={{ height: 20, fontSize: '0.75rem' }}
                         />
                       )}
-                      {repo.metadata?.kodit_indexing && (
+                      {repo.kodit_indexing && (
                         <Chip
                           icon={<Brain size={12} />}
                           label="Code Intelligence"
