@@ -110,7 +110,10 @@ custom_launcher() {
     "sway/scratchpad",
     "custom/firefox",
     "custom/kitty",
-    "custom/onlyoffice"
+    "custom/onlyoffice",
+    "custom/keyboard-us",
+    "custom/keyboard-gb",
+    "custom/keyboard-fr"
   ],
   "modules-center": [
     "sway/window"
@@ -141,6 +144,24 @@ custom_launcher() {
     "tooltip": true,
     "tooltip-format": "OnlyOffice",
     "on-click": "onlyoffice-desktopeditors"
+  },
+  "custom/keyboard-us": {
+    "format": "🇺🇸",
+    "tooltip": true,
+    "tooltip-format": "Switch to US keyboard layout",
+    "on-click": "swaymsg input type:keyboard xkb_switch_layout 0"
+  },
+  "custom/keyboard-gb": {
+    "format": "🇬🇧",
+    "tooltip": true,
+    "tooltip-format": "Switch to UK keyboard layout",
+    "on-click": "swaymsg input type:keyboard xkb_switch_layout 1"
+  },
+  "custom/keyboard-fr": {
+    "format": "🇫🇷",
+    "tooltip": true,
+    "tooltip-format": "Switch to French keyboard layout",
+    "on-click": "swaymsg input type:keyboard xkb_switch_layout 2"
   },
   "sway/mode": {
     "format": "<span style=\"italic\">{}</span>"

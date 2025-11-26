@@ -262,6 +262,7 @@ services:
         - ZED_IMAGE=helix-sway:latest
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
         - HELIX_API_URL=http://api:8080
+        - HELIX_API_BASE_URL=http://api:8080
         - WOLF_INSTANCE_ID=local
         - RUNNER_TOKEN=oh-hallo-insecure-token
         # Wolf configuration (legacy env vars for compatibility)
@@ -353,6 +354,7 @@ services:
         - ZED_IMAGE=helix-sway:latest
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
         - HELIX_API_URL=http://api:8080
+        - HELIX_API_BASE_URL=http://api:8080
         - WOLF_INSTANCE_ID=local
         - RUNNER_TOKEN=oh-hallo-insecure-token
         # Wolf configuration (legacy env vars for compatibility)

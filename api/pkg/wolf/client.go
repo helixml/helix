@@ -743,14 +743,33 @@ type KeyboardModifierState struct {
 	Meta  bool `json:"meta"`
 }
 
+// KeyboardLayerState represents one layer of keyboard state (Wolf/Inputtino/Evdev)
+type KeyboardLayerState struct {
+	PressedKeys     []int32               `json:"pressed_keys"`      // Key codes (VK for wolf/inputtino, KEY_* for evdev)
+	PressedKeyNames []string              `json:"pressed_key_names"` // Human-readable names
+	ModifierState   KeyboardModifierState `json:"modifier_state"`
+}
+
 // SessionKeyboardState represents keyboard state for a single session
 type SessionKeyboardState struct {
-	SessionID       string                `json:"session_id"`
-	TimestampMS     int64                 `json:"timestamp_ms"`
+	SessionID   string `json:"session_id"`
+	TimestampMS int64  `json:"timestamp_ms"`
+	DeviceName  string `json:"device_name"`
+	DeviceNode  string `json:"device_node"` // e.g., /dev/input/event15
+
+	// Three layers of keyboard state for debugging:
+	WolfState      KeyboardLayerState `json:"wolf_state"`      // Wolf's view - Moonlight events received
+	InputtinoState KeyboardLayerState `json:"inputtino_state"` // Inputtino's internal cur_press_keys
+	EvdevState     KeyboardLayerState `json:"evdev_state"`     // Kernel's evdev state
+
+	// Mismatch detection
+	HasMismatch         bool   `json:"has_mismatch"`
+	MismatchDescription string `json:"mismatch_description"`
+
+	// Legacy fields for backwards compatibility
 	PressedKeys     []int32               `json:"pressed_keys"`
 	PressedKeyNames []string              `json:"pressed_key_names"`
 	ModifierState   KeyboardModifierState `json:"modifier_state"`
-	DeviceName      string                `json:"device_name"`
 }
 
 // KeyboardStateResponse represents Wolf's response for keyboard state

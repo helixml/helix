@@ -11351,6 +11351,99 @@
                 }
             }
         },
+        "/api/v1/wolf/keyboard-state": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get current keyboard state for all streaming sessions, useful for debugging stuck keys",
+                "tags": [
+                    "Wolf"
+                ],
+                "summary": "Get Wolf keyboard state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/wolf.KeyboardStateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Wolf not available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wolf/keyboard-state/reset": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Reset keyboard state for a session, releasing all stuck keys",
+                "tags": [
+                    "Wolf"
+                ],
+                "summary": "Reset Wolf keyboard state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID to reset keyboard for",
+                        "name": "session_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/wolf.KeyboardResetResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Wolf not available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/wolf/ui-app-id": {
             "get": {
                 "description": "Get the Wolf UI app ID for lobbies mode streaming",
@@ -23409,6 +23502,83 @@
                 },
                 "zed_instance_id": {
                     "type": "string"
+                }
+            }
+        },
+        "wolf.KeyboardModifierState": {
+            "type": "object",
+            "properties": {
+                "alt": {
+                    "type": "boolean"
+                },
+                "ctrl": {
+                    "type": "boolean"
+                },
+                "meta": {
+                    "type": "boolean"
+                },
+                "shift": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "wolf.KeyboardResetResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "released_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "wolf.KeyboardStateResponse": {
+            "type": "object",
+            "properties": {
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wolf.SessionKeyboardState"
+                    }
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "wolf.SessionKeyboardState": {
+            "type": "object",
+            "properties": {
+                "device_name": {
+                    "type": "string"
+                },
+                "modifier_state": {
+                    "$ref": "#/definitions/wolf.KeyboardModifierState"
+                },
+                "pressed_key_names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pressed_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp_ms": {
+                    "type": "integer"
                 }
             }
         },

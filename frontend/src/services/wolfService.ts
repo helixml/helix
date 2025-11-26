@@ -93,24 +93,17 @@ export function useWolfKeyboardState(options: {
   refetchInterval?: number | false;
 }) {
   const api = useApi()
+  const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: WOLF_KEYBOARD_STATE_QUERY_KEY(options.sandboxInstanceId),
     queryFn: async (): Promise<KeyboardStateResponse | null> => {
       if (!options.sandboxInstanceId) return null
-      // Use fetch directly since generated client might not have this endpoint yet
-      const response = await fetch(
-        `/api/v1/wolf/keyboard-state?wolf_instance_id=${encodeURIComponent(options.sandboxInstanceId)}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${api.getToken()}`,
-          },
-        }
-      )
-      if (!response.ok) {
-        throw new Error(`Failed to fetch keyboard state: ${response.statusText}`)
-      }
-      return response.json()
+      const result = await apiClient.v1WolfKeyboardStateList({
+        wolf_instance_id: options.sandboxInstanceId
+      })
+      // The generated client returns Axios response, need to extract .data
+      return result.data as KeyboardStateResponse
     },
     // Poll every 500ms for responsive visualization
     refetchInterval: options?.refetchInterval ?? 500,
@@ -125,23 +118,17 @@ export function useWolfKeyboardState(options: {
  */
 export function useResetWolfKeyboardState(sandboxInstanceId: string) {
   const api = useApi()
+  const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (sessionId: string): Promise<KeyboardResetResponse> => {
-      const response = await fetch(
-        `/api/v1/wolf/keyboard-state/reset?wolf_instance_id=${encodeURIComponent(sandboxInstanceId)}&session_id=${encodeURIComponent(sessionId)}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${api.getToken()}`,
-          },
-        }
-      )
-      if (!response.ok) {
-        throw new Error(`Failed to reset keyboard state: ${response.statusText}`)
-      }
-      return response.json()
+      const result = await apiClient.v1WolfKeyboardStateResetCreate({
+        wolf_instance_id: sandboxInstanceId,
+        session_id: sessionId
+      })
+      // The generated client returns Axios response, need to extract .data
+      return result.data as KeyboardResetResponse
     },
     onSuccess: () => {
       // Invalidate keyboard state to refresh after reset
