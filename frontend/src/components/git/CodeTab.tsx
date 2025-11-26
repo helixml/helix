@@ -44,11 +44,11 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
 
-const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
-  if (branches.length === 0) {
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
+  if (!branches || branches.length === 0) {
     return ''
   }
-  
+
   if (branches.includes('main')) {
     return 'main'
   }
@@ -60,7 +60,7 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
     return defaultBranch
   }
 
-  return branches[0]
+  return branches[0] || ''
 }
 
 interface CodeTabProps {
@@ -199,15 +199,15 @@ const CodeTab: FC<CodeTabProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {enrichments.length > 0 && groupedEnrichments['architecture'] && (
+      {enrichments?.length > 0 && groupedEnrichments?.['architecture'] && (
         <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, fontWeight: 600 }}>
             {getEnrichmentTypeIcon('architecture')} {getEnrichmentTypeName('architecture')} Insights
           </Typography>
           <Stack spacing={2}>
-            {groupedEnrichments['architecture'].map((enrichment: any, index: number) => (
-              <Box key={enrichment.id || index}>
-                {enrichment.attributes?.subtype && (
+            {groupedEnrichments['architecture']?.map((enrichment: any, index: number) => (
+              <Box key={enrichment?.id || index}>
+                {enrichment?.attributes?.subtype && (
                   <Chip
                     label={enrichment.attributes.subtype}
                     size="small"
@@ -215,7 +215,7 @@ const CodeTab: FC<CodeTabProps> = ({
                   />
                 )}
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                  {enrichment.attributes?.content}
+                  {enrichment?.attributes?.content}
                 </Typography>
               </Box>
             ))}
@@ -375,12 +375,12 @@ const CodeTab: FC<CodeTabProps> = ({
                   {treeData?.entries && treeData.entries.length > 0 ? (
                     treeData.entries
                       .sort((a, b) => {
-                        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-                        return (a.name || '').localeCompare(b.name || '')
+                        if (a?.is_dir !== b?.is_dir) return a?.is_dir ? -1 : 1
+                        return (a?.name || '').localeCompare(b?.name || '')
                       })
                       .map((entry) => (
                         <Box
-                          key={entry.path}
+                          key={entry?.path}
                           sx={{
                             display: 'flex',
                             alignItems: 'center',
@@ -390,9 +390,9 @@ const CodeTab: FC<CodeTabProps> = ({
                             cursor: 'pointer',
                             borderBottom: 1,
                             borderColor: 'divider',
-                            backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+                            backgroundColor: selectedFile === entry?.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
                             '&:hover': {
-                              backgroundColor: selectedFile === entry.path
+                              backgroundColor: selectedFile === entry?.path
                                 ? 'rgba(25, 118, 210, 0.12)'
                                 : 'rgba(0, 0, 0, 0.02)',
                             },
@@ -400,17 +400,17 @@ const CodeTab: FC<CodeTabProps> = ({
                               borderBottom: 0,
                             },
                           }}
-                          onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
+                          onClick={() => handleSelectFile(entry?.path || '', entry?.is_dir || false)}
                         >
-                          {entry.is_dir ? (
+                          {entry?.is_dir ? (
                             <Folder size={18} color="#54aeff" />
                           ) : (
                             <FileText size={18} color="#656d76" />
                           )}
                           <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
-                            {entry.name}
+                            {entry?.name}
                           </Typography>
-                          {!entry.is_dir && entry.size !== undefined && (
+                          {!entry?.is_dir && entry?.size !== undefined && (
                             <Typography variant="caption" color="text.secondary">
                               {entry.size > 1024
                                 ? `${Math.round(entry.size / 1024)} KB`
@@ -444,7 +444,7 @@ const CodeTab: FC<CodeTabProps> = ({
                 bgcolor: 'rgba(0, 0, 0, 0.02)'
               }}>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                  {selectedFile.split('/').pop()}
+                  {selectedFile?.split('/').pop() || ''}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <Tooltip title="Edit file">
@@ -499,7 +499,7 @@ const CodeTab: FC<CodeTabProps> = ({
             </Typography>
 
             <Stack spacing={2}>
-              {repository.description && (
+              {repository?.description && (
                 <Typography variant="body2" color="text.secondary">
                   {repository.description}
                 </Typography>
@@ -512,11 +512,11 @@ const CodeTab: FC<CodeTabProps> = ({
                   Type
                 </Typography>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {repository.repo_type || 'project'}
+                  {repository?.repo_type || 'project'}
                 </Typography>
               </Box>
 
-              {repository.default_branch && (
+              {repository?.default_branch && (
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                     Default Branch
@@ -531,7 +531,7 @@ const CodeTab: FC<CodeTabProps> = ({
               )}
 
               {/* If repository is external, show the external URL */}
-              {repository.is_external && repository.external_url && (
+              {repository?.is_external && repository?.external_url && (
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                     Upstream URL
@@ -549,11 +549,11 @@ const CodeTab: FC<CodeTabProps> = ({
                   Created
                 </Typography>
                 <Typography variant="body2">
-                  {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
+                  {repository?.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
                 </Typography>
               </Box>
 
-              {repository.updated_at && (
+              {repository?.updated_at && (
                 <Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                     Last Updated
@@ -581,13 +581,13 @@ const CodeTab: FC<CodeTabProps> = ({
                 You can view the existing pull request here:
               </Typography>
               <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                {existingPR.url ? (
+                {existingPR?.url ? (
                     <a href={existingPR.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 8 }}>
-                       <GitPullRequest size={16} /> #{existingPR.number} {existingPR.title} <ExternalLink size={14} />
+                       <GitPullRequest size={16} /> #{existingPR?.number} {existingPR?.title} <ExternalLink size={14} />
                     </a>
                 ) : (
                     <Typography variant="body2">
-                        #{existingPR.number} {existingPR.title} (No URL available)
+                        #{existingPR?.number} {existingPR?.title} (No URL available)
                     </Typography>
                 )}
               </Box>

@@ -88,8 +88,8 @@ const getTabName = (name: string | undefined): TabName => {
   return TAB_NAMES[0]
 }
 
-const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
-  if (branches.length === 0) {
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
+  if (!branches || branches.length === 0) {
     return ''
   }
 
@@ -104,7 +104,7 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
     return defaultBranch
   }
 
-  return branches[0]
+  return branches[0] || ''
 }
 
 const GitRepoDetail: FC = () => {
@@ -242,7 +242,7 @@ const GitRepoDetail: FC = () => {
 
   // Auto-select default branch when repository loads and no branch is specified
   React.useEffect(() => {
-    if (repository && !branchFromQuery && branches.length > 0) {
+    if (repository && !branchFromQuery && branches && branches.length > 0) {
       const defaultBranch = getFallbackBranch(repository.default_branch, branches)
       setCurrentBranch(defaultBranch)
     }
@@ -252,9 +252,9 @@ const GitRepoDetail: FC = () => {
   React.useEffect(() => {
     if (treeData?.entries && !selectedFile) {
       const readme = treeData.entries.find(entry =>
-        entry.name?.toLowerCase() === 'readme.md' && !entry.is_dir
+        entry?.name?.toLowerCase() === 'readme.md' && !entry?.is_dir
       )
-      if (readme && readme.path) {
+      if (readme?.path) {
         setSelectedFile(readme.path)
       }
     }
@@ -481,7 +481,7 @@ const GitRepoDetail: FC = () => {
     try {
       // Base64 encode content (handling unicode)
       const encodedContent = btoa(unescape(encodeURIComponent(newFileContent)))
-      const branch = currentBranch || repository.default_branch || 'main'
+      const branch = currentBranch || repository?.default_branch || 'main'
 
       await createOrUpdateFileMutation.mutateAsync({
         repositoryId: repoId,
@@ -857,7 +857,7 @@ const GitRepoDetail: FC = () => {
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <TextField
                       fullWidth
-                      value={repository.metadata.external_url}
+                      value={repository.metadata?.external_url || ''}
                       InputProps={{
                         readOnly: true,
                         sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
@@ -865,7 +865,7 @@ const GitRepoDetail: FC = () => {
                     />
                     <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
                       <IconButton
-                        onClick={() => handleCopyCloneCommand(repository.metadata.external_url)}
+                        onClick={() => handleCopyCloneCommand(repository.metadata?.external_url || '')}
                         color={copiedClone ? 'success' : 'default'}
                       >
                         <Copy size={18} />
@@ -876,9 +876,9 @@ const GitRepoDetail: FC = () => {
                     variant="outlined"
                     fullWidth
                     startIcon={<ExternalLink size={16} />}
-                    onClick={() => window.open(repository.metadata.external_url, '_blank')}
+                    onClick={() => window.open(repository.metadata?.external_url || '', '_blank')}
                   >
-                    Open in {repository.metadata.external_type || 'Browser'}
+                    Open in {repository.metadata?.external_type || 'Browser'}
                   </Button>
                 </>
               ) : isExternal ? (
@@ -1138,7 +1138,7 @@ const GitRepoDetail: FC = () => {
                   <MenuItem value={getFallbackBranch(repository?.default_branch, branches)}>
                     {getFallbackBranch(repository?.default_branch, branches)}
                   </MenuItem>
-                  {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+                  {branches?.filter(b => b !== repository?.default_branch).map((branch) => (
                     <MenuItem key={branch} value={branch}>
                       {branch}
                     </MenuItem>
@@ -1210,7 +1210,7 @@ const GitRepoDetail: FC = () => {
                 onChange={(e) => setNewFilePath(e.target.value)}
                 placeholder="path/to/file.txt"
                 disabled={isEditingFile}
-                helperText={`${isEditingFile ? 'Editing' : 'Creating'} in branch ${currentBranch || repository.default_branch || 'main'}`}
+                helperText={`${isEditingFile ? 'Editing' : 'Creating'} in branch ${currentBranch || repository?.default_branch || 'main'}`}
                 InputProps={{
                   sx: { fontFamily: 'monospace' }
                 }}
