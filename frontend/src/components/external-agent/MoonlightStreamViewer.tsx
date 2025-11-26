@@ -9,7 +9,9 @@ import {
   VolumeUp,
   VolumeOff,
   BarChart,
+  Keyboard,
 } from '@mui/icons-material';
+import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
@@ -89,6 +91,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
+  const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
   const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
 
   // Clipboard sync state
@@ -1076,6 +1079,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </IconButton>
         <IconButton
           size="small"
+          onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
+          sx={{ color: showKeyboardPanel ? 'primary.main' : 'white' }}
+          title="Keyboard State Monitor"
+        >
+          <Keyboard fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
           onClick={toggleFullscreen}
           sx={{ color: 'white' }}
           title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1258,6 +1269,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {!stats.video.codec && <div>Waiting for video data...</div>}
           </Box>
         </Box>
+      )}
+
+      {/* Keyboard State Monitor Panel */}
+      {showKeyboardPanel && sessionId && (
+        <KeyboardObservabilityPanel
+          sandboxInstanceId={sessionId}
+          onClose={() => setShowKeyboardPanel(false)}
+        />
       )}
     </Box>
   );
