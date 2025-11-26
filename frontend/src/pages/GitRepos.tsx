@@ -35,7 +35,7 @@ import useRouter from '../hooks/useRouter'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
 import { getSampleProjectIcon } from '../utils/sampleProjectIcons'
-import type { ServicesGitRepository, ServerSampleType } from '../api/api'
+import type { TypesGitRepository, ServerSampleType, TypesExternalRepositoryType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
@@ -65,7 +65,7 @@ const GitRepos: FC = () => {
   // External repository states
   const [externalRepoName, setExternalRepoName] = useState('')
   const [externalRepoUrl, setExternalRepoUrl] = useState('')
-  const [externalRepoType, setExternalRepoType] = useState<'github' | 'gitlab' | 'ado' | 'other'>('github')
+  const [externalRepoType, setExternalRepoType] = useState<TypesExternalRepositoryType>('github' as TypesExternalRepositoryType)
   const [externalKoditIndexing, setExternalKoditIndexing] = useState(true)
 
   const [creating, setCreating] = useState(false)
@@ -129,9 +129,7 @@ const GitRepos: FC = () => {
         owner_id: ownerId,
         repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
-        metadata: {
-          kodit_indexing: koditIndexing,
-        },
+        kodit_indexing: koditIndexing,
       })
 
       // Invalidate and refetch git repositories query
@@ -167,14 +165,12 @@ const GitRepos: FC = () => {
         name: repoName,
         description: `External ${externalRepoType} repository`,
         owner_id: ownerId,
-        repo_type: 'project' as any,
+        repo_type: 'code' as any,
         default_branch: 'main',
-        metadata: {
-          is_external: true,
-          external_url: externalRepoUrl,
-          external_type: externalRepoType,
-          kodit_indexing: externalKoditIndexing,
-        },
+        is_external: true,
+        external_url: externalRepoUrl,
+        external_type: externalRepoType,
+        kodit_indexing: externalKoditIndexing,
       })
 
       // Invalidate and refetch git repositories query
@@ -183,7 +179,7 @@ const GitRepos: FC = () => {
       setLinkRepoDialogOpen(false)
       setExternalRepoName('')
       setExternalRepoUrl('')
-      setExternalRepoType('github')
+      setExternalRepoType('github' as TypesExternalRepositoryType)
       setExternalKoditIndexing(true)
     } catch (error) {
       console.error('Failed to link external repository:', error)
@@ -283,7 +279,7 @@ const GitRepos: FC = () => {
         ) : repositories && repositories.length > 0 ? (
           /* GitHub-style list view */
           <Box>
-            {repositories.map((repo: ServicesGitRepository) => (
+            {repositories.map((repo: TypesGitRepository) => (
               <Box
                 key={repo.id}
                 sx={{
@@ -323,10 +319,10 @@ const GitRepos: FC = () => {
                       </Typography>
 
                       {/* Chips */}
-                      {repo.metadata?.is_external && (
+                      {repo.is_external && (
                         <Chip
                           icon={<Link size={12} />}
-                          label={repo.metadata.external_type || 'External'}
+                          label={repo.external_type || 'External'}
                           size="small"
                           sx={{ height: 20, fontSize: '0.75rem' }}
                         />
@@ -405,7 +401,7 @@ const GitRepos: FC = () => {
                   {sampleTypes.map((type: ServerSampleType) => (
                     <MenuItem key={type.id} value={type.id}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {getSampleProjectIcon(type.id, type.category, 18)}
+                        {getSampleProjectIcon(type.id, undefined, 18)}
                         <span>{type.name}</span>
                       </Box>
                     </MenuItem>
