@@ -494,3 +494,59 @@ func (c *RevDialClient) PairClient(pairSecret, pin string) error {
 func (c *RevDialClient) Get(ctx context.Context, path string) (*http.Response, error) {
 	return c.makeRevDialRequest(ctx, "GET", path, nil)
 }
+
+// GetKeyboardState retrieves the current keyboard state for all sessions from Wolf via RevDial
+func (c *RevDialClient) GetKeyboardState(ctx context.Context) (*KeyboardStateResponse, error) {
+	resp, err := c.makeRevDialRequest(ctx, "GET", "/api/v1/keyboard/state", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result KeyboardStateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
+}
+
+// ResetKeyboardState releases all stuck keys for a given session via RevDial
+func (c *RevDialClient) ResetKeyboardState(ctx context.Context, sessionID string) (*KeyboardResetResponse, error) {
+	reqBody := KeyboardResetRequest{SessionID: sessionID}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.makeRevDialRequest(ctx, "POST", "/api/v1/keyboard/reset", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result KeyboardResetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
+}
