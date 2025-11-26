@@ -161,6 +161,27 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             # For empty repos, this is whatever branch git init created (usually master)
             CURRENT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" branch --show-current 2>/dev/null)
 
+            # Handle detached HEAD - save the commit hash to return to
+            DETACHED_HEAD=""
+            if [ -z "$CURRENT_BRANCH" ]; then
+                DETACHED_HEAD=$(git -C "$PRIMARY_REPO_PATH" rev-parse HEAD 2>/dev/null || echo "")
+                if [ -n "$DETACHED_HEAD" ]; then
+                    echo "  ⚠️  HEAD is detached at $DETACHED_HEAD"
+                fi
+            fi
+
+            # Stash any uncommitted changes (prevents checkout failures)
+            STASHED=false
+            if git -C "$PRIMARY_REPO_PATH" diff --quiet 2>/dev/null && \
+               git -C "$PRIMARY_REPO_PATH" diff --cached --quiet 2>/dev/null; then
+                : # Working directory is clean
+            else
+                echo "  📦 Stashing uncommitted changes..."
+                if git -C "$PRIMARY_REPO_PATH" stash push -m "helix-specs-setup" 2>&1; then
+                    STASHED=true
+                fi
+            fi
+
             # Detect the default branch from remote (could be main or master)
             # For empty repos, there may be no remote branches yet
             REPO_DEFAULT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -178,7 +199,7 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                 fi
             fi
 
-            echo "  📍 Current branch: ${CURRENT_BRANCH:-none}, will return to: $REPO_DEFAULT_BRANCH"
+            echo "  📍 Current branch: ${CURRENT_BRANCH:-detached}, will return to: $REPO_DEFAULT_BRANCH"
 
             # Check if repo is empty (no commits on any branch)
             REPO_IS_EMPTY=false
@@ -206,10 +227,12 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                     echo "  ✅ helix-specs orphan branch created and pushed"
                     CREATE_SUCCESS=true
                     BRANCH_EXISTS=true
+                else
+                    echo "  ⚠️  Failed to push helix-specs (may not have push permission)"
                 fi
             fi
 
-            # Return to original branch
+            # Return to original state
             if [ "$CREATE_SUCCESS" = true ]; then
                 if [ "$REPO_IS_EMPTY" = true ]; then
                     # For empty repos, create the default branch with an initial commit
@@ -222,16 +245,28 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                     else
                         git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
                     fi
+                elif [ -n "$DETACHED_HEAD" ]; then
+                    # Return to detached HEAD state
+                    echo "  📍 Returning to detached HEAD at $DETACHED_HEAD..."
+                    git -C "$PRIMARY_REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
                 else
                     git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
                 fi
-                echo "  ✅ Returned to $REPO_DEFAULT_BRANCH branch"
+                echo "  ✅ Returned to original state"
             else
                 echo "  ⚠️  Failed to create helix-specs orphan branch"
                 # Try to return to original state
-                if [ -n "$CURRENT_BRANCH" ]; then
+                if [ -n "$DETACHED_HEAD" ]; then
+                    git -C "$PRIMARY_REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
+                elif [ -n "$CURRENT_BRANCH" ]; then
                     git -C "$PRIMARY_REPO_PATH" checkout "$CURRENT_BRANCH" 2>&1 || true
                 fi
+            fi
+
+            # Restore stashed changes
+            if [ "$STASHED" = true ]; then
+                echo "  📦 Restoring stashed changes..."
+                git -C "$PRIMARY_REPO_PATH" stash pop 2>&1 || true
             fi
         fi
 
