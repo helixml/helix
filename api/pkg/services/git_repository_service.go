@@ -182,7 +182,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	if gitRepo.ExternalURL == "" {
 		// Initialize git repository as bare
 		// ALL filestore repos are bare - agents and API server push to them
-		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles, true)
+		initialFiles := request.InitialFiles
+		// If no initial files provided, create a default README so the repo has an initial commit
+		if len(initialFiles) == 0 {
+			initialFiles = map[string]string{
+				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
+			}
+		}
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
