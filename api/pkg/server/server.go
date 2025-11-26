@@ -77,16 +77,6 @@ type Options struct {
 	LocalFilestorePath string
 }
 
-// serverWSChecker implements WebSocketConnectionChecker interface for Wolf executor
-type serverWSChecker struct {
-	manager *ExternalAgentWSManager
-}
-
-func (s *serverWSChecker) IsExternalAgentConnected(sessionID string) bool {
-	_, exists := s.manager.getConnection(sessionID)
-	return exists
-}
-
 type HelixAPIServer struct {
 	Cfg                         *config.ServerConfig
 	Store                       store.Store
@@ -220,9 +210,6 @@ func NewServer(
 	// Initialize external agent WebSocket manager BEFORE executor
 	externalAgentWSManager := NewExternalAgentWSManager()
 
-	// Create simple adapter for WebSocket connection checking
-	wsChecker := &serverWSChecker{manager: externalAgentWSManager}
-
 	// Initialize connection manager for reverse dial BEFORE executor (needed for RevDial screenshot/clipboard)
 	connectionManager := connman.New()
 
@@ -238,7 +225,6 @@ func NewServer(
 		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
 		store,
-		wsChecker,
 		connectionManager,
 	)
 

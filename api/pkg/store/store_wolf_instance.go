@@ -19,17 +19,22 @@ func (s *PostgresStore) RegisterWolfInstance(ctx context.Context, instance *type
 	return s.gdb.WithContext(ctx).Create(instance).Error
 }
 
-// UpdateWolfHeartbeat updates the last heartbeat timestamp for a Wolf instance
-func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string) error {
+// UpdateWolfHeartbeat updates the last heartbeat timestamp and optional metadata for a Wolf instance
+func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
 	now := time.Now()
+	updates := map[string]interface{}{
+		"last_heartbeat": now,
+		"updated_at":     now,
+		"status":         types.WolfInstanceStatusOnline,
+	}
+	// Only update sway_version if provided (allows sandboxes to report their version)
+	if swayVersion != "" {
+		updates["sway_version"] = swayVersion
+	}
 	return s.gdb.WithContext(ctx).
 		Model(&types.WolfInstance{}).
 		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"last_heartbeat": now,
-			"updated_at":     now,
-			"status":         types.WolfInstanceStatusOnline,
-		}).Error
+		Updates(updates).Error
 }
 
 // GetWolfInstance retrieves a Wolf instance by ID

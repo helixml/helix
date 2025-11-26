@@ -160,15 +160,27 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string // User ID for SSH key mounting
-	SessionID         string // Session ID for settings sync daemon
+	UserID            string   // User ID for SSH key mounting
+	SessionID         string   // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
+	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
 	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
+}
+
+// computeZedImageFromVersion converts a SwayVersion (commit hash) from Wolf instance
+// into a full Docker image tag. Returns empty string if no version is set (falls back to default).
+func (w *WolfExecutor) computeZedImageFromVersion(swayVersion string) string {
+	if swayVersion == "" {
+		return "" // Fall back to default w.zedImage in createSwayWolfApp
+	}
+	// SwayVersion is a commit hash (e.g., "abc123def")
+	// Convert to full image tag: helix-sway:abc123def
+	return fmt.Sprintf("helix-sway:%s", swayVersion)
 }
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
@@ -272,12 +284,22 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
   }
 }`, config.ContainerHostname)
 
+	// Determine which image to use (prefer config override from Wolf instance's SwayVersion)
+	zedImage := w.zedImage
+	if config.ZedImage != "" {
+		zedImage = config.ZedImage
+		log.Info().
+			Str("zed_image", zedImage).
+			Str("session_id", config.SessionID).
+			Msg("Using versioned helix-sway image from Wolf instance")
+	}
+
 	// Create Wolf app
 	return wolf.NewMinimalDockerApp(
 		config.WolfAppID,
 		config.Title,
 		config.ContainerHostname,
-		w.zedImage, // Now uses helix-sway:latest for both PDEs and external agents
+		zedImage,
 		env,
 		mounts,
 		baseCreateJSON,
@@ -287,27 +309,11 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	)
 }
 
-// NewWolfExecutor creates a Wolf executor based on WOLF_MODE environment variable
-// WOLF_MODE=lobbies (default) - lobbies persist naturally, no keepalive needed
-// WOLF_MODE=apps - requires keepalive sessions to prevent stale buffer crashes
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker, connmanInst connmanInterface) Executor {
-	wolfMode := os.Getenv("WOLF_MODE")
-	if wolfMode == "" {
-		wolfMode = "lobbies" // Default to lobbies - simpler, no keepalive needed
-	}
-
-	log.Info().Str("wolf_mode", wolfMode).Msg("Initializing Wolf executor")
-
-	switch wolfMode {
-	case "lobbies":
-		return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, connmanInst)
-	case "apps":
-		// Apps mode doesn't support connman yet (legacy mode)
-		return NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, wsChecker)
-	default:
-		log.Fatal().Str("wolf_mode", wolfMode).Msg("Invalid WOLF_MODE - must be 'apps' or 'lobbies'")
-		return nil
-	}
+// NewWolfExecutor creates a Wolf executor using lobbies mode
+// Lobbies persist naturally across Wolf restarts, no keepalive needed
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, connmanInst connmanInterface) Executor {
+	log.Info().Msg("Initializing Wolf executor (lobbies mode)")
+	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, connmanInst)
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
@@ -769,6 +775,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
+			ZedImage:          w.computeZedImageFromVersion(wolfInstance.SwayVersion), // Use version from sandbox heartbeat
 		}).Runner, // Use the runner config from the app
 	}
 
