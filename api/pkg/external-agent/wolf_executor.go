@@ -1017,54 +1017,76 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	// Wolf-UI sessions persist after lobby stops, consuming 245MB GPU memory each
 	// Query all sessions and stop ones matching this Helix session ID
 	// Add timeout to prevent hanging forever on stuck Wolf API calls
-	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer listCancel()
-
-	sessions, err := w.getWolfClient(wolfInstanceID).ListSessions(listCtx)
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
+	if wolfInstanceID == "" {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("Session has no WolfInstanceID - skipping Wolf session cleanup (legacy session or missing data)")
 	} else {
-		sessionPrefix := fmt.Sprintf("helix-agent-%s-", sessionID)
-		stoppedCount := 0
+		listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer listCancel()
 
-		for _, session := range sessions {
-			// Match sessions by client_unique_id prefix (handles multiple browser tabs)
-			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, sessionPrefix) {
-				log.Info().
-					Str("client_id", session.ClientID).
-					Str("client_unique_id", session.ClientUniqueID).
-					Str("session_id", sessionID).
-					Msg("Stopping Wolf-UI streaming session before lobby teardown")
+		sessions, err := w.getWolfClient(wolfInstanceID).ListSessions(listCtx)
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
+		} else {
+			sessionPrefix := fmt.Sprintf("helix-agent-%s-", sessionID)
+			stoppedCount := 0
 
-				// Add timeout to prevent hanging on stuck Wolf sessions
-				stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
-				err := w.getWolfClient(wolfInstanceID).StopSession(stopCtx, session.ClientID)
-				stopCancel()
-
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("client_id", session.ClientID).
-						Msg("Failed to stop Wolf-UI session (will be orphaned - timeout or error)")
-				} else {
-					stoppedCount++
+			for _, session := range sessions {
+				// Match sessions by client_unique_id prefix (handles multiple browser tabs)
+				if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, sessionPrefix) {
 					log.Info().
 						Str("client_id", session.ClientID).
-						Msg("✅ Stopped Wolf-UI streaming session")
+						Str("client_unique_id", session.ClientUniqueID).
+						Str("session_id", sessionID).
+						Msg("Stopping Wolf-UI streaming session before lobby teardown")
+
+					// Add timeout to prevent hanging on stuck Wolf sessions
+					stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
+					err := w.getWolfClient(wolfInstanceID).StopSession(stopCtx, session.ClientID)
+					stopCancel()
+
+					if err != nil {
+						log.Warn().
+							Err(err).
+							Str("client_id", session.ClientID).
+							Msg("Failed to stop Wolf-UI session (will be orphaned - timeout or error)")
+					} else {
+						stoppedCount++
+						log.Info().
+							Str("client_id", session.ClientID).
+							Msg("✅ Stopped Wolf-UI streaming session")
+					}
 				}
 			}
-		}
 
-		if stoppedCount > 0 {
-			log.Info().
-				Str("session_id", sessionID).
-				Int("stopped_count", stoppedCount).
-				Msg("Cleaned up Wolf-UI streaming sessions")
+			if stoppedCount > 0 {
+				log.Info().
+					Str("session_id", sessionID).
+					Int("stopped_count", stoppedCount).
+					Msg("Cleaned up Wolf-UI streaming sessions")
+			}
 		}
 	}
 
 	// Stop the lobby (tears down Zed container)
-	if wolfLobbyID != "" {
+	if wolfLobbyID == "" {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("No Wolf lobby ID found in database - session may not have external agent running")
+		return fmt.Errorf("no Wolf lobby ID found for session %s", sessionID)
+	}
+
+	if wolfInstanceID == "" {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("lobby_id", wolfLobbyID).
+			Msg("Session has no WolfInstanceID - cannot stop lobby (legacy session or missing data)")
+		return fmt.Errorf("no Wolf instance ID found for session %s - cannot stop lobby", sessionID)
+	}
+
+	// wolfLobbyID != "" && wolfInstanceID != "" from here
+	{
 		// CRITICAL: Must provide PIN to stop lobby
 		var lobbyPIN []int16
 
@@ -1103,11 +1125,6 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 				Str("session_id", sessionID).
 				Msg("Wolf lobby stopped successfully")
 		}
-	} else {
-		log.Warn().
-			Str("session_id", sessionID).
-			Msg("No Wolf lobby ID found in database - session may not have external agent running")
-		return fmt.Errorf("no Wolf lobby ID found for session %s", sessionID)
 	}
 
 	// Update in-memory session status and remove from tracking
