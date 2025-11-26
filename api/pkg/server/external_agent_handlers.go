@@ -25,6 +25,7 @@ import (
 
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
+// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
 func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
 	userAPIKeys, err := s.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     userID,
@@ -34,16 +35,52 @@ func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *type
 		return fmt.Errorf("failed to list user API keys: %w", err)
 	}
 
-	if len(userAPIKeys) == 0 {
-		log.Warn().Str("user_id", userID).Msg("User has no API keys - git operations will not work")
-		return fmt.Errorf("user has no API keys - create one in Account Settings to use git features")
+	// Filter out app-scoped API keys - we need a personal API key for full access
+	// App-scoped keys have restricted path access and can't be used for RevDial
+	var personalAPIKeys []*types.ApiKey
+	for _, key := range userAPIKeys {
+		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+			personalAPIKeys = append(personalAPIKeys, key)
+		}
 	}
 
-	// Add USER_API_TOKEN to agent environment
-	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key))
+	// If no personal API keys exist, create one automatically
+	if len(personalAPIKeys) == 0 {
+		log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
+
+		newKey, err := system.GenerateAPIKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate API key: %w", err)
+		}
+
+		apiKey := &types.ApiKey{
+			Owner:     userID,
+			OwnerType: types.OwnerTypeUser,
+			Key:       newKey,
+			Name:      "Auto-generated for agent access",
+			Type:      types.APIkeytypeAPI,
+			// AppID is nil - this is a personal key
+		}
+
+		createdKey, err := s.Store.CreateAPIKey(ctx, apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to create API key: %w", err)
+		}
+
+		log.Info().
+			Str("user_id", userID).
+			Str("key_name", createdKey.Name).
+			Msg("✅ Created personal API key for agent access")
+
+		personalAPIKeys = append(personalAPIKeys, createdKey)
+	}
+
+	// Add USER_API_TOKEN to agent environment using personal API key
+	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", personalAPIKeys[0].Key))
 
 	log.Debug().
 		Str("user_id", userID).
+		Bool("key_is_personal", true).
 		Msg("Added user API token to agent for git operations")
 
 	return nil
