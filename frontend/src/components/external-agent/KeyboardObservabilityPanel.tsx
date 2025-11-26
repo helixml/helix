@@ -6,7 +6,6 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
   Button,
   Chip,
   Tooltip,
@@ -16,7 +15,10 @@ import {
   useWolfKeyboardState,
   useResetWolfKeyboardState,
   SessionKeyboardState,
+  KeyboardLayerState,
 } from '../../services/wolfService';
+
+type KeyboardLayer = 'wolf' | 'inputtino' | 'evdev';
 
 // Windows Virtual Key Code mappings
 // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
@@ -146,8 +148,65 @@ const VK_TO_KEY: Record<number, { label: string; width?: number }> = {
   0x6E: { label: 'N.', width: 1 },
 };
 
-// Keyboard layouts - define which keys appear in which rows
-const US_LAYOUT = {
+// Key label overrides per layout (for displaying different characters on same physical keys)
+type KeyLabelOverrides = Record<number, { label: string; width?: number }>;
+
+// GB layout label overrides - uses ISO layout with different character positions
+const GB_KEY_LABELS: KeyLabelOverrides = {
+  0xC0: { label: '`¬', width: 1 },      // Grave/not
+  0x32: { label: '2"', width: 1 },      // 2 with " instead of @
+  0x33: { label: '3£', width: 1 },      // 3 with £
+  0xDE: { label: "'@", width: 1 },      // ' with @
+  0xDC: { label: '#~', width: 1 },      // # and ~ (ISO key)
+  0xE2: { label: '\\|', width: 1 },     // Extra ISO key next to left shift
+};
+
+// FR layout label overrides - AZERTY layout with numbers on shift
+const FR_KEY_LABELS: KeyLabelOverrides = {
+  // Number row becomes symbols (numbers need shift)
+  0xC0: { label: '²', width: 1 },
+  0x31: { label: '&1', width: 1 },
+  0x32: { label: 'é2', width: 1 },
+  0x33: { label: '"3', width: 1 },
+  0x34: { label: "'4", width: 1 },
+  0x35: { label: '(5', width: 1 },
+  0x36: { label: '-6', width: 1 },
+  0x37: { label: 'è7', width: 1 },
+  0x38: { label: '_8', width: 1 },
+  0x39: { label: 'ç9', width: 1 },
+  0x30: { label: 'à0', width: 1 },
+  0xBD: { label: ')°', width: 1 },
+  0xBB: { label: '=+', width: 1 },
+  // AZERTY keys
+  0x41: { label: 'Q', width: 1 },    // A shows Q
+  0x5A: { label: 'W', width: 1 },    // Z shows W
+  0x51: { label: 'A', width: 1 },    // Q shows A
+  0x57: { label: 'Z', width: 1 },    // W shows Z
+  0x4D: { label: '?,', width: 1 },   // M position
+  0xBA: { label: 'M', width: 1 },    // ; position has M
+  0xDE: { label: 'ù%', width: 1 },
+  0xBC: { label: ';.', width: 1 },
+  0xBE: { label: ':/', width: 1 },
+  0xBF: { label: '!§', width: 1 },
+};
+
+// Keyboard layout definitions
+interface KeyboardLayout {
+  name: string;
+  functionRow: number[];
+  numberRow: number[];
+  qwertyRow: number[];
+  asdfRow: number[];
+  zxcvRow: number[];
+  bottomRow: number[];
+  navCluster: number[];
+  arrowKeys: number[];
+  keyLabels: KeyLabelOverrides;
+}
+
+// US ANSI layout - standard American keyboard
+const US_LAYOUT: KeyboardLayout = {
+  name: 'us',
   functionRow: [0x1B, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B],
   numberRow: [0xC0, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0xBD, 0xBB, 0x08],
   qwertyRow: [0x09, 0x51, 0x57, 0x45, 0x52, 0x54, 0x59, 0x55, 0x49, 0x4F, 0x50, 0xDB, 0xDD, 0xDC],
@@ -156,6 +215,49 @@ const US_LAYOUT = {
   bottomRow: [0xA2, 0x5B, 0xA4, 0x20, 0xA5, 0x5C, 0x5D, 0xA3],
   navCluster: [0x2D, 0x24, 0x21, 0x2E, 0x23, 0x22],
   arrowKeys: [0x26, 0x25, 0x28, 0x27],
+  keyLabels: {},
+};
+
+// GB (UK) ISO layout - similar to US but with ISO enter and extra key
+const GB_LAYOUT: KeyboardLayout = {
+  name: 'gb',
+  functionRow: [0x1B, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B],
+  numberRow: [0xC0, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0xBD, 0xBB, 0x08],
+  qwertyRow: [0x09, 0x51, 0x57, 0x45, 0x52, 0x54, 0x59, 0x55, 0x49, 0x4F, 0x50, 0xDB, 0xDD, 0x0D], // ISO enter
+  asdfRow: [0x14, 0x41, 0x53, 0x44, 0x46, 0x47, 0x48, 0x4A, 0x4B, 0x4C, 0xBA, 0xDE, 0xDC], // # key
+  zxcvRow: [0xA0, 0xE2, 0x5A, 0x58, 0x43, 0x56, 0x42, 0x4E, 0x4D, 0xBC, 0xBE, 0xBF, 0xA1], // Extra ISO key
+  bottomRow: [0xA2, 0x5B, 0xA4, 0x20, 0xA5, 0x5C, 0x5D, 0xA3],
+  navCluster: [0x2D, 0x24, 0x21, 0x2E, 0x23, 0x22],
+  arrowKeys: [0x26, 0x25, 0x28, 0x27],
+  keyLabels: GB_KEY_LABELS,
+};
+
+// FR AZERTY layout - French keyboard
+const FR_LAYOUT: KeyboardLayout = {
+  name: 'fr',
+  functionRow: [0x1B, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B],
+  numberRow: [0xC0, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0xBD, 0xBB, 0x08],
+  // AZERTY: A-Q swapped, Z-W swapped
+  qwertyRow: [0x09, 0x41, 0x5A, 0x45, 0x52, 0x54, 0x59, 0x55, 0x49, 0x4F, 0x50, 0xDB, 0xDD, 0x0D],
+  asdfRow: [0x14, 0x51, 0x53, 0x44, 0x46, 0x47, 0x48, 0x4A, 0x4B, 0x4C, 0x4D, 0xDE, 0xDC],
+  zxcvRow: [0xA0, 0xE2, 0x57, 0x58, 0x43, 0x56, 0x42, 0x4E, 0xBC, 0xBA, 0xBE, 0xBF, 0xA1],
+  bottomRow: [0xA2, 0x5B, 0xA4, 0x20, 0xA5, 0x5C, 0x5D, 0xA3],
+  navCluster: [0x2D, 0x24, 0x21, 0x2E, 0x23, 0x22],
+  arrowKeys: [0x26, 0x25, 0x28, 0x27],
+  keyLabels: FR_KEY_LABELS,
+};
+
+const LAYOUTS: Record<string, KeyboardLayout> = {
+  us: US_LAYOUT,
+  gb: GB_LAYOUT,
+  fr: FR_LAYOUT,
+};
+
+// Layer colors for 3D stacked view
+const LAYER_COLORS = {
+  wolf: { bg: 'rgba(255, 107, 107, 0.85)', glow: 'rgba(255, 107, 107, 0.5)', label: '#ff6b6b' },     // Red
+  inputtino: { bg: 'rgba(76, 175, 80, 0.85)', glow: 'rgba(76, 175, 80, 0.5)', label: '#4caf50' },   // Green
+  evdev: { bg: 'rgba(66, 165, 245, 0.85)', glow: 'rgba(66, 165, 245, 0.5)', label: '#42a5f5' },     // Blue
 };
 
 interface KeyEvent {
@@ -179,6 +281,18 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
   const [eventLog, setEventLog] = useState<KeyEvent[]>([]);
   const previousStateRef = useRef<Map<string, Set<number>>>(new Map());
   const eventLogRef = useRef<HTMLDivElement>(null);
+
+  const currentLayout = LAYOUTS[keyboardLayout];
+
+  // Helper to get layer state from session
+  const getLayerState = (session: SessionKeyboardState, layer: KeyboardLayer): KeyboardLayerState | undefined => {
+    switch (layer) {
+      case 'wolf': return session.wolf_state;
+      case 'inputtino': return session.inputtino_state;
+      case 'evdev': return session.evdev_state;
+      default: return session.wolf_state;
+    }
+  };
 
   const { data: keyboardState, isLoading, error } = useWolfKeyboardState({
     sandboxInstanceId,
@@ -240,17 +354,28 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
     }
   }, [eventLog]);
 
-  // Get all pressed keys across all sessions
-  const allPressedKeys = new Set<number>();
-  keyboardState?.sessions?.forEach((session: SessionKeyboardState) => {
-    session.pressed_keys?.forEach(key => allPressedKeys.add(key));
-  });
+  // Get pressed keys for each layer across all sessions
+  const getLayerPressedKeys = (layer: KeyboardLayer): Set<number> => {
+    const keys = new Set<number>();
+    keyboardState?.sessions?.forEach((session: SessionKeyboardState) => {
+      const layerState = getLayerState(session, layer);
+      layerState?.pressed_keys?.forEach(key => keys.add(key));
+    });
+    return keys;
+  };
+
+  const wolfPressedKeys = getLayerPressedKeys('wolf');
+  const inputtinoPressedKeys = getLayerPressedKeys('inputtino');
+  const evdevPressedKeys = getLayerPressedKeys('evdev');
 
   // Check for stuck modifier keys (pressed for more than 5 seconds)
   const hasStuckKeys = keyboardState?.sessions?.some((session: SessionKeyboardState) => {
     const timeSinceUpdate = Date.now() - session.timestamp_ms;
-    return session.pressed_keys?.length > 0 && timeSinceUpdate > 5000;
+    return (session.pressed_keys?.length ?? 0) > 0 && timeSinceUpdate > 5000;
   });
+
+  // Check for any mismatch between layers
+  const hasMismatch = keyboardState?.sessions?.some((session: SessionKeyboardState) => session.has_mismatch);
 
   const handleReset = async (sessionId: string) => {
     try {
@@ -260,34 +385,46 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
     }
   };
 
-  const renderKey = (vkCode: number) => {
-    const keyInfo = VK_TO_KEY[vkCode] || { label: '?', width: 1 };
-    const isPressed = allPressedKeys.has(vkCode);
-    const isModifier = [0x10, 0xA0, 0xA1, 0x11, 0xA2, 0xA3, 0x12, 0xA4, 0xA5, 0x14, 0x5B, 0x5C].includes(vkCode);
+  // Get key info with layout-specific labels
+  const getKeyInfo = (vkCode: number): { label: string; width: number } => {
+    // First check layout-specific overrides
+    const layoutOverride = currentLayout.keyLabels[vkCode];
+    if (layoutOverride) {
+      return { label: layoutOverride.label, width: layoutOverride.width || 1 };
+    }
+    // Fall back to default VK_TO_KEY
+    const defaultInfo = VK_TO_KEY[vkCode];
+    if (defaultInfo) {
+      return { label: defaultInfo.label, width: defaultInfo.width || 1 };
+    }
+    return { label: '?', width: 1 };
+  };
+
+  // Render a single key for a specific layer
+  const renderLayerKey = (vkCode: number, pressedKeys: Set<number>, layer: KeyboardLayer, opacity: number) => {
+    const keyInfo = getKeyInfo(vkCode);
+    const isPressed = pressedKeys.has(vkCode);
+    const colors = LAYER_COLORS[layer];
 
     return (
       <Box
-        key={vkCode}
+        key={`${layer}-${vkCode}`}
         sx={{
-          width: (keyInfo.width || 1) * 36,
-          height: 36,
-          margin: '2px',
-          borderRadius: '4px',
+          width: keyInfo.width * 28,
+          height: 28,
+          margin: '1px',
+          borderRadius: '3px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: keyInfo.label.length > 2 ? '10px' : '12px',
+          fontSize: keyInfo.label.length > 2 ? '8px' : '10px',
           fontWeight: isPressed ? 'bold' : 'normal',
-          backgroundColor: isPressed
-            ? (isModifier ? '#ff6b6b' : '#4caf50')
-            : 'rgba(255, 255, 255, 0.1)',
-          color: isPressed ? '#fff' : 'rgba(255, 255, 255, 0.7)',
+          backgroundColor: isPressed ? colors.bg : `rgba(255, 255, 255, ${0.05 * opacity})`,
+          color: isPressed ? '#fff' : `rgba(255, 255, 255, ${0.5 * opacity})`,
           border: isPressed
-            ? '2px solid rgba(255, 255, 255, 0.5)'
-            : '1px solid rgba(255, 255, 255, 0.2)',
-          transition: 'all 0.1s ease-out',
-          transform: isPressed ? 'scale(0.95)' : 'scale(1)',
-          boxShadow: isPressed ? '0 0 10px rgba(76, 175, 80, 0.5)' : 'none',
+            ? `1px solid rgba(255, 255, 255, 0.6)`
+            : `1px solid rgba(255, 255, 255, ${0.1 * opacity})`,
+          boxShadow: isPressed ? `0 0 8px ${colors.glow}` : 'none',
         }}
       >
         {keyInfo.label}
@@ -295,9 +432,31 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
     );
   };
 
-  const renderKeyRow = (keyCodes: number[]) => (
+  // Render a keyboard row for a specific layer
+  const renderLayerKeyRow = (keyCodes: number[], pressedKeys: Set<number>, layer: KeyboardLayer, opacity: number) => (
     <Box sx={{ display: 'flex', justifyContent: 'center', flexWrap: 'nowrap' }}>
-      {keyCodes.map(renderKey)}
+      {keyCodes.map(vkCode => renderLayerKey(vkCode, pressedKeys, layer, opacity))}
+    </Box>
+  );
+
+  // Render a complete mini keyboard for a layer
+  const renderLayerKeyboard = (layer: KeyboardLayer, pressedKeys: Set<number>, yOffset: number, opacity: number) => (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: yOffset,
+        left: 0,
+        right: 0,
+        transform: `perspective(500px) rotateX(5deg)`,
+        transformOrigin: 'center top',
+      }}
+    >
+      {renderLayerKeyRow(currentLayout.functionRow, pressedKeys, layer, opacity)}
+      {renderLayerKeyRow(currentLayout.numberRow, pressedKeys, layer, opacity)}
+      {renderLayerKeyRow(currentLayout.qwertyRow, pressedKeys, layer, opacity)}
+      {renderLayerKeyRow(currentLayout.asdfRow, pressedKeys, layer, opacity)}
+      {renderLayerKeyRow(currentLayout.zxcvRow, pressedKeys, layer, opacity)}
+      {renderLayerKeyRow(currentLayout.bottomRow, pressedKeys, layer, opacity)}
     </Box>
   );
 
@@ -335,6 +494,11 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
           {hasStuckKeys && (
             <Tooltip title="Stuck keys detected!">
               <Warning sx={{ color: '#ff6b6b', fontSize: 18 }} />
+            </Tooltip>
+          )}
+          {hasMismatch && (
+            <Tooltip title="State mismatch between layers - possible bug!">
+              <Warning sx={{ color: '#ff9800', fontSize: 18 }} />
             </Tooltip>
           )}
         </Box>
@@ -378,59 +542,45 @@ const KeyboardObservabilityPanel: React.FC<KeyboardObservabilityPanelProps> = ({
 
         {!isLoading && !error && (
           <>
-            {/* Modifier Status Bar */}
-            <Box sx={{ display: 'flex', gap: 1, mb: 2, justifyContent: 'center' }}>
-              {keyboardState?.sessions?.map((session: SessionKeyboardState) => (
-                <Box key={session.session_id} sx={{ display: 'flex', gap: 0.5 }}>
-                  <Chip
-                    label="Shift"
-                    size="small"
-                    color={session.modifier_state?.shift ? 'error' : 'default'}
-                    sx={{ fontSize: '10px', height: 20 }}
-                  />
-                  <Chip
-                    label="Ctrl"
-                    size="small"
-                    color={session.modifier_state?.ctrl ? 'error' : 'default'}
-                    sx={{ fontSize: '10px', height: 20 }}
-                  />
-                  <Chip
-                    label="Alt"
-                    size="small"
-                    color={session.modifier_state?.alt ? 'error' : 'default'}
-                    sx={{ fontSize: '10px', height: 20 }}
-                  />
-                  <Chip
-                    label="Meta"
-                    size="small"
-                    color={session.modifier_state?.meta ? 'error' : 'default'}
-                    sx={{ fontSize: '10px', height: 20 }}
-                  />
-                </Box>
-              ))}
-            </Box>
-
-            {/* Keyboard Layout */}
-            <Box sx={{ mb: 2 }}>
-              {renderKeyRow(US_LAYOUT.functionRow)}
-              {renderKeyRow(US_LAYOUT.numberRow)}
-              {renderKeyRow(US_LAYOUT.qwertyRow)}
-              {renderKeyRow(US_LAYOUT.asdfRow)}
-              {renderKeyRow(US_LAYOUT.zxcvRow)}
-              {renderKeyRow(US_LAYOUT.bottomRow)}
-            </Box>
-
-            {/* Arrow Keys */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                {renderKey(0x26)} {/* Up */}
-                <Box sx={{ display: 'flex' }}>
-                  {renderKey(0x25)} {/* Left */}
-                  {renderKey(0x28)} {/* Down */}
-                  {renderKey(0x27)} {/* Right */}
-                </Box>
+            {/* Layer legend */}
+            <Box sx={{ display: 'flex', gap: 2, mb: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 12, height: 12, backgroundColor: LAYER_COLORS.wolf.bg, borderRadius: 1 }} />
+                <Typography sx={{ color: LAYER_COLORS.wolf.label, fontSize: '10px' }}>Wolf ({wolfPressedKeys.size})</Typography>
               </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 12, height: 12, backgroundColor: LAYER_COLORS.inputtino.bg, borderRadius: 1 }} />
+                <Typography sx={{ color: LAYER_COLORS.inputtino.label, fontSize: '10px' }}>Inputtino ({inputtinoPressedKeys.size})</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 12, height: 12, backgroundColor: LAYER_COLORS.evdev.bg, borderRadius: 1 }} />
+                <Typography sx={{ color: LAYER_COLORS.evdev.label, fontSize: '10px' }}>Evdev ({evdevPressedKeys.size})</Typography>
+              </Box>
+              {hasMismatch && (
+                <Chip label="MISMATCH" size="small" color="warning" sx={{ fontSize: '9px', height: 18 }} />
+              )}
             </Box>
+
+            {/* 3D Stacked Keyboards */}
+            <Box sx={{ position: 'relative', height: 230, mb: 2, perspective: '1000px' }}>
+              {/* Evdev layer (bottom/back - blue) */}
+              {renderLayerKeyboard('evdev', evdevPressedKeys, 0, 0.4)}
+              {/* Inputtino layer (middle - green) */}
+              {renderLayerKeyboard('inputtino', inputtinoPressedKeys, 8, 0.7)}
+              {/* Wolf layer (top/front - red) */}
+              {renderLayerKeyboard('wolf', wolfPressedKeys, 16, 1.0)}
+            </Box>
+
+            {/* Mismatch description */}
+            {keyboardState?.sessions?.map((session: SessionKeyboardState) => (
+              session.has_mismatch && (
+                <Box key={`mismatch-${session.session_id}`} sx={{ mb: 1, textAlign: 'center' }}>
+                  <Typography sx={{ color: '#ff9800', fontSize: '10px', fontFamily: 'monospace' }}>
+                    {session.mismatch_description}
+                  </Typography>
+                </Box>
+              )
+            ))}
           </>
         )}
       </Box>

@@ -44,13 +44,32 @@ export interface KeyboardModifierState {
   meta: boolean;
 }
 
-export interface SessionKeyboardState {
-  session_id: string;
-  timestamp_ms: number;
+// One layer of keyboard state (Wolf, Inputtino, or Evdev)
+export interface KeyboardLayerState {
   pressed_keys: number[];
   pressed_key_names: string[];
   modifier_state: KeyboardModifierState;
+}
+
+export interface SessionKeyboardState {
+  session_id: string;
+  timestamp_ms: number;
   device_name: string;
+  device_node: string;  // e.g., /dev/input/event15
+
+  // Three layers of keyboard state for debugging:
+  wolf_state: KeyboardLayerState;      // Wolf's view - Moonlight events received
+  inputtino_state: KeyboardLayerState; // Inputtino's internal cur_press_keys
+  evdev_state: KeyboardLayerState;     // Kernel's evdev state
+
+  // Mismatch detection
+  has_mismatch: boolean;
+  mismatch_description: string;
+
+  // Legacy fields for backwards compatibility
+  pressed_keys: number[];
+  pressed_key_names: string[];
+  modifier_state: KeyboardModifierState;
 }
 
 export interface KeyboardStateResponse {
