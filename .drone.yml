@@ -70,6 +70,19 @@ steps:
         - push
     depends_on: []
 
+  - name: shell-script-tests
+    image: alpine:3.21
+    commands:
+      - apk add --no-cache bash git
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
+      - chmod +x ./wolf/sway-config/test-helix-specs-creation.sh
+      - ./wolf/sway-config/test-helix-specs-creation.sh
+    when:
+      event:
+        - push
+    depends_on: []
+
   - name: unit-test
     image: golang:1.24-alpine3.21
     volumes:
