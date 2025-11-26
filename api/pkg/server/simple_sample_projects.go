@@ -1061,7 +1061,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	for i := len(sampleProject.TaskPrompts) - 1; i >= 0; i-- {
 		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
-			ID:          system.GenerateUUID(),
+			ID:          system.GenerateSpecTaskID(),
 			ProjectID:   createdProject.ID,
 			Name:        generateTaskNameFromPrompt(taskPrompt.Prompt),
 			Description: taskPrompt.Prompt, // The description IS the prompt

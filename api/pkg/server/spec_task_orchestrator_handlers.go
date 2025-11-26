@@ -125,6 +125,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 
 	// Create SpecTask
 	task := &types.SpecTask{
+		ID:             system.GenerateSpecTaskID(),
 		ProjectID:      repo.ID,
 		Name:           demoReq.Prompt[:min(len(demoReq.Prompt), 100)],
 		Description:    demoReq.Prompt,
