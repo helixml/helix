@@ -141,7 +141,7 @@ const SettingsTab: FC<SettingsTabProps> = ({
           <FormControlLabel
             control={
               <Switch
-                checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.metadata?.kodit_indexing || false)}
+                checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.kodit_indexing || false)}
                 onChange={(e) => setEditKoditIndexing(e.target.checked)}
                 color="primary"
               />
@@ -290,7 +290,7 @@ const SettingsTab: FC<SettingsTabProps> = ({
               disabled={updating}
             >
               {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-            </Button>                    
+            </Button>
           </Box>
 
           <Divider sx={{ my: 2 }} />
