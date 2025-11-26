@@ -177,6 +177,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		UpdatedAt:      time.Now(),
 		Metadata:       request.Metadata,
 		AzureDevOps:    request.AzureDevOps,
+		KoditIndexing:  request.KoditIndexing,
 	}
 
 	if gitRepo.ExternalURL == "" {
