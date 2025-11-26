@@ -850,6 +850,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         return;
       }
 
+      // CRITICAL: Filter out browser auto-repeat events!
+      // When you hold a key, the browser fires repeated keydown events with event.repeat=true.
+      // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
+      // Forwarding browser repeats causes key flooding and stuck key issues.
+      if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       // Double-Escape to reset stuck modifiers (common workaround for Moonlight caps lock bug)
       if (event.code === 'Escape') {
         const now = Date.now();
