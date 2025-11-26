@@ -325,20 +325,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		primaryRepoID = projectRepos[0].ID
 	}
 
-	// Get user's API token for git operations
-	userAPIKeys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
-		Owner:     task.CreatedBy,
-		OwnerType: types.OwnerTypeUser,
-	})
+	// Get user's personal API token for git operations (not app-scoped keys)
+	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API keys for SpecTask")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API keys: %v", err))
-		return
-	}
-
-	if len(userAPIKeys) == 0 {
-		log.Error().Str("user_id", task.CreatedBy).Msg("User has no API keys - cannot start SpecTask")
-		s.markTaskFailed(ctx, task, "User has no API keys - create one in Account Settings")
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for SpecTask")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
 		return
 	}
 
@@ -352,7 +343,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		Env: []string{
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key),
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
 
@@ -961,6 +952,67 @@ func convertPriorityToInt(priority string) int {
 	default:
 		return 2
 	}
+}
+
+// getOrCreatePersonalAPIKey gets or creates a personal API key for the user
+// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
+func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, userID string) (string, error) {
+	// List user's existing API keys
+	keys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list user API keys: %w", err)
+	}
+
+	// Filter out app-scoped API keys - we need a personal API key for full access
+	// App-scoped keys have restricted path access and can't be used for RevDial
+	var personalKeys []*types.ApiKey
+	for _, key := range keys {
+		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+			personalKeys = append(personalKeys, key)
+		}
+	}
+
+	// Use user's first personal API key if available
+	if len(personalKeys) > 0 {
+		log.Debug().
+			Str("user_id", userID).
+			Str("api_key_name", personalKeys[0].Name).
+			Bool("key_is_personal", true).
+			Msg("Using user's existing personal API key for git operations")
+		return personalKeys[0].Key, nil
+	}
+
+	// No personal API keys exist - create one automatically
+	log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
+
+	newKey, err := system.GenerateAPIKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate API key: %w", err)
+	}
+
+	apiKey := &types.ApiKey{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+		Key:       newKey,
+		Name:      "Auto-generated for agent access",
+		Type:      types.APIkeytypeAPI,
+		// AppID is nil - this is a personal key
+	}
+
+	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create API key: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Str("key_name", createdKey.Name).
+		Msg("✅ Created personal API key for agent access")
+
+	return createdKey.Key, nil
 }
 
 // Request types

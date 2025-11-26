@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -925,7 +926,8 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 
 // sanitizeForBranchName is already defined in design_docs_helpers.go
 
-// getOrCreateUserAPIKey gets user's existing API key for git operations
+// getOrCreateUserAPIKey gets user's existing personal API key for git operations
+// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
 func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID string) (string, error) {
 	// List user's existing API keys
 	keys, err := o.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
@@ -936,17 +938,53 @@ func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID
 		return "", fmt.Errorf("failed to list user API keys: %w", err)
 	}
 
-	// Use user's first API key
-	if len(keys) > 0 {
-		log.Debug().
-			Str("user_id", userID).
-			Str("api_key_name", keys[0].Name).
-			Msg("Using user's existing API key for git operations")
-		return keys[0].Key, nil
+	// Filter out app-scoped API keys - we need a personal API key for full access
+	// App-scoped keys have restricted path access and can't be used for RevDial
+	var personalKeys []*types.ApiKey
+	for _, key := range keys {
+		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+			personalKeys = append(personalKeys, key)
+		}
 	}
 
-	// User has no API keys - this is an error, they need to create one first
-	return "", fmt.Errorf("user %s has no API keys - cannot perform git operations (create one in Account Settings)", userID)
+	// Use user's first personal API key if available
+	if len(personalKeys) > 0 {
+		log.Debug().
+			Str("user_id", userID).
+			Str("api_key_name", personalKeys[0].Name).
+			Bool("key_is_personal", true).
+			Msg("Using user's existing personal API key for git operations")
+		return personalKeys[0].Key, nil
+	}
+
+	// No personal API keys exist - create one automatically
+	log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
+
+	newKey, err := system.GenerateAPIKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate API key: %w", err)
+	}
+
+	apiKey := &types.ApiKey{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+		Key:       newKey,
+		Name:      "Auto-generated for agent access",
+		Type:      types.APIkeytypeAPI,
+		// AppID is nil - this is a personal key
+	}
+
+	createdKey, err := o.store.CreateAPIKey(ctx, apiKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create API key: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Str("key_name", createdKey.Name).
+		Msg("✅ Created personal API key for agent access")
+
+	return createdKey.Key, nil
 }
 
 // GetLiveProgress returns current live progress for all running tasks
