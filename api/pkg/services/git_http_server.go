@@ -1052,21 +1052,31 @@ func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash stri
 		// Validate it looks like a valid task ID
 		// Supported formats:
 		// 1. Current format: "spt_<ulid>", e.g., "spt_01jdfg5h2k3m4n5p6q7r8s9t0u"
+		//    Directory: 2025-11-12_task-name_spt_01jdfg5h2k3m4n5p6q7r8s9t0u
+		//    After last underscore we get just the ULID, need to look for "spt_" in dirName
 		// 2. Legacy UUID format: 8-4-4-4-12 (36 chars with dashes), e.g., "014930c9-3031-4bd0-b0cc-19741947665c"
 		// 3. Legacy timestamp format: "task_<nanoseconds>", e.g., "task_1764170879478485974"
 		isValidUUID := len(taskID) == 36 && strings.Count(taskID, "-") == 4
-		isValidSpecTaskID := strings.HasPrefix(taskID, "spt_")
+
+		// For spt_ prefixed IDs, the directory name is like "2025-11-12_name_spt_<ulid>"
+		// After last underscore we get just the ULID, so we need to extract "spt_<ulid>" from dirName
+		if !isValidUUID && strings.Contains(dirName, "_spt_") {
+			sptIdx := strings.LastIndex(dirName, "_spt_")
+			if sptIdx != -1 {
+				taskID = dirName[sptIdx+1:] // +1 to skip the leading underscore, get "spt_<ulid>"
+			}
+		}
 
 		// For legacy task_ prefix format, extract the full task ID from directory name
-		if !isValidUUID && !isValidSpecTaskID && strings.Contains(dirName, "task_") {
+		if !isValidUUID && !strings.HasPrefix(taskID, "spt_") && strings.Contains(dirName, "task_") {
 			taskPrefixIdx := strings.LastIndex(dirName, "task_")
 			if taskPrefixIdx != -1 {
 				taskID = dirName[taskPrefixIdx:]
 			}
 		}
 
-		// Accept current sptask_ format, legacy UUID format, or legacy task_ prefix format
-		if isValidSpecTaskID || isValidUUID || strings.HasPrefix(taskID, "task_") {
+		// Accept current spt_ format, legacy UUID format, or legacy task_ prefix format
+		if strings.HasPrefix(taskID, "spt_") || isValidUUID || strings.HasPrefix(taskID, "task_") {
 			taskIDSet[taskID] = true
 			log.Debug().
 				Str("file", file).
