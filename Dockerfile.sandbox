@@ -167,6 +167,7 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
 RUN mkdir -p /opt/images
 COPY helix-sway.tar /opt/images/helix-sway.tar
 COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
+COPY helix-sway.version /opt/images/helix-sway.version
 
 # ====================================================================
 # Copy Wolf binaries and setup
@@ -269,32 +270,50 @@ else
     echo "helix_default network already exists"
 fi
 
-# Load helix-sway image into sandbox's dockerd (with hash-based skip optimization)
+# Load helix-sway image into sandbox's dockerd (with version-based management)
 if [ -f /opt/images/helix-sway.tar ]; then
-    # Check if image already loaded with same hash (optimization to skip expensive docker load)
+    # Read expected version from embedded metadata
+    SWAY_VERSION="latest"
+    if [ -f /opt/images/helix-sway.version ]; then
+        SWAY_VERSION=$(cat /opt/images/helix-sway.version)
+        echo "📦 helix-sway version: ${SWAY_VERSION}"
+    fi
+
+    # Check if versioned image already loaded (optimization to skip expensive docker load)
     SHOULD_LOAD=true
+    EXPECTED_HASH=""
     if [ -f /opt/images/helix-sway.tar.hash ]; then
         EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.hash)
-        CURRENT_HASH=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
+    fi
 
-        if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
-            echo "✅ helix-sway:latest already loaded (hash: $CURRENT_HASH) - skipping docker load"
-            SHOULD_LOAD=false
-        else
-            echo "📦 Loading helix-sway image into sandbox's dockerd (current: $CURRENT_HASH, expected: $EXPECTED_HASH)..."
-        fi
+    # Check for versioned tag first (more reliable than :latest)
+    CURRENT_HASH=$(docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
+
+    if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
+        echo "✅ helix-sway:${SWAY_VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
+        SHOULD_LOAD=false
     else
-        echo "📦 Loading helix-sway image into sandbox's dockerd..."
+        echo "📦 Loading helix-sway:${SWAY_VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
     fi
 
     if [ "$SHOULD_LOAD" = true ]; then
         if docker load -i /opt/images/helix-sway.tar 2>&1 | tee /tmp/docker-load.log; then
-            echo "✅ helix-sway:latest loaded successfully"
+            # Verify both tags exist after load
+            if docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' | grep -q .; then
+                echo "✅ helix-sway:${SWAY_VERSION} loaded successfully"
+            else
+                # Tarball may be from before versioning - tag it now
+                echo "🏷️  Tagging helix-sway:latest as helix-sway:${SWAY_VERSION}"
+                docker tag helix-sway:latest "helix-sway:${SWAY_VERSION}" 2>/dev/null || true
+            fi
         else
             echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
             echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
         fi
     fi
+
+    # Note: Wolf executor reads /opt/images/helix-sway.version directly
+    echo "✅ helix-sway:${SWAY_VERSION} ready for Wolf executor"
 else
     echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
 fi
