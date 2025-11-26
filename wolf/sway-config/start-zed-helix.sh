@@ -140,135 +140,15 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 
     # Check if primary repository exists
     if [ -d "$PRIMARY_REPO_PATH/.git" ]; then
-        # Ensure helix-specs branch exists before creating worktree
-        # The Go code creates this as an orphan branch when forking samples
-        echo "  🔍 Checking for helix-specs branch..."
+        # Source the helix-specs creation helper (handles edge cases like empty repos, detached HEAD, etc.)
+        # Logic is in separate file so it can be tested independently
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        source "$SCRIPT_DIR/helix-specs-create.sh"
 
-        BRANCH_EXISTS=false
-        if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/helix-specs >/dev/null 2>&1; then
-            echo "  ✅ helix-specs branch exists on remote"
-            BRANCH_EXISTS=true
-        elif git -C "$PRIMARY_REPO_PATH" rev-parse --verify helix-specs >/dev/null 2>&1; then
-            echo "  ✅ helix-specs branch exists locally"
-            BRANCH_EXISTS=true
-        fi
-
-        # Create branch if it doesn't exist (for external repos not created by Helix)
-        if [ "$BRANCH_EXISTS" = false ]; then
-            echo "  📝 Creating helix-specs orphan branch (empty)..."
-
-            # Detect the current branch (what we need to return to after creating orphan)
-            # For empty repos, this is whatever branch git init created (usually master)
-            CURRENT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" branch --show-current 2>/dev/null)
-
-            # Handle detached HEAD - save the commit hash to return to
-            DETACHED_HEAD=""
-            if [ -z "$CURRENT_BRANCH" ]; then
-                DETACHED_HEAD=$(git -C "$PRIMARY_REPO_PATH" rev-parse HEAD 2>/dev/null || echo "")
-                if [ -n "$DETACHED_HEAD" ]; then
-                    echo "  ⚠️  HEAD is detached at $DETACHED_HEAD"
-                fi
-            fi
-
-            # Stash any uncommitted changes (prevents checkout failures)
-            STASHED=false
-            if git -C "$PRIMARY_REPO_PATH" diff --quiet 2>/dev/null && \
-               git -C "$PRIMARY_REPO_PATH" diff --cached --quiet 2>/dev/null; then
-                : # Working directory is clean
-            else
-                echo "  📦 Stashing uncommitted changes..."
-                if git -C "$PRIMARY_REPO_PATH" stash push -m "helix-specs-setup" 2>&1; then
-                    STASHED=true
-                fi
-            fi
-
-            # Detect the default branch from remote (could be main or master)
-            # For empty repos, there may be no remote branches yet
-            REPO_DEFAULT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-            if [ -z "$REPO_DEFAULT_BRANCH" ]; then
-                # Fallback: try main first, then master on remote
-                if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
-                    REPO_DEFAULT_BRANCH="main"
-                elif git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
-                    REPO_DEFAULT_BRANCH="master"
-                elif [ -n "$CURRENT_BRANCH" ]; then
-                    # Empty repo - use current branch (what git clone created)
-                    REPO_DEFAULT_BRANCH="$CURRENT_BRANCH"
-                else
-                    REPO_DEFAULT_BRANCH="main"  # Last resort fallback
-                fi
-            fi
-
-            echo "  📍 Current branch: ${CURRENT_BRANCH:-detached}, will return to: $REPO_DEFAULT_BRANCH"
-
-            # Check if repo is empty (no commits on any branch)
-            REPO_IS_EMPTY=false
-            if ! git -C "$PRIMARY_REPO_PATH" rev-parse HEAD >/dev/null 2>&1; then
-                REPO_IS_EMPTY=true
-                echo "  📝 Repository is empty (no commits yet)"
-            fi
-
-            # 1. Create orphan branch (no parent, no files)
-            # 2. Remove any staged files (only if not empty repo)
-            # 3. Commit empty state
-            # 4. Push to remote
-            # 5. Switch back to default branch (or create it if empty repo)
-            CREATE_SUCCESS=false
-            if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-specs 2>&1; then
-                # Only try to remove files if repo has content
-                if [ "$REPO_IS_EMPTY" = false ]; then
-                    git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 || true
-                fi
-                # Reset index for clean state
-                git -C "$PRIMARY_REPO_PATH" reset 2>&1 || true
-
-                if git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
-                   git -C "$PRIMARY_REPO_PATH" push origin helix-specs 2>&1; then
-                    echo "  ✅ helix-specs orphan branch created and pushed"
-                    CREATE_SUCCESS=true
-                    BRANCH_EXISTS=true
-                else
-                    echo "  ⚠️  Failed to push helix-specs (may not have push permission)"
-                fi
-            fi
-
-            # Return to original state
-            if [ "$CREATE_SUCCESS" = true ]; then
-                if [ "$REPO_IS_EMPTY" = true ]; then
-                    # For empty repos, create the default branch with an initial commit
-                    # so we have somewhere to return to
-                    if ! git -C "$PRIMARY_REPO_PATH" show-ref --verify "refs/heads/$REPO_DEFAULT_BRANCH" >/dev/null 2>&1; then
-                        echo "  📝 Creating initial $REPO_DEFAULT_BRANCH branch..."
-                        git -C "$PRIMARY_REPO_PATH" checkout --orphan "$REPO_DEFAULT_BRANCH" 2>&1 || true
-                        git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
-                        git -C "$PRIMARY_REPO_PATH" push -u origin "$REPO_DEFAULT_BRANCH" 2>&1 || true
-                    else
-                        git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
-                    fi
-                elif [ -n "$DETACHED_HEAD" ]; then
-                    # Return to detached HEAD state
-                    echo "  📍 Returning to detached HEAD at $DETACHED_HEAD..."
-                    git -C "$PRIMARY_REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
-                else
-                    git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
-                fi
-                echo "  ✅ Returned to original state"
-            else
-                echo "  ⚠️  Failed to create helix-specs orphan branch"
-                # Try to return to original state
-                if [ -n "$DETACHED_HEAD" ]; then
-                    git -C "$PRIMARY_REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
-                elif [ -n "$CURRENT_BRANCH" ]; then
-                    git -C "$PRIMARY_REPO_PATH" checkout "$CURRENT_BRANCH" 2>&1 || true
-                fi
-            fi
-
-            # Restore stashed changes
-            if [ "$STASHED" = true ]; then
-                echo "  📦 Restoring stashed changes..."
-                git -C "$PRIMARY_REPO_PATH" stash pop 2>&1 || true
-            fi
-        fi
+        # Create helix-specs branch if it doesn't exist
+        # Sets HELIX_SPECS_BRANCH_EXISTS=true/false
+        create_helix_specs_branch "$PRIMARY_REPO_PATH"
+        BRANCH_EXISTS="$HELIX_SPECS_BRANCH_EXISTS"
 
         # Only create worktree if branch exists
         if [ "$BRANCH_EXISTS" = false ]; then
