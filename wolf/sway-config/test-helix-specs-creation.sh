@@ -111,7 +111,8 @@ run_test "Normal repo with commits" '
     echo "test" > file.txt
     git add file.txt
     git commit -m "Initial commit"
-    git push origin master
+    BRANCH=$(git branch --show-current)
+    git push origin "$BRANCH"
 '
 
 # Test 3: Detached HEAD
@@ -119,7 +120,7 @@ run_test "Detached HEAD" '
     echo "test" > file.txt
     git add file.txt
     git commit -m "Initial commit"
-    git push origin master
+    git push origin "$(git branch --show-current)"
     COMMIT=$(git rev-parse HEAD)
     git checkout "$COMMIT" 2>/dev/null
 '
@@ -129,7 +130,7 @@ run_test "Dirty working directory (untracked)" '
     echo "test" > file.txt
     git add file.txt
     git commit -m "Initial commit"
-    git push origin master
+    git push origin "$(git branch --show-current)"
     echo "uncommitted" > dirty.txt
 '
 
@@ -138,7 +139,7 @@ run_test "Dirty working directory (modified)" '
     echo "test" > file.txt
     git add file.txt
     git commit -m "Initial commit"
-    git push origin master
+    git push origin "$(git branch --show-current)"
     echo "modified" >> file.txt
 '
 
@@ -156,7 +157,7 @@ run_test "Repo with staged changes" '
     echo "test" > file.txt
     git add file.txt
     git commit -m "Initial commit"
-    git push origin master
+    git push origin "$(git branch --show-current)"
     echo "staged" > staged.txt
     git add staged.txt
 '

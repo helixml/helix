@@ -111,15 +111,16 @@ create_helix_specs_branch() {
     # 2. Remove any staged files (only if not empty repo)
     # 3. Commit empty state
     # 4. Push to remote
-    # 5. Switch back to default branch (or create it if empty repo)
+    # 5. Switch back to original branch
     local CREATE_SUCCESS=false
     if git -C "$REPO_PATH" checkout --orphan helix-specs 2>&1; then
         # Only try to remove files if repo has content
+        # Suppress errors (pathspec '.' fails on empty working dir)
         if [ "$REPO_IS_EMPTY" = false ]; then
-            git -C "$REPO_PATH" rm -rf . 2>&1 || true
+            git -C "$REPO_PATH" rm -rf . >/dev/null 2>&1 || true
         fi
         # Reset index for clean state
-        git -C "$REPO_PATH" reset 2>&1 || true
+        git -C "$REPO_PATH" reset >/dev/null 2>&1 || true
 
         if git -C "$REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
            git -C "$REPO_PATH" push origin helix-specs 2>&1; then
@@ -132,33 +133,43 @@ create_helix_specs_branch() {
     fi
 
     # Return to original state
+    # Determine which branch to return to (prefer CURRENT_BRANCH, fallback to REPO_DEFAULT_BRANCH)
+    local RETURN_BRANCH="${CURRENT_BRANCH:-$REPO_DEFAULT_BRANCH}"
+
     if [ "$CREATE_SUCCESS" = true ]; then
         if [ "$REPO_IS_EMPTY" = true ]; then
             # For empty repos, create the default branch with an initial commit
             # so we have somewhere to return to
-            if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$REPO_DEFAULT_BRANCH" >/dev/null 2>&1; then
-                echo "  Creating initial $REPO_DEFAULT_BRANCH branch..."
-                git -C "$REPO_PATH" checkout --orphan "$REPO_DEFAULT_BRANCH" 2>&1 || true
+            if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$RETURN_BRANCH" >/dev/null 2>&1; then
+                echo "  Creating initial $RETURN_BRANCH branch..."
+                git -C "$REPO_PATH" checkout --orphan "$RETURN_BRANCH" 2>&1 || true
                 git -C "$REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
-                git -C "$REPO_PATH" push -u origin "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                git -C "$REPO_PATH" push -u origin "$RETURN_BRANCH" 2>&1 || true
             else
-                git -C "$REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
+                git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || true
             fi
         elif [ -n "$DETACHED_HEAD" ]; then
             # Return to detached HEAD state
             echo "  Returning to detached HEAD at $DETACHED_HEAD..."
-            git -C "$REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
+            git -C "$REPO_PATH" checkout "$DETACHED_HEAD" >/dev/null 2>&1 || true
         else
-            git -C "$REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1 || true
+            # Return to original branch (try current branch first, then default)
+            if ! git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1; then
+                # If that fails, try the other common default branch names
+                git -C "$REPO_PATH" checkout main >/dev/null 2>&1 || \
+                git -C "$REPO_PATH" checkout master >/dev/null 2>&1 || true
+            fi
         fi
-        echo "  Returned to original state"
+        echo "  Returned to $RETURN_BRANCH"
     else
         echo "  Failed to create helix-specs orphan branch"
         # Try to return to original state
         if [ -n "$DETACHED_HEAD" ]; then
-            git -C "$REPO_PATH" checkout "$DETACHED_HEAD" 2>&1 || true
-        elif [ -n "$CURRENT_BRANCH" ]; then
-            git -C "$REPO_PATH" checkout "$CURRENT_BRANCH" 2>&1 || true
+            git -C "$REPO_PATH" checkout "$DETACHED_HEAD" >/dev/null 2>&1 || true
+        elif [ -n "$RETURN_BRANCH" ]; then
+            git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || \
+            git -C "$REPO_PATH" checkout main >/dev/null 2>&1 || \
+            git -C "$REPO_PATH" checkout master >/dev/null 2>&1 || true
         fi
     fi
 
