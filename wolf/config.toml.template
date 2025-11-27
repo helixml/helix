@@ -65,8 +65,10 @@ video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixe
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    # Intel VA-API BGRA/ARGB bug fix: use videoconvert for proper color conversion
-    video_params_zero_copy = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
+    # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
+    # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
+    # msdkvpp is Intel Media SDK VPP - works correctly and stays on GPU
+    video_params_zero_copy = '''msdkvpp add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [gstreamer.video.defaults.va]
