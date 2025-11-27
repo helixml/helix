@@ -192,6 +192,81 @@ COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defa
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
+# ====================================================================
+# Setup crash dump management (runs before dockerd)
+# - Configures kernel core_pattern to dump to /var/crash
+# - Starts cleanup daemon: 24hr retention + 20GB quota
+# ====================================================================
+COPY <<'COREDUMP_SCRIPT' /etc/cont-init.d/03-setup-coredumps.sh
+#!/bin/bash
+set -e
+
+echo "🗑️ Setting up crash dump management..."
+
+# Create crash dump directory
+CRASH_DIR="/var/crash"
+mkdir -p "$CRASH_DIR"
+
+# Configure kernel core pattern to dump to /var/crash
+# Format: core.<executable>.<pid>.<timestamp>
+# Requires privileged mode (which sandbox already uses)
+CORE_PATTERN="$CRASH_DIR/core.%e.%p.%t"
+if [ -w /proc/sys/kernel/core_pattern ]; then
+    echo "$CORE_PATTERN" > /proc/sys/kernel/core_pattern
+    echo "✅ Core pattern set to: $CORE_PATTERN"
+else
+    echo "⚠️  Cannot set core_pattern (not privileged or read-only /proc)"
+fi
+
+# Enable core dumps (may be disabled by default)
+ulimit -c unlimited 2>/dev/null || echo "⚠️  Cannot set ulimit -c unlimited"
+
+# Crash dump retention settings (configurable via env vars)
+CRASH_RETENTION_HOURS=${CRASH_RETENTION_HOURS:-24}        # Delete dumps older than this
+CRASH_MAX_SIZE_GB=${CRASH_MAX_SIZE_GB:-20}                 # Max total size in GB
+CRASH_CLEANUP_INTERVAL=${CRASH_CLEANUP_INTERVAL:-300}      # Cleanup every 5 minutes
+
+echo "📋 Crash dump settings:"
+echo "   Directory: $CRASH_DIR"
+echo "   Retention: ${CRASH_RETENTION_HOURS} hours"
+echo "   Max size: ${CRASH_MAX_SIZE_GB} GB"
+echo "   Cleanup interval: ${CRASH_CLEANUP_INTERVAL}s"
+
+# Start crash dump cleanup daemon in background
+(
+    while true; do
+        # Delete dumps older than retention period
+        if [ -d "$CRASH_DIR" ]; then
+            OLD_COUNT=$(find "$CRASH_DIR" -name "core.*" -mmin +$((CRASH_RETENTION_HOURS * 60)) 2>/dev/null | wc -l)
+            if [ "$OLD_COUNT" -gt 0 ]; then
+                echo "[$(date -Iseconds)] Deleting $OLD_COUNT crash dumps older than ${CRASH_RETENTION_HOURS}h"
+                find "$CRASH_DIR" -name "core.*" -mmin +$((CRASH_RETENTION_HOURS * 60)) -delete 2>/dev/null
+            fi
+
+            # Enforce size quota - delete oldest dumps until under limit
+            MAX_SIZE_BYTES=$((CRASH_MAX_SIZE_GB * 1024 * 1024 * 1024))
+            CURRENT_SIZE=$(du -sb "$CRASH_DIR" 2>/dev/null | cut -f1)
+
+            while [ "${CURRENT_SIZE:-0}" -gt "$MAX_SIZE_BYTES" ]; do
+                # Find and delete the oldest core dump
+                OLDEST=$(find "$CRASH_DIR" -name "core.*" -type f -printf '%T+ %p\n' 2>/dev/null | sort | head -1 | cut -d' ' -f2-)
+                if [ -z "$OLDEST" ]; then
+                    break
+                fi
+                echo "[$(date -Iseconds)] Quota exceeded ($(du -sh "$CRASH_DIR" | cut -f1) > ${CRASH_MAX_SIZE_GB}GB), deleting: $OLDEST"
+                rm -f "$OLDEST"
+                CURRENT_SIZE=$(du -sb "$CRASH_DIR" 2>/dev/null | cut -f1)
+            done
+        fi
+
+        sleep "$CRASH_CLEANUP_INTERVAL"
+    done
+) 2>&1 | sed -u 's/^/[CRASH-CLEANUP] /' &
+
+echo "✅ Crash dump cleanup daemon started"
+COREDUMP_SCRIPT
+RUN chmod +x /etc/cont-init.d/03-setup-coredumps.sh
+
 # Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
 COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
 #!/bin/bash
