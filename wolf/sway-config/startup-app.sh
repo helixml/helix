@@ -232,10 +232,10 @@ EOF
     echo "output WL-1 scale 1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
-    echo "# Click 'us' in waybar or press Alt+Shift to switch layouts" >> $HOME/.config/sway/config
+    echo "# Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)" >> $HOME/.config/sway/config
     echo "input type:keyboard {" >> $HOME/.config/sway/config
     echo "    xkb_layout \"us,gb,fr\"" >> $HOME/.config/sway/config
-    echo "    xkb_options \"caps:ctrl_nocaps,grp:alt_shift_toggle\"" >> $HOME/.config/sway/config
+    echo "    xkb_options \"caps:ctrl_nocaps\"" >> $HOME/.config/sway/config
     echo "}" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Workaround for Moonlight keyboard modifier state desync bug" >> $HOME/.config/sway/config
