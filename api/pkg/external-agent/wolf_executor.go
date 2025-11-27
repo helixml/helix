@@ -186,14 +186,22 @@ func (w *WolfExecutor) computeZedImageFromVersion(swayVersion string) string {
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build GPU-specific device list based on GPU_VENDOR
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
-	gpuDevices := "/dev/input/* /dev/dri/*"
-	if gpuVendor == "nvidia" {
-		gpuDevices += " /dev/nvidia*"
-	} else if gpuVendor == "amd" {
-		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
+	gpuDevices := "/dev/input/*"         // Input devices always needed
+
+	switch gpuVendor {
+	case "none":
+		// Software rendering - no GPU devices needed, llvmpipe uses CPU
+		// Still need /dev/dri for Mesa software rendering context
+		gpuDevices += " /dev/dri/*"
+	case "nvidia":
+		gpuDevices += " /dev/dri/* /dev/nvidia*"
+	case "amd":
+		gpuDevices += " /dev/dri/* /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	default:
+		// Intel or unknown - just /dev/dri
+		gpuDevices += " /dev/dri/*"
 	}
-	// Intel GPUs only need /dev/dri (already included)
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
@@ -731,20 +739,34 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// NEW: Create lobby instead of app for immediate auto-start
-	// Determine video buffer caps based on GPU vendor
+	// Determine video buffer caps and render node based on GPU vendor
 	// - NVIDIA uses CUDA memory for zero-copy GPU access
 	// - AMD/Intel use plain video/x-raw (legacy pipeline) because zero-copy VA memory
 	//   requires DMA-BUF support which may not be available on all AMD GPUs
+	// - "none" uses SOFTWARE render node for llvmpipe software rendering (no GPU)
 	// - Wolf logs: "Unable to find any compatible DMA formats for vapostproc, disabling zero copy pipeline"
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
-	videoBufferCaps := "video/x-raw"     // Default for AMD/Intel/unknown (legacy pipeline)
-	if gpuVendor == "nvidia" {
-		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
+	videoBufferCaps := "video/x-raw"     // Default for AMD/Intel/software/unknown (legacy pipeline)
+	renderNode := os.Getenv("WOLF_RENDER_NODE")
+	if renderNode == "" {
+		renderNode = "/dev/dri/renderD128" // Default
 	}
+
+	switch gpuVendor {
+	case "nvidia":
+		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
+	case "none", "":
+		// Software rendering fallback - use llvmpipe via SOFTWARE render node
+		// Per Wolf maintainer ABeltramo: "Setting the render node to SOFTWARE should do the trick"
+		renderNode = "SOFTWARE"
+		log.Info().Msg("No GPU detected - using software rendering (llvmpipe)")
+	}
+
 	log.Info().
 		Str("gpu_vendor", gpuVendor).
 		Str("video_buffer_caps", videoBufferCaps).
-		Msg("Configured video buffer caps for GPU type")
+		Str("render_node", renderNode).
+		Msg("Configured video settings for GPU type")
 
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
@@ -756,8 +778,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			Width:                   displayWidth,
 			Height:                  displayHeight,
 			RefreshRate:             displayRefreshRate,
-			WaylandRenderNode:       "/dev/dri/renderD128",
-			RunnerRenderNode:        "/dev/dri/renderD128",
+			WaylandRenderNode:       renderNode,
+			RunnerRenderNode:        renderNode,
 			VideoProducerBufferCaps: videoBufferCaps,
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
