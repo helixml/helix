@@ -1668,7 +1668,12 @@ EOF
         # Auto-detect GPU render node for Wolf based on GPU_VENDOR
         # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
         WOLF_RENDER_NODE="/dev/dri/renderD128"  # Default
-        if [ -d "/sys/class/drm" ]; then
+
+        # Handle "none" case for software rendering (no GPU available)
+        if [ "$GPU_VENDOR" = "none" ]; then
+            WOLF_RENDER_NODE="SOFTWARE"
+            echo "No GPU detected - using software rendering (llvmpipe)"
+        elif [ -d "/sys/class/drm" ]; then
             # Determine which driver to look for based on GPU_VENDOR
             case "$GPU_VENDOR" in
                 nvidia)
@@ -1707,6 +1712,8 @@ EOF
 # Wolf streaming platform
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 WOLF_RENDER_NODE=${WOLF_RENDER_NODE}
+# GPU vendor for video pipeline configuration: nvidia, amd, intel, none (software rendering)
+GPU_VENDOR=${GPU_VENDOR}
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
