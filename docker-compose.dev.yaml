@@ -281,7 +281,7 @@ services:
         - GOP_SIZE=${GOP_SIZE:-120}
         # Moonlight Web configuration
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
         - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
@@ -374,7 +374,7 @@ services:
         - GOP_SIZE=${GOP_SIZE:-120}
         # Moonlight Web configuration
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
         - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
