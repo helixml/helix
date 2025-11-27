@@ -173,6 +173,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.QuestionSet{},
 		&types.QuestionSetExecution{},
 		&types.WolfInstance{},
+		&types.DiskUsageHistory{},
 	)
 	if err != nil {
 		return err
