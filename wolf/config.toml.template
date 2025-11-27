@@ -65,14 +65,18 @@ video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixe
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''vapostproc add-borders=true !
+    # Intel VA-API BGRA/ARGB bug fix: use videoconvert for proper color conversion
+    video_params_zero_copy = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [gstreamer.video.defaults.va]
-    video_params = '''vapostproc add-borders=true !
+    # Intel VA-API has a bug where BGRA/ARGB channel masks are identical (intel/media-driver#644)
+    # This causes R/B channel swap (blue faces). Fix: use videoconvert for proper color conversion
+    # before vapostproc, or ensure explicit format specification.
+    video_params = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''vapostproc add-borders=true !
+    video_params_zero_copy = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [[gstreamer.video.av1_encoders]]
