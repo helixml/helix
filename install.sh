@@ -2354,8 +2354,8 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
     -e WOLF_USE_ZERO_COPY=TRUE \
     -e GOP_SIZE=120 \
-    -e CRASH_RETENTION_HOURS=24 \
-    -e CRASH_MAX_SIZE_GB=20 \
+    -e CRASH_RETENTION_HOURS=6 \
+    -e CRASH_MAX_SIZE_GB=5 \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-crashdumps:/var/crash \
     -v /dev:/dev:rw \

@@ -295,16 +295,16 @@ services:
         - HELIX_API_URL=http://api:8080
         - WOLF_INSTANCE_ID=dev
         - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
-        # Crash dump management (aggressive cleanup to prevent disk fill)
-        - CRASH_RETENTION_HOURS=24
-        - CRASH_MAX_SIZE_GB=20
+        # Crash dump management: 6hr retention, 5GB quota
+        - CRASH_RETENTION_HOURS=6
+        - CRASH_MAX_SIZE_GB=5
       privileged: true  # Required for Docker-in-Docker
       volumes:
         # Wolf configuration and state
         - ./wolf/:/etc/wolf/cfg/:rw
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
-        - wolf-crashdumps:/var/crash  # Crash dumps with 24hr retention + 20GB quota
+        - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -392,16 +392,16 @@ services:
         - HELIX_API_URL=http://api:8080
         - WOLF_INSTANCE_ID=dev
         - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
-        # Crash dump management (aggressive cleanup to prevent disk fill)
-        - CRASH_RETENTION_HOURS=24
-        - CRASH_MAX_SIZE_GB=20
+        # Crash dump management: 6hr retention, 5GB quota
+        - CRASH_RETENTION_HOURS=6
+        - CRASH_MAX_SIZE_GB=5
       privileged: true  # Required for Docker-in-Docker
       volumes:
         # Wolf configuration and state
         - ./wolf/:/etc/wolf/cfg/:rw
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
-        - wolf-crashdumps:/var/crash  # Crash dumps with 24hr retention + 20GB quota
+        - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -588,7 +588,7 @@ volumes:
     helix-socket:
     wolf-socket:
     wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
-    wolf-crashdumps:  # Crash dumps with 24hr retention + 20GB quota
+    wolf-crashdumps:  # Crash dumps (6hr retention, 5GB quota)
     zed-work:
 
     go-pkg-mod: # Go module cache
