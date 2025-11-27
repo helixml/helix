@@ -258,15 +258,15 @@ services:
       - HELIX_API_URL=
       - WOLF_ID=
       - RUNNER_TOKEN=
-      # Crash dump management (aggressive cleanup to prevent disk fill)
-      - CRASH_RETENTION_HOURS=24
-      - CRASH_MAX_SIZE_GB=20
+      # Crash dump management: 6hr retention, 5GB quota
+      - CRASH_RETENTION_HOURS=6
+      - CRASH_MAX_SIZE_GB=5
     volumes:
       # Wolf configuration and state
       - ./wolf/:/etc/wolf/cfg/:rw
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker  # Wolf's isolated dockerd storage
-      - wolf-crashdumps:/var/crash  # Crash dumps with 24hr retention + 20GB quota
+      - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/wolf:/var/run/wolf:rw
@@ -346,15 +346,15 @@ services:
       - HELIX_API_URL=
       - WOLF_ID=
       - RUNNER_TOKEN=
-      # Crash dump management (aggressive cleanup to prevent disk fill)
-      - CRASH_RETENTION_HOURS=24
-      - CRASH_MAX_SIZE_GB=20
+      # Crash dump management: 6hr retention, 5GB quota
+      - CRASH_RETENTION_HOURS=6
+      - CRASH_MAX_SIZE_GB=5
     volumes:
       # Wolf configuration and state
       - ./wolf/:/etc/wolf/cfg/:rw
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker
-      - wolf-crashdumps:/var/crash  # Crash dumps with 24hr retention + 20GB quota
+      - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       - /var/run/wolf:/var/run/wolf:rw
@@ -396,7 +396,7 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
   helix-typesense-db:
-  wolf-crashdumps:  # Crash dumps with 24hr retention + 20GB quota
+  wolf-crashdumps:  # Crash dumps (6hr retention, 5GB quota)
   helix-socket:
   helix-kodit:
   helix-vectorchord-kodit:
