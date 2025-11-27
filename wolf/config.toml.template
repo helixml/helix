@@ -70,13 +70,13 @@ colorimetry={color_space}, pixel-aspect-ratio=1/1'''
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [gstreamer.video.defaults.va]
-    # Intel VA-API has a bug where BGRA/ARGB channel masks are identical (intel/media-driver#644)
-    # This causes R/B channel swap (blue faces). Fix: use videoconvert for proper color conversion
-    # before vapostproc, or ensure explicit format specification.
-    video_params = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
+    # Note: This is used by AMD GPUs and older Intel GPUs without Quick Sync.
+    # Intel with Quick Sync uses qsv defaults above (which has the BGRA/ARGB bug fix).
+    # AMD doesn't have the color swap bug, so we keep vapostproc without videoconvert overhead.
+    video_params = '''vapostproc add-borders=true !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''videoconvert ! video/x-raw, format=NV12 ! vapostproc add-borders=true !
+    video_params_zero_copy = '''vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [[gstreamer.video.av1_encoders]]

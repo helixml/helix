@@ -192,27 +192,6 @@ COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defa
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
-# Setup crash dump management: 6hr retention, 5GB quota
-COPY <<'COREDUMP_SCRIPT' /etc/cont-init.d/03-setup-coredumps.sh
-#!/bin/bash
-mkdir -p /var/crash
-echo "/var/crash/core.%e.%p.%t" > /proc/sys/kernel/core_pattern 2>/dev/null || true
-ulimit -c unlimited 2>/dev/null || true
-
-# Background cleanup: delete old dumps and enforce quota
-(
-    HOURS=${CRASH_RETENTION_HOURS:-6}
-    MAX_GB=${CRASH_MAX_SIZE_GB:-5}
-    while sleep 600; do
-        find /var/crash -name "core.*" -mmin +$((HOURS * 60)) -delete 2>/dev/null
-        while [ "$(du -sb /var/crash 2>/dev/null | cut -f1)" -gt $((MAX_GB * 1073741824)) ]; do
-            rm -f "$(find /var/crash -name 'core.*' -type f -printf '%T+ %p\n' 2>/dev/null | sort | head -1 | cut -d' ' -f2-)" 2>/dev/null || break
-        done
-    done
-) &
-COREDUMP_SCRIPT
-RUN chmod +x /etc/cont-init.d/03-setup-coredumps.sh
-
 # Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
 COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
 #!/bin/bash

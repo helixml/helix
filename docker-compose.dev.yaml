@@ -295,16 +295,16 @@ services:
         - HELIX_API_URL=http://api:8080
         - WOLF_INSTANCE_ID=dev
         - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
-        # Crash dump management: 6hr retention, 5GB quota
-        - CRASH_RETENTION_HOURS=6
-        - CRASH_MAX_SIZE_GB=5
+        # Wolf debug dumps: 6 dumps max, 20GB quota
+        - WOLF_MAX_DUMPS=6
+        - WOLF_MAX_DUMPS_GB=20
       privileged: true  # Required for Docker-in-Docker
       volumes:
         # Wolf configuration and state
         - ./wolf/:/etc/wolf/cfg/:rw
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
-        - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
+        - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -392,16 +392,16 @@ services:
         - HELIX_API_URL=http://api:8080
         - WOLF_INSTANCE_ID=dev
         - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
-        # Crash dump management: 6hr retention, 5GB quota
-        - CRASH_RETENTION_HOURS=6
-        - CRASH_MAX_SIZE_GB=5
+        # Wolf debug dumps: 6 dumps max, 20GB quota
+        - WOLF_MAX_DUMPS=6
+        - WOLF_MAX_DUMPS_GB=20
       privileged: true  # Required for Docker-in-Docker
       volumes:
         # Wolf configuration and state
         - ./wolf/:/etc/wolf/cfg/:rw
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
-        - wolf-crashdumps:/var/crash  # Crash dumps (6hr retention, 5GB quota)
+        - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -588,7 +588,7 @@ volumes:
     helix-socket:
     wolf-socket:
     wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
-    wolf-crashdumps:  # Crash dumps (6hr retention, 5GB quota)
+    wolf-debug-dumps:  # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
     zed-work:
 
     go-pkg-mod: # Go module cache
