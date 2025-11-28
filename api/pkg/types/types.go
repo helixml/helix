@@ -2835,3 +2835,18 @@ type ListMemoryRequest struct {
 	UserID string
 	AppID  string
 }
+
+// ForkSimpleProjectRequest represents request to fork a simple sample project
+type ForkSimpleProjectRequest struct {
+	SampleProjectID string `json:"sample_project_id"`
+	ProjectName     string `json:"project_name"`
+	Description     string `json:"description,omitempty"`
+}
+
+// ForkSimpleProjectResponse represents the fork response
+type ForkSimpleProjectResponse struct {
+	ProjectID     string `json:"project_id"`
+	GitHubRepoURL string `json:"github_repo_url"`
+	TasksCreated  int    `json:"tasks_created"`
+	Message       string `json:"message"`
+}
