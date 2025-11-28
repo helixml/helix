@@ -937,26 +937,6 @@ definitions:
       project_id:
         type: string
     type: object
-  server.ForkSimpleProjectRequest:
-    properties:
-      description:
-        type: string
-      project_name:
-        type: string
-      sample_project_id:
-        type: string
-    type: object
-  server.ForkSimpleProjectResponse:
-    properties:
-      github_repo_url:
-        type: string
-      message:
-        type: string
-      project_id:
-        type: string
-      tasks_created:
-        type: integer
-    type: object
   server.GPUStats:
     properties:
       available:
@@ -3404,6 +3384,26 @@ definitions:
             type: integer
         type: object
     type: object
+  types.ForkSimpleProjectRequest:
+    properties:
+      description:
+        type: string
+      project_name:
+        type: string
+      sample_project_id:
+        type: string
+    type: object
+  types.ForkSimpleProjectResponse:
+    properties:
+      github_repo_url:
+        type: string
+      message:
+        type: string
+      project_id:
+        type: string
+      tasks_created:
+        type: integer
+    type: object
   types.FrontendLicenseInfo:
     properties:
       features:
@@ -5018,6 +5018,8 @@ definitions:
       github_repo_url:
         type: string
       name:
+        type: string
+      organization_id:
         type: string
       startup_script:
         type: string
@@ -7429,18 +7431,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -7674,6 +7676,12 @@ definitions:
       user_agent:
         type: string
     type: object
+  types.WolfHeartbeatRequest:
+    properties:
+      sway_version:
+        description: helix-sway image version (commit hash)
+        type: string
+    type: object
   types.WolfInstanceRequest:
     properties:
       address:
@@ -7704,6 +7712,8 @@ definitions:
       name:
         type: string
       status:
+        type: string
+      sway_version:
         type: string
       updated_at:
         type: string
@@ -7783,6 +7793,21 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  wolf.KeyboardLayerState:
+    properties:
+      modifier_state:
+        $ref: '#/definitions/wolf.KeyboardModifierState'
+      pressed_key_names:
+        description: Human-readable names
+        items:
+          type: string
+        type: array
+      pressed_keys:
+        description: Key codes (VK for wolf/inputtino, KEY_* for evdev)
+        items:
+          type: integer
+        type: array
+    type: object
   wolf.KeyboardModifierState:
     properties:
       alt:
@@ -7818,6 +7843,22 @@ definitions:
     properties:
       device_name:
         type: string
+      device_node:
+        description: e.g., /dev/input/event15
+        type: string
+      evdev_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: Kernel's evdev state
+      has_mismatch:
+        description: Mismatch detection
+        type: boolean
+      inputtino_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: Inputtino's internal cur_press_keys
+      mismatch_description:
+        type: string
       modifier_state:
         $ref: '#/definitions/wolf.KeyboardModifierState'
       pressed_key_names:
@@ -7825,6 +7866,7 @@ definitions:
           type: string
         type: array
       pressed_keys:
+        description: Legacy fields for backwards compatibility
         items:
           type: integer
         type: array
@@ -7832,6 +7874,10 @@ definitions:
         type: string
       timestamp_ms:
         type: integer
+      wolf_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: 'Three layers of keyboard state for debugging:'
     type: object
   wolf.SystemHealthResponse:
     properties:
@@ -11152,6 +11198,11 @@ paths:
       consumes:
       - application/json
       description: Get all projects for the current user
+      parameters:
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
       produces:
       - application/json
       responses:
@@ -12204,12 +12255,12 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.ForkSimpleProjectRequest'
+          $ref: '#/definitions/types.ForkSimpleProjectRequest'
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/server.ForkSimpleProjectResponse'
+            $ref: '#/definitions/types.ForkSimpleProjectResponse'
       security:
       - BearerAuth: []
       summary: Fork a simple sample project
@@ -15029,7 +15080,23 @@ paths:
       - wolf
   /api/v1/wolf-instances/{id}/heartbeat:
     post:
-      description: Update the last heartbeat timestamp for a Wolf instance
+      consumes:
+      - application/json
+      description: Update the last heartbeat timestamp and optional metadata for a
+        Wolf instance
+      parameters:
+      - description: Wolf instance ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Heartbeat metadata
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/types.WolfHeartbeatRequest'
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
