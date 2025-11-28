@@ -830,6 +830,9 @@ function build-xfce() {
   fi
 }
 
+# warning - if you run this it won't correctly update the hash file
+# inside the sandbox container - the heartbeat daemon inside the sandbox container uses the hash file
+# to report back to the API which version of the image we trigger wolf to start
 function build-sway() {
   echo "🪟  Building custom Sway container for Personal Dev Environments..."
 
