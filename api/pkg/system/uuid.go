@@ -40,6 +40,7 @@ const (
 	QuestionSetPrefix          = "qs_"
 	QuestionSetExecutionPrefix = "qsex_"
 	SpecTaskPrefix             = "spt_"
+	ProjectPrefix              = "prj_"
 )
 
 func GenerateUUID() string {
@@ -116,6 +117,10 @@ func GenerateRoleID() string {
 
 func GenerateAccessGrantID() string {
 	return fmt.Sprintf("%s%s", AccessGrantPrefix, newID())
+}
+
+func GenerateProjectID() string {
+	return fmt.Sprintf("%s%s", ProjectPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge
