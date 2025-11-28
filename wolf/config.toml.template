@@ -10,10 +10,30 @@ pin = []
 id = 'moonlight-profile-id'
 name = 'Moonlight'
 
-# Wolf UI app (lobby browser) - MUST be first app for lobbies mode (app 0)
+# Placeholder app for WebRTC clients (app 0 - default)
+# Uses GStreamer test pattern - no Docker container, minimal resources
+# WebRTC clients connect here, then Helix API switches them to the correct lobby
+# Native Moonlight clients can click "Select Agent" below to use wolf-ui lobby browser
+[[profiles.apps]]
+title = ''
+start_virtual_compositor = false
+
+    [profiles.apps.runner]
+    type = 'process'
+    run_cmd = 'sh -c "while :; do sleep 60; done"'
+
+    [profiles.apps.video]
+    source = '''videotestsrc pattern=black is-live=true !
+video/x-raw, framerate={fps}/1'''
+
+    [profiles.apps.audio]
+    source = 'audiotestsrc wave=silence is-live=true'
+
+# Wolf UI app (lobby browser) - for native Moonlight clients (app 1)
+# Shows list of active lobbies, allows PIN entry for manual connection
 [[profiles.apps]]
 start_virtual_compositor = true
-title = 'Wolf UI'
+title = 'Select Agent'
 icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
 video_producer_buffer_caps = 'video/x-raw(memory:CUDAMemory)'
 

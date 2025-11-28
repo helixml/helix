@@ -201,6 +201,7 @@ COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib
 # Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
 RUN mkdir -p /opt/wolf-defaults /etc/wolf/cfg
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
+COPY --from=wolf-upstream /opt/wolf-defaults/pulse-lowmem.conf /opt/wolf-defaults/pulse-lowmem.conf
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
