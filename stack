@@ -11,6 +11,7 @@ export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
 export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
+export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
 # Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
