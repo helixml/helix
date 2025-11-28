@@ -603,19 +603,6 @@ export interface ServerForkSampleProjectResponse {
   project_id?: string;
 }
 
-export interface ServerForkSimpleProjectRequest {
-  description?: string;
-  project_name?: string;
-  sample_project_id?: string;
-}
-
-export interface ServerForkSimpleProjectResponse {
-  github_repo_url?: string;
-  message?: string;
-  project_id?: string;
-  tasks_created?: number;
-}
-
 export interface ServerGPUStats {
   /** false if nvidia-smi failed */
   available?: boolean;
@@ -1995,6 +1982,19 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
+export interface TypesForkSimpleProjectRequest {
+  description?: string;
+  project_name?: string;
+  sample_project_id?: string;
+}
+
+export interface TypesForkSimpleProjectResponse {
+  github_repo_url?: string;
+  message?: string;
+  project_id?: string;
+  tasks_created?: number;
+}
+
 export interface TypesFrontendLicenseInfo {
   features?: {
     users?: boolean;
@@ -2931,6 +2931,7 @@ export interface TypesProjectCreateRequest {
   description?: string;
   github_repo_url?: string;
   name?: string;
+  organization_id?: string;
   startup_script?: string;
   technologies?: string[];
 }
@@ -4309,11 +4310,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4459,6 +4460,11 @@ export interface TypesWebsiteCrawler {
   user_agent?: string;
 }
 
+export interface TypesWolfHeartbeatRequest {
+  /** helix-sway image version (commit hash) */
+  sway_version?: string;
+}
+
 export interface TypesWolfInstanceRequest {
   address?: string;
   gpu_type?: string;
@@ -4476,6 +4482,7 @@ export interface TypesWolfInstanceResponse {
   max_sandboxes?: number;
   name?: string;
   status?: string;
+  sway_version?: string;
   updated_at?: string;
 }
 
@@ -4520,6 +4527,14 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
+export interface WolfKeyboardLayerState {
+  modifier_state?: WolfKeyboardModifierState;
+  /** Human-readable names */
+  pressed_key_names?: string[];
+  /** Key codes (VK for wolf/inputtino, KEY_* for evdev) */
+  pressed_keys?: number[];
+}
+
 export interface WolfKeyboardModifierState {
   alt?: boolean;
   ctrl?: boolean;
@@ -4540,11 +4555,23 @@ export interface WolfKeyboardStateResponse {
 
 export interface WolfSessionKeyboardState {
   device_name?: string;
+  /** e.g., /dev/input/event15 */
+  device_node?: string;
+  /** Kernel's evdev state */
+  evdev_state?: WolfKeyboardLayerState;
+  /** Mismatch detection */
+  has_mismatch?: boolean;
+  /** Inputtino's internal cur_press_keys */
+  inputtino_state?: WolfKeyboardLayerState;
+  mismatch_description?: string;
   modifier_state?: WolfKeyboardModifierState;
   pressed_key_names?: string[];
+  /** Legacy fields for backwards compatibility */
   pressed_keys?: number[];
   session_id?: string;
   timestamp_ms?: number;
+  /** Three layers of keyboard state for debugging: */
+  wolf_state?: WolfKeyboardLayerState;
 }
 
 export interface WolfSystemHealthResponse {
@@ -7525,10 +7552,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects
      * @secure
      */
-    v1ProjectsList: (params: RequestParams = {}) =>
+    v1ProjectsList: (
+      query?: {
+        /** Organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject[], SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "GET",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -8230,8 +8264,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (request: ServerForkSimpleProjectRequest, params: RequestParams = {}) =>
-      this.request<ServerForkSimpleProjectResponse, any>({
+    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesForkSimpleProjectResponse, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
         body: request,
@@ -10214,7 +10248,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Update the last heartbeat timestamp for a Wolf instance
+     * @description Update the last heartbeat timestamp and optional metadata for a Wolf instance
      *
      * @tags wolf
      * @name V1WolfInstancesHeartbeatCreate
@@ -10222,11 +10256,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/wolf-instances/{id}/heartbeat
      * @secure
      */
-    v1WolfInstancesHeartbeatCreate: (id: string, params: RequestParams = {}) =>
+    v1WolfInstancesHeartbeatCreate: (id: string, request: TypesWolfHeartbeatRequest, params: RequestParams = {}) =>
       this.request<string, string>({
         path: `/api/v1/wolf-instances/${id}/heartbeat`,
         method: "POST",
+        body: request,
         secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

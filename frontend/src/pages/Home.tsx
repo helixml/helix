@@ -122,7 +122,7 @@ const Home: FC = () => {
     account.organizationTools.organization?.id || ''
   )
 
-  const { data: projects = [] } = useListProjects()
+  const { data: projects = [] } = useListProjects(account.organizationTools.organization?.id || '')
 
   useEffect(() => {
     apps.loadApps()
@@ -608,7 +608,7 @@ const Home: FC = () => {
                   <Grid container spacing={1} justifyContent="left">
                     {
                       [...projects]
-                        .sort((a, b) => new Date(b.updated || b.created).getTime() - new Date(a.updated || a.created).getTime())
+                        .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
                         .slice(0, 5)
                         .map((project) => (
                           <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={project.id}>
@@ -662,7 +662,7 @@ const Home: FC = () => {
                                   fontSize: '0.8rem',
                                   lineHeight: 1.2,
                                 }}>
-                                  {getTimeAgo(new Date(project.updated || project.created))}
+                                  {getTimeAgo(new Date(project.updated_at || project.created_at))}
                                 </Typography>
                               </Box>
                             </Box>

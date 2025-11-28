@@ -42,7 +42,10 @@ const Projects: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
 
-  const { data: projects = [], isLoading, error } = useListProjects()
+  // Check if org slug is set in the URL
+  // const orgSlug = router.params.org_id || ''
+
+  const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '')
   const { data: sampleProjects = [] } = useListSampleProjects()
   const createProjectMutation = useCreateProject()
   const instantiateSampleMutation = useInstantiateSampleProject()
