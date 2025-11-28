@@ -196,6 +196,18 @@ const NewAgent: FC = () => {
       return
     }
 
+    // Require provider and model selection
+    if (!selectedProvider) {
+      snackbar.error('Please select an AI provider')
+      return
+    }
+
+    // Require at least a generation model
+    if (!generationModel) {
+      snackbar.error('Please configure at least a Generation Model')
+      return
+    }
+
     setIsSubmitting(true)
     try {
       // Create knowledge source if provided
@@ -364,11 +376,16 @@ const NewAgent: FC = () => {
               {/* Provider Selection Section */}
               <Grid item xs={12}>
                 <Typography variant="h6" sx={{ mb: 2 }}>
-                  AI Provider
+                  AI Provider <Typography component="span" color="error">*</Typography>
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Select a specific AI provider for your agent. If none is selected, the system will use the default provider.
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Select an AI provider for your agent. This determines which models will be used.
                 </Typography>
+                {!selectedProvider && (
+                  <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
+                    Please select a provider to continue
+                  </Typography>
+                )}
 
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                   {mainProviders.map((provider) => {
@@ -558,12 +575,56 @@ const NewAgent: FC = () => {
                   </Box>
                 )}
                 
-                {/* Custom provider message */}
+                {/* Custom provider - show model input fields */}
                 {selectedProvider === 'custom' && (
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      You will be able to choose models in the settings page after creating your agent.
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Enter your custom model configuration. At minimum, provide a Generation Model.
                     </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Generation Model Provider"
+                          value={generationModelProvider}
+                          onChange={(e) => setGenerationModelProvider(e.target.value)}
+                          placeholder="e.g., openai"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          required
+                          fullWidth
+                          size="small"
+                          label="Generation Model *"
+                          value={generationModel}
+                          onChange={(e) => setGenerationModel(e.target.value)}
+                          placeholder="e.g., gpt-4o"
+                          helperText="Required"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Reasoning Model Provider"
+                          value={reasoningModelProvider}
+                          onChange={(e) => setReasoningModelProvider(e.target.value)}
+                          placeholder="e.g., openai"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Reasoning Model"
+                          value={reasoningModel}
+                          onChange={(e) => setReasoningModel(e.target.value)}
+                          placeholder="e.g., o3-mini"
+                        />
+                      </Grid>
+                    </Grid>
                   </Box>
                 )}
                 
@@ -706,15 +767,23 @@ const NewAgent: FC = () => {
                  Additional configuration like avatar, description, and skills can be set up after creation.
                 </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Button
-                    type="submit"
-                    variant="outlined"
-                    color="secondary"
-                    size="large"
-                    disabled={isSubmitting || !name.trim()}
+                  <Tooltip
+                    title={!selectedProvider ? "Please select an AI provider first" : !generationModel ? "Please configure a model" : ""}
+                    arrow
+                    placement="top"
                   >
-                    Create Agent
-                  </Button>
+                    <span>
+                      <Button
+                        type="submit"
+                        variant="outlined"
+                        color="secondary"
+                        size="large"
+                        disabled={isSubmitting || !name.trim() || !selectedProvider || !generationModel}
+                      >
+                        Create Agent
+                      </Button>
+                    </span>
+                  </Tooltip>
                 </Box>
               </Grid>
             </Grid>
