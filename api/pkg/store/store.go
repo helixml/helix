@@ -587,7 +587,7 @@ type Store interface {
 
 	// Wolf instance methods
 	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
-	UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error
+	UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error
 	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
 	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
 	DeregisterWolfInstance(ctx context.Context, id string) error
@@ -596,6 +596,11 @@ type Store interface {
 	DecrementWolfSandboxCount(ctx context.Context, id string) error
 	ResetWolfInstanceOnReconnect(ctx context.Context, id string) error
 	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
+
+	// Disk usage history methods
+	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
+	GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error)
+	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
 type EmbeddingsStore interface {

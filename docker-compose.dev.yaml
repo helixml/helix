@@ -273,6 +273,9 @@ services:
         - HELIX_API_BASE_URL=http://api:8080
         - WOLF_INSTANCE_ID=local
         - RUNNER_TOKEN=oh-hallo-insecure-token
+        # Hydra multi-Docker isolation (enabled by default for per-scope Docker isolation)
+        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+        - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
         - HOST_APPS_STATE_FOLDER=/etc/wolf
@@ -292,11 +295,6 @@ services:
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # RevDial connection (enables Wolf and Moonlight Web to connect to API)
-        # Dev mode uses RevDial for consistency with production architecture
-        - HELIX_API_URL=http://api:8080
-        - WOLF_INSTANCE_ID=dev
-        - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
         # Wolf debug dumps: 6 dumps max, 20GB quota
         - WOLF_MAX_DUMPS=6
         - WOLF_MAX_DUMPS_GB=20
@@ -316,6 +314,8 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
+        # Hydra persistent storage (shares filestore with API for workspace access)
+        - ${FILESTORE_DATA:-helix-filestore}:/filestore
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -389,11 +389,6 @@ services:
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # RevDial connection (enables Wolf and Moonlight Web to connect to API)
-        # Dev mode uses RevDial for consistency with production architecture
-        - HELIX_API_URL=http://api:8080
-        - WOLF_INSTANCE_ID=dev
-        - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
         # Wolf debug dumps: 6 dumps max, 20GB quota
         - WOLF_MAX_DUMPS=6
         - WOLF_MAX_DUMPS_GB=20
@@ -413,6 +408,8 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
+        # Hydra persistent storage (shares filestore with API for workspace access)
+        - ${FILESTORE_DATA:-helix-filestore}:/filestore
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:

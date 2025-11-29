@@ -79,6 +79,7 @@ type WolfStreamSession struct {
 	VideoRefreshRate  int                `json:"video_refresh_rate"`
 	AudioChannelCount int                `json:"audio_channel_count"`
 	ClientSettings    WolfClientSettings `json:"client_settings"`
+	IdleSeconds       int                `json:"idle_seconds"` // Seconds since last ENET packet (for session timeout monitoring)
 }
 
 // Response types from Wolf API
