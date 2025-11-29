@@ -688,7 +688,10 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 	// Create new external agent
 	agentID := fmt.Sprintf("zed-spectask-%s", task.ID)
-	workspaceDir := fmt.Sprintf("/opt/helix/filestore/workspaces/spectasks/%s", task.ID)
+	// CRITICAL: Use /filestore/ prefix (not /opt/helix/filestore/) so translateToHostPath works
+	// wolf_executor.go:translateToHostPath expects paths starting with /filestore/
+	// Also use "spec-tasks" (with hyphen) for consistency with wolf_executor.go
+	workspaceDir := fmt.Sprintf("/filestore/workspaces/spec-tasks/%s", task.ID)
 
 	log.Info().
 		Str("agent_id", agentID).
