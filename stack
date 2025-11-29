@@ -55,6 +55,21 @@ function setup_sandbox_profile() {
     source "$DIR/.env"
   fi
 
+  # Stop conflicting sandbox containers before starting
+  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Silently remove any sandbox containers that might conflict with the one we're about to start
+  local current_profile="${COMPOSE_PROFILES:-}"
+  if [[ "$current_profile" == *"code-software"* ]]; then
+    # Starting software sandbox - stop GPU sandboxes
+    docker rm -f helix-sandbox-1 helix-sandbox-amd-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-amd"* ]]; then
+    # Starting AMD sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-1 helix-sandbox-software-1 2>/dev/null || true
+  else
+    # Starting NVIDIA sandbox (default) - stop other sandboxes
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-1 2>/dev/null || true
+  fi
+
   # If COMPOSE_PROFILES already contains 'code', don't override
   if [[ "$COMPOSE_PROFILES" == *"code"* ]]; then
     echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
