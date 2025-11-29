@@ -909,6 +909,8 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
+  /** Seconds since last ENET packet (for timeout monitoring) */
+  idle_seconds?: number;
   /** Which lobby this session is connected to (lobbies mode) */
   lobby_id?: string;
   /** Exposed as session_id for frontend (Wolf's client_id) */
@@ -1765,6 +1767,22 @@ export interface TypesCommit {
   timestamp?: string;
 }
 
+export interface TypesContainerDiskUsage {
+  /** Docker container ID */
+  container_id?: string;
+  /** Container name (e.g., "wolf-app-abc123") */
+  container_name?: string;
+  /** Size of read-write layer only */
+  rw_size_bytes?: number;
+  /** Total size of container's writable layer */
+  size_bytes?: number;
+}
+
+export interface TypesContainerDiskUsageSummary {
+  container_name?: string;
+  latest_size_mb?: number;
+}
+
 export interface TypesContextMenuAction {
   /** Forms the grouping in the UI */
   action_label?: string;
@@ -1885,6 +1903,38 @@ export interface TypesDashboardRunner {
 
 export interface TypesDiscordTrigger {
   server_name?: string;
+}
+
+export interface TypesDiskUsageDataPoint {
+  alert_level?: string;
+  avail_mb?: number;
+  mount_point?: string;
+  timestamp?: string;
+  total_mb?: number;
+  used_mb?: number;
+  used_percent?: number;
+}
+
+export interface TypesDiskUsageHistoryResponse {
+  containers?: TypesContainerDiskUsageSummary[];
+  history?: TypesDiskUsageDataPoint[];
+  wolf_instance_id?: string;
+  wolf_name?: string;
+}
+
+export interface TypesDiskUsageMetric {
+  /** "ok", "warning", "critical" */
+  alert_level?: string;
+  /** available disk space */
+  avail_bytes?: number;
+  /** e.g., "/var" */
+  mount_point?: string;
+  /** total disk space */
+  total_bytes?: number;
+  /** used disk space */
+  used_bytes?: number;
+  /** percentage used (0-100) */
+  used_percent?: number;
 }
 
 export interface TypesDynamicModelInfo {
@@ -4310,11 +4360,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4461,6 +4511,10 @@ export interface TypesWebsiteCrawler {
 }
 
 export interface TypesWolfHeartbeatRequest {
+  /** per-container disk usage breakdown */
+  container_usage?: TypesContainerDiskUsage[];
+  /** disk usage metrics for monitored partitions */
+  disk_usage?: TypesDiskUsageMetric[];
   /** helix-sway image version (commit hash) */
   sway_version?: string;
 }
@@ -4476,6 +4530,8 @@ export interface TypesWolfInstanceResponse {
   address?: string;
   connected_sandboxes?: number;
   created_at?: string;
+  disk_alert_level?: string;
+  disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
   id?: string;
   last_heartbeat?: string;
@@ -10244,6 +10300,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/wolf-instances/${id}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get time-series disk usage data for visualization (last 7 days)
+     *
+     * @tags wolf
+     * @name V1WolfInstancesDiskHistoryDetail
+     * @summary Get disk usage history for a Wolf instance
+     * @request GET:/api/v1/wolf-instances/{id}/disk-history
+     * @secure
+     */
+    v1WolfInstancesDiskHistoryDetail: (
+      id: string,
+      query?: {
+        /** Hours of history to return (default 24, max 168) */
+        hours?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesDiskUsageHistoryResponse, string>({
+        path: `/api/v1/wolf-instances/${id}/disk-history`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 

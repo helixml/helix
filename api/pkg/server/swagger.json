@@ -11282,6 +11282,58 @@
                 }
             }
         },
+        "/api/v1/wolf-instances/{id}/disk-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get time-series disk usage data for visualization (last 7 days)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "Get disk usage history for a Wolf instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Hours of history to return (default 24, max 168)",
+                        "name": "hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DiskUsageHistoryResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Wolf instance not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/wolf-instances/{id}/heartbeat": {
             "post": {
                 "security": [
@@ -14446,6 +14498,10 @@
                         }
                     }
                 },
+                "idle_seconds": {
+                    "description": "Seconds since last ENET packet (for timeout monitoring)",
+                    "type": "integer"
+                },
                 "lobby_id": {
                     "description": "Which lobby this session is connected to (lobbies mode)",
                     "type": "string"
@@ -16694,6 +16750,38 @@
                 }
             }
         },
+        "types.ContainerDiskUsage": {
+            "type": "object",
+            "properties": {
+                "container_id": {
+                    "description": "Docker container ID",
+                    "type": "string"
+                },
+                "container_name": {
+                    "description": "Container name (e.g., \"wolf-app-abc123\")",
+                    "type": "string"
+                },
+                "rw_size_bytes": {
+                    "description": "Size of read-write layer only",
+                    "type": "integer"
+                },
+                "size_bytes": {
+                    "description": "Total size of container's writable layer",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ContainerDiskUsageSummary": {
+            "type": "object",
+            "properties": {
+                "container_name": {
+                    "type": "string"
+                },
+                "latest_size_mb": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.ContextMenuAction": {
             "type": "object",
             "properties": {
@@ -17003,6 +17091,84 @@
             "properties": {
                 "server_name": {
                     "type": "string"
+                }
+            }
+        },
+        "types.DiskUsageDataPoint": {
+            "type": "object",
+            "properties": {
+                "alert_level": {
+                    "type": "string"
+                },
+                "avail_mb": {
+                    "type": "integer"
+                },
+                "mount_point": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "total_mb": {
+                    "type": "integer"
+                },
+                "used_mb": {
+                    "type": "integer"
+                },
+                "used_percent": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.DiskUsageHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerDiskUsageSummary"
+                    }
+                },
+                "history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageDataPoint"
+                    }
+                },
+                "wolf_instance_id": {
+                    "type": "string"
+                },
+                "wolf_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.DiskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "alert_level": {
+                    "description": "\"ok\", \"warning\", \"critical\"",
+                    "type": "string"
+                },
+                "avail_bytes": {
+                    "description": "available disk space",
+                    "type": "integer"
+                },
+                "mount_point": {
+                    "description": "e.g., \"/var\"",
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "description": "total disk space",
+                    "type": "integer"
+                },
+                "used_bytes": {
+                    "description": "used disk space",
+                    "type": "integer"
+                },
+                "used_percent": {
+                    "description": "percentage used (0-100)",
+                    "type": "number"
                 }
             }
         },
@@ -23013,18 +23179,18 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -23379,6 +23545,20 @@
         "types.WolfHeartbeatRequest": {
             "type": "object",
             "properties": {
+                "container_usage": {
+                    "description": "per-container disk usage breakdown",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerDiskUsage"
+                    }
+                },
+                "disk_usage": {
+                    "description": "disk usage metrics for monitored partitions",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageMetric"
+                    }
+                },
                 "sway_version": {
                     "description": "helix-sway image version (commit hash)",
                     "type": "string"
@@ -23413,6 +23593,15 @@
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "disk_alert_level": {
+                    "type": "string"
+                },
+                "disk_usage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageMetric"
+                    }
                 },
                 "gpu_type": {
                     "type": "string"

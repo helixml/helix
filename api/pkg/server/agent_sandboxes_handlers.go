@@ -126,6 +126,7 @@ type WolfSessionInfo struct {
 	ClientIP         string  `json:"client_ip"`
 	AppID            string  `json:"app_id"`             // Wolf UI app ID in lobbies mode
 	LobbyID          *string `json:"lobby_id,omitempty"` // Which lobby this session is connected to (lobbies mode)
+	IdleSeconds      int     `json:"idle_seconds"`       // Seconds since last ENET packet (for timeout monitoring)
 	VideoWidth       int     `json:"-"`                  // Internal field from Wolf
 	VideoHeight      int     `json:"-"`                  // Internal field from Wolf
 	VideoRefreshRate int     `json:"-"`                  // Internal field from Wolf
@@ -495,8 +496,9 @@ func fetchWolfSessions(ctx context.Context, wolfClient external_agent.WolfClient
 			SessionID:      raw.ClientID,
 			ClientUniqueID: clientUniqueID, // Helix session identifier (helix-agent-{session_id}-{instance_id})
 			ClientIP:       raw.ClientIP,
-			AppID:          raw.AppID, // May be empty string for lobbies mode
-			LobbyID:        nil,       // Will be populated later by matching against lobbies
+			AppID:          raw.AppID,       // May be empty string for lobbies mode
+			LobbyID:        nil,             // Will be populated later by matching against lobbies
+			IdleSeconds:    raw.IdleSeconds, // Seconds since last ENET packet (for timeout monitoring)
 			DisplayMode: struct {
 				Width         int  `json:"width"`
 				Height        int  `json:"height"`
