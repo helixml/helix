@@ -214,6 +214,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
+		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
@@ -761,7 +762,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		// Software rendering fallback - use llvmpipe via SOFTWARE render node
 		// Per Wolf maintainer ABeltramo: "Setting the render node to SOFTWARE should do the trick"
 		renderNode = "SOFTWARE"
+		videoBufferCaps = "video/x-raw" // CPU memory for software encoding (x264enc)
 		log.Info().Msg("No GPU detected - using software rendering (llvmpipe)")
+	default:
+		// Intel/AMD - use raw video for VA-API/VAAPI encoders
+		videoBufferCaps = "video/x-raw"
 	}
 
 	log.Info().
@@ -1438,6 +1443,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 		// Zed external websocket sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
+		"ZED_ALLOW_EMULATED_GPU=1",       // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),

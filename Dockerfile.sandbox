@@ -605,9 +605,21 @@ export WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem
 export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
 
 # Set default values for environment variables
-export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
-export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
+# Auto-detect software rendering mode based on GPU_VENDOR
+if [ "$GPU_VENDOR" = "none" ] || [ -z "$GPU_VENDOR" ] && [ ! -e /dev/dri/renderD128 ]; then
+    echo "🖥️  Software rendering mode detected (GPU_VENDOR=$GPU_VENDOR)"
+    export WOLF_RENDER_NODE="SOFTWARE"
+    export WOLF_ENCODER_NODE="SOFTWARE"
+    export GST_GL_DRM_DEVICE=""
+    # Force Mesa to use llvmpipe for software rendering
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export MESA_GL_VERSION_OVERRIDE=4.5
+else
+    export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+    export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
+    export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
+fi
+echo "🎮 Wolf render configuration: WOLF_RENDER_NODE=$WOLF_RENDER_NODE"
 
 # Update fake-udev path
 export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
