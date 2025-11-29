@@ -505,15 +505,43 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		Str("workspace_dir", externalAgent.WorkspaceDir).
 		Msg("Starting SpecTask external agent (resurrection)")
 
+	// Get project repositories (needed for Zed startup arguments)
+	project, err := apiServer.Store.GetProject(req.Context(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get project for resurrection, continuing without repo info")
+	}
+
+	var repositoryIDs []string
+	var primaryRepoID string
+	if project != nil {
+		repos, err := apiServer.Store.ListGitRepositories(req.Context(), &types.ListGitRepositoriesRequest{
+			ProjectID: task.ProjectID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get project repositories for resurrection")
+		} else {
+			for _, repo := range repos {
+				repositoryIDs = append(repositoryIDs, repo.ID)
+			}
+			primaryRepoID = project.DefaultRepoID
+			if primaryRepoID == "" && len(repositoryIDs) > 0 {
+				primaryRepoID = repositoryIDs[0]
+			}
+		}
+	}
+
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
-		SessionID:          externalAgent.ID,
-		UserID:             task.CreatedBy,
-		WorkDir:            externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
-		ProjectPath:        "backend",
-		DisplayWidth:       2560,
-		DisplayHeight:      1600,
-		DisplayRefreshRate: 60,
+		SessionID:           externalAgent.ID,
+		UserID:              task.CreatedBy,
+		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
+		ProjectPath:         "backend",
+		RepositoryIDs:       repositoryIDs,  // Needed for Zed startup arguments
+		PrimaryRepositoryID: primaryRepoID,  // Needed for design docs path
+		SpecTaskID:          task.ID,        // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		DisplayWidth:        2560,
+		DisplayHeight:       1600,
+		DisplayRefreshRate:  60,
 	}
 
 	// Add user's API token for git operations

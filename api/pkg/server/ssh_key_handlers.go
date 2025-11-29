@@ -301,7 +301,8 @@ func (apiServer *HelixAPIServer) deleteSSHKey(_ http.ResponseWriter, req *http.R
 // writeSSHKeyToFilesystem writes SSH key files to the host filesystem
 func (apiServer *HelixAPIServer) writeSSHKeyToFilesystem(userID, keyID, privateKey, publicKey string) error {
 	// Create user SSH key directory
-	sshKeyDir := filepath.Join("/opt/helix/filestore/ssh-keys", userID)
+	// Use /filestore/ prefix (API container mount) - translateToHostPath handles Wolf mounts
+	sshKeyDir := filepath.Join("/filestore/ssh-keys", userID)
 	if err := os.MkdirAll(sshKeyDir, 0700); err != nil {
 		return fmt.Errorf("failed to create SSH key directory: %w", err)
 	}
@@ -342,7 +343,8 @@ func (apiServer *HelixAPIServer) writeSSHKeyToFilesystem(userID, keyID, privateK
 
 // deleteSSHKeyFromFilesystem deletes SSH key files from the host filesystem
 func (apiServer *HelixAPIServer) deleteSSHKeyFromFilesystem(userID, keyID string) error {
-	sshKeyDir := filepath.Join("/opt/helix/filestore/ssh-keys", userID)
+	// Use /filestore/ prefix (API container mount) - translateToHostPath handles Wolf mounts
+	sshKeyDir := filepath.Join("/filestore/ssh-keys", userID)
 
 	// Delete private key
 	privateKeyPath := filepath.Join(sshKeyDir, keyID+".key")
