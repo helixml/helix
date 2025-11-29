@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -20,7 +21,7 @@ func (s *PostgresStore) RegisterWolfInstance(ctx context.Context, instance *type
 }
 
 // UpdateWolfHeartbeat updates the last heartbeat timestamp and optional metadata for a Wolf instance
-func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
+func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error {
 	now := time.Now()
 	updates := map[string]interface{}{
 		"last_heartbeat": now,
@@ -28,8 +29,26 @@ func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, sway
 		"status":         types.WolfInstanceStatusOnline,
 	}
 	// Only update sway_version if provided (allows sandboxes to report their version)
-	if swayVersion != "" {
-		updates["sway_version"] = swayVersion
+	if req != nil && req.SwayVersion != "" {
+		updates["sway_version"] = req.SwayVersion
+	}
+	// Store disk usage metrics and alert level
+	if req != nil && len(req.DiskUsage) > 0 {
+		diskJSON, err := json.Marshal(req.DiskUsage)
+		if err == nil {
+			updates["disk_usage_json"] = string(diskJSON)
+		}
+		// Determine highest alert level
+		highestAlert := "ok"
+		for _, disk := range req.DiskUsage {
+			if disk.AlertLevel == "critical" {
+				highestAlert = "critical"
+				break
+			} else if disk.AlertLevel == "warning" && highestAlert != "critical" {
+				highestAlert = "warning"
+			}
+		}
+		updates["disk_alert_level"] = highestAlert
 	}
 	return s.gdb.WithContext(ctx).
 		Model(&types.WolfInstance{}).
@@ -119,4 +138,30 @@ func (s *PostgresStore) GetWolfInstancesOlderThanHeartbeat(ctx context.Context, 
 		return nil, err
 	}
 	return instances, nil
+}
+
+// CreateDiskUsageHistory stores a disk usage history entry
+func (s *PostgresStore) CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error {
+	return s.gdb.WithContext(ctx).Create(history).Error
+}
+
+// GetDiskUsageHistory retrieves disk usage history for a Wolf instance within a time range
+func (s *PostgresStore) GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error) {
+	var history []*types.DiskUsageHistory
+	err := s.gdb.WithContext(ctx).
+		Where("wolf_instance_id = ? AND timestamp > ?", wolfInstanceID, since).
+		Order("timestamp ASC").
+		Find(&history).Error
+	if err != nil {
+		return nil, err
+	}
+	return history, nil
+}
+
+// DeleteOldDiskUsageHistory removes disk usage history older than the given time
+func (s *PostgresStore) DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.gdb.WithContext(ctx).
+		Where("timestamp < ?", olderThan).
+		Delete(&types.DiskUsageHistory{})
+	return result.RowsAffected, result.Error
 }
