@@ -1,0 +1,235 @@
+# Default values for helix-sandbox.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: registry.helixml.tech/helix/helix-sandbox
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Sandbox configuration
+sandbox:
+  # Helix control plane URL (required)
+  # Example: https://helix.mycompany.com
+  apiUrl: ""
+
+  # Runner token for authentication (required)
+  # Can be specified directly or read from a Kubernetes secret
+  runnerToken: ""
+  # Alternative: read token from a Kubernetes secret
+  runnerTokenExistingSecret: ""
+  runnerTokenExistingSecretKey: ""  # defaults to "token" if not specified
+
+  # Wolf instance ID (defaults to pod name)
+  # Leave empty to use pod name as instance ID
+  instanceId: ""
+
+  # Maximum number of concurrent sandboxes (Zed sessions)
+  maxSandboxes: 10
+
+  # Moonlight Web credentials (must match control plane MOONLIGHT_CREDENTIALS)
+  moonlightCredentials: "helix"
+  moonlightCredentialsExistingSecret: ""
+  moonlightCredentialsExistingSecretKey: ""
+
+  # TURN server configuration for WebRTC NAT traversal
+  turn:
+    # Public IP or hostname for TURN server
+    # If empty, will use the API URL hostname
+    publicIp: ""
+    # TURN password (required for remote connections)
+    password: ""
+    turnPasswordExistingSecret: ""
+    turnPasswordExistingSecretKey: ""
+
+  # Helix hostname displayed in Moonlight clients
+  helixHostname: ""
+
+  # GOP size (keyframe interval) - higher = lower bandwidth
+  # 120 recommended for remote connections
+  gopSize: 120
+
+  # Wolf debug dump configuration
+  wolfMaxDumps: 6
+  wolfMaxDumpsGB: 20
+
+# GPU configuration
+# Supported vendors: "nvidia", "amd", "intel", "none"
+# "none" enables software rendering (CPU-only, no GPU required)
+gpu:
+  # GPU vendor: nvidia, amd, intel, none
+  vendor: "nvidia"
+
+  # NVIDIA-specific configuration
+  nvidia:
+    # Enable NVIDIA runtime (required for NVIDIA GPUs)
+    enabled: true
+    # Number of GPUs to allocate (0 = all available)
+    count: 1
+    # Runtime class name for OpenShift/Kubernetes
+    # OpenShift typically uses "nvidia" or custom runtime class
+    runtimeClassName: ""
+
+  # AMD-specific configuration
+  amd:
+    # Enable AMD GPU support
+    enabled: false
+    # Device paths to mount (typically /dev/kfd and /dev/dri)
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    # Runtime class for AMD GPUs (if using ROCR device plugin)
+    runtimeClassName: ""
+    # GPU resource name for Kubernetes device plugin
+    # Common value: "amd.com/gpu"
+    # Leave empty to not request AMD GPU resources (relies on device mounts)
+    resourceName: "amd.com/gpu"
+
+  # Intel-specific configuration
+  intel:
+    # Enable Intel GPU support
+    enabled: false
+    # Device path (typically /dev/dri)
+    devices:
+      - /dev/dri
+    # Runtime class for Intel GPUs
+    runtimeClassName: ""
+    # GPU resource name for Kubernetes device plugin
+    # Common values: "gpu.intel.com/i915" (most common), "gpu.intel.com/xe" (newer Intel Arc GPUs)
+    # Default to i915 as it covers most Intel GPUs (Iris, UHD, Xe integrated, data center Flex)
+    resourceName: "gpu.intel.com/i915"
+
+  # Software rendering configuration (no GPU)
+  software:
+    # Enabled when gpu.vendor is "none"
+    # Uses Mesa llvmpipe for rendering
+    # Note: Performance will be limited without hardware acceleration
+    enabled: false
+
+  # Render node path (auto-detected based on vendor if empty)
+  # Examples: /dev/dri/renderD128, SOFTWARE
+  renderNode: ""
+
+# Resource limits and requests
+resources:
+  limits:
+    memory: "16Gi"
+  requests:
+    memory: "4Gi"
+
+# Service account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# Pod security context
+# The sandbox requires privileged mode for Docker-in-Docker
+podSecurityContext: {}
+
+# Container security context
+# Sandbox requires privileged for DinD and device access
+securityContext:
+  privileged: true
+
+# Service configuration for Wolf/Moonlight ports
+service:
+  type: LoadBalancer
+  annotations: {}
+  # Moonlight protocol ports
+  moonlight:
+    https: 47984
+    http: 47989
+    rtsp: 48010
+  # UDP ports for Moonlight protocol
+  moonlightUdp:
+    discovery: 47415
+    control: 47999
+    video: 48100
+    audio: 48200
+  # Moonlight Web UI
+  web:
+    port: 8080
+  # WebRTC UDP port range for Moonlight Web
+  webrtc:
+    portRangeStart: 40000
+    portRangeEnd: 40100
+
+# Persistence for Wolf's Docker storage and debug dumps
+persistence:
+  # Docker storage for sandbox containers
+  dockerStorage:
+    enabled: true
+    size: 50Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+  # Debug dumps storage
+  debugDumps:
+    enabled: true
+    size: 25Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+  # Wolf configuration storage
+  wolfConfig:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+
+# Node selector for GPU nodes
+nodeSelector: {}
+# Example for NVIDIA GPU nodes:
+# nvidia.com/gpu.present: "true"
+# Example for AMD GPU nodes:
+# amd.com/gpu: "true"
+
+# Tolerations for GPU nodes
+tolerations: []
+# Example for NVIDIA GPU taints:
+# - key: nvidia.com/gpu
+#   operator: Exists
+#   effect: NoSchedule
+
+# Affinity rules
+affinity: {}
+
+# OpenShift-specific configuration
+openshift:
+  # Enable OpenShift-specific settings
+  enabled: false
+  # Security Context Constraints (SCC)
+  # The sandbox requires privileged SCC for DinD
+  scc:
+    # Create a custom SCC for the sandbox
+    create: true
+    # Name of existing SCC to use (if create is false)
+    existingName: ""
+  # Route configuration (alternative to LoadBalancer)
+  route:
+    enabled: false
+    annotations: {}
+    host: ""
+    tls:
+      enabled: true
+      termination: passthrough
