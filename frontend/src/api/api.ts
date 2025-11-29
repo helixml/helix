@@ -603,19 +603,6 @@ export interface ServerForkSampleProjectResponse {
   project_id?: string;
 }
 
-export interface ServerForkSimpleProjectRequest {
-  description?: string;
-  project_name?: string;
-  sample_project_id?: string;
-}
-
-export interface ServerForkSimpleProjectResponse {
-  github_repo_url?: string;
-  message?: string;
-  project_id?: string;
-  tasks_created?: number;
-}
-
 export interface ServerGPUStats {
   /** false if nvidia-smi failed */
   available?: boolean;
@@ -922,6 +909,8 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
+  /** Seconds since last ENET packet (for timeout monitoring) */
+  idle_seconds?: number;
   /** Which lobby this session is connected to (lobbies mode) */
   lobby_id?: string;
   /** Exposed as session_id for frontend (Wolf's client_id) */
@@ -2043,6 +2032,19 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
+export interface TypesForkSimpleProjectRequest {
+  description?: string;
+  project_name?: string;
+  sample_project_id?: string;
+}
+
+export interface TypesForkSimpleProjectResponse {
+  github_repo_url?: string;
+  message?: string;
+  project_id?: string;
+  tasks_created?: number;
+}
+
 export interface TypesFrontendLicenseInfo {
   features?: {
     users?: boolean;
@@ -2979,6 +2981,7 @@ export interface TypesProjectCreateRequest {
   description?: string;
   github_repo_url?: string;
   name?: string;
+  organization_id?: string;
   startup_script?: string;
   technologies?: string[];
 }
@@ -7605,10 +7608,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects
      * @secure
      */
-    v1ProjectsList: (params: RequestParams = {}) =>
+    v1ProjectsList: (
+      query?: {
+        /** Organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject[], SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "GET",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -8310,8 +8320,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (request: ServerForkSimpleProjectRequest, params: RequestParams = {}) =>
-      this.request<ServerForkSimpleProjectResponse, any>({
+    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesForkSimpleProjectResponse, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
         body: request,
