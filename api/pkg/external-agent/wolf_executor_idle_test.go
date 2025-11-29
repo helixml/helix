@@ -164,6 +164,9 @@ func (m *MockStoreForWolf) UpdateWolfHeartbeat(ctx context.Context, id string, s
 func (m *MockStoreForWolf) UpdateWolfStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
+func (m *MockStoreForWolf) ResetWolfInstanceOnReconnect(ctx context.Context, id string) error {
+	return nil
+}
 func (m *MockStoreForWolf) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) {
 	return nil, nil
 }

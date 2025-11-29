@@ -1731,8 +1731,20 @@ func (apiServer *HelixAPIServer) ensureWolfInstanceRegistered(ctx context.Contex
 
 	for _, instance := range instances {
 		if instance.ID == wolfInstanceID {
-			// Already registered
-			log.Debug().Str("wolf_instance_id", wolfInstanceID).Msg("Wolf instance already registered")
+			// Already registered - reset sandbox count and mark online
+			// This handles reconnects after crashes/restarts where stale counts remain
+			err := apiServer.Store.ResetWolfInstanceOnReconnect(ctx, wolfInstanceID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("wolf_instance_id", wolfInstanceID).
+					Msg("Failed to reset Wolf instance on reconnect")
+			} else {
+				log.Info().
+					Str("wolf_instance_id", wolfInstanceID).
+					Int("previous_sandbox_count", instance.ConnectedSandboxes).
+					Msg("🔄 Reset Wolf instance on reconnect (cleared stale sandbox count)")
+			}
 			return
 		}
 	}

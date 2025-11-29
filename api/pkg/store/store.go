@@ -594,6 +594,7 @@ type Store interface {
 	UpdateWolfStatus(ctx context.Context, id string, status string) error
 	IncrementWolfSandboxCount(ctx context.Context, id string) error
 	DecrementWolfSandboxCount(ctx context.Context, id string) error
+	ResetWolfInstanceOnReconnect(ctx context.Context, id string) error
 	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
 }
 
