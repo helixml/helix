@@ -23,6 +23,19 @@ export const prettyBytes = (a: number): string => {
 };
 
 /**
+ * Format megabytes to human-readable format (MB or GB)
+ * @param mb Number in megabytes
+ * @returns Formatted string like "500 MB" or "2.5 GB"
+ */
+export const formatMB = (mb: number): string => {
+    if (mb === 0) return "0 MB";
+    if (mb >= 1024) {
+        return (mb / 1024).toFixed(1) + " GB";
+    }
+    return mb.toFixed(0) + " MB";
+};
+
+/**
  * Format a date string to a human-readable format
  * @param dateString ISO date string
  * @returns Formatted date string

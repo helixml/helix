@@ -75,6 +75,23 @@ interface WolfMemoryData {
   clients: WolfClientConnection[]
 }
 
+// Wolf streaming session with ENET activity tracking
+interface WolfSession {
+  session_id: string
+  client_unique_id?: string
+  client_ip: string
+  app_id: string
+  lobby_id?: string
+  idle_seconds: number  // Seconds since last ENET packet (session timeout at 60s)
+  display_mode: {
+    width: number
+    height: number
+    refresh_rate: number
+    hevc_supported: boolean
+    av1_supported: boolean
+  }
+}
+
 interface MoonlightMonitorProps {
   sandboxInstanceId: string;
 }
@@ -554,6 +571,9 @@ const MoonlightMonitor: FC<MoonlightMonitorProps> = ({ sandboxInstanceId }) => {
                   <Typography variant="subtitle2">Current Lobby</Typography>
                 </Box>
                 <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider' }}>
+                  <Typography variant="subtitle2">ENET Idle</Typography>
+                </Box>
+                <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider' }}>
                   <Typography variant="subtitle2">Moonlight Session</Typography>
                 </Box>
               </Box>
@@ -637,6 +657,35 @@ const MoonlightMonitor: FC<MoonlightMonitorProps> = ({ sandboxInstanceId }) => {
                         <Typography variant="caption" color="textSecondary">
                           {hasWolfUISession ? 'In lobby selector' : 'Not connected'}
                         </Typography>
+                      )}
+                    </Box>
+                    <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
+                      {/* ENET Idle Time - shows seconds since last packet from client */}
+                      {wolfSession ? (
+                        <Box>
+                          {(() => {
+                            const idleSeconds = (wolfSession as WolfSession).idle_seconds || 0
+                            // Color coding: green <30s, yellow 30-50s, red >50s (timeout at 60s)
+                            const color = idleSeconds < 30 ? 'success' : idleSeconds < 50 ? 'warning' : 'error'
+                            return (
+                              <>
+                                <Chip
+                                  label={`${idleSeconds}s`}
+                                  size="small"
+                                  color={color}
+                                  variant={idleSeconds < 30 ? 'outlined' : 'filled'}
+                                />
+                                {idleSeconds > 50 && (
+                                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5, fontSize: '0.6rem' }}>
+                                    Timeout in {60 - idleSeconds}s!
+                                  </Typography>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="textSecondary">N/A</Typography>
                       )}
                     </Box>
                     <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>

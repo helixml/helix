@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -122,6 +123,7 @@ type HelixAPIServer struct {
 	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
 	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
+	adminAlerter                *notification.AdminAlerter
 }
 
 func NewServer(
@@ -374,6 +376,15 @@ func NewServer(
 			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
 		}
 	}()
+
+	// Initialize AdminAlerter for sending alerts to admin users
+	adminAlerter, err := notification.NewAdminAlerter(&cfg.Notifications, store)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize admin alerter - admin email alerts will be disabled")
+	} else {
+		apiServer.adminAlerter = adminAlerter
+		log.Info().Msg("Initialized admin alerter for email notifications")
+	}
 
 	return apiServer, nil
 }
@@ -667,6 +678,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Wolf instance registry routes (multi-Wolf support)
 	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")
 	authRouter.HandleFunc("/wolf-instances/{id}/heartbeat", apiServer.wolfInstanceHeartbeat).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
 	authRouter.HandleFunc("/wolf-instances", apiServer.listWolfInstances).Methods("GET")
 	authRouter.HandleFunc("/wolf-instances/{id}", apiServer.deregisterWolfInstance).Methods("DELETE")
 
