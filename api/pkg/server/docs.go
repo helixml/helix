@@ -5178,6 +5178,14 @@ const docTemplate = `{
                     "Projects"
                 ],
                 "summary": "List projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6709,7 +6717,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectRequest"
+                            "$ref": "#/definitions/types.ForkSimpleProjectRequest"
                         }
                     }
                 ],
@@ -6717,7 +6725,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectResponse"
+                            "$ref": "#/definitions/types.ForkSimpleProjectResponse"
                         }
                     }
                 }
@@ -13698,37 +13706,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ForkSimpleProjectRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "sample_project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSimpleProjectResponse": {
-            "type": "object",
-            "properties": {
-                "github_repo_url": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "tasks_created": {
-                    "type": "integer"
-                }
-            }
-        },
         "server.GPUStats": {
             "type": "object",
             "properties": {
@@ -14524,6 +14501,10 @@ const docTemplate = `{
                             "type": "integer"
                         }
                     }
+                },
+                "idle_seconds": {
+                    "description": "Seconds since last ENET packet (for timeout monitoring)",
+                    "type": "integer"
                 },
                 "lobby_id": {
                     "description": "Which lobby this session is connected to (lobbies mode)",
@@ -17420,6 +17401,37 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ForkSimpleProjectRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ForkSimpleProjectResponse": {
+            "type": "object",
+            "properties": {
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks_created": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.FrontendLicenseInfo": {
             "type": "object",
             "properties": {
@@ -19747,6 +19759,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "startup_script": {

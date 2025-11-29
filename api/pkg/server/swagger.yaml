@@ -937,26 +937,6 @@ definitions:
       project_id:
         type: string
     type: object
-  server.ForkSimpleProjectRequest:
-    properties:
-      description:
-        type: string
-      project_name:
-        type: string
-      sample_project_id:
-        type: string
-    type: object
-  server.ForkSimpleProjectResponse:
-    properties:
-      github_repo_url:
-        type: string
-      message:
-        type: string
-      project_id:
-        type: string
-      tasks_created:
-        type: integer
-    type: object
   server.GPUStats:
     properties:
       available:
@@ -1486,6 +1466,9 @@ definitions:
           width:
             type: integer
         type: object
+      idle_seconds:
+        description: Seconds since last ENET packet (for timeout monitoring)
+        type: integer
       lobby_id:
         description: Which lobby this session is connected to (lobbies mode)
         type: string
@@ -3479,6 +3462,26 @@ definitions:
             type: integer
         type: object
     type: object
+  types.ForkSimpleProjectRequest:
+    properties:
+      description:
+        type: string
+      project_name:
+        type: string
+      sample_project_id:
+        type: string
+    type: object
+  types.ForkSimpleProjectResponse:
+    properties:
+      github_repo_url:
+        type: string
+      message:
+        type: string
+      project_id:
+        type: string
+      tasks_created:
+        type: integer
+    type: object
   types.FrontendLicenseInfo:
     properties:
       features:
@@ -5093,6 +5096,8 @@ definitions:
       github_repo_url:
         type: string
       name:
+        type: string
+      organization_id:
         type: string
       startup_script:
         type: string
@@ -11287,6 +11292,11 @@ paths:
       consumes:
       - application/json
       description: Get all projects for the current user
+      parameters:
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
       produces:
       - application/json
       responses:
@@ -12339,12 +12349,12 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.ForkSimpleProjectRequest'
+          $ref: '#/definitions/types.ForkSimpleProjectRequest'
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/server.ForkSimpleProjectResponse'
+            $ref: '#/definitions/types.ForkSimpleProjectResponse'
       security:
       - BearerAuth: []
       summary: Fork a simple sample project
