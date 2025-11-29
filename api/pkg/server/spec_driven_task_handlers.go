@@ -39,16 +39,18 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Authorize user to create task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Set user ID from context
 	req.UserID = user.ID
 
 	// Validate request
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
-		return
-	}
-	if req.ProjectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -98,6 +100,18 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -120,8 +134,22 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	query := r.URL.Query()
 
+	projectID := query.Get("project_id")
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to list tasks in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	filters := &types.SpecTaskFilters{
-		ProjectID:       query.Get("project_id"),
+		ProjectID:       projectID,
 		Status:          query.Get("status"),
 		UserID:          query.Get("user_id"),
 		Limit:           parseIntQuery(query.Get("limit"), 50),
@@ -175,6 +203,20 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return updated task
+	existingTask, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get updated task")
+		http.Error(w, "failed to get updated task", http.StatusInternalServerError)
+		return
+	}
+
+	// Authorize user to approve specs in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req types.SpecApprovalResponse
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode approval request")
@@ -188,7 +230,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	req.ApprovedAt = time.Now()
 
 	// Process approval
-	err := s.specDrivenTaskService.ApproveSpecs(ctx, &req)
+	err = s.specDrivenTaskService.ApproveSpecs(ctx, &req)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to process spec approval")
 		http.Error(w, fmt.Sprintf("failed to process approval: %v", err), http.StatusInternalServerError)
@@ -237,6 +279,18 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get task")
 		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get specs in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -289,6 +343,18 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get progress in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Build progress response
 	progress := TaskProgressResponse{
 		TaskID:    task.ID,
@@ -305,7 +371,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		},
 		Implementation: PhaseProgress{
 			Status:    getImplementationStatus(task.Status),
-			Agent:     "", // No separate agent - reuses planning agent
+			Agent:     "",                     // No separate agent - reuses planning agent
 			SessionID: task.PlanningSessionID, // Same session continues into implementation
 			StartedAt: task.SpecApprovedAt,
 			// CompletedAt will be set when implementation is done
@@ -365,6 +431,12 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Authorize user to start planning in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Verify task is in backlog status
 	if task.Status != types.TaskStatusBacklog {
 		http.Error(w, fmt.Sprintf("task is not in backlog status (current: %s)", task.Status), http.StatusBadRequest)
@@ -420,6 +492,18 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to update task in the project
+	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Update fields if provided
 	if updateReq.Status != "" {
 		task.Status = updateReq.Status
@@ -456,7 +540,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 // @Accept json
 // @Produce json
 // @Param taskId path string true "Task ID"
-// @Param archived body bool true "Archive status (true to archive, false to unarchive)"
+// @Param request body types.SpecTaskArchiveRequest true "Archive request"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -471,9 +555,8 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req struct {
-		Archived bool `json:"archived"`
-	}
+	var req types.SpecTaskArchiveRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode archive request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -485,6 +568,18 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to archive task in the project
+	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -524,7 +619,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			} else {
 				// Update agent status
 				externalAgent.Status = "stopped"
-				s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
+				_ = s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
 
 				log.Info().
 					Str("task_id", taskID).
@@ -681,6 +776,18 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, project.ID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Parse metadata to extract board settings
 	var metadata types.ProjectMetadata
 	if len(project.Metadata) > 0 {
@@ -726,6 +833,12 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to update board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, "default", types.ActionUpdate); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

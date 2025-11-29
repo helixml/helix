@@ -157,6 +157,21 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 	return apiServer.authorizeUserToResource(ctx, user, app.OrganizationID, app.ID, types.ResourceApplication, action)
 }
 
+// authorizeUserToProjectByID helper function to authorize a user to a project by ID, used
+// for RBAC for project sub-resources such as spec-driven tasks, work sessions, etc
+func (apiServer *HelixAPIServer) authorizeUserToProjectByID(ctx context.Context, user *types.User, projectID string, action types.Action) error {
+	if projectID == "" {
+		return fmt.Errorf("project ID is required")
+	}
+
+	project, err := apiServer.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	return apiServer.authorizeUserToProject(ctx, user, project, action)
+}
+
 func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {
 	// If the organization ID is not set and the user is not the project owner, then error
 	if project.OrganizationID == "" {
