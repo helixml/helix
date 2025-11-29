@@ -321,7 +321,7 @@ services:
       # Production mode (no dev bind-mounts)
       - HELIX_DEV_MODE=false
       - ZED_IMAGE=helix-sway:latest
-      - GPU_TYPE=amd
+      - GPU_VENDOR=amd
       # Wolf configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
