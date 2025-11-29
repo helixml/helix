@@ -673,37 +673,22 @@ func (s *HelixAPIServer) listSimpleSampleProjects(_ http.ResponseWriter, r *http
 	return filteredProjects, nil
 }
 
-// ForkSimpleProjectRequest represents request to fork a simple sample project
-type ForkSimpleProjectRequest struct {
-	SampleProjectID string `json:"sample_project_id"`
-	ProjectName     string `json:"project_name"`
-	Description     string `json:"description,omitempty"`
-}
-
-// ForkSimpleProjectResponse represents the fork response
-type ForkSimpleProjectResponse struct {
-	ProjectID     string `json:"project_id"`
-	GitHubRepoURL string `json:"github_repo_url"`
-	TasksCreated  int    `json:"tasks_created"`
-	Message       string `json:"message"`
-}
-
 // forkSimpleProject godoc
 // @Summary Fork a simple sample project
 // @Description Fork a sample project and create tasks from natural language prompts
 // @Tags    sample-projects
-// @Success 201 {object} ForkSimpleProjectResponse
-// @Param request body ForkSimpleProjectRequest true "Fork request"
+// @Success 201 {object} types.ForkSimpleProjectResponse
+// @Param request body types.ForkSimpleProjectRequest true "Fork request"
 // @Router /api/v1/sample-projects/simple/fork [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Request) (*ForkSimpleProjectResponse, *system.HTTPError) {
+func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Request) (*types.ForkSimpleProjectResponse, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		return nil, system.NewHTTPError401("unauthorized")
 	}
 
-	var req ForkSimpleProjectRequest
+	var req types.ForkSimpleProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, system.NewHTTPError400("invalid request body")
 	}
@@ -1113,7 +1098,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Int("tasks_created", tasksCreated).
 		Msg("Successfully forked simple sample project")
 
-	return &ForkSimpleProjectResponse{
+	return &types.ForkSimpleProjectResponse{
 		ProjectID:     createdProject.ID,
 		GitHubRepoURL: sampleProject.GitHubRepo,
 		TasksCreated:  tasksCreated,

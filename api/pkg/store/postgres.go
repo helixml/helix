@@ -547,9 +547,20 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 }
 
 // ListProjects lists all projects for a given user
-func (s *PostgresStore) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
 	var projects []*types.Project
-	err := s.gdb.WithContext(ctx).Where("user_id = ?", userID).Order("created_at DESC").Find(&projects).Error
+
+	q := s.gdb.WithContext(ctx).Model(&types.Project{})
+
+	if req.UserID != "" {
+		q = q.Where("user_id = ?", req.UserID)
+	}
+
+	if req.OrganizationID != "" {
+		q = q.Where("organization_id = ?", req.OrganizationID)
+	}
+
+	err := q.Order("created_at DESC").Find(&projects).Error
 	if err != nil {
 		return nil, fmt.Errorf("error listing projects: %w", err)
 	}

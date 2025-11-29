@@ -54,6 +54,8 @@ type lobbyCacheEntry struct {
 	timestamp time.Time
 }
 
+var _ Executor = &WolfExecutor{}
+
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
 	store    store.Store
@@ -160,8 +162,8 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string   // User ID for SSH key mounting
-	SessionID         string   // Session ID for settings sync daemon
+	UserID            string // User ID for SSH key mounting
+	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
