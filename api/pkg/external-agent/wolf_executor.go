@@ -19,6 +19,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -95,6 +96,10 @@ type WolfExecutor struct {
 
 	// Max concurrent lobbies (GPU streaming sessions) - configurable via EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES
 	maxConcurrentLobbies int
+
+	// Hydra multi-Docker isolation
+	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
+	hydraEnabled bool
 }
 
 // connmanInterface defines the interface for RevDial connection management
@@ -172,6 +177,8 @@ type SwayWolfAppConfig struct {
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
+	// Docker socket configuration (Hydra multi-Docker isolation)
+	DockerSocket string // Path to Docker socket to mount (defaults to /var/run/docker.sock if empty)
 }
 
 // computeZedImageFromVersion converts a SwayVersion (commit hash) from Wolf instance
@@ -232,10 +239,16 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
 
+	// Determine Docker socket to mount (Hydra isolation or default)
+	dockerSocket := config.DockerSocket
+	if dockerSocket == "" {
+		dockerSocket = "/var/run/docker.sock" // Default to Wolf's Docker socket
+	}
+
 	// Build standard mounts (common to all Sway apps)
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
-		"/var/run/docker.sock:/var/run/docker.sock",
+		fmt.Sprintf("%s:/var/run/docker.sock", dockerSocket),
 	}
 
 	// Development mode: mount files for hot-reloading
@@ -379,6 +392,13 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	}
 	log.Info().Int("max_concurrent_lobbies", maxLobbies).Msg("Wolf executor lobby limit configured")
 
+	// Check if Hydra multi-Docker isolation is enabled
+	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
+	hydraEnabled := os.Getenv("HYDRA_ENABLED") == "true"
+	if hydraEnabled {
+		log.Info().Msg("Hydra multi-Docker isolation enabled - each scope gets isolated dockerd")
+	}
+
 	executor := &WolfExecutor{
 		store:                        storeInst,
 		sessions:                     make(map[string]*ZedSession),
@@ -393,6 +413,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		wolfScheduler:                store.NewWolfScheduler(storeInst),
 		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
 		maxConcurrentLobbies:         maxLobbies,
+		hydraEnabled:                 hydraEnabled,
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -776,6 +797,62 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("render_node", renderNode).
 		Msg("Configured video settings for GPU type")
 
+	// Hydra multi-Docker isolation: Create isolated dockerd for this session
+	// When Hydra is enabled, each session gets its own dockerd for complete isolation
+	// We always key on session ID (not SpecTask ID) because:
+	// 1. Session ID is unique per agent instance
+	// 2. Works for all agent types: SpecTask, exploratory, and direct session agents
+	// 3. Each session should have isolated Docker state
+	var dockerSocket string
+	if w.hydraEnabled {
+		// Determine scope type for categorization (but always use session ID as the key)
+		var scopeType string
+		if agent.SpecTaskID != "" {
+			scopeType = "spectask"
+		} else if agent.ProjectID != "" {
+			scopeType = "exploratory"
+		} else {
+			scopeType = "session"
+		}
+		// Always use session ID as the scope ID for isolation
+		scopeID := agent.SessionID
+
+		log.Info().
+			Str("scope_type", scopeType).
+			Str("scope_id", scopeID).
+			Str("session_id", agent.SessionID).
+			Str("spec_task_id", agent.SpecTaskID).
+			Msg("Creating isolated Docker instance via Hydra")
+
+		// Call Hydra API to create Docker instance via RevDial
+		// Hydra runs in sandbox container, accessible via RevDial tunnel
+		hydraRunnerID := fmt.Sprintf("hydra-%s", wolfInstance.ID)
+		log.Info().
+			Str("hydra_runner_id", hydraRunnerID).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("Connecting to Hydra via RevDial")
+
+		hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
+		dockerInstance, err := hydraClient.CreateDockerInstance(ctx, &hydra.CreateDockerInstanceRequest{
+			ScopeType: hydra.ScopeType(scopeType),
+			ScopeID:   scopeID,
+			UserID:    agent.UserID,
+		})
+		if err != nil {
+			// Hydra is enabled but failed - this is a hard error, not a fallback
+			// The user explicitly wants isolation, so don't silently use shared socket
+			return nil, fmt.Errorf("failed to create isolated Docker instance via Hydra (runner_id=%s): %w. "+
+				"Check that Hydra is running in sandbox and RevDial is connected", hydraRunnerID, err)
+		}
+		dockerSocket = dockerInstance.DockerSocket
+		log.Info().
+			Str("scope_type", scopeType).
+			Str("scope_id", scopeID).
+			Str("docker_socket", dockerSocket).
+			Str("hydra_runner_id", hydraRunnerID).
+			Msg("Created isolated Docker instance via Hydra")
+	}
+
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
@@ -807,6 +884,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
 			ZedImage:          w.computeZedImageFromVersion(wolfInstance.SwayVersion), // Use version from sandbox heartbeat
+			DockerSocket:      dockerSocket,                                           // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
 
@@ -1181,6 +1259,41 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 			log.Info().
 				Str("wolf_id", wolfInstanceID).
 				Msg("Decremented Wolf sandbox count")
+		}
+	}
+
+	// Stop Hydra Docker instance if enabled (preserves data for resume)
+	if w.hydraEnabled && wolfInstanceID != "" {
+		// Determine scope type for categorization (but always use session ID as the key)
+		var scopeType hydra.ScopeType
+		if dbSession.Metadata.SpecTaskID != "" {
+			scopeType = hydra.ScopeTypeSpecTask
+		} else if dbSession.Metadata.ProjectID != "" {
+			scopeType = hydra.ScopeTypeExploratory
+		} else {
+			scopeType = hydra.ScopeTypeSession
+		}
+		// Always use session ID as the scope ID (matches StartZedAgent)
+		scopeID := sessionID
+
+		log.Info().
+			Str("scope_type", string(scopeType)).
+			Str("scope_id", scopeID).
+			Msg("Stopping Hydra Docker instance (data preserved for resume)")
+
+		hydraClient := hydra.NewRevDialClient(w.connman, fmt.Sprintf("hydra-%s", wolfInstanceID))
+		_, err := hydraClient.DeleteDockerInstance(ctx, scopeType, scopeID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("scope_type", string(scopeType)).
+				Str("scope_id", scopeID).
+				Msg("Failed to stop Hydra Docker instance (non-fatal)")
+		} else {
+			log.Info().
+				Str("scope_type", string(scopeType)).
+				Str("scope_id", scopeID).
+				Msg("Hydra Docker instance stopped successfully")
 		}
 	}
 
