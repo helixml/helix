@@ -1,0 +1,32 @@
+Helix Sandbox has been deployed!
+
+GPU Configuration: {{ include "helix-sandbox.gpuVendor" . }}
+{{- if eq (include "helix-sandbox.gpuVendor" .) "none" }}
+Mode: Software Rendering (CPU-only, no GPU)
+{{- else }}
+Render Node: {{ include "helix-sandbox.wolfRenderNode" . }}
+{{- end }}
+
+Control Plane: {{ .Values.sandbox.apiUrl }}
+
+To check the status:
+  kubectl get pods -l "app.kubernetes.io/name={{ include "helix-sandbox.name" . }}"
+
+To view logs:
+  kubectl logs -f -l "app.kubernetes.io/name={{ include "helix-sandbox.name" . }}"
+
+{{- if eq .Values.service.type "LoadBalancer" }}
+
+Moonlight ports will be available on the LoadBalancer external IP:
+  - HTTPS: {{ .Values.service.moonlight.https }}
+  - HTTP: {{ .Values.service.moonlight.http }}
+  - RTSP: {{ .Values.service.moonlight.rtsp }}
+  - Web UI: {{ .Values.service.web.port }}
+  - WebRTC UDP: {{ .Values.service.webrtc.portRangeStart }}-{{ .Values.service.webrtc.portRangeEnd }}
+
+To get the external IP:
+  kubectl get svc {{ include "helix-sandbox.fullname" . }}
+{{- end }}
+
+Note: The sandbox requires privileged mode for Docker-in-Docker functionality.
+Ensure your cluster's security policies allow privileged containers.
