@@ -21,7 +21,6 @@ export {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useListSampleProjects,
-  useGetSampleProject,
   useInstantiateSampleProject,
   useGetBoardSettings,
   useUpdateBoardSettings,
@@ -45,4 +44,4 @@ export {
 } from './wolfService';
 
 // Re-export types for convenience
-export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject } from '../api/api';
+export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesForkSimpleProjectRequest, TypesForkSimpleProjectResponse } from '../api/api';

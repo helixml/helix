@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -22,6 +23,7 @@ import (
 // @Tags Projects
 // @Accept json
 // @Produce json
+// @Param organization_id query string false "Organization ID"
 // @Success 200 {array} types.Project
 // @Failure 401 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
@@ -30,12 +32,41 @@ import (
 func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([]*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
 
-	projects, err := s.Store.ListProjects(r.Context(), user.ID)
+	orgID := r.URL.Query().Get("organization_id")
+
+	if orgID != "" {
+		return s.listOrganizationProjects(r.Context(), user, orgID)
+	}
+
+	projects, err := s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
+		UserID: user.ID,
+	})
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", user.ID).
 			Msg("failed to list projects")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return projects, nil
+}
+
+func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *types.User, orgRef string) ([]*types.Project, *system.HTTPError) {
+	org, err := s.lookupOrg(ctx, orgRef)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+	}
+
+	_, err = s.authorizeOrgMember(ctx, user, org.ID)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	projects, err := s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+		OrganizationID: org.ID,
+	})
+	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -69,14 +100,9 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Check authorization
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Str("project_owner_id", project.UserID).
-			Msg("user not authorized to access project")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Load startup script from internal Git repo (source of truth)
@@ -127,17 +153,26 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("project name is required")
 	}
 
+	if req.OrganizationID != "" {
+		// Check if user is a member of the organization
+		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
+
 	project := &types.Project{
-		ID:            system.GenerateUUID(),
-		Name:          req.Name,
-		Description:   req.Description,
-		UserID:        user.ID,
-		GitHubRepoURL: req.GitHubRepoURL,
-		DefaultBranch: req.DefaultBranch,
-		Technologies:  req.Technologies,
-		Status:        "active",
-		DefaultRepoID: req.DefaultRepoID,
-		StartupScript: req.StartupScript,
+		OrganizationID: req.OrganizationID,
+		ID:             system.GenerateProjectID(),
+		Name:           req.Name,
+		Description:    req.Description,
+		UserID:         user.ID,
+		GitHubRepoURL:  req.GitHubRepoURL,
+		DefaultBranch:  req.DefaultBranch,
+		Technologies:   req.Technologies,
+		Status:         "active",
+		DefaultRepoID:  req.DefaultRepoID,
+		StartupScript:  req.StartupScript,
 	}
 
 	created, err := s.Store.CreateProject(r.Context(), project)
@@ -252,14 +287,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Check authorization
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Str("project_owner_id", project.UserID).
-			Msg("user not authorized to update project")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Apply updates
@@ -358,14 +388,9 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Check authorization
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Str("project_owner_id", project.UserID).
-			Msg("user not authorized to delete project")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionDelete)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// CRITICAL: Stop all active sessions BEFORE deleting the project
@@ -454,12 +479,9 @@ func (s *HelixAPIServer) getProjectRepositories(_ http.ResponseWriter, r *http.R
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to access project repositories")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	repos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
@@ -508,12 +530,9 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to set project primary repository")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Verify the repository exists and belongs to this project
@@ -597,12 +616,9 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to attach repository to project")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Verify the repository exists and user has access to it
@@ -676,12 +692,9 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to detach repository from project")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Verify the repository is attached to this project
@@ -795,12 +808,9 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to view exploratory session")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Get exploratory session
@@ -872,12 +882,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to start exploratory session")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Check if an active exploratory session already exists for this project
@@ -1102,12 +1109,9 @@ func (s *HelixAPIServer) stopExploratorySession(_ http.ResponseWriter, r *http.R
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	if project.UserID != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Msg("user not authorized to stop exploratory session")
-		return nil, system.NewHTTPError404("project not found")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Get the active exploratory session
@@ -1173,9 +1177,9 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Check authorization
-	if project.UserID != user.ID {
-		return nil, system.NewHTTPError403("forbidden")
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
 	}
 
 	// Get startup script history from internal repo

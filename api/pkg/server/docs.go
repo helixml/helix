@@ -5178,6 +5178,14 @@ const docTemplate = `{
                     "Projects"
                 ],
                 "summary": "List projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6709,7 +6717,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectRequest"
+                            "$ref": "#/definitions/types.ForkSimpleProjectRequest"
                         }
                     }
                 ],
@@ -6717,7 +6725,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectResponse"
+                            "$ref": "#/definitions/types.ForkSimpleProjectResponse"
                         }
                     }
                 }
@@ -11285,11 +11293,34 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update the last heartbeat timestamp for a Wolf instance",
+                "description": "Update the last heartbeat timestamp and optional metadata for a Wolf instance",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "wolf"
                 ],
                 "summary": "Send heartbeat for a Wolf instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Heartbeat metadata",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/types.WolfHeartbeatRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -13620,37 +13651,6 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "type": "string"
-                }
-            }
-        },
-        "server.ForkSimpleProjectRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "sample_project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSimpleProjectResponse": {
-            "type": "object",
-            "properties": {
-                "github_repo_url": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "tasks_created": {
-                    "type": "integer"
                 }
             }
         },
@@ -17235,6 +17235,37 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ForkSimpleProjectRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ForkSimpleProjectResponse": {
+            "type": "object",
+            "properties": {
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks_created": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.FrontendLicenseInfo": {
             "type": "object",
             "properties": {
@@ -19562,6 +19593,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "startup_script": {
@@ -22983,18 +23017,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -23346,6 +23380,15 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WolfHeartbeatRequest": {
+            "type": "object",
+            "properties": {
+                "sway_version": {
+                    "description": "helix-sway image version (commit hash)",
+                    "type": "string"
+                }
+            }
+        },
         "types.WolfInstanceRequest": {
             "type": "object",
             "properties": {
@@ -23391,6 +23434,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "sway_version": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -23509,6 +23555,28 @@ const docTemplate = `{
                 }
             }
         },
+        "wolf.KeyboardLayerState": {
+            "type": "object",
+            "properties": {
+                "modifier_state": {
+                    "$ref": "#/definitions/wolf.KeyboardModifierState"
+                },
+                "pressed_key_names": {
+                    "description": "Human-readable names",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pressed_keys": {
+                    "description": "Key codes (VK for wolf/inputtino, KEY_* for evdev)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "wolf.KeyboardModifierState": {
             "type": "object",
             "properties": {
@@ -23563,6 +23631,33 @@ const docTemplate = `{
                 "device_name": {
                     "type": "string"
                 },
+                "device_node": {
+                    "description": "e.g., /dev/input/event15",
+                    "type": "string"
+                },
+                "evdev_state": {
+                    "description": "Kernel's evdev state",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
+                },
+                "has_mismatch": {
+                    "description": "Mismatch detection",
+                    "type": "boolean"
+                },
+                "inputtino_state": {
+                    "description": "Inputtino's internal cur_press_keys",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
+                },
+                "mismatch_description": {
+                    "type": "string"
+                },
                 "modifier_state": {
                     "$ref": "#/definitions/wolf.KeyboardModifierState"
                 },
@@ -23573,6 +23668,7 @@ const docTemplate = `{
                     }
                 },
                 "pressed_keys": {
+                    "description": "Legacy fields for backwards compatibility",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -23583,6 +23679,14 @@ const docTemplate = `{
                 },
                 "timestamp_ms": {
                     "type": "integer"
+                },
+                "wolf_state": {
+                    "description": "Three layers of keyboard state for debugging:",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
                 }
             }
         },

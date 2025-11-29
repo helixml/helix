@@ -9,6 +9,11 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+type ListProjectsQuery struct {
+	UserID         string
+	OrganizationID string
+}
+
 type GetJobsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
@@ -528,7 +533,7 @@ type Store interface {
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
-	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
+	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error

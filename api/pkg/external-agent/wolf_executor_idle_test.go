@@ -214,7 +214,7 @@ func (m *MockStoreForWolf) Includes(m2 map[string]bool, s string) bool { return 
 func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	return nil, nil
 }
-func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+func (m *MockStoreForWolf) ListProjects(ctx context.Context, query *store.ListProjectsQuery) ([]*types.Project, error) {
 	return nil, nil
 }
 func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {

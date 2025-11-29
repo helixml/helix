@@ -3346,18 +3346,18 @@ func (mr *MockStoreMockRecorder) ListPersonalDevEnvironments(ctx, userID any) *g
 }
 
 // ListProjects mocks base method.
-func (m *MockStore) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+func (m *MockStore) ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListProjects", ctx, userID)
+	ret := m.ctrl.Call(m, "ListProjects", ctx, query)
 	ret0, _ := ret[0].([]*types.Project)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListProjects indicates an expected call of ListProjects.
-func (mr *MockStoreMockRecorder) ListProjects(ctx, userID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListProjects(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, userID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, query)
 }
 
 // ListProviderEndpoints mocks base method.
@@ -4700,7 +4700,7 @@ func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta
 }
 
 // UpdateWolfHeartbeat mocks base method.
-func (m *MockStore) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
+func (m *MockStore) UpdateWolfHeartbeat(ctx context.Context, id, swayVersion string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateWolfHeartbeat", ctx, id, swayVersion)
 	ret0, _ := ret[0].(error)
