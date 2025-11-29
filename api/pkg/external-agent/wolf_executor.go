@@ -272,12 +272,18 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Add SSH keys mount if user has SSH keys
 	// The SSH key directory is created by the API when keys are created
 	// Mount as read-only for security
-	sshKeyDir := fmt.Sprintf("/opt/helix/filestore/ssh-keys/%s", config.UserID)
-	if _, err := os.Stat(sshKeyDir); err == nil {
-		mounts = append(mounts, fmt.Sprintf("%s:/home/retro/.ssh:ro", sshKeyDir))
+	// CRITICAL: Use /filestore/ prefix for translateToHostPath compatibility
+	// - Check existence with API container path (/filestore/...)
+	// - Mount with HOST path (translated for Wolf)
+	sshKeyDirAPI := fmt.Sprintf("/filestore/ssh-keys/%s", config.UserID)
+	if _, err := os.Stat(sshKeyDirAPI); err == nil {
+		// Translate to host path for Wolf mount
+		sshKeyDirHost := w.translateToHostPath(sshKeyDirAPI)
+		mounts = append(mounts, fmt.Sprintf("%s:/home/retro/.ssh:ro", sshKeyDirHost))
 		log.Info().
 			Str("user_id", config.UserID).
-			Str("ssh_key_dir", sshKeyDir).
+			Str("ssh_key_dir_api", sshKeyDirAPI).
+			Str("ssh_key_dir_host", sshKeyDirHost).
 			Msg("Mounting SSH keys for git access")
 	}
 
