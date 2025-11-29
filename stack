@@ -71,7 +71,7 @@ function setup_sandbox_profile() {
   fi
 
   # If COMPOSE_PROFILES already contains 'code', don't override
-  if [[ "$COMPOSE_PROFILES" == *"code"* ]]; then
+  if [[ "${COMPOSE_PROFILES:-}" == *"code"* ]]; then
     echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
     return
   fi
@@ -98,7 +98,7 @@ function setup_sandbox_profile() {
 
   # Add to COMPOSE_PROFILES if we detected a GPU
   if [[ -n "$gpu_profile" ]]; then
-    if [[ -n "$COMPOSE_PROFILES" ]]; then
+    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
       export COMPOSE_PROFILES="${COMPOSE_PROFILES},${gpu_profile}"
     else
       export COMPOSE_PROFILES="$gpu_profile"
