@@ -94,6 +94,21 @@ func (s *PostgresStore) DecrementWolfSandboxCount(ctx context.Context, id string
 		UpdateColumn("connected_sandboxes", gorm.Expr("GREATEST(connected_sandboxes - ?, 0)", 1)).Error
 }
 
+// ResetWolfInstanceOnReconnect resets a Wolf instance when it reconnects after being offline
+// This clears stale sandbox counts and marks the instance as online
+func (s *PostgresStore) ResetWolfInstanceOnReconnect(ctx context.Context, id string) error {
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.WolfInstance{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":              types.WolfInstanceStatusOnline,
+			"connected_sandboxes": 0, // Reset - Wolf just reconnected, no sandboxes yet
+			"last_heartbeat":      now,
+			"updated_at":          now,
+		}).Error
+}
+
 // GetWolfInstancesOlderThanHeartbeat retrieves Wolf instances with heartbeat older than the given time
 func (s *PostgresStore) GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error) {
 	var instances []*types.WolfInstance
