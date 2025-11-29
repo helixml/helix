@@ -444,7 +444,8 @@ services:
 
     # Software rendering sandbox (CPU-only, no GPU required)
     # Use: docker compose --profile code-software up sandbox-software
-    # Or set GPU_VENDOR=none in .env and use regular sandbox
+    # Note: This is a separate service because it needs different device mounts
+    # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
     sandbox-software:
       profiles: [code-software]
       image: helix-sandbox:latest
