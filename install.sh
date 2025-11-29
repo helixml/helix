@@ -2307,19 +2307,24 @@ fi
 
 # Build GPU-specific flags
 if [ "$GPU_VENDOR" = "nvidia" ]; then
-    GPU_FLAGS="--gpus all --runtime nvidia"
-    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
+    GPU_FLAGS="--gpus all --runtime nvidia --device /dev/dri"
+    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all -e GPU_VENDOR=nvidia"
 elif [ "$GPU_VENDOR" = "amd" ]; then
     # Note: --group-add not needed since container runs privileged with device access
     GPU_FLAGS="--device /dev/kfd --device /dev/dri"
-    GPU_ENV_FLAGS="-e GPU_TYPE=amd"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=amd"
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
-    GPU_ENV_FLAGS="-e GPU_TYPE=intel"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "none" ]; then
+    # Software rendering - no GPU device mounts needed
+    GPU_FLAGS=""
+    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e WOLF_RENDER_NODE=SOFTWARE -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5 -e WOLF_USE_ZERO_COPY=FALSE"
+    echo "Using software rendering (no GPU detected)"
 else
     GPU_FLAGS=""
     GPU_ENV_FLAGS=""
-    echo "Warning: No GPU support configured"
+    echo "Warning: Unknown GPU_VENDOR '$GPU_VENDOR' - no GPU support configured"
 fi
 
 echo "Starting Helix Sandbox container..."
@@ -2331,6 +2336,8 @@ echo "  TURN Server: $TURN_PUBLIC_IP"
 
 # Run the sandbox container
 # Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
+# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel)
+# GPU_ENV_FLAGS contains GPU_VENDOR and software rendering env vars for none mode
 # shellcheck disable=SC2086
 docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     --privileged \
@@ -2352,15 +2359,12 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
     -e WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem \
     -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
-    -e WOLF_USE_ZERO_COPY=TRUE \
     -e GOP_SIZE=120 \
     -e WOLF_MAX_DUMPS=6 \
     -e WOLF_MAX_DUMPS_GB=20 \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-debug-dumps:/var/wolf-debug-dumps \
-    -v /dev:/dev:rw \
     -v /run/udev:/run/udev:rw \
-    --device /dev/dri \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
