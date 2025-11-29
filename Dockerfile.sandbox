@@ -8,17 +8,25 @@
 ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
 # ====================================================================
-# Stage 1: Build revdial-client (for Wolf, Moonlight Web, and sandbox connections)
+# Stage 1: Build revdial-client and hydra (Go binaries for sandbox)
 # ====================================================================
-FROM golang:1.24 AS revdial-builder
+FROM golang:1.24 AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY api/ ./api/
+# Build revdial-client
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /revdial-client ./api/cmd/revdial-client
+# Build hydra (multi-Docker isolation daemon)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
+
+# Alias for backward compatibility
+FROM go-builder AS revdial-builder
 
 # ====================================================================
 # Stage 2: Build Moonlight Web
@@ -347,11 +355,12 @@ RUN mkdir -p /app && \
     ln -s /opt/moonlight-web/server /app/server
 
 # ====================================================================
-# Copy revdial-client
+# Copy revdial-client and hydra binaries
 # ====================================================================
 
-COPY --from=revdial-builder /revdial-client /usr/local/bin/revdial-client
-RUN chmod +x /usr/local/bin/revdial-client
+COPY --from=go-builder /revdial-client /usr/local/bin/revdial-client
+COPY --from=go-builder /hydra /usr/local/bin/hydra
+RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra
 
 # ====================================================================
 # Create cont-init.d scripts for Moonlight Web and RevDial
@@ -574,6 +583,69 @@ RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-telemetry-firewall.sh
 RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
 
+# 10: Start Hydra multi-Docker isolation daemon (optional, only if HYDRA_ENABLED is set)
+RUN cat > /etc/cont-init.d/10-start-hydra.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Skip if Hydra is not enabled
+if [ "$HYDRA_ENABLED" != "true" ]; then
+    echo "ℹ️  Hydra not enabled (HYDRA_ENABLED != true), skipping multi-Docker isolation"
+    exit 0
+fi
+
+echo "🐉 Starting Hydra multi-Docker isolation daemon..."
+
+# Create required directories
+mkdir -p /var/run/hydra/active
+mkdir -p /filestore/hydra
+
+# Start Hydra daemon in background with auto-restart
+(
+    while true; do
+        echo "[$(date -Iseconds)] Starting Hydra daemon..."
+        /usr/local/bin/hydra \
+            --socket /var/run/hydra/hydra.sock \
+            --socket-dir /var/run/hydra/active \
+            --data-dir /filestore/hydra \
+            --log-level info
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  Hydra exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[HYDRA] /' &
+
+HYDRA_PID=$!
+echo "✅ Hydra daemon started (PID: $HYDRA_PID)"
+
+# Wait for Hydra socket to be ready
+TIMEOUT=30
+ELAPSED=0
+until [ -S /var/run/hydra/hydra.sock ]; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "❌ ERROR: Hydra socket not ready within $TIMEOUT seconds"
+        exit 1
+    fi
+    echo "Waiting for Hydra socket... ($ELAPSED/$TIMEOUT)"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+done
+
+echo "✅ Hydra socket ready at /var/run/hydra/hydra.sock"
+
+# Log privileged mode status
+if [ "$HYDRA_PRIVILEGED_MODE_ENABLED" = "true" ]; then
+    echo "⚠️  Hydra PRIVILEGED MODE ENABLED - host Docker access available for Helix development"
+else
+    echo "ℹ️  Hydra running in normal mode (isolated Docker instances per scope)"
+fi
+
+# Note: Hydra includes its own built-in RevDial client
+# It reads HELIX_API_URL, RUNNER_TOKEN, WOLF_INSTANCE_ID from environment
+echo "✅ Hydra daemon ready (RevDial client built-in)"
+EOF
+RUN chmod +x /etc/cont-init.d/10-start-hydra.sh
+
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)
 # (Replaces /opt/gow/startup-app.sh - Wolf is the main process)
@@ -781,7 +853,9 @@ ENV HELIX_API_URL="" \
     TURN_PUBLIC_IP="" \
     TURN_PASSWORD="" \
     HELIX_HOSTNAME="" \
-    MOONLIGHT_CREDENTIALS="helix"
+    MOONLIGHT_CREDENTIALS="helix" \
+    HYDRA_ENABLED="true" \
+    HYDRA_PRIVILEGED_MODE_ENABLED="false"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/wolf/
