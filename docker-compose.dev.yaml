@@ -263,6 +263,8 @@ services:
         # GPU configuration
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
+        - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
@@ -357,8 +359,9 @@ services:
         default:
           ipv4_address: 172.19.0.50
       environment:
-        # No NVIDIA environment variables for AMD
-        - GPU_TYPE=amd
+        # AMD GPU configuration (no NVIDIA variables)
+        - GPU_VENDOR=amd
+        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
@@ -378,7 +381,6 @@ services:
         - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
         - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
         - WOLF_USE_ZERO_COPY=TRUE
-        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
         - GOP_SIZE=${GOP_SIZE:-120}
         # Moonlight Web configuration
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
@@ -430,6 +432,99 @@ services:
         - "8081:8080"                      # Web interface
         - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
       # No nvidia runtime for AMD - uses device pass-through instead
+      cap_add:
+        - SYS_PTRACE  # Thread diagnostics
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 10s
+
+    # Software rendering sandbox (CPU-only, no GPU required)
+    # Use: docker compose --profile code-software up sandbox-software
+    # Or set GPU_VENDOR=none in .env and use regular sandbox
+    sandbox-software:
+      profiles: [code-software]
+      image: helix-sandbox:latest
+      networks:
+        default:
+          ipv4_address: 172.19.0.50
+      environment:
+        # Software rendering (CPU-only, no GPU)
+        - GPU_VENDOR=none
+        - WOLF_RENDER_NODE=SOFTWARE
+        - LIBGL_ALWAYS_SOFTWARE=1
+        - MESA_GL_VERSION_OVERRIDE=4.5
+        # Helix dev mode (enables bind-mounts for hot reload)
+        - HELIX_DEV_MODE=true
+        - ZED_IMAGE=helix-sway:latest
+        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+        - HELIX_API_URL=http://api:8080
+        - HELIX_API_BASE_URL=http://api:8080
+        - WOLF_INSTANCE_ID=local
+        - RUNNER_TOKEN=oh-hallo-insecure-token
+        # Wolf configuration (legacy env vars for compatibility)
+        - XDG_RUNTIME_DIR=/tmp/sockets
+        - HOST_APPS_STATE_FOLDER=/etc/wolf
+        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+        - WOLF_LOG_LEVEL=DEBUG
+        - GST_DEBUG=3
+        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+        - WOLF_INTERNAL_IP=172.19.0.50
+        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+        - WOLF_USE_ZERO_COPY=FALSE
+        - GOP_SIZE=${GOP_SIZE:-120}
+        # Moonlight Web configuration
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
+        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+        # RevDial connection (enables Wolf and Moonlight Web to connect to API)
+        - HELIX_API_URL=http://api:8080
+        - WOLF_INSTANCE_ID=dev
+        - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
+        # Wolf debug dumps: 6 dumps max, 20GB quota
+        - WOLF_MAX_DUMPS=6
+        - WOLF_MAX_DUMPS_GB=20
+      privileged: true  # Required for Docker-in-Docker
+      volumes:
+        # Wolf configuration and state
+        - ./wolf/:/etc/wolf/cfg/:rw
+        - /tmp/sockets:/tmp/sockets:rw
+        - wolf-docker-storage:/var/lib/docker
+        - wolf-debug-dumps:/var/wolf-debug-dumps
+        - /run/udev:/run/udev:rw
+        - /var/run/wolf:/var/run/wolf:rw
+        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+        # Dev bind-mounts for hot reload (Zed + Sway config)
+        - ./zed-build:/helix-dev/zed-build:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:ro
+        # Moonlight Web configuration
+        - ./moonlight-web-config:/app/server:rw
+      # No device mounts for software rendering (no GPU)
+      device_cgroup_rules:
+        - 'c 13:* rmw'
+      devices:
+        - /dev/uinput
+        - /dev/uhid
+      ports:
+        # Moonlight protocol ports (Wolf)
+        - "47984:47984"     # HTTPS
+        - "47989:47989"     # HTTP (pairing, serverinfo)
+        - "48010:48010"     # RTSP
+        - "47415:47415/udp" # Discovery
+        - "47999:47999/udp" # Control
+        - "48100:48100/udp" # Video RTP
+        - "48200:48200/udp" # Audio RTP
+        # Moonlight Web UI + WebRTC
+        - "8081:8080"                      # Web interface
+        - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
+      # No nvidia runtime for software rendering
       cap_add:
         - SYS_PTRACE  # Thread diagnostics
       restart: unless-stopped
