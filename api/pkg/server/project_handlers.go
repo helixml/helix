@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/data"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -105,19 +104,21 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Load startup script from internal Git repo (source of truth)
-	if project.InternalRepoPath != "" {
-		startupScript, err := s.projectInternalRepoService.LoadStartupScript(project.ID, project.InternalRepoPath)
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("project_id", projectID).
-				Str("internal_repo_path", project.InternalRepoPath).
-				Msg("failed to load startup script from internal repo, using database value")
-			// Continue with database value if git repo read fails
-		} else {
-			// Git repo is source of truth - use loaded value
-			project.StartupScript = startupScript
+	// Load startup script from primary CODE repo
+	// Startup script lives at .helix/startup.sh in the primary repository
+	if project.DefaultRepoID != "" {
+		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
+		if err == nil && primaryRepo.LocalPath != "" {
+			startupScript, err := s.projectInternalRepoService.LoadStartupScriptFromCodeRepo(primaryRepo.LocalPath)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", projectID).
+					Str("primary_repo_id", project.DefaultRepoID).
+					Msg("failed to load startup script from primary code repo")
+			} else {
+				project.StartupScript = startupScript
+			}
 		}
 	}
 
@@ -153,6 +154,11 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError400("project name is required")
 	}
 
+	// Primary repository is REQUIRED - startup script lives in the code repo
+	if req.DefaultRepoID == "" {
+		return nil, system.NewHTTPError400("primary repository (default_repo_id) is required")
+	}
+
 	if req.OrganizationID != "" {
 		// Check if user is a member of the organization
 		_, err := s.authorizeOrgMember(r.Context(), user, req.OrganizationID)
@@ -185,58 +191,33 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Initialize internal Git repository for the project
-	internalRepoPath, err := s.projectInternalRepoService.InitializeProjectRepo(r.Context(), created)
+	// Initialize startup script in the primary code repo
+	// Startup script lives at .helix/startup.sh in the primary repository
+	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("project_id", created.ID).
-			Msg("failed to initialize internal project repository")
-		// Continue anyway - project exists in DB, repo can be created later
-	} else {
-		// Update project with internal repo path
-		created.InternalRepoPath = internalRepoPath
-		err = s.Store.UpdateProject(r.Context(), created)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("project_id", created.ID).
-				Msg("failed to update project with internal repo path")
-		} else {
-			log.Info().
-				Str("project_id", created.ID).
-				Str("internal_repo_path", internalRepoPath).
-				Msg("Internal project repository initialized and linked")
-		}
-
-		// Create a GitRepository entry for the internal repo so it can be browsed
-		internalRepoID := fmt.Sprintf("%s-internal", created.ID)
-		internalRepo := &types.GitRepository{
-			ID:             internalRepoID,
-			Name:           fmt.Sprintf("%s-internal", data.SlugifyName(created.Name)),
-			Description:    "Internal project repository for configuration and metadata",
-			OwnerID:        user.ID,
-			OrganizationID: created.OrganizationID,
-			ProjectID:      created.ID,
-			RepoType:       "internal",
-			Status:         "ready",
-			LocalPath:      internalRepoPath,
-			DefaultBranch:  "main",
-			Metadata:       map[string]interface{}{},
-		}
-
-		err = s.Store.CreateGitRepository(r.Context(), internalRepo)
+			Str("primary_repo_id", req.DefaultRepoID).
+			Msg("failed to get primary repository")
+		// Don't fail project creation - startup script can be added later
+	} else if primaryRepo.LocalPath != "" {
+		err = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+			primaryRepo.LocalPath,
+			created.Name,
+			req.StartupScript,
+		)
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("project_id", created.ID).
-				Msg("failed to create git repository entry for internal repo (continuing)")
-			// Continue - internal repo works without DB entry, just can't be browsed
+				Str("primary_repo_id", req.DefaultRepoID).
+				Msg("failed to initialize startup script in primary code repo (continuing)")
 		} else {
 			log.Info().
 				Str("project_id", created.ID).
-				Str("internal_repo_id", internalRepoID).
-				Msg("Created git repository entry for internal repo")
+				Str("primary_repo_id", req.DefaultRepoID).
+				Msg("Startup script initialized in primary code repo")
 		}
 	}
 
@@ -331,23 +312,21 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Sync changes to internal Git repo
-	if project.InternalRepoPath != "" {
-		// Update project.json in repo
-		if err := s.projectInternalRepoService.UpdateProjectConfig(project); err != nil {
-			log.Warn().
-				Err(err).
-				Str("project_id", projectID).
-				Msg("failed to update project config in internal repo (continuing)")
-		}
-
-		// If startup script was updated, save to Git repo (source of truth)
-		if req.StartupScript != nil {
-			if err := s.projectInternalRepoService.SaveStartupScript(projectID, project.InternalRepoPath, *req.StartupScript); err != nil {
+	// Save startup script to primary code repo (source of truth)
+	if req.StartupScript != nil && project.DefaultRepoID != "" {
+		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
+		if err == nil && primaryRepo.LocalPath != "" {
+			if err := s.projectInternalRepoService.SaveStartupScriptToCodeRepo(primaryRepo.LocalPath, *req.StartupScript); err != nil {
 				log.Warn().
 					Err(err).
 					Str("project_id", projectID).
-					Msg("failed to save startup script to internal repo (continuing)")
+					Str("primary_repo_id", project.DefaultRepoID).
+					Msg("failed to save startup script to primary code repo")
+			} else {
+				log.Info().
+					Str("project_id", projectID).
+					Str("primary_repo_id", project.DefaultRepoID).
+					Msg("Startup script saved to primary code repo")
 			}
 		}
 	}
@@ -1182,17 +1161,27 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Get startup script history from internal repo
-	if project.InternalRepoPath == "" {
-		return nil, system.NewHTTPError404("project has no internal repository")
+	// Get startup script history from primary code repo
+	if project.DefaultRepoID == "" {
+		return nil, system.NewHTTPError404("project has no primary repository")
 	}
 
-	versions, err := s.projectInternalRepoService.GetStartupScriptHistory(project.InternalRepoPath)
+	primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
+	if err != nil {
+		return nil, system.NewHTTPError404("primary repository not found")
+	}
+
+	if primaryRepo.LocalPath == "" {
+		return nil, system.NewHTTPError400("primary repository is external - history not available")
+	}
+
+	versions, err := s.projectInternalRepoService.GetStartupScriptHistoryFromCodeRepo(primaryRepo.LocalPath)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("project_id", projectID).
-			Msg("failed to get startup script history")
+			Str("primary_repo_id", project.DefaultRepoID).
+			Msg("failed to get startup script history from code repo")
 		return nil, system.NewHTTPError500("failed to get startup script history")
 	}
 

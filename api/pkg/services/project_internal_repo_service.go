@@ -770,6 +770,238 @@ type StartupScriptVersion struct {
 	Message    string    `json:"message"`
 }
 
+// LoadStartupScriptFromCodeRepo loads the startup script from a code repository
+// This is the new approach - startup script lives in the primary CODE repo at .helix/startup.sh
+func (s *ProjectInternalRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) (string, error) {
+	if codeRepoPath == "" {
+		return "", fmt.Errorf("code repo path not set")
+	}
+
+	// Open bare repository
+	repo, err := git.PlainOpen(codeRepoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get HEAD reference
+	ref, err := repo.Head()
+	if err != nil {
+		// Empty repo or no commits yet - return empty script
+		return "", nil
+	}
+
+	// Get commit from HEAD
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get tree from commit
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Get file from tree
+	file, err := tree.File(".helix/startup.sh")
+	if err != nil {
+		// File doesn't exist yet - return empty script
+		return "", nil
+	}
+
+	// Get file contents
+	content, err := file.Contents()
+	if err != nil {
+		return "", fmt.Errorf("failed to read file contents: %w", err)
+	}
+
+	return content, nil
+}
+
+// SaveStartupScriptToCodeRepo saves the startup script to a code repository
+// Commits to the default branch (main/master)
+func (s *ProjectInternalRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, script string) error {
+	if codeRepoPath == "" {
+		return fmt.Errorf("code repo path not set")
+	}
+
+	// Create temporary clone of bare repo
+	tempClone, err := os.MkdirTemp("", "helix-startup-script-code-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempClone) // Cleanup
+
+	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+		URL: codeRepoPath, // Clone from bare repo
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clone code repo: %w", err)
+	}
+
+	// Ensure .helix directory exists
+	helixDir := filepath.Join(tempClone, ".helix")
+	if err := os.MkdirAll(helixDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .helix directory: %w", err)
+	}
+
+	// Write the script
+	scriptPath := filepath.Join(helixDir, "startup.sh")
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return fmt.Errorf("failed to write startup script: %w", err)
+	}
+
+	// Commit the change
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Add the file
+	if _, err := worktree.Add(".helix/startup.sh"); err != nil {
+		return fmt.Errorf("failed to add startup script to git: %w", err)
+	}
+
+	// Check if there are changes to commit
+	status, err := worktree.Status()
+	if err != nil {
+		return fmt.Errorf("failed to get git status: %w", err)
+	}
+
+	if status.IsClean() {
+		// No changes - script is identical to what's already committed
+		log.Debug().Msg("Startup script unchanged, skipping commit")
+		return nil
+	}
+
+	// Commit the changes
+	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", time.Now().Format(time.RFC3339))
+	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Helix User",
+			Email: "user@helix.ml",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit startup script: %w", err)
+	}
+
+	// Push to bare repo
+	err = repo.Push(&git.PushOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
+	log.Info().
+		Str("code_repo_path", codeRepoPath).
+		Msg("Startup script saved to code repo")
+
+	return nil
+}
+
+// GetStartupScriptHistoryFromCodeRepo returns git commit history for the startup script in a code repo
+func (s *ProjectInternalRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath string) ([]StartupScriptVersion, error) {
+	if codeRepoPath == "" {
+		return nil, fmt.Errorf("code repo path not set")
+	}
+
+	repo, err := git.PlainOpen(codeRepoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get commit history for .helix/startup.sh
+	filePath := ".helix/startup.sh"
+	commitIter, err := repo.Log(&git.LogOptions{
+		FileName: &filePath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git log: %w", err)
+	}
+
+	var versions []StartupScriptVersion
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// Get file content at this commit
+		tree, err := commit.Tree()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
+			return nil // Skip this commit
+		}
+
+		file, err := tree.File(".helix/startup.sh")
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
+			return nil // Skip this commit
+		}
+
+		content, err := file.Contents()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
+			return nil // Skip this commit
+		}
+
+		versions = append(versions, StartupScriptVersion{
+			CommitHash: commit.Hash.String(),
+			Content:    content,
+			Timestamp:  commit.Author.When,
+			Author:     commit.Author.Name,
+			Message:    commit.Message,
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate commits: %w", err)
+	}
+
+	return versions, nil
+}
+
+// InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in a code repo
+// This is used when a project is created and a primary repo is selected
+func (s *ProjectInternalRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string) error {
+	if codeRepoPath == "" {
+		return fmt.Errorf("code repo path not set")
+	}
+
+	// Check if startup script already exists
+	existingScript, err := s.LoadStartupScriptFromCodeRepo(codeRepoPath)
+	if err != nil {
+		return fmt.Errorf("failed to check existing startup script: %w", err)
+	}
+
+	// If startup script already exists and is not empty, don't overwrite
+	if existingScript != "" {
+		log.Info().
+			Str("code_repo_path", codeRepoPath).
+			Msg("Startup script already exists in code repo, not overwriting")
+		return nil
+	}
+
+	// Use default startup script if none provided
+	if startupScript == "" {
+		startupScript = `#!/bin/bash
+set -euo pipefail
+
+# Project startup script
+# This runs when agents start working on this project
+
+echo "🚀 Starting project: ` + projectName + `"
+
+# Add your setup commands here:
+# Example: sudo apt-get install -y package-name
+# Example: npm install
+# Example: pip install -r requirements.txt
+
+echo "✅ Project startup complete"
+`
+	}
+
+	return s.SaveStartupScriptToCodeRepo(codeRepoPath, startupScript)
+}
+
 // GetStartupScriptHistory returns git commit history for the startup script
 func (s *ProjectInternalRepoService) GetStartupScriptHistory(internalRepoPath string) ([]StartupScriptVersion, error) {
 	if internalRepoPath == "" {
