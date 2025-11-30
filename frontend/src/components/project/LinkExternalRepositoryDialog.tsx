@@ -5,21 +5,17 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
   Stack,
   FormControlLabel,
   Switch,
   Box,
   Typography,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Link,
   Tooltip,
 } from '@mui/material'
 import { Brain } from 'lucide-react'
+import { TypesExternalRepositoryType } from '../../api/api'
+import ExternalRepoForm from './forms/ExternalRepoForm'
 
 interface LinkExternalRepositoryDialogProps {
   open: boolean
@@ -36,7 +32,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
 }) => {
   const [url, setUrl] = useState('')
   const [name, setName] = useState('')
-  const [type, setType] = useState<'github' | 'gitlab' | 'ado' | 'other'>('github')
+  const [type, setType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
   const [koditIndexing, setKoditIndexing] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -48,7 +44,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
     if (!open) {
       setUrl('')
       setName('')
-      setType('github')
+      setType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
       setKoditIndexing(true)
       setUsername('')
       setPassword('')
@@ -58,108 +54,44 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
   }, [open])
 
   const handleSubmit = async () => {
-    await onSubmit(url, name, type, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined)
+    // Map enum to string for backward compatibility with onSubmit signature
+    const typeMap: Record<TypesExternalRepositoryType, 'github' | 'gitlab' | 'ado' | 'other'> = {
+      [TypesExternalRepositoryType.ExternalRepositoryTypeGitHub]: 'github',
+      [TypesExternalRepositoryType.ExternalRepositoryTypeGitLab]: 'gitlab',
+      [TypesExternalRepositoryType.ExternalRepositoryTypeADO]: 'ado',
+      [TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket]: 'other',
+    }
+    const submitType = typeMap[type]
+    await onSubmit(url, name, submitType, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined)
   }
+
+  const isSubmitDisabled = !url.trim() || isCreating || (type === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!organizationUrl.trim() || !token.trim()))
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Link External Repository xxxxxxx</DialogTitle>
+      <DialogTitle>Link External Repository</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
             Link an existing repository from GitHub, GitLab, or Azure DevOps to enable AI collaboration.
           </Typography>
 
-          <FormControl fullWidth required>
-            <InputLabel>Repository Type</InputLabel>
-            <Select
-              value={type}
-              onChange={(e) => setType(e.target.value as 'github' | 'gitlab' | 'ado' | 'other')}
-              label="Repository Type"
-            >
-              <MenuItem value="github">GitHub</MenuItem>
-              <MenuItem value="gitlab">GitLab</MenuItem>
-              <MenuItem value="ado">Azure DevOps</MenuItem>
-              <MenuItem value="other">Other (Bitbucket, Gitea, Self-hosted, etc.)</MenuItem>
-            </Select>
-          </FormControl>
-
-          <TextField
-            label="Repository URL"
-            fullWidth
-            required
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://github.com/org/repo.git"
-            helperText="Full URL to the external repository"
-          />          
-
-          {type !== 'ado' && (
-            <>
-              <TextField
-              label="Username"
-              fullWidth
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Repository username"
-              helperText="Username for repository authentication (optional)"
-              />
-              <TextField
-                label="Password"
-                fullWidth
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password or Personal Access Token"
-                helperText="Password or Personal Access Token for the repository (optional)"
-              />
-            </>
-          )}
-
-          {type === 'ado' && (
-            <>
-              <TextField
-                label="Organization URL"
-                fullWidth
-                required
-                value={organizationUrl}
-                onChange={(e) => setOrganizationUrl(e.target.value)}
-                placeholder="https://dev.azure.com/organization"
-                helperText="Azure DevOps organization URL"
-              />
-              <TextField
-                label="Personal Access Token"
-                fullWidth
-                required
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Personal Access Token"
-                helperText={
-                  <Box>
-                    <Typography variant="caption" component="span">
-                      Personal Access Token for Azure DevOps authentication.{' '}
-                    </Typography>
-                    <Link
-                      href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      variant="caption"
-                    >
-                      Learn how to create one
-                    </Link>
-                  </Box>
-                }
-              />
-            </>
-          )}
-
-          <TextField
-            label="Repository Name (Optional)"
-            fullWidth
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            helperText="Display name (auto-extracted from URL if empty)"
+          <ExternalRepoForm
+            url={url}
+            onUrlChange={setUrl}
+            name={name}
+            onNameChange={setName}
+            type={type}
+            onTypeChange={setType}
+            username={username}
+            onUsernameChange={setUsername}
+            password={password}
+            onPasswordChange={setPassword}
+            organizationUrl={organizationUrl}
+            onOrganizationUrlChange={setOrganizationUrl}
+            token={token}
+            onTokenChange={setToken}
+            size="medium"
           />
 
           <Tooltip
@@ -190,12 +122,12 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
           </Tooltip>
         </Stack>
       </DialogContent>
-      <DialogActions>        
+      <DialogActions>
         <Button
           onClick={handleSubmit}
           color="secondary"
           variant="contained"
-          disabled={!url.trim() || isCreating || (type === 'ado' && (!organizationUrl.trim() || !token.trim()))}
+          disabled={isSubmitDisabled}
         >
           {isCreating ? <CircularProgress size={20} /> : 'Link Repository'}
         </Button>
