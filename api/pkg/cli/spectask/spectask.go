@@ -32,7 +32,16 @@ func newStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
 		Short: "Start a spec task planning session (creates sandbox)",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Start a spec task planning session which creates a sandbox desktop.
+
+If no task-id is provided, a new spec task will be created.
+
+Example workflow:
+  1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
+  2. Start a spec task:      helix spectask start <task-id> -n "Add dark mode"
+  3. Connect via browser:    Visit /wolf-ui and enter the lobby PIN shown
+  4. Or use Moonlight:       helix moonlight list-pending && helix moonlight pair <pin>`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apiURL := getAPIURL()
 			token := getToken()
@@ -51,27 +60,32 @@ func newStartCommand() *cobra.Command {
 				fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 			}
 
-			// Start planning session
-			fmt.Printf("Starting planning session for task %s...\n", taskID)
-			session, err := startPlanningSession(apiURL, token, taskID)
+			// Start planning - this triggers async session creation
+			fmt.Printf("Starting planning for task %s...\n", taskID)
+			task, err := triggerStartPlanning(apiURL, token, taskID)
 			if err != nil {
-				return fmt.Errorf("failed to start planning session: %w", err)
+				return fmt.Errorf("failed to start planning: %w", err)
+			}
+			fmt.Printf("✅ Task status: %s\n", task.Status)
+
+			// Poll for session to be created (sandbox takes ~10-15s to start)
+			fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
+			session, err := waitForTaskSession(apiURL, token, taskID, 60*time.Second)
+			if err != nil {
+				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 
-			fmt.Printf("✅ Planning session started: %s\n", session.ID)
-			fmt.Printf("   Container: %s\n", session.Metadata.ContainerName)
-			fmt.Printf("   Waiting for sandbox to be ready...\n")
-
-			// Wait for sandbox to be ready
-			time.Sleep(10 * time.Second)
-
-			fmt.Printf("✅ Sandbox should be running now\n")
+			fmt.Printf("\n✅ Sandbox is running!\n")
 			fmt.Printf("   Session ID: %s\n", session.ID)
 
 			// Show connection instructions
 			fmt.Printf("\n📺 Connect to Desktop:\n")
 			if session.Metadata.WolfLobbyPIN != "" {
-				fmt.Printf("   Wolf-UI (browser): Visit /wolf-ui and enter lobby PIN: %s\n", session.Metadata.WolfLobbyPIN)
+				fmt.Printf("   Wolf-UI (browser): Visit %s/wolf-ui\n", apiURL)
+				fmt.Printf("   Lobby PIN: %s\n", session.Metadata.WolfLobbyPIN)
+			} else {
+				fmt.Printf("   Wolf-UI (browser): Visit %s/wolf-ui\n", apiURL)
+				fmt.Printf("   (Lobby PIN will appear after sandbox fully initializes)\n")
 			}
 
 			fmt.Printf("\n   Native Moonlight client:\n")
@@ -226,6 +240,7 @@ type SpecTask struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Status      string `json:"status"`
 }
 
 type Session struct {
@@ -241,6 +256,7 @@ type SessionMetadata struct {
 	WolfLobbyID     string `json:"wolf_lobby_id"`
 	WolfLobbyPIN    string `json:"wolf_lobby_pin"`
 	ExternalAgentID string `json:"external_agent_id"`
+	SpecTaskID      string `json:"spec_task_id"`
 }
 
 func createSpecTask(apiURL, token, name, description string) (*SpecTask, error) {
@@ -277,7 +293,8 @@ func createSpecTask(apiURL, token, name, description string) (*SpecTask, error) 
 	return &task, nil
 }
 
-func startPlanningSession(apiURL, token, taskID string) (*Session, error) {
+// triggerStartPlanning starts planning for a task (returns task, not session)
+func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/start-planning", apiURL, taskID)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
@@ -297,10 +314,51 @@ func startPlanningSession(apiURL, token, taskID string) (*Session, error) {
 		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var session Session
-	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+	var task SpecTask
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
 		return nil, err
 	}
 
-	return &session, nil
+	return &task, nil
+}
+
+// waitForTaskSession polls for a session with wolf_lobby_id to be created for the task
+func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		// Get all sessions and find one for this task
+		req, err := http.NewRequest("GET", apiURL+"/api/v1/sessions", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		var response SessionsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
+			time.Sleep(pollInterval)
+			continue
+		}
+		resp.Body.Close()
+
+		// Find session for this task with wolf_lobby_id (means sandbox is running)
+		for _, s := range response.Sessions {
+			if s.Metadata.SpecTaskID == taskID && s.Metadata.WolfLobbyID != "" {
+				return &s, nil
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return nil, fmt.Errorf("timeout waiting for sandbox to start (task: %s)", taskID)
 }
