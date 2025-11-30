@@ -49,9 +49,11 @@ func main() {
 	}()
 
 	// Extract base URL (strip /api/v1/revdial suffix if present)
+	// The suffix "/api/v1/revdial" is 15 characters
 	baseURL := *serverURL
-	if len(baseURL) > 16 && baseURL[len(baseURL)-16:] == "/api/v1/revdial" {
-		baseURL = baseURL[:len(baseURL)-16]
+	const revdialSuffix = "/api/v1/revdial"
+	if len(baseURL) > len(revdialSuffix) && baseURL[len(baseURL)-len(revdialSuffix):] == revdialSuffix {
+		baseURL = baseURL[:len(baseURL)-len(revdialSuffix)]
 	}
 
 	// Create and start RevDial client
