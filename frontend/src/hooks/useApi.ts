@@ -51,6 +51,39 @@ const apiClientSingleton = new Api({
   }
 })
 
+// Add response interceptor to handle 401 errors globally for the generated API client
+// This ensures that expired tokens trigger a re-login flow
+apiClientSingleton.instance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      const url = error.config?.url || ''
+
+      // Don't redirect for auth endpoints - they're expected to return 401 for unauthenticated users
+      const isAuthEndpoint = url.includes('/api/v1/auth/')
+
+      if (!isAuthEndpoint) {
+        // Log the 401 error for debugging
+        console.error('[API] 401 Unauthorized error:', {
+          url: url,
+          method: error.config?.method,
+          message: error.response?.data?.error || error.message
+        })
+
+        // Store reason for logout (helpful for debugging)
+        localStorage.setItem('logout_reason', `API returned 401 for ${url}`)
+
+        // Trigger re-login by redirecting to login page
+        // The page will reload and the account context will handle re-authentication
+        if (window.location.pathname !== '/') {
+          window.location.href = '/'
+        }
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 // Helper function to check if an error is auth-related
 const isAuthError = (error: any): boolean => {
   // Check status code
