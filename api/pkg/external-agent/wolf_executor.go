@@ -770,11 +770,13 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// NEW: Create lobby instead of app for immediate auto-start
 	// Determine video buffer caps and render node based on GPU vendor
-	// - NVIDIA uses CUDA memory for zero-copy GPU access
-	// - AMD/Intel use plain video/x-raw (legacy pipeline) because zero-copy VA memory
-	//   requires DMA-BUF support which may not be available on all AMD GPUs
-	// - "none" uses SOFTWARE render node for llvmpipe software rendering (no GPU)
-	// - Wolf logs: "Unable to find any compatible DMA formats for vapostproc, disabling zero copy pipeline"
+	//
+	// For NVIDIA: waylanddisplaysrc (with cuda feature) can output video/x-raw(memory:CUDAMemory) directly
+	// This is the zero-copy path - frames stay in GPU memory from capture through encoding.
+	// REQUIRES: gst-plugin-wayland-display built with --features cuda
+	//
+	// For AMD/Intel: Use video/x-raw for VA-API encoders (vapostproc handles conversion)
+	// For software: Use video/x-raw for CPU-based x264enc
 	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
 	videoBufferCaps := "video/x-raw"     // Default for AMD/Intel/software/unknown (legacy pipeline)
 	renderNode := os.Getenv("WOLF_RENDER_NODE")
@@ -784,6 +786,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	switch gpuVendor {
 	case "nvidia":
+		// NVIDIA zero-copy: waylanddisplaysrc outputs CUDA memory directly → nvh264enc
+		// Requires gst-plugin-wayland-display built with --features cuda
 		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
 	case "none", "":
 		// Software rendering fallback - use llvmpipe via SOFTWARE render node
