@@ -5044,7 +5044,9 @@ definitions:
       default_branch:
         type: string
       default_repo_id:
-        description: Project-level repository management
+        description: |-
+          Project-level repository management
+          DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
       deleted_at:
         allOf:
@@ -5056,12 +5058,6 @@ definitions:
         type: string
       id:
         type: string
-      internal_repo_path:
-        description: |-
-          Internal project Git repository (stores project config, tasks, design docs)
-          IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-          It is NEVER stored in the database - Git is the single source of truth
-        type: string
       metadata:
         items:
           type: integer
@@ -5071,7 +5067,8 @@ definitions:
       organization_id:
         type: string
       startup_script:
-        description: Transient field - loaded from Git, never persisted to database
+        description: Transient field - loaded from primary code repo's .helix/startup.sh,
+          never persisted to database
         type: string
       status:
         description: '"active", "archived", "completed"'
@@ -6446,6 +6443,11 @@ definitions:
     - SpecTaskActivityZedConnected
     - SpecTaskActivityZedDisconnected
     - SpecTaskActivityPhaseTransition
+  types.SpecTaskArchiveRequest:
+    properties:
+      archived:
+        type: boolean
+    type: object
   types.SpecTaskDesignReview:
     properties:
       approved_at:
@@ -7509,18 +7511,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -13765,12 +13767,12 @@ paths:
         name: taskId
         required: true
         type: string
-      - description: Archive status (true to archive, false to unarchive)
+      - description: Archive request
         in: body
-        name: archived
+        name: request
         required: true
         schema:
-          type: boolean
+          $ref: '#/definitions/types.SpecTaskArchiveRequest'
       produces:
       - application/json
       responses:

@@ -67,12 +67,8 @@ const SpecTasksPage: FC = () => {
   // Fetch project data for breadcrumbs and title
   const { data: project } = useGetProject(projectId || '', !!projectId);
 
-  // Fetch project repositories for display in topbar
-  const { data: allProjectRepositories = [] } = useGetProjectRepositories(projectId || '', !!projectId);
-
-  // Separate internal repo from code repos
-  const internalRepo = allProjectRepositories.find(repo => repo.id?.endsWith('-internal'));
-  const projectRepositories = allProjectRepositories.filter(repo => !repo.id?.endsWith('-internal'));
+  // Fetch project repositories for display in topbar (filters out internal repos)
+  const { data: projectRepositories = [] } = useGetProjectRepositories(projectId || '', !!projectId);
 
   // Exploratory session hooks
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId || '', !!projectId);

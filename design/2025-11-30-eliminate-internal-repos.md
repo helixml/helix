@@ -1,8 +1,8 @@
 # Eliminate Internal Repos - Store Config in CODE Repo
 
 **Date:** 2025-11-30
-**Status:** Design
-**Branch:** feat/sandbox-disk-monitoring (will need new branch)
+**Status:** Implementation Complete
+**Branch:** feat/sandbox-disk-monitoring
 
 ## Overview
 
@@ -194,11 +194,86 @@ For existing projects with internal repos:
 1. Should `.helix/project.yml` be YAML or JSON?
    - YAML is more human-readable
    - JSON is already used in internal repo
+   - **Decision:** Not implemented yet - startup.sh is sufficient for now
 
 2. Should we use a separate branch for `.helix/` config?
    - Pro: Doesn't pollute main branch history
    - Con: More complex to manage
+   - **Decision:** Keep in main branch - simpler and consistent
 
 3. How to handle projects created from sample projects?
    - Currently: Sample startup script → internal repo → cloned to workspace
    - Proposed: Sample startup script → code repo `.helix/startup.sh`
+   - **Decision:** Implemented - sample projects now initialize startup script in code repo
+
+---
+
+## Implementation Summary (2025-11-30)
+
+### What Was Done
+
+1. **Backend Changes**
+   - Refactored `project_internal_repo_service.go` → `ProjectRepoService`
+   - Removed deprecated functions: `InitializeProjectRepo`, `LoadStartupScript`, `SaveStartupScript`, `UpdateProjectConfig`, `GetInternalRepoPath`, old `GetStartupScriptHistory`
+   - Kept code repo functions: `LoadStartupScriptFromCodeRepo`, `SaveStartupScriptToCodeRepo`, `GetStartupScriptHistoryFromCodeRepo`, `InitializeStartupScriptInCodeRepo`, `InitializeCodeRepoFromSample`, `CloneSampleProject`
+   - Added backwards compatibility aliases for existing code
+
+2. **Removed Project.InternalRepoPath Field**
+   - Removed entirely (no backward compatibility per user request)
+   - GORM auto-migrates to drop the column
+
+3. **Frontend Changes**
+   - Updated `ProjectSettings.tsx`: Removed internal repo filtering and display
+   - Updated `SpecTasksPage.tsx`: Removed internal repo filtering
+   - Updated `ProjectRepositoriesList.tsx`: Simplified to just filter out internal repos
+   - Added "Fix Startup Script" feature:
+     - Button creates a SpecTask to fix the startup script
+     - Navigates to kanban board with new task highlighted
+
+4. **Wolf Executor Comments**
+   - Updated comments to reflect new architecture (startup script in code repo)
+
+5. **Agent Startup Script** (done earlier in branch)
+   - `start-zed-helix.sh` already looks for `.helix/startup.sh` in primary repo
+   - No longer needs separate `.helix-project` directory
+
+### What Still Works
+
+- Sample projects: Create code repos with startup script at `.helix/startup.sh`
+- Startup script history: Uses git log on the code repo
+- Startup script editing: Commits changes to the code repo
+- Test session: Can test startup script in exploratory session
+- "Get AI to fix it" button: Creates SpecTask to iterate on startup script
+
+### Sample Projects Verification
+
+All **14 sample projects** properly initialize startup scripts in primary code repos:
+
+| Sample Project ID | Startup Script Location | Fork Path |
+|-------------------|-------------------------|-----------|
+| modern-todo-app | .helix/startup.sh | Default handler (line 983) |
+| ecommerce-api | .helix/startup.sh | Default handler (line 983) |
+| weather-app | .helix/startup.sh | Default handler (line 983) |
+| blog-cms | .helix/startup.sh | Default handler (line 983) |
+| react-dashboard | .helix/startup.sh | Default handler (line 983) |
+| linkedin-outreach | .helix/startup.sh | Default handler (line 983) |
+| helix-blog-posts | .helix/startup.sh | Special: clones helix repo (line 830) |
+| jupyter-financial-analysis | .helix/startup.sh | Special: notebooks repo (line 915) |
+| jupyter-notebooks | .helix/startup.sh | Via jupyter-financial-analysis |
+| pyforest-library | N/A (library, no startup) | Via jupyter-financial-analysis |
+| data-platform-api-migration | .helix/startup.sh | Default handler (line 983) |
+| portfolio-management-dotnet | .helix/startup.sh | Default handler (line 983) |
+| research-analysis-toolkit | .helix/startup.sh | Default handler (line 983) |
+| data-validation-toolkit | .helix/startup.sh | Default handler (line 983) |
+| angular-analytics-dashboard | .helix/startup.sh | Default handler (line 983) |
+| angular-version-migration | .helix/startup.sh | Default handler (line 983) |
+| cobol-modernization | .helix/startup.sh | Default handler (line 983) |
+
+All sample projects call `InitializeStartupScriptInCodeRepo()` which writes to `.helix/startup.sh` in the primary code repo.
+
+### Simplifications Achieved
+
+1. **No more internal repos** - Single code repo per project
+2. **No separate clone** at agent startup - Startup script lives in code repo
+3. **Simpler code** - Removed ~500 lines of deprecated internal repo code
+4. **Better UX** - Startup script is visible in user's IDE

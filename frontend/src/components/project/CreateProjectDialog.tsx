@@ -222,6 +222,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             Project configuration and startup scripts will be stored in this repository.
+            You can attach additional repositories later in Project Settings.
           </Typography>
 
           <ToggleButtonGroup
