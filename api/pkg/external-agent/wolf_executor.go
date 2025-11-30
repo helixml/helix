@@ -215,10 +215,29 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
 
+	// XKB keyboard layout configuration for SANDBOX (Sway)
+	// Read from environment to allow runtime configuration. Falls back to defaults.
+	//
+	// NOTE: The outer compositor (wayland-display-core in Wolf) uses a hardcoded single
+	// "us" layout to prevent layout_effective from interfering with Sway's layouts.
+	// These env vars are only for the inner compositor (Sway in sandbox).
+	xkbLayout := os.Getenv("XKB_DEFAULT_LAYOUT")
+	if xkbLayout == "" {
+		xkbLayout = "us,gb,fr" // Default: US, British, French
+	}
+	xkbOptions := os.Getenv("XKB_DEFAULT_OPTIONS")
+	if xkbOptions == "" {
+		xkbOptions = "caps:ctrl_nocaps" // Default: Caps Lock as Ctrl
+	}
+
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
+		// XKB keyboard configuration for Sway (inner compositor)
+		// Sway reads these to configure its keyboard layouts
+		fmt.Sprintf("XKB_DEFAULT_LAYOUT=%s", xkbLayout),
+		fmt.Sprintf("XKB_DEFAULT_OPTIONS=%s", xkbOptions),
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
