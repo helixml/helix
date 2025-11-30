@@ -59,7 +59,7 @@ func newStartCommand() *cobra.Command {
 			}
 
 			fmt.Printf("✅ Planning session started: %s\n", session.ID)
-			fmt.Printf("   Container: %s\n", session.Metadata["container_name"])
+			fmt.Printf("   Container: %s\n", session.Metadata.ContainerName)
 			fmt.Printf("   Waiting for sandbox to be ready...\n")
 
 			// Wait for sandbox to be ready
@@ -67,7 +67,19 @@ func newStartCommand() *cobra.Command {
 
 			fmt.Printf("✅ Sandbox should be running now\n")
 			fmt.Printf("   Session ID: %s\n", session.ID)
-			fmt.Printf("\nTest screenshot:\n")
+
+			// Show connection instructions
+			fmt.Printf("\n📺 Connect to Desktop:\n")
+			if session.Metadata.WolfLobbyPIN != "" {
+				fmt.Printf("   Wolf-UI (browser): Visit /wolf-ui and enter lobby PIN: %s\n", session.Metadata.WolfLobbyPIN)
+			}
+
+			fmt.Printf("\n   Native Moonlight client:\n")
+			fmt.Printf("   1. First pair your client:  helix moonlight list-pending\n")
+			fmt.Printf("   2. Enter PIN from client:   helix moonlight pair <pin>\n")
+			fmt.Printf("   3. Then connect to the Wolf server\n")
+
+			fmt.Printf("\n📷 Test screenshot:\n")
 			fmt.Printf("   helix spectask screenshot %s\n", session.ID)
 
 			return nil
@@ -128,10 +140,14 @@ func newScreenshotCommand() *cobra.Command {
 	}
 }
 
+type SessionsResponse struct {
+	Sessions []Session `json:"sessions"`
+}
+
 func newListCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List active spec task sessions",
+		Short: "List active spec task sessions with external agents",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apiURL := getAPIURL()
 			token := getToken()
@@ -149,16 +165,38 @@ func newListCommand() *cobra.Command {
 			}
 			defer resp.Body.Close()
 
-			var sessions []Session
-			if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
-				return err
+			var response SessionsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return fmt.Errorf("failed to parse sessions: %w", err)
 			}
 
-			fmt.Println("Active Sessions:")
-			for _, s := range sessions {
-				if s.Mode == "inference" {
-					fmt.Printf("  %s - %s (Type: %s)\n", s.ID, s.ModelName, s.Type)
+			fmt.Println("Active Sessions with External Agents:")
+			fmt.Println()
+			count := 0
+			for _, s := range response.Sessions {
+				// Only show sessions with Wolf lobby (external agent sessions)
+				if s.Metadata.WolfLobbyID != "" {
+					count++
+					fmt.Printf("Session: %s\n", s.ID)
+					fmt.Printf("  Type: %s\n", s.Type)
+					if s.Metadata.ContainerName != "" {
+						fmt.Printf("  Container: %s\n", s.Metadata.ContainerName)
+					}
+					if s.Metadata.WolfLobbyPIN != "" {
+						fmt.Printf("  Lobby PIN: %s (for Wolf-UI browser access)\n", s.Metadata.WolfLobbyPIN)
+					}
+					fmt.Printf("  Screenshot: helix spectask screenshot %s\n", s.ID)
+					fmt.Println()
 				}
+			}
+
+			if count == 0 {
+				fmt.Println("No sessions with active external agents found.")
+				fmt.Println("\nTo start a session:")
+				fmt.Println("  1. Fork a sample project:  helix project fork modern-todo-app --name \"My Project\"")
+				fmt.Println("  2. Create a spec task:     helix spectask start <project-id> -n \"Task Name\"")
+			} else {
+				fmt.Printf("Found %d session(s) with external agents.\n", count)
 			}
 
 			return nil
@@ -195,7 +233,14 @@ type Session struct {
 	Mode       string                 `json:"mode"`
 	Type       string                 `json:"type"`
 	ModelName  string                 `json:"model_name"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Metadata   SessionMetadata        `json:"metadata"`
+}
+
+type SessionMetadata struct {
+	ContainerName   string `json:"container_name"`
+	WolfLobbyID     string `json:"wolf_lobby_id"`
+	WolfLobbyPIN    string `json:"wolf_lobby_pin"`
+	ExternalAgentID string `json:"external_agent_id"`
 }
 
 func createSpecTask(apiURL, token, name, description string) (*SpecTask, error) {
