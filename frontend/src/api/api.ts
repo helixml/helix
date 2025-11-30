@@ -2950,23 +2950,20 @@ export interface TypesProject {
   auto_start_backlog_tasks?: boolean;
   created_at?: string;
   default_branch?: string;
-  /** Project-level repository management */
+  /**
+   * Project-level repository management
+   * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
+   */
   default_repo_id?: string;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
   id?: string;
-  /**
-   * Internal project Git repository (stores project config, tasks, design docs)
-   * IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-   * It is NEVER stored in the database - Git is the single source of truth
-   */
-  internal_repo_path?: string;
   metadata?: number[];
   name?: string;
   organization_id?: string;
-  /** Transient field - loaded from Git, never persisted to database */
+  /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
   status?: string;
@@ -3764,6 +3761,10 @@ export enum TypesSpecTaskActivityType {
   SpecTaskActivityPhaseTransition = "phase_transition",
 }
 
+export interface TypesSpecTaskArchiveRequest {
+  archived?: boolean;
+}
+
 export interface TypesSpecTaskDesignReview {
   approved_at?: string;
   /** Timestamps */
@@ -4360,11 +4361,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -9304,11 +9305,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
      * @secure
      */
-    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+    v1SpecTasksArchivePartialUpdate: (
+      taskId: string,
+      request: TypesSpecTaskArchiveRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/archive`,
         method: "PATCH",
-        body: archived,
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

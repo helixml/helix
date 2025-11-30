@@ -171,9 +171,9 @@ type SwayWolfAppConfig struct {
 	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
-	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
-	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
-	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
+	ExtraMounts []string // Additional directory mounts
+	ZedImage    string   // Override for helix-sway image (uses instance's SwayVersion)
+	// NOTE: Startup script lives in primary code repo at .helix/startup.sh
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
@@ -253,8 +253,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"SETTINGS_SYNC_PORT=9877",
 	}
 
-	// Startup script is executed directly from cloned internal Git repo
-	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
+	// Startup script lives in primary code repo at .helix/startup.sh
+	// start-zed-helix.sh will execute it from disk if present
 
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
@@ -515,11 +515,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	// Internal repos are now cloned like any other repo (no longer mounted)
-	// This allows Wolf server to be separated from API server over the network
-
 	// Clone git repositories if specified (for SpecTasks with repository context)
-	// Internal repos are now cloned like any other repo (no special handling)
+	// Repository cloning is handled by startup script (start-zed-helix.sh)
 	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
 		// Repository cloning now handled by startup script (start-zed-helix.sh)
@@ -636,7 +633,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// No extra mounts needed - internal repos are now cloned instead of mounted
+	// Extra mounts for additional directories
 	extraMounts := []string{}
 
 	// CRITICAL: Check if lobby already exists for this session to prevent duplicates
@@ -773,7 +770,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir_host", workspaceDirForMount).
 		Msg("Translated workspace path for Wolf mounting")
 
-	// Translate extra mounts (internal repo path) to host paths as well
+	// Translate extra mounts to host paths as well
 	translatedExtraMounts := []string{}
 	for _, mount := range extraMounts {
 		// Mount format is "source:dest:options"

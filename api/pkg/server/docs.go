@@ -9232,12 +9232,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Archive status (true to archive, false to unarchive)",
-                        "name": "archived",
+                        "description": "Archive request",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "boolean"
+                            "$ref": "#/definitions/types.SpecTaskArchiveRequest"
                         }
                     }
                 ],
@@ -19685,7 +19685,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "default_repo_id": {
-                    "description": "Project-level repository management",
+                    "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
                 "deleted_at": {
@@ -19705,10 +19705,6 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "internal_repo_path": {
-                    "description": "Internal project Git repository (stores project config, tasks, design docs)\nIMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo\nIt is NEVER stored in the database - Git is the single source of truth",
-                    "type": "string"
-                },
                 "metadata": {
                     "type": "array",
                     "items": {
@@ -19722,7 +19718,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "startup_script": {
-                    "description": "Transient field - loaded from Git, never persisted to database",
+                    "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
                 },
                 "status": {
@@ -21656,6 +21652,14 @@ const docTemplate = `{
                 "SpecTaskActivityPhaseTransition"
             ]
         },
+        "types.SpecTaskArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.SpecTaskDesignReview": {
             "type": "object",
             "properties": {
@@ -23183,18 +23187,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

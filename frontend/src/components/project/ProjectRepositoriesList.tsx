@@ -14,11 +14,10 @@ import StarBorderIcon from '@mui/icons-material/StarBorder'
 import DeleteIcon from '@mui/icons-material/Delete'
 
 import useAccount from '../../hooks/useAccount'
-import { ServerGitRepository } from '../../api/api'
+import type { TypesGitRepository } from '../../api/api'
 
 interface ProjectRepositoriesListProps {
-  repositories: ServerGitRepository[]
-  internalRepo?: ServerGitRepository | null
+  repositories: TypesGitRepository[]
   primaryRepoId?: string
   onSetPrimaryRepo: (repoId: string) => void
   onDetachRepo: (repoId: string) => void
@@ -29,7 +28,6 @@ interface ProjectRepositoriesListProps {
 
 const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
   repositories,
-  internalRepo,
   primaryRepoId,
   onSetPrimaryRepo,
   onDetachRepo,
@@ -39,111 +37,82 @@ const ProjectRepositoriesList: FC<ProjectRepositoriesListProps> = ({
 }) => {
   const account = useAccount()
 
-  const handleNavigateToRepo = (repoId: string) => {
+  const handleNavigateToRepo = (repoId: string | undefined) => {
+    if (!repoId) return
     if (onClose) {
       onClose()
     }
     account.orgNavigate('git-repo-detail', { repoId })
   }
 
+  // Filter out internal repos - they're deprecated
+  const codeRepos = repositories.filter(r => r.repo_type !== 'internal')
+
   return (
-    <>
-      <List>
-        {repositories.map((repo) => (
-          <ListItem
-            key={repo.id}
-            divider
-            sx={{
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-              },
-            }}
-            onClick={() => handleNavigateToRepo(repo.id)}
-          >
-            <ListItemText
-              primary={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {repo.name}
-                  </Typography>
-                </Box>
-              }
-              secondary={
-                repo.metadata?.is_external
-                  ? repo.clone_url || 'External repository (no URL configured)'
-                  : repo.description || 'Helix-hosted repository'
-              }
-            />
-            <ListItemSecondaryAction>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                {primaryRepoId === repo.id ? (
-                  <Chip
-                    icon={<StarIcon />}
-                    label="Primary"
-                    color="primary"
-                    size="small"
-                  />
-                ) : (
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSetPrimaryRepo(repo.id)
-                    }}
-                    disabled={setPrimaryRepoPending}
-                    title="Set as primary"
-                  >
-                    <StarBorderIcon />
-                  </IconButton>
-                )}
+    <List>
+      {codeRepos.map((repo) => (
+        <ListItem
+          key={repo.id}
+          divider
+          sx={{
+            cursor: 'pointer',
+            '&:hover': {
+              backgroundColor: 'rgba(0, 0, 0, 0.04)',
+            },
+          }}
+          onClick={() => handleNavigateToRepo(repo.id)}
+        >
+          <ListItemText
+            primary={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {repo.name}
+                </Typography>
+              </Box>
+            }
+            secondary={
+              repo.is_external
+                ? repo.external_url || 'External repository (no URL configured)'
+                : repo.description || 'Helix-hosted repository'
+            }
+          />
+          <ListItemSecondaryAction>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {primaryRepoId === repo.id ? (
+                <Chip
+                  icon={<StarIcon />}
+                  label="Primary"
+                  color="primary"
+                  size="small"
+                />
+              ) : (
                 <IconButton
                   onClick={(e) => {
                     e.stopPropagation()
-                    onDetachRepo(repo.id)
+                    if (repo.id) onSetPrimaryRepo(repo.id)
                   }}
-                  disabled={detachRepoPending}
-                  title="Detach from project"
-                  color="error"
+                  disabled={setPrimaryRepoPending}
+                  title="Set as primary"
                 >
-                  <DeleteIcon />
+                  <StarBorderIcon />
                 </IconButton>
-              </Box>
-            </ListItemSecondaryAction>
-          </ListItem>
-        ))}
-      </List>
-
-      {/* Internal Repository Section */}
-      {internalRepo && (
-        <List>
-          <ListItem
-            sx={{
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-              },
-            }}
-            onClick={() => handleNavigateToRepo(internalRepo.id)}
-          >
-            <ListItemText
-              primary={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {internalRepo.name}
-                  </Typography>
-                  <Chip label="Project Config" size="small" variant="outlined" />
-                </Box>
-              }
-              secondary="Stores .helix/project.json and .helix/startup.sh"
-            />
-          </ListItem>
-        </List>
-      )}
-    </>
+              )}
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (repo.id) onDetachRepo(repo.id)
+                }}
+                disabled={detachRepoPending}
+                title="Detach from project"
+                color="error"
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Box>
+          </ListItemSecondaryAction>
+        </ListItem>
+      ))}
+    </List>
   )
 }
 

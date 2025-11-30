@@ -998,7 +998,7 @@ echo "✅ Startup complete - Jupyter Lab running at http://localhost:8888"
 
 	// Jupyter Financial Analysis - Notebooks Repository
 	// This entry only provides files for the notebooks code repository
-	// Startup script comes from "jupyter-financial-analysis" entry (internal repo)
+	// Startup script comes from the main "jupyter-financial-analysis" entry
 	s.sampleProjects["jupyter-notebooks"] = &SampleProjectCode{
 		ID:           "jupyter-notebooks",
 		Name:         "Jupyter Financial Analysis - Notebooks",
@@ -1275,7 +1275,7 @@ seaborn>=0.13.2
 
 	// PyForest Library Repository
 	// This entry only provides files for the pyforest library code repository
-	// Startup script comes from "jupyter-financial-analysis" entry (internal repo)
+	// Startup script comes from the main "jupyter-financial-analysis" entry
 	s.sampleProjects["pyforest-library"] = &SampleProjectCode{
 		ID:           "pyforest-library",
 		Name:         "PyForest Financial Library",
