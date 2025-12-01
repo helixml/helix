@@ -1,0 +1,87 @@
+# ====================================================================
+# Go build stage for settings-sync-daemon and screenshot-server
+# ====================================================================
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+WORKDIR /app/api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server
+
+# ====================================================================
+# Zorin OS Personal Dev Environment - Stage 2: Add Zed Integration
+# ====================================================================
+FROM ghcr.io/mollomm1/gow-zorin-18:latest
+
+# CRITICAL FIX: Zorin base image init script expects XDG_RUNTIME_DIR but doesn't set it
+# This causes "chown: cannot access '': No such file or directory" and container exits
+ENV XDG_RUNTIME_DIR=/run/user/1000
+RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
+
+# CRITICAL FIX: Disable systemd-logind (not available in containers)
+# GNOME session manager tries to connect to systemd-logind for session management
+# In containers without systemd, this causes GNOME to fail and enter "failed session" mode
+RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
+    mv -v "$file" "$file.back" 2>/dev/null || true; \
+    done
+
+# Enable bubblewrap (bwrap) for application sandboxing - needed by GNOME
+RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
+
+# Ensure dbus-x11 is installed (required for D-Bus in X11 sessions)
+RUN apt-get update && \
+    apt-get install -y dbus-x11 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Add passwordless sudo (needed for Zed startup script to create symlinks)
+RUN apt-get update && \
+    apt-get install -y sudo && \
+    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install screenshot tools: grim for Wayland/Sway, scrot for X11/GNOME
+RUN apt-get update && \
+    apt-get install -y grim scrot && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Firefox browser from Mozilla repository (for taskbar and general use)
+RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
+    echo "Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000" > /etc/apt/preferences.d/mozilla-firefox && \
+    apt-get update && \
+    apt-get install -y firefox && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy settings-sync-daemon and screenshot-server binaries from Go build stage
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+# CRITICAL: Must be built with --features external_websocket_sync
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Copy Zed startup script
+ADD wolf/zorin-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh
+
+# Copy GOW startup script (creates autostart entries and state symlinks)
+ADD wolf/zorin-config/startup-app.sh /opt/gow/startup.sh
+RUN chmod +x /opt/gow/startup.sh
+
+# Copy Helix background image for desktop wallpaper
+RUN mkdir -p /usr/share/backgrounds
+COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
+
+# Copy GNOME dconf settings (background, theme, keyboard, power management)
+COPY wolf/zorin-config/dconf-settings.ini /opt/gow/dconf-settings.ini

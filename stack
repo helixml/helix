@@ -920,6 +920,116 @@ function transfer-sway-to-sandbox() {
   echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
   if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
     echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+
+    # CRITICAL: Also update version file inside sandbox so heartbeat reports correct version
+    # Without this, heartbeat reports stale version from embedded tarball
+    COMMIT_HASH=$(git rev-parse --short HEAD)
+    if docker exec helix-sandbox-1 bash -c "echo '$COMMIT_HASH' > /opt/images/helix-sway.version" 2>/dev/null; then
+      echo "✅ Updated /opt/images/helix-sway.version to $COMMIT_HASH"
+    else
+      echo "⚠️  Could not update version file inside sandbox"
+    fi
+  else
+    echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
+    echo "   Image will be loaded from embedded tarball when sandbox is ready"
+  fi
+}
+
+function build-zorin() {
+  echo "🖥️  Building custom Zorin container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom Zorin image with image tags
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-zorin:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.zorin-helix \
+      -t helix-zorin:latest \
+      -t "registry.helixml.tech/helix/zorin-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zorin-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.zorin-helix \
+      -t helix-zorin:latest \
+      -t "registry.helixml.tech/helix/zorin-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Zorin container built successfully"
+    echo "🖥️  Custom Zorin image ready: helix-zorin:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Zorin OS GNOME/XFCE desktop environment"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox browser"
+    echo "  - Screenshot server for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+  else
+    echo "❌ Failed to build Zorin container"
+    exit 1
+  fi
+
+  echo "✅ Zorin container build completed"
+  echo "📦 Note: helix-zorin is embedded in helix-sandbox (not pushed separately to registry)"
+
+  # Transfer helix-zorin image to sandbox's dockerd (Wolf runs inside sandbox container)
+  # Only transfer if sandbox is already running (hot reload during development)
+  # Skip if called from build-sandbox (which restarts sandbox with embedded tarball)
+  if [ -z "${SKIP_ZORIN_TRANSFER:-}" ]; then
+    transfer-zorin-to-sandbox
+  fi
+}
+
+function transfer-zorin-to-sandbox() {
+  # Transfer helix-zorin image from host to sandbox's isolated dockerd
+  # This is required because sandbox runs its own dockerd (DinD) and doesn't have access to host images
+
+  # Check if sandbox container is running
+  if ! docker compose -f docker-compose.dev.yaml ps sandbox | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+    return 0
+  fi
+
+  # Check if helix-zorin image exists on host
+  if ! docker images helix-zorin:latest -q | grep -q .; then
+    echo "⚠️  helix-zorin:latest not found on host, skipping transfer"
+    return 0
+  fi
+
+  echo "📦 Transferring helix-zorin:latest to sandbox's dockerd..."
+  if docker save helix-zorin:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+    echo "✅ helix-zorin:latest transferred to sandbox's dockerd"
+
+    # CRITICAL: Also update version file inside sandbox so heartbeat reports correct version
+    # Without this, heartbeat reports stale version from embedded tarball
+    COMMIT_HASH=$(git rev-parse --short HEAD)
+    if docker exec helix-sandbox-1 bash -c "echo '$COMMIT_HASH' > /opt/images/helix-zorin.version" 2>/dev/null; then
+      echo "✅ Updated /opt/images/helix-zorin.version to $COMMIT_HASH"
+    else
+      echo "⚠️  Could not update version file inside sandbox"
+    fi
   else
     echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
     echo "   Image will be loaded from embedded tarball when sandbox is ready"
@@ -1682,7 +1792,8 @@ function help() {
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
   echo "  build-wolf         - Build Wolf container with latest source code"
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
-  echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
+  echo "  build-sway         - Build Sway+Zed container image (builds Zed if needed)"
+  echo "  build-zorin        - Build Zorin+Zed container image (builds Zed if needed)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
