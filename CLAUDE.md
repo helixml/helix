@@ -152,16 +152,19 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
+Both commands rebuild the helix-sway image. `./stack build-sandbox` is one way to bump the sway image.
+
 ```bash
 # ❌ WRONG: Build without committing
 ./stack build-sway                    # Image tag won't update!
+./stack build-sandbox                 # Image tag won't update!
 
 # ✅ CORRECT
 git add -A && git commit -m "changes" && git push
 ./stack build-sway                    # New tag detected, new image runs
 ```
 
-**Why:** The image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
+**Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
 
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
