@@ -25,8 +25,8 @@ services:
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-      # lock down dashboard in production
-      - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      # Comma-separated list of user IDs who should be admins (leave empty for no admins, set to "all" for everyone)
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS:-}
       - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE-env}
       - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
