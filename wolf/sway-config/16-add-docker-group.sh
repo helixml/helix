@@ -25,6 +25,11 @@ echo "**** Docker socket GID: $SOCKET_GID ****"
 
 # Check if a group with this GID exists, if not create one
 if ! getent group "$SOCKET_GID" >/dev/null 2>&1; then
+    # Remove any existing docker group with wrong GID first
+    if getent group docker >/dev/null 2>&1; then
+        echo "**** Removing existing docker group (wrong GID) ****"
+        groupdel docker
+    fi
     echo "**** Creating docker group with GID $SOCKET_GID ****"
     groupadd -g "$SOCKET_GID" docker
 else
