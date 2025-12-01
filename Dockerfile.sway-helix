@@ -112,11 +112,9 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/* \
-    # Create docker group (docker-ce-cli doesn't create the group, only docker-ce does)
-    # Note: retro user is added to docker group at runtime via cont-init.d script
-    # because the user is created by GOW base-app at container startup
-    && groupadd -f docker
+    && rm -rf /var/lib/apt/lists/*
+    # Note: docker group is created at runtime by 16-add-docker-group.sh
+    # with the correct GID matching the mounted socket from sandbox
 
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
@@ -151,6 +149,48 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
+# ====================================================================
+# Install Node.js 20 (required for AI coding agents)
+# ====================================================================
+# CACHE OPTIMIZATION: Node.js and Qwen Code rarely change, so install early
+# to avoid re-building on every sway config or script change.
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg git && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Build Qwen Code from AUDITED source (NOT from npm)
+# ====================================================================
+# SECURITY: We build from the GitHub source we've audited rather than trusting
+# the npm package, which could differ from the source or be compromised.
+# This ensures the code running matches our security audit.
+#
+# CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
+# early in the Dockerfile before frequently-changing sway configs and scripts.
+WORKDIR /tmp/qwen-code-build
+RUN git clone https://github.com/QwenLM/qwen-code.git . && \
+    # Pin to specific audited commit for reproducibility and audit trail
+    # Commit: c9af7481 "fix: reset authType settings (#1091)"
+    # Audit Date: 2025-01-24
+    # Security Audit: PASSED (zero backdoors, zero hidden telemetry)
+    git checkout c9af7481 && \
+    npm install && \
+    npm run build && \
+    # Install globally from the built source
+    npm install -g . && \
+    # Clean up build artifacts
+    cd / && rm -rf /tmp/qwen-code-build && \
+    npm cache clean --force
+
+# ====================================================================
+# Frequently-changing files below (cache invalidation expected)
+# ====================================================================
+
 # Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
 RUN mkdir -p /cfg/sway
 ADD wolf/sway-config/config /cfg/sway/custom-cfg
@@ -183,39 +223,6 @@ COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
-
-# ====================================================================
-# Install Node.js 20 (required for AI coding agents)
-# ====================================================================
-RUN apt-get update && \
-    apt-get install -y ca-certificates curl gnupg git && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# ====================================================================
-# Build Qwen Code from AUDITED source (NOT from npm)
-# ====================================================================
-# SECURITY: We build from the GitHub source we've audited rather than trusting
-# the npm package, which could differ from the source or be compromised.
-# This ensures the code running matches our security audit.
-WORKDIR /tmp/qwen-code-build
-RUN git clone https://github.com/QwenLM/qwen-code.git . && \
-    # Pin to specific audited commit for reproducibility and audit trail
-    # Commit: c9af7481 "fix: reset authType settings (#1091)"
-    # Audit Date: 2025-01-24
-    # Security Audit: PASSED (zero backdoors, zero hidden telemetry)
-    git checkout c9af7481 && \
-    npm install && \
-    npm run build && \
-    # Install globally from the built source
-    npm install -g . && \
-    # Clean up build artifacts
-    cd / && rm -rf /tmp/qwen-code-build && \
-    npm cache clean --force
 
 # Create Qwen Code configuration directory for retro user
 # IMPORTANT: This configuration DISABLES all telemetry and auto-updates
