@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,34 @@ import (
 	"github.com/oapi-codegen/oapi-codegen/v2/pkg/securityprovider"
 	"github.com/rs/zerolog/log"
 )
+
+// KoditError represents an error from the Kodit service with HTTP status code
+type KoditError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *KoditError) Error() string {
+	return fmt.Sprintf("kodit returned status %d: %s", e.StatusCode, e.Message)
+}
+
+// IsKoditNotFound returns true if the error is a Kodit 404 error
+func IsKoditNotFound(err error) bool {
+	var koditErr *KoditError
+	if errors.As(err, &koditErr) {
+		return koditErr.StatusCode == http.StatusNotFound
+	}
+	return false
+}
+
+// IsKoditError returns true if the error is a Kodit error and returns the status code
+func IsKoditError(err error) (int, bool) {
+	var koditErr *KoditError
+	if errors.As(err, &koditErr) {
+		return koditErr.StatusCode, true
+	}
+	return 0, false
+}
 
 // KoditService handles communication with Kodit code intelligence service
 type KoditService struct {
@@ -68,8 +97,8 @@ const (
 
 // Response types for API compatibility (simple type aliases)
 type (
-	KoditRepositoryResponse      = kodit.RepositoryResponse
-	KoditEnrichmentListResponse  struct {
+	KoditRepositoryResponse     = kodit.RepositoryResponse
+	KoditEnrichmentListResponse struct {
 		Data []KoditEnrichmentData `json:"data"`
 	}
 	KoditEnrichmentData struct {
@@ -79,11 +108,11 @@ type (
 		CommitSHA  string                    `json:"commit_sha,omitempty"` // Added for frontend
 	}
 	KoditEnrichmentAttributes struct {
-		Type      string     `json:"type"`
-		Subtype   *string    `json:"subtype,omitempty"`
-		Content   string     `json:"content"`
-		CreatedAt time.Time  `json:"created_at"`
-		UpdatedAt time.Time  `json:"updated_at"`
+		Type      string    `json:"type"`
+		Subtype   *string   `json:"subtype,omitempty"`
+		Content   string    `json:"content"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
 	}
 )
 
@@ -108,7 +137,7 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) 
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var response kodit.RepositoryResponse
@@ -161,7 +190,7 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var apiResponse kodit.EnrichmentListResponse
@@ -186,7 +215,7 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var apiResponse kodit.EnrichmentResponse
@@ -215,7 +244,6 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 	}, nil
 }
 
-
 // GetRepositoryCommits fetches commits for a repository from Kodit
 func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID string, limit int) ([]map[string]any, error) {
 	if !s.enabled {
@@ -238,7 +266,7 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID str
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var response struct {
@@ -253,8 +281,8 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID str
 
 // SearchFilters represents the filters for kodit search API
 type SearchFilters struct {
-	Repositories []string  `json:"repositories"`
-	CommitSHA    []string  `json:"commit_sha,omitempty"`
+	Repositories []string `json:"repositories"`
+	CommitSHA    []string `json:"commit_sha,omitempty"`
 }
 
 // RelationshipData represents a single relationship data item
@@ -337,7 +365,7 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query st
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var response kodit.SearchResponse
@@ -385,7 +413,7 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID stri
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
 	var response map[string]any
@@ -484,12 +512,21 @@ func extractString(union *kodit.EnrichmentAttributes_Subtype) string {
 }
 
 func extractTime(union any) time.Time {
+	if union == nil {
+		return time.Time{}
+	}
 	switch v := union.(type) {
 	case *kodit.EnrichmentAttributes_CreatedAt:
+		if v == nil {
+			return time.Time{}
+		}
 		if t, err := v.AsEnrichmentAttributesCreatedAt0(); err == nil {
 			return t
 		}
 	case *kodit.EnrichmentAttributes_UpdatedAt:
+		if v == nil {
+			return time.Time{}
+		}
 		if t, err := v.AsEnrichmentAttributesUpdatedAt0(); err == nil {
 			return t
 		}
