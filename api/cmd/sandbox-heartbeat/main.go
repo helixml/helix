@@ -54,6 +54,8 @@ type HeartbeatRequest struct {
 	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
+	GPUVendor             string               `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
+	RenderNode            string               `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
 }
 
 func main() {
@@ -120,12 +122,22 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
 
+	// Read GPU configuration from environment (set by install.sh on the sandbox)
+	gpuVendor := os.Getenv("GPU_VENDOR")   // nvidia, amd, intel, none
+	renderNode := os.Getenv("WOLF_RENDER_NODE") // /dev/dri/renderD128 or SOFTWARE
+	if renderNode == "" {
+		// Default render node if not explicitly set
+		renderNode = "/dev/dri/renderD128"
+	}
+
 	// Build request
 	req := HeartbeatRequest{
 		SwayVersion:           swayVersion,
 		DiskUsage:             diskUsage,
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
+		GPUVendor:             gpuVendor,
+		RenderNode:            renderNode,
 	}
 
 	// Log disk status
@@ -173,7 +185,11 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 		return
 	}
 
-	log.Debug().Str("sway_version", swayVersion).Msg("Heartbeat sent successfully")
+	log.Debug().
+		Str("sway_version", swayVersion).
+		Str("gpu_vendor", gpuVendor).
+		Str("render_node", renderNode).
+		Msg("Heartbeat sent successfully")
 }
 
 func collectDiskUsage() []DiskUsageMetric {
