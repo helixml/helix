@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Card,
   CardContent,
@@ -8,6 +8,7 @@ import {
   IconButton,
   Tooltip,
   Alert,
+  CircularProgress,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -110,6 +111,7 @@ export default function TaskCard({
   onReviewDocs,
   projectId,
 }: TaskCardProps) {
+  const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
 
@@ -121,7 +123,12 @@ export default function TaskCard({
   const handleStartPlanning = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (onStartPlanning) {
-      await onStartPlanning(task)
+      setIsStartingPlanning(true)
+      try {
+        await onStartPlanning(task)
+      } finally {
+        setIsStartingPlanning(false)
+      }
     }
   }
 
@@ -276,12 +283,18 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="warning"
-              startIcon={<PlayIcon />}
+              startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
               onClick={handleStartPlanning}
-              disabled={isPlanningFull}
+              disabled={isPlanningFull || isStartingPlanning}
               fullWidth
             >
-              {task.metadata?.error ? 'Retry Planning' : isPlanningFull ? 'Planning Full' : 'Start Planning'}
+              {isStartingPlanning
+                ? 'Starting...'
+                : task.metadata?.error
+                ? 'Retry Planning'
+                : isPlanningFull
+                ? 'Planning Full'
+                : 'Start Planning'}
             </Button>
             {isPlanningFull && (
               <Typography

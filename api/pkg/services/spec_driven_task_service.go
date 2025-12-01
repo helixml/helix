@@ -160,8 +160,8 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,         // Helix agent used for entire workflow
-		YoloMode:       req.YoloMode,       // Set YOLO mode from request
+		HelixAppID:     helixAppID,           // Helix agent used for entire workflow
+		JustDoItMode:   req.JustDoItMode,   // Set Just Do It mode from request
 		UseHostDocker:  req.UseHostDocker,  // Use host Docker socket (requires privileged sandbox)
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
@@ -365,6 +365,185 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
+}
+
+// StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
+// This is for tasks that don't require planning code changes
+func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
+	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
+	if task.HelixAppID == "" {
+		task.HelixAppID = s.helixAgentID
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("original_prompt", task.OriginalPrompt).
+		Str("helix_app_id", task.HelixAppID).
+		Msg("Starting Just Do It mode - skipping spec generation")
+
+	// Clear any previous error from metadata (in case this is a retry)
+	if task.Metadata != nil {
+		delete(task.Metadata, "error")
+		delete(task.Metadata, "error_timestamp")
+	}
+
+	// Update task status directly to implementation (skip all spec phases)
+	task.Status = types.TaskStatusImplementation
+	task.UpdatedAt = time.Now()
+	now := time.Now()
+	task.StartedAt = &now
+
+	err := s.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task status for Just Do It mode")
+		return
+	}
+
+	// Create Zed external agent session for implementation
+	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
+	sessionMetadata := types.SessionMetadata{
+		SystemPrompt: "",             // Don't override agent's system prompt
+		AgentType:    "zed_external", // Use Zed agent for git access
+		Stream:       false,
+		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+	}
+
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("Just Do It: %s", task.Name),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "anthropic",      // Use Claude
+		ModelName:      "external_agent", // Model name for external agents
+		Owner:          task.CreatedBy,
+		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
+		OrganizationID: "",
+		Metadata:       sessionMetadata,
+		OwnerType:      types.OwnerTypeUser,
+	}
+
+	// Create the session in the database
+	if s.controller == nil || s.controller.Options.Store == nil {
+		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for Just Do It mode")
+		s.markTaskFailed(ctx, task, "Controller or store not available")
+		return
+	}
+
+	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create Just Do It session")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create session: %v", err))
+		return
+	}
+
+	// Update task with session ID (use PlanningSessionID since it's the primary session)
+	task.PlanningSessionID = session.ID
+	err = s.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
+		return
+	}
+
+	// Generate request_id for initial message and register the mapping
+	requestID := system.GenerateRequestID()
+	if s.RegisterRequestMapping != nil {
+		s.RegisterRequestMapping(requestID, session.ID)
+	}
+
+	// In Just Do It mode, send ONLY the user's original prompt - no spec generation instructions
+	interaction := &types.Interaction{
+		ID:            system.GenerateInteractionID(),
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Scheduled:     time.Now(),
+		SessionID:     session.ID,
+		UserID:        task.CreatedBy,
+		Mode:          types.SessionModeInference,
+		SystemPrompt:  "", // Don't override agent's system prompt
+		PromptMessage: task.OriginalPrompt,
+		State:         types.InteractionStateWaiting,
+	}
+
+	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
+		return
+	}
+
+	// Launch the external agent (Zed) via Wolf executor
+	// Get parent project to access repository configuration
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for Just Do It task")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get project: %v", err))
+		return
+	}
+
+	// Get all project repositories
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
+		projectRepos = nil
+	}
+
+	// Build list of all repository IDs to clone from project
+	repositoryIDs := []string{}
+	for _, repo := range projectRepos {
+		if repo.ID != "" {
+			repositoryIDs = append(repositoryIDs, repo.ID)
+		}
+	}
+
+	// Determine primary repository from project configuration
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		// Use first project repo as fallback if no default set
+		primaryRepoID = projectRepos[0].ID
+	}
+
+	// Get user's personal API token for git operations
+	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for Just Do It task")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
+		return
+	}
+
+	// Create ZedAgent struct with session info for Wolf executor
+	zedAgent := &types.ZedAgent{
+		SessionID:           session.ID,
+		UserID:              task.CreatedBy,
+		Input:               "Initialize Zed development environment",
+		ProjectPath:         "workspace",        // Use relative path
+		SpecTaskID:          task.ID,            // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		Env: []string{
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		},
+	}
+
+	// Start the Zed agent via Wolf executor
+	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
+		s.markTaskFailed(ctx, task, err.Error())
+		return
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("container_name", agentResp.ContainerName).
+		Msg("Just Do It mode: Zed agent launched with user's prompt only")
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent
@@ -1063,8 +1242,8 @@ type CreateTaskRequest struct {
 	Type          string `json:"type"`
 	Priority      string `json:"priority"`
 	UserID        string `json:"user_id"`
-	AppID         string `json:"app_id"`          // Optional: Helix agent to use for spec generation
-	YoloMode      bool   `json:"yolo_mode"`       // Optional: Skip human review and auto-approve specs
-	UseHostDocker bool   `json:"use_host_docker"` // Optional: Use host Docker socket (requires privileged sandbox)
+	AppID         string `json:"app_id"`            // Optional: Helix agent to use for spec generation
+	JustDoItMode  bool   `json:"just_do_it_mode"`   // Optional: Skip spec planning, go straight to implementation
+	UseHostDocker bool   `json:"use_host_docker"`   // Optional: Use host Docker socket (requires privileged sandbox)
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

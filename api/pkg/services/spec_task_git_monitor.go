@@ -323,34 +323,16 @@ func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *typ
 	log.Info().
 		Str("review_id", review.ID).
 		Str("spec_task_id", specTask.ID).
-		Bool("yolo_mode", specTask.YoloMode).
+		Bool("just_do_it_mode", specTask.JustDoItMode).
 		Msg("[GitMonitor] Created design review")
 
-	// Check YOLO mode: auto-approve or require human review
-	if specTask.YoloMode {
-		// YOLO mode: Auto-approve specs and skip human review
-		review.Status = types.SpecTaskDesignReviewStatusApproved
-		now := time.Now()
-		review.ApprovedAt = &now
-		if err := m.store.UpdateSpecTaskDesignReview(ctx, review); err != nil {
-			log.Error().Err(err).Msg("[GitMonitor] Failed to auto-approve review in YOLO mode")
-		}
+	// Just Do It mode skips spec generation entirely, so this code path shouldn't be hit for those tasks
+	// Move to spec_review for human review
+	specTask.Status = types.TaskStatusSpecReview
 
-		specTask.Status = types.TaskStatusSpecApproved
-		specTask.SpecApprovedBy = "system-yolo"
-		specTask.SpecApprovedAt = &now
-
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Msg("[GitMonitor] YOLO mode: Auto-approved specs, ready for implementation")
-	} else {
-		// Normal mode: Move to spec_review for human review
-		specTask.Status = types.TaskStatusSpecReview
-
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Msg("[GitMonitor] Normal mode: Moved to spec review, awaiting human approval")
-	}
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Msg("[GitMonitor] Moved to spec review, awaiting human approval")
 
 	if err := m.store.UpdateSpecTask(ctx, specTask); err != nil {
 		return fmt.Errorf("failed to update spec task status: %w", err)

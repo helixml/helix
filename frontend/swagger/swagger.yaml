@@ -1559,6 +1559,9 @@ definitions:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
         type: string
+      just_do_it_mode:
+        description: 'Optional: Skip spec planning, go straight to implementation'
+        type: boolean
       priority:
         type: string
       project_id:
@@ -1572,9 +1575,6 @@ definitions:
         type: boolean
       user_id:
         type: string
-      yolo_mode:
-        description: 'Optional: Skip human review and auto-approve specs'
-        type: boolean
     type: object
   services.DocumentHandoffConfig:
     properties:
@@ -6346,6 +6346,9 @@ definitions:
       implementation_plan:
         description: Discrete tasks breakdown (markdown)
         type: string
+      just_do_it_mode:
+        description: Skip spec planning, go straight to implementation
+        type: boolean
       labels:
         items:
           type: string
@@ -6416,9 +6419,6 @@ definitions:
         items:
           type: integer
         type: array
-      yolo_mode:
-        description: Skip human review, auto-approve specs
-        type: boolean
       zed_instance_id:
         description: Multi-session support
         type: string
@@ -6841,15 +6841,15 @@ definitions:
     properties:
       description:
         type: string
+      just_do_it_mode:
+        description: Pointer to allow explicit false
+        type: boolean
       name:
         type: string
       priority:
         type: string
       status:
         type: string
-      yolo_mode:
-        description: Pointer to allow explicit false
-        type: boolean
     type: object
   types.SpecTaskWorkSession:
     properties:

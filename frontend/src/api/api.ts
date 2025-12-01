@@ -961,6 +961,8 @@ export enum ServicesCoordinationEventType {
 export interface ServicesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Optional: Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   priority?: string;
   project_id?: string;
   prompt?: string;
@@ -968,8 +970,6 @@ export interface ServicesCreateTaskRequest {
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   user_id?: string;
-  /** Optional: Skip human review and auto-approve specs */
-  yolo_mode?: boolean;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -3703,6 +3703,8 @@ export interface TypesSpecTask {
   implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   labels?: string[];
   /** When branch was last pushed */
   last_push_at?: string;
@@ -3745,8 +3747,6 @@ export interface TypesSpecTask {
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   workspace_config?: number[];
-  /** Skip human review, auto-approve specs */
-  yolo_mode?: boolean;
   /** Multi-session support */
   zed_instance_id?: string;
 }
@@ -3975,11 +3975,11 @@ export interface TypesSpecTaskProgressResponse {
 
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
+  /** Pointer to allow explicit false */
+  just_do_it_mode?: boolean;
   name?: string;
   priority?: string;
   status?: string;
-  /** Pointer to allow explicit false */
-  yolo_mode?: boolean;
 }
 
 export interface TypesSpecTaskWorkSession {
