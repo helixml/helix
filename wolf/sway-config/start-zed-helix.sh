@@ -7,7 +7,7 @@ STARTUP_LOG="$HOME/.helix-startup.log"
 exec > >(tee "$STARTUP_LOG") 2>&1
 
 echo "========================================="
-echo "Helix Agent Startup - $(date)"
+echo "Helix Agent Startup v2 - $(date)"
 echo "========================================="
 echo ""
 
