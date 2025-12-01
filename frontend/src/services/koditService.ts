@@ -25,25 +25,22 @@ export const KODIT_SUBTYPE_DATABASE_SCHEMA = 'database_schema' // Database schem
 export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit descriptions
 
 /**
- * Kodit indexing state constants
+ * Kodit indexing status (matches Kodit API response)
  */
-export const KODIT_INDEXING_STATE_UNKNOWN = 'unknown' as const
-export const KODIT_INDEXING_STATE_QUEUED = 'queued' as const
-export const KODIT_INDEXING_STATE_INDEXING = 'indexing' as const
-export const KODIT_INDEXING_STATE_COMPLETED = 'completed' as const
-export const KODIT_INDEXING_STATE_FAILED = 'failed' as const
+export interface KoditIndexingStatusAttributes {
+  status: string
+  message?: string
+  updated_at: string
+}
 
-export type KoditIndexingState =
-  | typeof KODIT_INDEXING_STATE_UNKNOWN
-  | typeof KODIT_INDEXING_STATE_QUEUED
-  | typeof KODIT_INDEXING_STATE_INDEXING
-  | typeof KODIT_INDEXING_STATE_COMPLETED
-  | typeof KODIT_INDEXING_STATE_FAILED
+export interface KoditIndexingStatusData {
+  type: string
+  id: string
+  attributes: KoditIndexingStatusAttributes
+}
 
 export interface KoditIndexingStatus {
-  state: KoditIndexingState
-  message?: string
-  completed_at?: string
+  data: KoditIndexingStatusData
 }
 
 /**

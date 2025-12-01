@@ -11,13 +11,7 @@ import {
   RefreshCw,
   Clock,
 } from 'lucide-react'
-import {
-  KoditIndexingStatus,
-  KODIT_INDEXING_STATE_COMPLETED,
-  KODIT_INDEXING_STATE_FAILED,
-  KODIT_INDEXING_STATE_INDEXING,
-  KODIT_INDEXING_STATE_QUEUED,
-} from '../../services/koditService'
+import { KoditIndexingStatus } from '../../services/koditService'
 
 interface KoditStatusPillProps {
   data?: KoditIndexingStatus
@@ -28,9 +22,10 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
   data,
   isLoading,
 }) => {
-  const state = data?.state
-  const message = data?.message
-  const completedAt = data?.completed_at
+  const attrs = data?.data?.attributes
+  const status = attrs?.status
+  const message = attrs?.message
+  const updatedAt = attrs?.updated_at
   if (isLoading) {
     return (
       <Chip
@@ -43,8 +38,8 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (state === KODIT_INDEXING_STATE_COMPLETED) {
-    const formattedDate = formatLastUpdated(completedAt)
+  if (status === 'completed') {
+    const formattedDate = formatLastUpdated(updatedAt)
     const tooltipContent = formattedDate
       ? `Last synced: ${formattedDate}`
       : 'Repository is indexed and up to date'
@@ -66,7 +61,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (state === KODIT_INDEXING_STATE_FAILED) {
+  if (status === 'failed') {
     return (
       <Tooltip title={message || 'Indexing failed'} arrow placement="top">
         <Chip
@@ -84,7 +79,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (state === KODIT_INDEXING_STATE_INDEXING) {
+  if (status === 'indexing') {
     return (
       <Tooltip title={message || 'Repository is being indexed...'} arrow placement="top">
         <Chip
@@ -116,7 +111,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (state === KODIT_INDEXING_STATE_QUEUED) {
+  if (status === 'queued') {
     return (
       <Tooltip title={message || 'Repository is queued for indexing'} arrow placement="top">
         <Chip
