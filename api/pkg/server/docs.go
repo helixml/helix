@@ -10608,6 +10608,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/teams/webhook/{appID}": {
+            "post": {
+                "description": "Process incoming activities from Microsoft Teams Bot Framework",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Teams"
+                ],
+                "summary": "Handle Teams webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Helix App ID",
+                        "name": "appID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Bot not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Bot not ready",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/top-ups/new": {
             "post": {
                 "security": [
@@ -22680,6 +22724,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.TeamsTrigger": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "Microsoft App ID",
+                    "type": "string"
+                },
+                "app_password": {
+                    "description": "Microsoft App Password",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "tenant_id": {
+                    "description": "Optional: restrict to specific tenant",
+                    "type": "string"
+                }
+            }
+        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -23053,6 +23117,9 @@ const docTemplate = `{
                 },
                 "slack": {
                     "$ref": "#/definitions/types.SlackTrigger"
+                },
+                "teams": {
+                    "$ref": "#/definitions/types.TeamsTrigger"
                 }
             }
         },
@@ -23195,18 +23262,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
+                "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
+                "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

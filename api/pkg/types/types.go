@@ -1724,6 +1724,15 @@ type SlackTrigger struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
+// TeamsTrigger - Microsoft Teams bot integration
+// Register a bot at https://dev.botframework.com/ or Azure Portal
+type TeamsTrigger struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	AppID       string `json:"app_id" yaml:"app_id"`             // Microsoft App ID
+	AppPassword string `json:"app_password" yaml:"app_password"` // Microsoft App Password
+	TenantID    string `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"` // Optional: restrict to specific tenant
+}
+
 // Crisp trigger configuration, create yours
 // here https://marketplace.crisp.chat/plugins/
 type CrispTrigger struct {
@@ -1750,6 +1759,7 @@ type AzureDevOpsTrigger struct {
 type Trigger struct {
 	Discord        *DiscordTrigger        `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Slack          *SlackTrigger          `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Teams          *TeamsTrigger          `json:"teams,omitempty" yaml:"teams,omitempty"`
 	Cron           *CronTrigger           `json:"cron,omitempty" yaml:"cron,omitempty"`
 	Crisp          *CrispTrigger          `json:"crisp,omitempty" yaml:"crisp,omitempty"`
 	AzureDevOps    *AzureDevOpsTrigger    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
@@ -2613,6 +2623,18 @@ type SlackThread struct {
 	SessionID string `json:"session_id"`
 }
 
+// TeamsThread used to track the state of Teams conversations where Helix agent is invoked
+type TeamsThread struct {
+	ConversationID string    `json:"conversation_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	ChannelID      string    `json:"channel_id" gorm:"index"`
+	TeamID         string    `json:"team_id" gorm:"index"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`
+}
+
 type CrispThread struct {
 	CrispSessionID string    `json:"crisp_session_id" gorm:"primaryKey"`
 	AppID          string    `json:"app_id" gorm:"primaryKey"`
@@ -2630,6 +2652,7 @@ func (t TriggerType) String() string {
 
 const (
 	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeTeams       TriggerType = "teams"
 	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"

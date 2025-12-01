@@ -7152,6 +7152,20 @@ definitions:
         description: composite key
         type: string
     type: object
+  types.TeamsTrigger:
+    properties:
+      app_id:
+        description: Microsoft App ID
+        type: string
+      app_password:
+        description: Microsoft App Password
+        type: string
+      enabled:
+        type: boolean
+      tenant_id:
+        description: 'Optional: restrict to specific tenant'
+        type: string
+    type: object
   types.TestStep:
     properties:
       expected_output:
@@ -7420,6 +7434,8 @@ definitions:
         $ref: '#/definitions/types.DiscordTrigger'
       slack:
         $ref: '#/definitions/types.SlackTrigger'
+      teams:
+        $ref: '#/definitions/types.TeamsTrigger'
     type: object
   types.TriggerConfiguration:
     properties:
@@ -7517,18 +7533,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
+    - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
+    - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -14786,6 +14804,35 @@ paths:
       summary: Update system settings
       tags:
       - system
+  /api/v1/teams/webhook/{appID}:
+    post:
+      consumes:
+      - application/json
+      description: Process incoming activities from Microsoft Teams Bot Framework
+      parameters:
+      - description: Helix App ID
+        in: path
+        name: appID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Bot not found
+          schema:
+            type: string
+        "503":
+          description: Bot not ready
+          schema:
+            type: string
+      summary: Handle Teams webhook
+      tags:
+      - Teams
   /api/v1/top-ups/new:
     post:
       description: Create a top up with specified amount
