@@ -220,6 +220,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
 		Stream:       false,
+		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 	}
 
 	session := &types.Session{
