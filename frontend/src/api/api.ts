@@ -1242,6 +1242,10 @@ export interface TypesAdminCreateUserRequest {
   password?: string;
 }
 
+export interface TypesAdminResetPasswordRequest {
+  new_password?: string;
+}
+
 export interface TypesAgentDashboardSummary {
   active_help_requests?: TypesHelpRequest[];
   active_sessions?: TypesAgentSessionStatus[];
@@ -4742,7 +4746,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4832,12 +4836,8 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title HelixML API reference
- * @version 0.1
- * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
- *
- * This is the HelixML API.
+ * @title No title
+ * @contact
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -4882,6 +4882,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Reset the password for any user. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersPasswordUpdate
+     * @summary Reset a user's password (Admin only)
+     * @request PUT:/api/v1/admin/users/{id}/password
+     * @secure
+     */
+    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}/password`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
