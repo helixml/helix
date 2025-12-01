@@ -931,6 +931,21 @@ function transfer-sway-to-sandbox() {
   echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
   if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
     echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+
+    # Update version files inside sandbox so heartbeat daemon picks up new version
+    local COMMIT_HASH=$(git rev-parse --short HEAD)
+    local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
+
+    echo "📝 Updating version files in sandbox (version: ${COMMIT_HASH}, hash: ${IMAGE_HASH})..."
+    docker exec helix-sandbox-1 bash -c "echo '${COMMIT_HASH}' > /opt/images/helix-sway.version"
+    docker exec helix-sandbox-1 bash -c "echo '${IMAGE_HASH}' > /opt/images/helix-sway.tar.hash"
+
+    # Restart heartbeat daemon to pick up new version (it only reads version at startup)
+    echo "🔄 Restarting heartbeat daemon to pick up new version..."
+    docker exec helix-sandbox-1 pkill -f sandbox-heartbeat 2>/dev/null || true
+    # Heartbeat daemon will be restarted automatically by its supervisor loop
+
+    echo "✅ Version files updated and heartbeat restarted"
   else
     echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
     echo "   Image will be loaded from embedded tarball when sandbox is ready"
