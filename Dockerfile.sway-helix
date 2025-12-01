@@ -164,9 +164,10 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create
 ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
-# Add retro user to docker group at runtime (after GOW creates the user)
-ADD wolf/sway-config/11-add-docker-group.sh /etc/cont-init.d/11-add-docker-group.sh
-RUN chmod 755 /etc/cont-init.d/11-add-docker-group.sh
+# Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
+# CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
+ADD wolf/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
 # Copy welcome README template for workspace initialization
 RUN mkdir -p /opt/helix
