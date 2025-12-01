@@ -198,6 +198,34 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle privileged mode (host Docker access)
+	if req.UseHostDocker {
+		if !s.privilegedModeEnabled {
+			http.Error(w, "privileged mode is not enabled on this sandbox (set HYDRA_PRIVILEGED_MODE_ENABLED=true)", http.StatusForbidden)
+			return
+		}
+		// Return host Docker socket directly - no isolated dockerd
+		// The host socket is mounted at /var/run/host-docker.sock to avoid conflict with DinD
+		log.Warn().
+			Str("scope_type", string(req.ScopeType)).
+			Str("scope_id", req.ScopeID).
+			Str("user_id", req.UserID).
+			Msg("⚠️ Privileged mode: returning host Docker socket")
+
+		resp := &DockerInstanceResponse{
+			ScopeType:    req.ScopeType,
+			ScopeID:      req.ScopeID,
+			DockerSocket: "/var/run/host-docker.sock",
+			DockerHost:   "unix:///var/run/host-docker.sock",
+			DataRoot:     "/var/lib/docker", // Host's Docker data root
+			Status:       StatusRunning,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 

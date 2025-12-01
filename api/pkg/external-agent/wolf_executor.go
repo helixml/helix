@@ -476,8 +476,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
 
 	// Select best Wolf instance for this sandbox
-	// TODO: Extract GPU type from agent config if needed
-	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
+	// Use SelectWolfInstanceWithOptions to support privileged mode filtering
+	wolfInstance, err := w.wolfScheduler.SelectWolfInstanceWithOptions(ctx, store.WolfSelectionOptions{
+		GPUType:               "", // TODO: Extract GPU type from agent config if needed
+		RequirePrivilegedMode: agent.UseHostDocker,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("no Wolf instances available - ensure Wolf container is running and connected via RevDial: %w", err)
 	}
@@ -487,6 +490,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("wolf_name", wolfInstance.Name).
 		Int("current_load", wolfInstance.ConnectedSandboxes).
 		Int("max_capacity", wolfInstance.MaxSandboxes).
+		Bool("privileged_mode", wolfInstance.PrivilegedModeEnabled).
+		Bool("use_host_docker", agent.UseHostDocker).
 		Msg("Selected Wolf instance for sandbox")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
@@ -847,6 +852,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			Str("scope_id", scopeID).
 			Str("session_id", agent.SessionID).
 			Str("spec_task_id", agent.SpecTaskID).
+			Bool("use_host_docker", agent.UseHostDocker).
 			Msg("Creating isolated Docker instance via Hydra")
 
 		// Call Hydra API to create Docker instance via RevDial
@@ -859,9 +865,10 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 		hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
 		dockerInstance, err := hydraClient.CreateDockerInstance(ctx, &hydra.CreateDockerInstanceRequest{
-			ScopeType: hydra.ScopeType(scopeType),
-			ScopeID:   scopeID,
-			UserID:    agent.UserID,
+			ScopeType:     hydra.ScopeType(scopeType),
+			ScopeID:       scopeID,
+			UserID:        agent.UserID,
+			UseHostDocker: agent.UseHostDocker, // Privileged mode: use host Docker socket
 		})
 		if err != nil {
 			// Hydra is enabled but failed - this is a hard error, not a fallback

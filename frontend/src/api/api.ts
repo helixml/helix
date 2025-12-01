@@ -965,6 +965,8 @@ export interface ServicesCreateTaskRequest {
   project_id?: string;
   prompt?: string;
   type?: string;
+  /** Optional: Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   user_id?: string;
   /** Optional: Skip human review and auto-approve specs */
   yolo_mode?: boolean;
@@ -3734,6 +3736,8 @@ export interface TypesSpecTask {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   workspace_config?: number[];
   /** Skip human review, auto-approve specs */
   yolo_mode?: boolean;
@@ -4516,6 +4520,8 @@ export interface TypesWolfHeartbeatRequest {
   container_usage?: TypesContainerDiskUsage[];
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
+  /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
+  privileged_mode_enabled?: boolean;
   /** helix-sway image version (commit hash) */
   sway_version?: string;
 }
@@ -4538,6 +4544,7 @@ export interface TypesWolfInstanceResponse {
   last_heartbeat?: string;
   max_sandboxes?: number;
   name?: string;
+  privileged_mode_enabled?: boolean;
   status?: string;
   sway_version?: string;
   updated_at?: string;

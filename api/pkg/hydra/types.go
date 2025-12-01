@@ -23,10 +23,11 @@ const (
 
 // CreateDockerInstanceRequest is the request to create a new dockerd instance
 type CreateDockerInstanceRequest struct {
-	ScopeType     ScopeType `json:"scope_type"`     // spectask, session, or exploratory
-	ScopeID       string    `json:"scope_id"`       // The ID of the scope (task ID, session ID)
-	UserID        string    `json:"user_id"`        // User who owns this instance
-	MaxContainers int       `json:"max_containers"` // Optional limit on containers (0 = unlimited)
+	ScopeType     ScopeType `json:"scope_type"`      // spectask, session, or exploratory
+	ScopeID       string    `json:"scope_id"`        // The ID of the scope (task ID, session ID)
+	UserID        string    `json:"user_id"`         // User who owns this instance
+	MaxContainers int       `json:"max_containers"`  // Optional limit on containers (0 = unlimited)
+	UseHostDocker bool      `json:"use_host_docker"` // If true and privileged mode enabled, use host Docker socket
 }
 
 // DockerInstanceResponse is the response containing dockerd instance info
@@ -90,6 +91,8 @@ type DockerInstance struct {
 	ConfigFile    string               `json:"config_file"`
 	MaxContainers int                  `json:"max_containers"`
 	StartedAt     time.Time            `json:"started_at"`
+	BridgeIndex   uint8                `json:"bridge_index"`   // Unique index for bridge IP range (1-254)
+	BridgeName    string               `json:"bridge_name"`    // Bridge interface name (e.g., "hydra1")
 }
 
 // InstanceKey returns a unique key for this instance

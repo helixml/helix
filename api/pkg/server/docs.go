@@ -14648,6 +14648,10 @@ const docTemplate = `{
                 "type": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "user_id": {
                     "type": "string"
                 },
@@ -21588,6 +21592,10 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "workspace_config": {
                     "type": "array",
                     "items": {
@@ -23567,6 +23575,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "privileged_mode_enabled": {
+                    "description": "true if HYDRA_PRIVILEGED_MODE_ENABLED=true",
+                    "type": "boolean"
+                },
                 "sway_version": {
                     "description": "helix-sway image version (commit hash)",
                     "type": "string"
@@ -23625,6 +23637,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "privileged_mode_enabled": {
+                    "type": "boolean"
                 },
                 "status": {
                     "type": "string"

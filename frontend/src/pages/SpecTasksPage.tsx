@@ -103,6 +103,7 @@ const SpecTasksPage: FC = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [yoloMode, setYoloMode] = useState(false); // YOLO mode: skip human review
+  const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
   // Repository configuration moved to project level - no task-level repo selection needed
 
   // Task detail windows state - array to support multiple windows
@@ -321,6 +322,7 @@ const SpecTasksPage: FC = () => {
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         yolo_mode: yoloMode, // YOLO mode: skip human review
+        use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
         // Repositories inherited from parent project - no task-level repo configuration
       };
 
@@ -336,6 +338,7 @@ const SpecTasksPage: FC = () => {
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
         setYoloMode(false); // Reset YOLO mode
+        setUseHostDocker(false); // Reset host Docker mode
 
         // Trigger immediate refresh of Kanban board
         setRefreshTrigger(prev => prev + 1);
@@ -672,6 +675,31 @@ Examples:
                   />
                 </Tooltip>
               </FormControl>
+
+              {/* Use Host Docker Checkbox (for Helix-in-Helix development) */}
+              <FormControl fullWidth>
+                <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={useHostDocker}
+                        onChange={(e) => setUseHostDocker(e.target.checked)}
+                        color="info"
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          Use Host Docker 🐳
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          For Helix-in-Helix development — agent can build and run Helix containers
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Tooltip>
+              </FormControl>
             </Stack>
           </Box>
 
@@ -683,6 +711,7 @@ Examples:
               setTaskPriority('medium');
               setSelectedHelixAgent('');
               setYoloMode(false);
+              setUseHostDocker(false);
             }}>
               Cancel
             </Button>
