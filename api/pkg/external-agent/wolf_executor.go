@@ -223,6 +223,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
+		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
+		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
 	}
 
 	// Startup script lives in primary code repo at .helix/startup.sh
@@ -238,8 +241,13 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	}
 
 	// Build standard mounts (common to all Sway apps)
+	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
+	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
+	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
+		fmt.Sprintf("%s:%s", config.WorkspaceDir, config.WorkspaceDir),
 		fmt.Sprintf("%s:/var/run/docker.sock", dockerSocket),
 	}
 
@@ -1543,9 +1551,17 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
+		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
+		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
 	}
+	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
+	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
+	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		fmt.Sprintf("%s:%s", workspaceDir, workspaceDir), // Mount persistent workspace at same path
 		"/var/run/docker.sock:/var/run/docker.sock:rw",   // Mount Wolf's docker socket for devcontainer support
 	}
 

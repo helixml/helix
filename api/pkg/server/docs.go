@@ -14690,6 +14690,10 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Optional: Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "priority": {
                     "type": "string"
                 },
@@ -14708,10 +14712,6 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Optional: Skip human review and auto-approve specs",
-                    "type": "boolean"
                 }
             }
         },
@@ -21574,6 +21574,10 @@ const docTemplate = `{
                     "description": "Discrete tasks breakdown (markdown)",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "labels": {
                     "type": "array",
                     "items": {
@@ -21667,10 +21671,6 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
-                },
-                "yolo_mode": {
-                    "description": "Skip human review, auto-approve specs",
-                    "type": "boolean"
                 },
                 "zed_instance_id": {
                     "description": "Multi-session support",
@@ -22277,6 +22277,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22285,10 +22289,6 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Pointer to allow explicit false",
-                    "type": "boolean"
                 }
             }
         },

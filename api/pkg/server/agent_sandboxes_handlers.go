@@ -773,8 +773,20 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 
 	// Get session's Wolf instance ID for proper RevDial routing
 	wolfInstanceID := session.WolfInstanceID
+
+	// CRITICAL: If session has no WolfInstanceID yet, the lobby hasn't been created
+	// WolfInstanceID is set in wolf_executor.go AFTER the lobby is created
+	// This is the simplest and most reliable way to detect "starting" state
 	if wolfInstanceID == "" {
-		wolfInstanceID = "dev" // Default for sessions created before multi-Wolf support
+		response := SessionWolfAppStateResponse{
+			SessionID:      sessionID,
+			WolfAppID:      "", // Not known yet
+			State:          "starting",
+			HasWebsocket:   false,
+			ClientUniqueID: fmt.Sprintf("helix-agent-%s", sessionID),
+		}
+		writeResponse(rw, response, http.StatusOK)
+		return
 	}
 
 	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
@@ -872,7 +884,9 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		if resourceExists {
 			state = "resumable" // App/lobby exists but no moonlight session
 		} else {
-			state = "absent" // No app/lobby, no session
+			// No app/lobby found and we have a WolfInstanceID = container was stopped
+			// (if no WolfInstanceID, we already returned "starting" earlier)
+			state = "absent"
 		}
 	}
 

@@ -443,12 +443,19 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start spec generation
-	go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
-
-	// Return updated task (status will be updated asynchronously)
-	task.Status = types.TaskStatusSpecGeneration
-	task.UpdatedAt = time.Now()
+	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
+	if task.JustDoItMode {
+		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusImplementation
+		task.UpdatedAt = time.Now()
+	} else {
+		// Normal mode: Start spec generation
+		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusSpecGeneration
+		task.UpdatedAt = time.Now()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -517,8 +524,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
 	}
-	if updateReq.YoloMode != nil {
-		task.YoloMode = *updateReq.YoloMode
+	if updateReq.JustDoItMode != nil {
+		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 
 	// Update in store

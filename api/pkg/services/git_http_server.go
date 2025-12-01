@@ -608,30 +608,21 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		log.Info().
 			Str("task_id", task.ID).
 			Str("task_name", task.Name).
-			Bool("yolo_mode", task.YoloMode).
+			Bool("just_do_it_mode", task.JustDoItMode).
 			Msg("Processing SpecTask for design doc push")
 
 		now := time.Now()
 		task.DesignDocsPushedAt = &now // Track when design docs were actually pushed
 
-		if task.YoloMode {
-			// YOLO mode: Auto-approve specs and start implementation
-			task.Status = types.TaskStatusSpecApproved
-			task.SpecApprovedBy = "system"
-			task.SpecApprovedAt = &now
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("YOLO mode enabled: Auto-approving specs")
-		} else {
-			// Normal mode: Move to spec review
-			task.Status = types.TaskStatusSpecReview
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("Moving task to spec review")
+		// Just Do It mode tasks skip spec generation entirely, so they shouldn't hit this code path
+		// Move to spec review for human review
+		task.Status = types.TaskStatusSpecReview
+		log.Info().
+			Str("task_id", task.ID).
+			Msg("Moving task to spec review")
 
-			// Auto-create a design review record so the floating window viewer can open
-			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
-		}
+		// Auto-create a design review record so the floating window viewer can open
+		go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
 
 		task.UpdatedAt = now
 		err = s.store.UpdateSpecTask(ctx, task)
