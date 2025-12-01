@@ -12549,6 +12549,42 @@ const docTemplate = `{
                 }
             }
         },
+        "kodit.RepositoryStatusSummaryAttributes": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message Error message if failed",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status Overall indexing status",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "description": "UpdatedAt Most recent activity timestamp",
+                    "type": "string"
+                }
+            }
+        },
+        "kodit.RepositoryStatusSummaryData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "description": "Attributes Attributes for repository status summary.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryAttributes"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "mcp.Meta": {
             "type": "object",
             "properties": {
@@ -14900,34 +14936,16 @@ const docTemplate = `{
                 }
             }
         },
-        "services.KoditIndexingState": {
-            "type": "string",
-            "enum": [
-                "unknown",
-                "queued",
-                "indexing",
-                "completed",
-                "failed"
-            ],
-            "x-enum-varnames": [
-                "KoditIndexingStateUnknown",
-                "KoditIndexingStateQueued",
-                "KoditIndexingStateIndexing",
-                "KoditIndexingStateCompleted",
-                "KoditIndexingStateFailed"
-            ]
-        },
         "services.KoditIndexingStatus": {
             "type": "object",
             "properties": {
-                "completed_at": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "state": {
-                    "$ref": "#/definitions/services.KoditIndexingState"
+                "data": {
+                    "description": "Data Data for repository status summary response.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryData"
+                        }
+                    ]
                 }
             }
         },
