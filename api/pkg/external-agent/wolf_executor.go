@@ -194,23 +194,14 @@ func (w *WolfExecutor) computeZedImageFromVersion(swayVersion string) string {
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
-	// Build GPU-specific device list based on GPU_VENDOR
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
-	gpuDevices := "/dev/input/*"         // Input devices always needed
-
-	switch gpuVendor {
-	case "none":
-		// Software rendering - no GPU devices needed, llvmpipe uses CPU
-		// Still need /dev/dri for Mesa software rendering context
-		gpuDevices += " /dev/dri/*"
-	case "nvidia":
-		gpuDevices += " /dev/dri/* /dev/nvidia*"
-	case "amd":
-		gpuDevices += " /dev/dri/* /dev/kfd" // AMD ROCm Kernel Fusion Driver
-	default:
-		// Intel or unknown - just /dev/dri
-		gpuDevices += " /dev/dri/*"
-	}
+	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
+	// We include all possible GPU devices - the glob won't match non-existent devices.
+	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
+	// - /dev/input/*: Input devices (event*, mice, mouse*)
+	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
+	// - /dev/nvidia*: NVIDIA GPU devices
+	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
+	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
@@ -1524,15 +1515,14 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	// Get workspace directory (should already exist)
 	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
 
-	// Create Wolf app using the same Sway configuration as the main creation function
-	// Build GPU-specific device list based on GPU_VENDOR
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
-	gpuDevices := "/dev/input/* /dev/dri/*"
-	if gpuVendor == "nvidia" {
-		gpuDevices += " /dev/nvidia*"
-	} else if gpuVendor == "amd" {
-		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
-	}
+	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
+	// We include all possible GPU devices - the glob won't match non-existent devices.
+	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
+	// - /dev/input/*: Input devices (event*, mice, mouse*)
+	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
+	// - /dev/nvidia*: NVIDIA GPU devices
+	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
+	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
