@@ -91,13 +91,6 @@ const SpecTasksPage: FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Board WIP limits (loaded from backend, edited in Project Settings)
-  const [wipLimits, setWipLimits] = useState({
-    planning: 3,
-    review: 2,
-    implementation: 5,
-  });
-
   // Create task form state (SIMPLIFIED)
   const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
   const [taskPriority, setTaskPriority] = useState('medium');
@@ -166,29 +159,6 @@ const SpecTasksPage: FC = () => {
       }, 100);
     }
   }, [createDialogOpen, apps.apps]);
-
-  // Load board settings on mount
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const response = await api.get('/api/v1/spec-tasks/board-settings');
-        if (response.data && response.data.wip_limits) {
-          setWipLimits({
-            planning: response.data.wip_limits.planning || 3,
-            review: response.data.wip_limits.review || 2,
-            implementation: response.data.wip_limits.implementation || 5,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to load board settings:', error);
-        // Use default values if loading fails
-      }
-    };
-
-    if (account.user?.id) {
-      loadSettings();
-    }
-  }, [account.user?.id]);
 
   // Handle URL parameters for opening dialog
   useEffect(() => {
@@ -534,7 +504,6 @@ const SpecTasksPage: FC = () => {
               }}
               refreshing={refreshing}
               refreshTrigger={refreshTrigger}
-              wipLimits={wipLimits}
             />
           </Box>
         </Box>
