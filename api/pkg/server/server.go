@@ -319,8 +319,10 @@ func NewServer(
 	if cfg.Kodit.Enabled {
 		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
 		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
+		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
 		log.Info().
 			Str("kodit_base_url", cfg.Kodit.BaseURL).
+			Str("kodit_git_url", cfg.Kodit.GitURL).
 			Msg("Initialized Kodit code intelligence service")
 	} else {
 		apiServer.koditService = services.NewKoditService("", "") // Disabled instance

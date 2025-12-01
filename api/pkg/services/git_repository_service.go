@@ -29,6 +29,7 @@ type GitRepositoryService struct {
 	filestoreBase   string        // Base path for filestore (e.g., "/tmp/helix/filestore")
 	gitRepoBase     string        // Base path for git repositories within filestore
 	serverBaseURL   string        // Base URL for git server (e.g., "http://api:8080")
+	koditGitURL     string        // URL Kodit uses to access git server (e.g., "http://api:8080" in Docker)
 	gitUserName     string        // Default git user name
 	gitUserEmail    string        // Default git user email
 	enableGitServer bool          // Whether to enable git server functionality
@@ -71,6 +72,12 @@ func (s *GitRepositoryService) SetTestMode(enabled bool) {
 // SetKoditService sets the Kodit service for code intelligence
 func (s *GitRepositoryService) SetKoditService(koditService *KoditService) {
 	s.koditService = koditService
+}
+
+// SetKoditGitURL sets the URL that Kodit uses to access the git server
+// This may differ from serverBaseURL in containerized environments
+func (s *GitRepositoryService) SetKoditGitURL(url string) {
+	s.koditGitURL = strings.TrimSuffix(url, "/")
 }
 
 // Initialize creates the git repository base directory and sets up git server
@@ -212,41 +219,58 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 	// Register with Kodit if kodit_indexing is enabled
 	if s.koditService != nil && request.KoditIndexing {
-		// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
-		go func() {
-			koditResp, err := s.koditService.RegisterRepository(context.Background(), gitRepo.ExternalURL)
-			if err != nil {
-				log.Error().
-					Err(err).
+		// Determine the clone URL for Kodit
+		// For external repos: use ExternalURL
+		// For local repos: use CloneURL with embedded API key auth
+		koditCloneURL := gitRepo.ExternalURL
+		if !isExternal {
+			if request.KoditAPIKey == "" {
+				log.Warn().
 					Str("repo_id", repoID).
-					Str("external_url", gitRepo.ExternalURL).
-					Msg("Failed to register repository with Kodit")
-				return
+					Msg("Cannot register local repository with Kodit without API key - user must authenticate with API key")
+			} else {
+				// Build authenticated URL: http://api:APIKEY@host/git/repo_id
+				koditCloneURL = s.buildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
 			}
+		}
 
-			if koditResp != nil {
-				// Store Kodit repository ID in metadata for future reference
-				if gitRepo.Metadata == nil {
-					gitRepo.Metadata = make(map[string]interface{})
-				}
-				gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.Id
-
-				// Update repository metadata with Kodit ID
-				if err := s.store.UpdateGitRepository(context.Background(), gitRepo); err != nil {
-					log.Warn().
+		// Only register if we have a valid URL
+		if koditCloneURL != "" {
+			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
+			go func() {
+				koditResp, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				if err != nil {
+					log.Error().
 						Err(err).
 						Str("repo_id", repoID).
-						Str("kodit_repo_id", koditResp.Data.Id).
-						Msg("Failed to update repository with Kodit ID")
-				} else {
-					log.Info().
-						Str("repo_id", repoID).
-						Str("kodit_repo_id", koditResp.Data.Id).
-						Str("external_url", gitRepo.ExternalURL).
-						Msg("Registered repository with Kodit for code intelligence")
+						Msg("Failed to register repository with Kodit")
+					return
 				}
-			}
-		}()
+
+				if koditResp != nil {
+					// Store Kodit repository ID in metadata for future reference
+					if gitRepo.Metadata == nil {
+						gitRepo.Metadata = make(map[string]interface{})
+					}
+					gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.Id
+
+					// Update repository metadata with Kodit ID
+					if err := s.store.UpdateGitRepository(context.Background(), gitRepo); err != nil {
+						log.Warn().
+							Err(err).
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.Id).
+							Msg("Failed to update repository with Kodit ID")
+					} else {
+						log.Info().
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.Id).
+							Bool("is_local", !isExternal).
+							Msg("Registered repository with Kodit for code intelligence")
+					}
+				}
+			}()
+		}
 	}
 
 	return gitRepo, nil
@@ -486,6 +510,21 @@ func (s *GitRepositoryService) generateCloneURL(repoID string) string {
 	return fmt.Sprintf("%s/git/%s", s.serverBaseURL, repoID)
 }
 
+// buildAuthenticatedCloneURL builds a clone URL with embedded API key authentication
+// Uses koditGitURL (configurable) as the base URL for Kodit to access the git server
+// Input: repoID: repo-123, apiKey: hl-xxxxx
+// Output: http://api:hl-xxxxx@api:8080/git/repo-123 (when koditGitURL is http://api:8080)
+func (s *GitRepositoryService) buildAuthenticatedCloneURL(repoID, apiKey string) string {
+	// Use configured koditGitURL, falling back to serverBaseURL if not set
+	baseURL := s.koditGitURL
+	if baseURL == "" {
+		baseURL = s.serverBaseURL
+	}
+
+	// Build URL with embedded credentials: http://api:APIKEY@host/git/repo_id
+	return strings.Replace(baseURL, "://", fmt.Sprintf("://api:%s@", apiKey), 1) + "/git/" + repoID
+}
+
 // initializeGitRepository initializes a new git repository with initial files
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
@@ -606,9 +645,18 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
-		// Open the bare repo and delete master branch if it exists
+		// Open the bare repo to set HEAD and clean up master branch
 		bareRepo, err := git.PlainOpen(repoPath)
 		if err == nil {
+			// Set HEAD to point to the default branch (important for clients to determine origin/HEAD)
+			headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(defaultBranch))
+			if err := bareRepo.Storer.SetReference(headRef); err != nil {
+				log.Warn().Err(err).Str("default_branch", defaultBranch).Msg("Failed to set HEAD in bare repo")
+			} else {
+				log.Info().Str("default_branch", defaultBranch).Msg("Set HEAD to default branch in bare repository")
+			}
+
+			// Delete master branch if it exists
 			masterRef := plumbing.NewBranchReferenceName("master")
 			if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
 				log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")

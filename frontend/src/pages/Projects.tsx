@@ -261,9 +261,7 @@ const Projects: FC = () => {
         owner_id: ownerId,
         repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
-        metadata: {
-          kodit_indexing: koditIndexing,
-        },
+        kodit_indexing: koditIndexing,
       })
 
       // Invalidate and refetch git repositories query
