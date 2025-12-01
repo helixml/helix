@@ -3125,6 +3125,12 @@
                             "$ref": "#/definitions/services.KoditEnrichmentListResponse"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3133,6 +3139,12 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3178,6 +3190,12 @@
                             "$ref": "#/definitions/services.KoditEnrichmentData"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3186,6 +3204,12 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3234,6 +3258,12 @@
                             }
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3242,6 +3272,12 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3281,6 +3317,12 @@
                             "additionalProperties": true
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3289,6 +3331,12 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3541,6 +3589,12 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }

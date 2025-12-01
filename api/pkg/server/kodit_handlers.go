@@ -11,6 +11,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// handleKoditError returns the appropriate HTTP status based on the error type
+func handleKoditError(w http.ResponseWriter, err error, context string) {
+	if services.IsKoditNotFound(err) {
+		http.Error(w, fmt.Sprintf("%s: %s", context, err.Error()), http.StatusNotFound)
+		return
+	}
+	if statusCode, ok := services.IsKoditError(err); ok {
+		// For any Kodit error (except 404 which is handled above), return 502 Bad Gateway
+		log.Error().Err(err).Int("kodit_status", statusCode).Msg(context)
+		http.Error(w, fmt.Sprintf("%s: %s", context, err.Error()), http.StatusBadGateway)
+		return
+	}
+	// Non-Kodit error (internal error)
+	log.Error().Err(err).Msg(context)
+	http.Error(w, fmt.Sprintf("%s: %s", context, err.Error()), http.StatusInternalServerError)
+}
+
 // getRepositoryEnrichments fetches code intelligence enrichments from Kodit
 // @Summary Get repository enrichments
 // @Description Get code intelligence enrichments for a repository from Kodit
@@ -20,8 +37,10 @@ import (
 // @Param enrichment_type query string false "Filter by enrichment type (usage, developer, living_documentation)"
 // @Param commit_sha query string false "Filter by commit SHA"
 // @Success 200 {object} services.KoditEnrichmentListResponse
+// @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/enrichments [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter, r *http.Request) {
@@ -40,11 +59,17 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Check if repository has Kodit indexing enabled
+	// Check if Kodit indexing is enabled
+	if !repository.KoditIndexing {
+		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return
+	}
+
+	// Check if kodit_repo_id is set in metadata
 	var koditRepoID string
 	if repository.Metadata != nil {
 		if id, ok := repository.Metadata["kodit_repo_id"].(string); ok {
@@ -53,11 +78,8 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	}
 
 	if koditRepoID == "" {
-		// Repository not indexed by Kodit
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(services.KoditEnrichmentListResponse{
-			Data: []services.KoditEnrichmentData{},
-		})
+		log.Error().Str("repo_id", repoID).Msg("Repository has KoditIndexing=true but no kodit_repo_id in metadata")
+		http.Error(w, "Kodit repository ID not configured", http.StatusInternalServerError)
 		return
 	}
 
@@ -65,7 +87,7 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	enrichments, err := apiServer.koditService.GetRepositoryEnrichments(r.Context(), koditRepoID, enrichmentType, commitSHA)
 	if err != nil {
 		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Str("enrichment_type", enrichmentType).Str("commit_sha", commitSHA).Msg("Failed to fetch enrichments from Kodit")
-		http.Error(w, fmt.Sprintf("Failed to fetch enrichments: %s", err.Error()), http.StatusInternalServerError)
+		handleKoditError(w, err, "Failed to fetch enrichments")
 		return
 	}
 
@@ -81,8 +103,10 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 // @Param id path string true "Repository ID"
 // @Param enrichmentId path string true "Enrichment ID"
 // @Success 200 {object} services.KoditEnrichmentData
+// @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/enrichments/{enrichmentId} [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Request) {
@@ -99,11 +123,17 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Check if repository has Kodit indexing enabled
+	// Check if Kodit indexing is enabled
+	if !repository.KoditIndexing {
+		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return
+	}
+
+	// Check if kodit_repo_id is set in metadata
 	var koditRepoID string
 	if repository.Metadata != nil {
 		if id, ok := repository.Metadata["kodit_repo_id"].(string); ok {
@@ -112,24 +142,22 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 	}
 
 	if koditRepoID == "" {
-		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		log.Error().Str("repo_id", repoID).Msg("Repository has KoditIndexing=true but no kodit_repo_id in metadata")
+		http.Error(w, "Kodit repository ID not configured", http.StatusInternalServerError)
 		return
 	}
 
 	// Fetch enrichment from Kodit by ID
 	enrichment, err := apiServer.koditService.GetEnrichment(r.Context(), enrichmentID)
 	if err != nil {
-		log.Error().Err(err).
-			Str("enrichment_id", enrichmentID).
-			Msg("Failed to fetch enrichment from Kodit")
-		http.Error(w, fmt.Sprintf("Failed to fetch enrichment: %s", err.Error()), http.StatusInternalServerError)
+		log.Error().Err(err).Str("enrichment_id", enrichmentID).Msg("Failed to fetch enrichment from Kodit")
+		handleKoditError(w, err, "Failed to fetch enrichment")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(enrichment)
 }
-
 
 // getRepositoryKoditCommits fetches commits from Kodit
 // @Summary Get repository commits from Kodit
@@ -139,8 +167,10 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 // @Param id path string true "Repository ID"
 // @Param limit query int false "Limit number of commits (default 100)"
 // @Success 200 {array} map[string]interface{}
+// @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/kodit-commits [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter, r *http.Request) {
@@ -163,11 +193,17 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Check if repository has Kodit indexing enabled
+	// Check if Kodit indexing is enabled
+	if !repository.KoditIndexing {
+		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return
+	}
+
+	// Check if kodit_repo_id is set in metadata
 	var koditRepoID string
 	if repository.Metadata != nil {
 		if id, ok := repository.Metadata["kodit_repo_id"].(string); ok {
@@ -176,9 +212,8 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 	}
 
 	if koditRepoID == "" {
-		// Repository not indexed by Kodit - return empty list
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		log.Error().Str("repo_id", repoID).Msg("Repository has KoditIndexing=true but no kodit_repo_id in metadata")
+		http.Error(w, "Kodit repository ID not configured", http.StatusInternalServerError)
 		return
 	}
 
@@ -186,7 +221,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 	commits, err := apiServer.koditService.GetRepositoryCommits(r.Context(), koditRepoID, limit)
 	if err != nil {
 		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Msg("Failed to fetch commits from Kodit")
-		http.Error(w, fmt.Sprintf("Failed to fetch commits: %s", err.Error()), http.StatusInternalServerError)
+		handleKoditError(w, err, "Failed to fetch commits")
 		return
 	}
 
@@ -207,6 +242,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/search-snippets [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter, r *http.Request) {
@@ -239,11 +275,17 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Check if repository has Kodit indexing enabled
+	// Check if Kodit indexing is enabled
+	if !repository.KoditIndexing {
+		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return
+	}
+
+	// Check if kodit_repo_id is set in metadata
 	var koditRepoID string
 	if repository.Metadata != nil {
 		if id, ok := repository.Metadata["kodit_repo_id"].(string); ok {
@@ -252,9 +294,8 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 	}
 
 	if koditRepoID == "" {
-		// Repository not indexed by Kodit - return empty list
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]map[string]interface{}{})
+		log.Error().Str("repo_id", repoID).Msg("Repository has KoditIndexing=true but no kodit_repo_id in metadata")
+		http.Error(w, "Kodit repository ID not configured", http.StatusInternalServerError)
 		return
 	}
 
@@ -262,7 +303,7 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 	snippets, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit, commitSHA)
 	if err != nil {
 		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Str("query", query).Str("commit_sha", commitSHA).Msg("Failed to search snippets from Kodit")
-		http.Error(w, fmt.Sprintf("Failed to search snippets: %s", err.Error()), http.StatusInternalServerError)
+		handleKoditError(w, err, "Failed to search snippets")
 		return
 	}
 
@@ -277,8 +318,10 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 // @Produce json
 // @Param id path string true "Repository ID"
 // @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
+// @Failure 502 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/kodit-status [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWriter, r *http.Request) {
@@ -293,11 +336,17 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
-		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Check if repository has Kodit indexing enabled
+	// Check if Kodit indexing is enabled
+	if !repository.KoditIndexing {
+		http.Error(w, "Kodit indexing not enabled for this repository", http.StatusNotFound)
+		return
+	}
+
+	// Check if kodit_repo_id is set in metadata
 	var koditRepoID string
 	if repository.Metadata != nil {
 		if id, ok := repository.Metadata["kodit_repo_id"].(string); ok {
@@ -306,12 +355,8 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	}
 
 	if koditRepoID == "" {
-		// Repository not indexed by Kodit
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"enabled": false,
-			"message": "Kodit indexing not enabled for this repository",
-		})
+		log.Error().Str("repo_id", repoID).Msg("Repository has KoditIndexing=true but no kodit_repo_id in metadata")
+		http.Error(w, "Kodit repository ID not configured", http.StatusInternalServerError)
 		return
 	}
 
@@ -319,7 +364,7 @@ func (apiServer *HelixAPIServer) getRepositoryIndexingStatus(w http.ResponseWrit
 	status, err := apiServer.koditService.GetRepositoryStatus(r.Context(), koditRepoID)
 	if err != nil {
 		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Msg("Failed to fetch status from Kodit")
-		http.Error(w, fmt.Sprintf("Failed to fetch indexing status: %s", err.Error()), http.StatusInternalServerError)
+		handleKoditError(w, err, "Failed to fetch indexing status")
 		return
 	}
 
