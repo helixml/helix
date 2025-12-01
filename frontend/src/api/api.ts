@@ -3514,6 +3514,8 @@ export interface TypesSessionMetadata {
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
+  /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
+  gpu_vendor?: string;
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
@@ -3534,6 +3536,8 @@ export interface TypesSessionMetadata {
    */
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
+  /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
+  render_node?: string;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
@@ -4522,8 +4526,12 @@ export interface TypesWolfHeartbeatRequest {
   container_usage?: TypesContainerDiskUsage[];
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
+  /** nvidia, amd, intel, none (from sandbox env) */
+  gpu_vendor?: string;
   /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
   privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
+  render_node?: string;
   /** helix-sway image version (commit hash) */
   sway_version?: string;
 }
@@ -4542,11 +4550,15 @@ export interface TypesWolfInstanceResponse {
   disk_alert_level?: string;
   disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
+  /** nvidia, amd, intel, none (from sandbox heartbeat) */
+  gpu_vendor?: string;
   id?: string;
   last_heartbeat?: string;
   max_sandboxes?: number;
   name?: string;
   privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
   status?: string;
   sway_version?: string;
   updated_at?: string;

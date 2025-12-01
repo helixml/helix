@@ -6031,6 +6031,10 @@ definitions:
       external_agent_status:
         description: 'NEW: External agent status (running, stopped, terminated_idle)'
         type: string
+      gpu_vendor:
+        description: GPU vendor of sandbox running this session (nvidia, amd, intel,
+          none)
+        type: string
       helix_version:
         type: string
       implementation_task_index:
@@ -6059,6 +6063,9 @@ definitions:
         type: boolean
       rag_settings:
         $ref: '#/definitions/types.RAGSettings'
+      render_node:
+        description: GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+        type: string
       session_rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -7777,9 +7784,15 @@ definitions:
         items:
           $ref: '#/definitions/types.DiskUsageMetric'
         type: array
+      gpu_vendor:
+        description: nvidia, amd, intel, none (from sandbox env)
+        type: string
       privileged_mode_enabled:
         description: true if HYDRA_PRIVILEGED_MODE_ENABLED=true
         type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
+        type: string
       sway_version:
         description: helix-sway image version (commit hash)
         type: string
@@ -7811,6 +7824,9 @@ definitions:
         type: array
       gpu_type:
         type: string
+      gpu_vendor:
+        description: nvidia, amd, intel, none (from sandbox heartbeat)
+        type: string
       id:
         type: string
       last_heartbeat:
@@ -7821,6 +7837,9 @@ definitions:
         type: string
       privileged_mode_enabled:
         type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE
+        type: string
       status:
         type: string
       sway_version:

@@ -21139,6 +21139,10 @@ const docTemplate = `{
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
+                    "type": "string"
+                },
                 "helix_version": {
                     "type": "string"
                 },
@@ -21170,6 +21174,10 @@ const docTemplate = `{
                 },
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
+                },
+                "render_node": {
+                    "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",
+                    "type": "string"
                 },
                 "session_rag_results": {
                     "type": "array",
@@ -23633,9 +23641,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox env)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "true if HYDRA_PRIVILEGED_MODE_ENABLED=true",
                     "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE (from sandbox env)",
+                    "type": "string"
                 },
                 "sway_version": {
                     "description": "helix-sway image version (commit hash)",
@@ -23684,6 +23700,10 @@ const docTemplate = `{
                 "gpu_type": {
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox heartbeat)",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -23698,6 +23718,10 @@ const docTemplate = `{
                 },
                 "privileged_mode_enabled": {
                     "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE",
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

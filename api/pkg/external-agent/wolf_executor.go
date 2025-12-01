@@ -949,6 +949,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
 			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
 			helixSession.Metadata.SwayVersion = wolfInstance.SwayVersion // Track which helix-sway version is running
+			helixSession.Metadata.GPUVendor = wolfInstance.GPUVendor     // Track GPU vendor for debugging
+			helixSession.Metadata.RenderNode = wolfInstance.RenderNode   // Track render node for debugging
 			helixSession.WolfInstanceID = wolfInstance.ID
 
 			_, err = w.store.UpdateSession(ctx, *helixSession)
@@ -961,7 +963,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 					Str("lobby_pin", lobbyPINString).
 					Str("wolf_instance_id", wolfInstance.ID).
 					Str("sway_version", wolfInstance.SwayVersion).
-					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, instance, and sway version")
+					Str("gpu_vendor", wolfInstance.GPUVendor).
+					Str("render_node", wolfInstance.RenderNode).
+					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, instance, sway version, and GPU info")
 			}
 		}
 	}
