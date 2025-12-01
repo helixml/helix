@@ -3317,8 +3317,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/services.KoditIndexingStatus"
                         }
                     },
                     "400": {
@@ -14901,6 +14900,37 @@ const docTemplate = `{
                 }
             }
         },
+        "services.KoditIndexingState": {
+            "type": "string",
+            "enum": [
+                "unknown",
+                "queued",
+                "indexing",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "KoditIndexingStateUnknown",
+                "KoditIndexingStateQueued",
+                "KoditIndexingStateIndexing",
+                "KoditIndexingStateCompleted",
+                "KoditIndexingStateFailed"
+            ]
+        },
+        "services.KoditIndexingStatus": {
+            "type": "object",
+            "properties": {
+                "completed_at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/services.KoditIndexingState"
+                }
+            }
+        },
         "services.KoditSearchResult": {
             "type": "object",
             "properties": {
@@ -23253,18 +23283,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

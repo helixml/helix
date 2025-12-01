@@ -43,6 +43,7 @@ import {
 } from '../../services/koditService'
 import { useRouter } from '../../hooks/useRouter'
 import useDebounce from '../../hooks/useDebounce'
+import KoditStatusPill from './KoditStatusPill'
 
 interface CodeIntelligenceTabProps {
   repository: any
@@ -54,7 +55,7 @@ interface CodeIntelligenceTabProps {
 const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId, commitSha }) => {
   const router = useRouter()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
-  const { data: koditStatusData } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
+  const { data: koditStatusData, isLoading: koditStatusLoading } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
 
   // Fetch commits for the dropdown
   const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: repoId && repository.kodit_indexing })
@@ -105,10 +106,9 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                 <Typography variant="h5" sx={{ fontWeight: 600 }}>
                   Code Intelligence
                 </Typography>
-                <Chip
-                  label={koditStatusData?.status || 'Active'}
-                  size="small"
-                  color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
+                <KoditStatusPill
+                  data={koditStatusData}
+                  isLoading={koditStatusLoading}
                 />
               </Box>
 

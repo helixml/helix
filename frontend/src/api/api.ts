@@ -1034,6 +1034,20 @@ export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
 }
 
+export enum ServicesKoditIndexingState {
+  KoditIndexingStateUnknown = "unknown",
+  KoditIndexingStateQueued = "queued",
+  KoditIndexingStateIndexing = "indexing",
+  KoditIndexingStateCompleted = "completed",
+  KoditIndexingStateFailed = "failed",
+}
+
+export interface ServicesKoditIndexingStatus {
+  completed_at?: string;
+  message?: string;
+  state?: ServicesKoditIndexingState;
+}
+
 export interface ServicesKoditSearchResult {
   content?: string;
   /** File path from DerivesFrom */
@@ -4367,11 +4381,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6593,7 +6607,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,

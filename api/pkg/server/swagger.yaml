@@ -1699,6 +1699,29 @@ definitions:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
     type: object
+  services.KoditIndexingState:
+    enum:
+    - unknown
+    - queued
+    - indexing
+    - completed
+    - failed
+    type: string
+    x-enum-varnames:
+    - KoditIndexingStateUnknown
+    - KoditIndexingStateQueued
+    - KoditIndexingStateIndexing
+    - KoditIndexingStateCompleted
+    - KoditIndexingStateFailed
+  services.KoditIndexingStatus:
+    properties:
+      completed_at:
+        type: string
+      message:
+        type: string
+      state:
+        $ref: '#/definitions/services.KoditIndexingState'
+    type: object
   services.KoditSearchResult:
     properties:
       content:
@@ -7520,18 +7543,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -10141,8 +10164,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/services.KoditIndexingStatus'
         "400":
           description: Bad Request
           schema:

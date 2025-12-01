@@ -116,6 +116,24 @@ type (
 	}
 )
 
+// KoditIndexingState represents the state of repository indexing
+type KoditIndexingState string
+
+const (
+	KoditIndexingStateUnknown   KoditIndexingState = "unknown"
+	KoditIndexingStateQueued    KoditIndexingState = "queued"
+	KoditIndexingStateIndexing  KoditIndexingState = "indexing"
+	KoditIndexingStateCompleted KoditIndexingState = "completed"
+	KoditIndexingStateFailed    KoditIndexingState = "failed"
+)
+
+// KoditIndexingStatus represents the indexing status for a repository
+type KoditIndexingStatus struct {
+	State       KoditIndexingState `json:"state"`
+	Message     string             `json:"message,omitempty"`
+	CompletedAt *time.Time         `json:"completed_at,omitempty"`
+}
+
 // RegisterRepository registers a repository with Kodit for indexing
 func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) (*KoditRepositoryResponse, error) {
 	if !s.enabled {
@@ -395,7 +413,7 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query st
 }
 
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
-func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {
+func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (*KoditIndexingStatus, error) {
 	if !s.enabled {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
@@ -416,12 +434,96 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID stri
 		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
-	var response map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// Parse using the typed Kodit response
+	parsed, err := kodit.ParseGetIndexStatusApiV1RepositoriesRepoIdStatusGetResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse status response: %w", err)
 	}
 
-	return response, nil
+	if parsed.JSON200 == nil {
+		return nil, fmt.Errorf("unexpected nil response from kodit status endpoint")
+	}
+
+	return convertKoditStatus(parsed.JSON200), nil
+}
+
+// convertKoditStatus converts the typed Kodit status response to our format
+// TODO: This is way too complicated. Shift this domain logic back into Kodit and expose a simpler
+// API.
+func convertKoditStatus(response *kodit.TaskStatusListResponse) *KoditIndexingStatus {
+	result := &KoditIndexingStatus{
+		State: KoditIndexingStateUnknown,
+	}
+
+	if len(response.Data) == 0 {
+		return result
+	}
+
+	allCompleted := true
+	var mostRecentUpdate *time.Time
+	var firstIncomplete *kodit.TaskStatusAttributes
+
+	for i := range response.Data {
+		attrs := &response.Data[i].Attributes
+		state := mapKoditState(attrs.State)
+
+		// Track if any task is not completed
+		if state != KoditIndexingStateCompleted {
+			allCompleted = false
+			if firstIncomplete == nil {
+				firstIncomplete = attrs
+			}
+		}
+
+		// Track the most recent update time
+		if attrs.UpdatedAt != nil {
+			if t, err := attrs.UpdatedAt.AsTaskStatusAttributesUpdatedAt0(); err == nil {
+				if mostRecentUpdate == nil || t.After(*mostRecentUpdate) {
+					mostRecentUpdate = &t
+				}
+			}
+		}
+
+		// If any task failed, the whole indexing is failed
+		if state == KoditIndexingStateFailed {
+			result.State = KoditIndexingStateFailed
+			if attrs.Message != nil {
+				result.Message = *attrs.Message
+			}
+			return result
+		}
+	}
+
+	if allCompleted {
+		result.State = KoditIndexingStateCompleted
+		result.CompletedAt = mostRecentUpdate
+	} else if firstIncomplete != nil {
+		// Report the state of the first incomplete task
+		result.State = mapKoditState(firstIncomplete.State)
+		if firstIncomplete.Message != nil {
+			result.Message = *firstIncomplete.Message
+		} else if firstIncomplete.Step != "" {
+			result.Message = firstIncomplete.Step
+		}
+	}
+
+	return result
+}
+
+// mapKoditState maps Kodit state strings to typed KoditIndexingState
+func mapKoditState(state string) KoditIndexingState {
+	switch state {
+	case "queued":
+		return KoditIndexingStateQueued
+	case "indexing":
+		return KoditIndexingStateIndexing
+	case "completed", "skipped":
+		return KoditIndexingStateCompleted
+	case "failed":
+		return KoditIndexingStateFailed
+	default:
+		return KoditIndexingStateUnknown
+	}
 }
 
 // filterAndConvertEnrichments filters out internal summaries and converts to simplified types
