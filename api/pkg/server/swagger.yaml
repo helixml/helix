@@ -67,6 +67,29 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  kodit.RepositoryStatusSummaryAttributes:
+    properties:
+      message:
+        description: Message Error message if failed
+        type: string
+      status:
+        description: Status Overall indexing status
+        type: string
+      updated_at:
+        description: UpdatedAt Most recent activity timestamp
+        type: string
+    type: object
+  kodit.RepositoryStatusSummaryData:
+    properties:
+      attributes:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryAttributes'
+        description: Attributes Attributes for repository status summary.
+      id:
+        type: string
+      type:
+        type: string
+    type: object
   mcp.Meta:
     properties:
       additionalFields:
@@ -1698,6 +1721,13 @@ definitions:
         items:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
+    type: object
+  services.KoditIndexingStatus:
+    properties:
+      data:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryData'
+        description: Data Data for repository status summary response.
     type: object
   services.KoditSearchResult:
     properties:
@@ -10141,8 +10171,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/services.KoditIndexingStatus'
         "400":
           description: Bad Request
           schema:

@@ -317,7 +317,7 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 // @Tags git-repositories
 // @Produce json
 // @Param id path string true "Repository ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} services.KoditIndexingStatus
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError

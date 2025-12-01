@@ -3317,8 +3317,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/services.KoditIndexingStatus"
                         }
                     },
                     "400": {
@@ -12550,6 +12549,42 @@ const docTemplate = `{
                 }
             }
         },
+        "kodit.RepositoryStatusSummaryAttributes": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message Error message if failed",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status Overall indexing status",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "description": "UpdatedAt Most recent activity timestamp",
+                    "type": "string"
+                }
+            }
+        },
+        "kodit.RepositoryStatusSummaryData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "description": "Attributes Attributes for repository status summary.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryAttributes"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "mcp.Meta": {
             "type": "object",
             "properties": {
@@ -14898,6 +14933,19 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/services.KoditEnrichmentData"
                     }
+                }
+            }
+        },
+        "services.KoditIndexingStatus": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "Data Data for repository status summary response.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryData"
+                        }
+                    ]
                 }
             }
         },
