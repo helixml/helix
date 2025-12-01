@@ -20,15 +20,11 @@ type Project struct {
 	Status         string   `json:"status"` // "active", "archived", "completed"
 
 	// Project-level repository management
-	DefaultRepoID string `json:"default_repo_id" gorm:"type:varchar(255)"` // Primary repository for the project
+	// DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
+	DefaultRepoID string `json:"default_repo_id" gorm:"type:varchar(255)"`
 
-	// Internal project Git repository (stores project config, tasks, design docs)
-	// IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-	// It is NEVER stored in the database - Git is the single source of truth
-	InternalRepoPath string `json:"internal_repo_path" gorm:"type:varchar(500)"` // Path to internal git repo in filestore
-
-	// Transient field - loaded from Git, never persisted to database
-	StartupScript string `json:"startup_script" gorm:"-"` // Loaded from .helix/startup.sh in internal Git repo
+	// Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database
+	StartupScript string `json:"startup_script" gorm:"-"`
 
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available

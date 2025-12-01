@@ -49,6 +49,7 @@ type SpecTask struct {
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
 	SpecRevisionCount int        `json:"spec_revision_count"`            // Number of spec revisions requested
 	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
+	UseHostDocker     bool       `json:"use_host_docker" gorm:"default:false"` // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation

@@ -32,6 +32,10 @@ func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, req 
 	if req != nil && req.SwayVersion != "" {
 		updates["sway_version"] = req.SwayVersion
 	}
+	// Update privileged mode status
+	if req != nil {
+		updates["privileged_mode_enabled"] = req.PrivilegedModeEnabled
+	}
 	// Store disk usage metrics and alert level
 	if req != nil && len(req.DiskUsage) > 0 {
 		diskJSON, err := json.Marshal(req.DiskUsage)

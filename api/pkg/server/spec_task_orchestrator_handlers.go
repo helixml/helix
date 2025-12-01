@@ -536,9 +536,10 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		UserID:              task.CreatedBy,
 		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
 		ProjectPath:         "backend",
-		RepositoryIDs:       repositoryIDs,  // Needed for Zed startup arguments
-		PrimaryRepositoryID: primaryRepoID,  // Needed for design docs path
-		SpecTaskID:          task.ID,        // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		RepositoryIDs:       repositoryIDs,     // Needed for Zed startup arguments
+		PrimaryRepositoryID: primaryRepoID,     // Needed for design docs path
+		SpecTaskID:          task.ID,           // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
 		DisplayRefreshRate:  60,

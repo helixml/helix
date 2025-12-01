@@ -30,12 +30,15 @@ const (
 
 // Manager manages multiple dockerd instances
 type Manager struct {
-	socketDir string
-	dataDir   string
-	instances map[string]*DockerInstance
-	mutex     sync.RWMutex
-	stopChan  chan struct{}
-	wg        sync.WaitGroup
+	socketDir    string
+	dataDir      string
+	instances    map[string]*DockerInstance
+	mutex        sync.RWMutex
+	stopChan     chan struct{}
+	wg           sync.WaitGroup
+	bridgeIndex  uint8 // Counter for unique bridge IP ranges (1-254)
+	bridgeMutex  sync.Mutex
+	usedBridges  map[uint8]string // Maps bridge index to scope key
 }
 
 // NewManager creates a new Hydra manager
@@ -48,10 +51,12 @@ func NewManager(socketDir, dataDir string) *Manager {
 	}
 
 	return &Manager{
-		socketDir: socketDir,
-		dataDir:   dataDir,
-		instances: make(map[string]*DockerInstance),
-		stopChan:  make(chan struct{}),
+		socketDir:   socketDir,
+		dataDir:     dataDir,
+		instances:   make(map[string]*DockerInstance),
+		stopChan:    make(chan struct{}),
+		bridgeIndex: 0, // Will start at 1 when first allocation
+		usedBridges: make(map[uint8]string),
 	}
 }
 
@@ -288,6 +293,32 @@ func (m *Manager) PurgeInstance(ctx context.Context, scopeType ScopeType, scopeI
 	}, nil
 }
 
+// allocateBridgeIndex allocates a unique bridge index (1-254) for a new dockerd
+func (m *Manager) allocateBridgeIndex(scopeKey string) (uint8, error) {
+	m.bridgeMutex.Lock()
+	defer m.bridgeMutex.Unlock()
+
+	// Try to find an unused index
+	for i := uint8(1); i <= 254; i++ {
+		if _, used := m.usedBridges[i]; !used {
+			m.usedBridges[i] = scopeKey
+			log.Debug().Uint8("index", i).Str("scope", scopeKey).Msg("Allocated bridge index")
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("no available bridge indices (max 254 concurrent instances)")
+}
+
+// releaseBridgeIndex releases a bridge index when a dockerd stops
+func (m *Manager) releaseBridgeIndex(index uint8) {
+	m.bridgeMutex.Lock()
+	defer m.bridgeMutex.Unlock()
+	if scopeKey, ok := m.usedBridges[index]; ok {
+		delete(m.usedBridges, index)
+		log.Debug().Uint8("index", index).Str("scope", scopeKey).Msg("Released bridge index")
+	}
+}
+
 // startDockerd starts a new dockerd process
 func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceRequest) (*DockerInstance, error) {
 	instanceDir := filepath.Join(m.socketDir, string(req.ScopeType)+"-"+req.ScopeID)
@@ -296,6 +327,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	socketPath := filepath.Join(instanceDir, "docker.sock")
 	pidFile := filepath.Join(instanceDir, "docker.pid")
 	configFile := filepath.Join(instanceDir, "daemon.json")
+	scopeKey := string(req.ScopeType) + "-" + req.ScopeID
 
 	// Create directories
 	for _, dir := range []string{instanceDir, dataRoot, execRoot} {
@@ -304,8 +336,35 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		}
 	}
 
-	// Write daemon.json with NVIDIA runtime support
-	daemonConfig := `{
+	// Allocate unique bridge index for this instance
+	bridgeIndex, err := m.allocateBridgeIndex(scopeKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate bridge: %w", err)
+	}
+
+	// Generate unique bridge name and IP range
+	// Uses 10.200.X.0/24 where X is the bridgeIndex (1-254)
+	// This avoids conflicts with:
+	// - docker0: 172.17.0.0/16
+	// - helix_default: 172.19.0.0/16 or 172.20.0.0/16
+	//
+	// We use "bridge": "none" to disable Docker's default bridge entirely.
+	// Each dockerd creates its own network namespace with its own bridges.
+	// This is the cleanest isolation - no shared bridges between instances.
+	bridgeName := fmt.Sprintf("hydra%d", bridgeIndex)
+	bridgeIP := fmt.Sprintf("10.200.%d.1/24", bridgeIndex)
+
+	log.Info().
+		Str("scope", scopeKey).
+		Str("bridge", bridgeName).
+		Str("bip", bridgeIP).
+		Msg("Starting dockerd with unique bridge")
+
+	// Write daemon.json with NVIDIA runtime support and unique IP range
+	// Use only "bip" (bridge IP) - Docker will create its own docker0 bridge with this IP.
+	// Each dockerd instance gets its own network namespace via unique exec-root,
+	// so multiple docker0 bridges don't conflict.
+	daemonConfig := fmt.Sprintf(`{
   "runtimes": {
     "nvidia": {
       "path": "nvidia-container-runtime",
@@ -314,11 +373,12 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
   },
   "storage-driver": "overlay2",
   "log-level": "warn",
-  "iptables": false,
-  "ip-masq": false,
-  "bridge": "none"
-}`
+  "bip": "%s",
+  "fixed-cidr": "10.200.%d.0/24"
+}`, bridgeIP, bridgeIndex)
+
 	if err := os.WriteFile(configFile, []byte(daemonConfig), 0644); err != nil {
+		m.releaseBridgeIndex(bridgeIndex)
 		return nil, fmt.Errorf("failed to write daemon.json: %w", err)
 	}
 
@@ -339,6 +399,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
+		m.releaseBridgeIndex(bridgeIndex)
 		return nil, fmt.Errorf("failed to start dockerd: %w", err)
 	}
 
@@ -355,12 +416,15 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		ConfigFile:    configFile,
 		MaxContainers: req.MaxContainers,
 		StartedAt:     time.Now(),
+		BridgeIndex:   bridgeIndex,
+		BridgeName:    bridgeName,
 	}
 
 	// Wait for socket to be ready
 	if err := m.waitForSocket(ctx, socketPath); err != nil {
 		// Kill the process if it didn't start properly
 		cmd.Process.Kill()
+		m.releaseBridgeIndex(bridgeIndex)
 		return nil, fmt.Errorf("dockerd failed to start: %w", err)
 	}
 
@@ -408,6 +472,12 @@ func (m *Manager) stopDockerd(ctx context.Context, inst *DockerInstance) error {
 	}
 
 	inst.Status = StatusStopped
+
+	// Release the bridge index so it can be reused
+	if inst.BridgeIndex > 0 {
+		m.releaseBridgeIndex(inst.BridgeIndex)
+	}
+
 	return nil
 }
 
@@ -454,11 +524,17 @@ func (m *Manager) monitorProcess(inst *DockerInstance, cmd *exec.Cmd) {
 	}
 	m.mutex.Unlock()
 
+	// Release the bridge index so it can be reused
+	if inst.BridgeIndex > 0 {
+		m.releaseBridgeIndex(inst.BridgeIndex)
+	}
+
 	log.Info().
 		Str("scope_type", string(inst.ScopeType)).
 		Str("scope_id", inst.ScopeID).
 		Int("pid", inst.PID).
 		Int("exit_code", exitCode).
+		Str("bridge", inst.BridgeName).
 		Msg("dockerd process exited")
 }
 
@@ -494,9 +570,10 @@ func (m *Manager) cleanupLoop(ctx context.Context) {
 
 // cleanupOrphans removes instances whose processes have died
 func (m *Manager) cleanupOrphans() {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// Collect bridge indices to release after unlocking main mutex
+	var bridgesToRelease []uint8
 
+	m.mutex.Lock()
 	for key, inst := range m.instances {
 		if inst.PID == 0 {
 			continue
@@ -505,6 +582,9 @@ func (m *Manager) cleanupOrphans() {
 		// Check if process is still running
 		process, err := os.FindProcess(inst.PID)
 		if err != nil {
+			if inst.BridgeIndex > 0 {
+				bridgesToRelease = append(bridgesToRelease, inst.BridgeIndex)
+			}
 			delete(m.instances, key)
 			continue
 		}
@@ -515,10 +595,20 @@ func (m *Manager) cleanupOrphans() {
 				Str("scope_type", string(inst.ScopeType)).
 				Str("scope_id", inst.ScopeID).
 				Int("pid", inst.PID).
+				Str("bridge", inst.BridgeName).
 				Msg("Cleaning up dead dockerd instance")
 			m.cleanupRuntimeFiles(inst)
+			if inst.BridgeIndex > 0 {
+				bridgesToRelease = append(bridgesToRelease, inst.BridgeIndex)
+			}
 			delete(m.instances, key)
 		}
+	}
+	m.mutex.Unlock()
+
+	// Release bridge indices outside the main mutex to avoid lock ordering issues
+	for _, idx := range bridgesToRelease {
+		m.releaseBridgeIndex(idx)
 	}
 }
 

@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
   Alert,
   Stack,
   FormControlLabel,
@@ -15,6 +14,7 @@ import {
   CircularProgress,
 } from '@mui/material'
 import { Brain } from 'lucide-react'
+import NewRepoForm from './forms/NewRepoForm'
 
 interface CreateRepositoryDialogProps {
   open: boolean
@@ -59,23 +59,14 @@ const CreateRepositoryDialog: FC<CreateRepositoryDialogProps> = ({
             </Alert>
           )}
 
-          <TextField
-            label="Repository Name"
-            fullWidth
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            helperText="Enter a name for your repository"
+          <NewRepoForm
+            name={name}
+            onNameChange={setName}
+            description={description}
+            onDescriptionChange={setDescription}
+            size="medium"
             autoFocus
-          />
-
-          <TextField
-            label="Description"
-            fullWidth
-            multiline
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            helperText="Describe the purpose of this repository"
+            nameHelperText="Enter a name for your repository"
           />
 
           <FormControlLabel

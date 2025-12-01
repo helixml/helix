@@ -344,12 +344,12 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
-	// Initialize Project Internal Repo Service
+	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
 	log.Info().
 		Str("projects_base_path", projectsBasePath).
-		Msg("Initialized project internal repository service")
+		Msg("Initialized project repository service")
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping

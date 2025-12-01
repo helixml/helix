@@ -9232,12 +9232,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Archive status (true to archive, false to unarchive)",
-                        "name": "archived",
+                        "description": "Archive request",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "boolean"
+                            "$ref": "#/definitions/types.SpecTaskArchiveRequest"
                         }
                     }
                 ],
@@ -14648,6 +14648,10 @@ const docTemplate = `{
                 "type": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "user_id": {
                     "type": "string"
                 },
@@ -19685,7 +19689,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "default_repo_id": {
-                    "description": "Project-level repository management",
+                    "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
                 "deleted_at": {
@@ -19705,10 +19709,6 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "internal_repo_path": {
-                    "description": "Internal project Git repository (stores project config, tasks, design docs)\nIMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo\nIt is NEVER stored in the database - Git is the single source of truth",
-                    "type": "string"
-                },
                 "metadata": {
                     "type": "array",
                     "items": {
@@ -19722,7 +19722,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "startup_script": {
-                    "description": "Transient field - loaded from Git, never persisted to database",
+                    "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
                 },
                 "status": {
@@ -21592,6 +21592,10 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "workspace_config": {
                     "type": "array",
                     "items": {
@@ -21655,6 +21659,14 @@ const docTemplate = `{
                 "SpecTaskActivityZedDisconnected",
                 "SpecTaskActivityPhaseTransition"
             ]
+        },
+        "types.SpecTaskArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                }
+            }
         },
         "types.SpecTaskDesignReview": {
             "type": "object",
@@ -23183,18 +23195,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -23563,6 +23575,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "privileged_mode_enabled": {
+                    "description": "true if HYDRA_PRIVILEGED_MODE_ENABLED=true",
+                    "type": "boolean"
+                },
                 "sway_version": {
                     "description": "helix-sway image version (commit hash)",
                     "type": "string"
@@ -23621,6 +23637,9 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "privileged_mode_enabled": {
+                    "type": "boolean"
                 },
                 "status": {
                     "type": "string"

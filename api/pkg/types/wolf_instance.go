@@ -7,19 +7,20 @@ import (
 
 // WolfInstance represents a Wolf streaming instance that can connect to the control plane
 type WolfInstance struct {
-	ID                 string    `gorm:"type:varchar(255);primaryKey" json:"id"`
-	Name               string    `gorm:"type:varchar(255);not null" json:"name"`
-	Address            string    `gorm:"type:varchar(255);not null" json:"address"` // e.g., "wolf-1.example.com:8080"
-	Status             string    `gorm:"type:varchar(50);not null;default:'offline'" json:"status"` // online, offline, degraded
-	LastHeartbeat      time.Time `gorm:"index" json:"last_heartbeat"`
-	ConnectedSandboxes int       `gorm:"default:0" json:"connected_sandboxes"`
-	MaxSandboxes       int       `gorm:"default:10" json:"max_sandboxes"`
-	GPUType            string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, none
-	SwayVersion        string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (commit hash)
-	DiskUsageJSON      string    `gorm:"type:text" json:"-"`                         // JSON-encoded disk usage metrics
-	DiskAlertLevel     string    `gorm:"type:varchar(20)" json:"disk_alert_level"`   // highest alert level: ok, warning, critical
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                    string    `gorm:"type:varchar(255);primaryKey" json:"id"`
+	Name                  string    `gorm:"type:varchar(255);not null" json:"name"`
+	Address               string    `gorm:"type:varchar(255);not null" json:"address"` // e.g., "wolf-1.example.com:8080"
+	Status                string    `gorm:"type:varchar(50);not null;default:'offline'" json:"status"` // online, offline, degraded
+	LastHeartbeat         time.Time `gorm:"index" json:"last_heartbeat"`
+	ConnectedSandboxes    int       `gorm:"default:0" json:"connected_sandboxes"`
+	MaxSandboxes          int       `gorm:"default:10" json:"max_sandboxes"`
+	GPUType               string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, none
+	SwayVersion           string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (commit hash)
+	DiskUsageJSON         string    `gorm:"type:text" json:"-"`                         // JSON-encoded disk usage metrics
+	DiskAlertLevel        string    `gorm:"type:varchar(20)" json:"disk_alert_level"`   // highest alert level: ok, warning, critical
+	PrivilegedModeEnabled bool      `gorm:"default:false" json:"privileged_mode_enabled"` // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 // WolfInstance status constants
@@ -39,9 +40,10 @@ type WolfInstanceRequest struct {
 
 // WolfHeartbeatRequest is the request body for Wolf instance heartbeat
 type WolfHeartbeatRequest struct {
-	SwayVersion    string                  `json:"sway_version,omitempty"`    // helix-sway image version (commit hash)
-	DiskUsage      []DiskUsageMetric       `json:"disk_usage,omitempty"`      // disk usage metrics for monitored partitions
-	ContainerUsage []ContainerDiskUsage    `json:"container_usage,omitempty"` // per-container disk usage breakdown
+	SwayVersion           string                  `json:"sway_version,omitempty"`             // helix-sway image version (commit hash)
+	DiskUsage             []DiskUsageMetric       `json:"disk_usage,omitempty"`               // disk usage metrics for monitored partitions
+	ContainerUsage        []ContainerDiskUsage    `json:"container_usage,omitempty"`          // per-container disk usage breakdown
+	PrivilegedModeEnabled bool                    `json:"privileged_mode_enabled,omitempty"`  // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
 }
 
 // DiskUsageMetric represents disk usage for a single mount point
@@ -103,36 +105,38 @@ type ContainerDiskUsageSummary struct {
 
 // WolfInstanceResponse is the API response for a Wolf instance
 type WolfInstanceResponse struct {
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
-	Address            string            `json:"address"`
-	Status             string            `json:"status"`
-	LastHeartbeat      time.Time         `json:"last_heartbeat"`
-	ConnectedSandboxes int               `json:"connected_sandboxes"`
-	MaxSandboxes       int               `json:"max_sandboxes"`
-	GPUType            string            `json:"gpu_type"`
-	SwayVersion        string            `json:"sway_version"`
-	DiskUsage          []DiskUsageMetric `json:"disk_usage,omitempty"`
-	DiskAlertLevel     string            `json:"disk_alert_level,omitempty"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	ID                    string            `json:"id"`
+	Name                  string            `json:"name"`
+	Address               string            `json:"address"`
+	Status                string            `json:"status"`
+	LastHeartbeat         time.Time         `json:"last_heartbeat"`
+	ConnectedSandboxes    int               `json:"connected_sandboxes"`
+	MaxSandboxes          int               `json:"max_sandboxes"`
+	GPUType               string            `json:"gpu_type"`
+	SwayVersion           string            `json:"sway_version"`
+	DiskUsage             []DiskUsageMetric `json:"disk_usage,omitempty"`
+	DiskAlertLevel        string            `json:"disk_alert_level,omitempty"`
+	PrivilegedModeEnabled bool              `json:"privileged_mode_enabled"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
 // ToResponse converts a WolfInstance to WolfInstanceResponse
 func (w *WolfInstance) ToResponse() *WolfInstanceResponse {
 	resp := &WolfInstanceResponse{
-		ID:                 w.ID,
-		Name:               w.Name,
-		Address:            w.Address,
-		Status:             w.Status,
-		LastHeartbeat:      w.LastHeartbeat,
-		ConnectedSandboxes: w.ConnectedSandboxes,
-		MaxSandboxes:       w.MaxSandboxes,
-		GPUType:            w.GPUType,
-		SwayVersion:        w.SwayVersion,
-		DiskAlertLevel:     w.DiskAlertLevel,
-		CreatedAt:          w.CreatedAt,
-		UpdatedAt:          w.UpdatedAt,
+		ID:                    w.ID,
+		Name:                  w.Name,
+		Address:               w.Address,
+		Status:                w.Status,
+		LastHeartbeat:         w.LastHeartbeat,
+		ConnectedSandboxes:    w.ConnectedSandboxes,
+		MaxSandboxes:          w.MaxSandboxes,
+		GPUType:               w.GPUType,
+		SwayVersion:           w.SwayVersion,
+		DiskAlertLevel:        w.DiskAlertLevel,
+		PrivilegedModeEnabled: w.PrivilegedModeEnabled,
+		CreatedAt:             w.CreatedAt,
+		UpdatedAt:             w.UpdatedAt,
 	}
 
 	// Parse disk usage JSON if present

@@ -160,8 +160,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,   // Helix agent used for entire workflow
-		YoloMode:       req.YoloMode, // Set YOLO mode from request
+		HelixAppID:     helixAppID,         // Helix agent used for entire workflow
+		YoloMode:       req.YoloMode,       // Set YOLO mode from request
+		UseHostDocker:  req.UseHostDocker,  // Use host Docker socket (requires privileged sandbox)
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -338,10 +339,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace",   // Use relative path
-		SpecTaskID:          task.ID,       // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
+		ProjectPath:         "workspace",        // Use relative path
+		SpecTaskID:          task.ID,            // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -653,6 +655,24 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) string {
 	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a user request and generate SHORT, SIMPLE, implementable specifications.
 
+**🚨 CRITICAL: THIS IS THE PLANNING PHASE - DO NOT IMPLEMENT ANYTHING 🚨**
+- You are ONLY creating design documents in the helix-specs worktree
+- DO NOT write any code, scripts, or implementation
+- DO NOT modify any files in the code repositories
+- DO NOT run any commands that create files outside helix-specs/
+- The ONLY files you should create or modify are in ~/work/helix-specs/design/tasks/
+- After you push design docs, the task goes to REVIEW - implementation happens LATER in a separate phase
+- If user instructions say "do not add files to repo", this means the FINAL implementation shouldn't add files - you still create design docs now
+
+**🚨 CRITICAL: DON'T OVER-ENGINEER - MATCH SOLUTION TO TASK COMPLEXITY 🚨**
+- Simple tasks get simple solutions - don't plan a Python framework for a one-liner task
+- Examples of simple solutions (to PLAN for implementation, not do now):
+  - "Start a container" → plan to use docker-compose.yaml or .helix/startup.sh, NOT a Python wrapper
+  - "Create sample data" → plan to write data directly to files, NOT a data generation script
+  - "Run X at startup" → plan to add to .helix/startup.sh, NOT a service framework
+- Only plan complex code when the task genuinely requires it
+- Note: .helix/startup.sh runs at sandbox startup - useful for containers/services (implementation phase will modify it)
+
 **CRITICAL: Planning phase needs to run quickly - be concise!**
 - Match document complexity to task complexity
 - Simple tasks = minimal docs (1-2 paragraphs per section)
@@ -779,6 +799,26 @@ Start by analyzing the user's request complexity, then create SHORT, SIMPLE spec
 func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) string {
 	return fmt.Sprintf(`You are a senior software engineer working in a Zed editor with git access. You're implementing a feature based on approved specifications.
 
+**🚨 CRITICAL: DO THE BARE MINIMUM - BE CONCISE 🚨**
+- Only do what is STRICTLY NECESSARY to meet the requirements
+- DO NOT write code unless absolutely required - prefer existing tools, commands, or scripts
+- Simple tasks should have simple solutions (e.g., shell commands, not Python scripts)
+- Avoid over-engineering - no abstractions, helpers, or utilities unless explicitly needed
+- If a task can be done with a one-liner, use a one-liner
+- DO NOT add extra features, error handling, or edge cases beyond what's specified
+
+**Don't over-engineer simple tasks:**
+- "Start a container" → docker-compose.yaml or docker run in .helix/startup.sh, NOT a Python framework
+- "Create sample data" → write the data directly to files, NOT a data generation script
+- "Run X at startup" → add to .helix/startup.sh (runs at sandbox startup), NOT a service wrapper
+- Match solution complexity to task complexity - simple tasks get simple solutions
+
+**.helix/startup.sh - Startup Script:**
+- Located in the primary repo, runs automatically at sandbox startup
+- Use for: starting containers, background services, environment setup
+- MUST be idempotent (safe to run multiple times) - use "docker compose up -d" not "docker run"
+- After modifying, run it manually to start services for this session (changes apply to future sessions automatically)
+
 **Task: %s**
 **SpecTask ID: %s**
 
@@ -866,14 +906,14 @@ git push origin helix-specs
 7. Create feature branch and push when all tasks complete
 8. Open pull request with summary
 
-**Guidelines:**
+**Guidelines - BE CONCISE:**
 - ALWAYS mark your progress in tasks.md with [~] and [x]
 - **CRITICAL: After ANY change to design docs, you MUST commit and push to helix-specs immediately**
 - The backend tracks your progress by monitoring pushes to helix-specs
-- Follow the technical design and sequence diagrams exactly
-- Implement all EARS acceptance criteria from requirements.md
-- Write tests for everything
-- Handle all edge cases
+- Follow the technical design - don't add unnecessary complexity
+- Implement what's in the EARS acceptance criteria
+- Write tests that verify core functionality
+- Handle edge cases sensibly, but don't over-engineer
 
 **⚠️  PUSH REQUIREMENTS:**
 - After completing each task: commit and push to helix-specs
@@ -1017,12 +1057,13 @@ func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, u
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID string `json:"project_id"`
-	Prompt    string `json:"prompt"`
-	Type      string `json:"type"`
-	Priority  string `json:"priority"`
-	UserID    string `json:"user_id"`
-	AppID     string `json:"app_id"`    // Optional: Helix agent to use for spec generation
-	YoloMode  bool   `json:"yolo_mode"` // Optional: Skip human review and auto-approve specs
+	ProjectID     string `json:"project_id"`
+	Prompt        string `json:"prompt"`
+	Type          string `json:"type"`
+	Priority      string `json:"priority"`
+	UserID        string `json:"user_id"`
+	AppID         string `json:"app_id"`          // Optional: Helix agent to use for spec generation
+	YoloMode      bool   `json:"yolo_mode"`       // Optional: Skip human review and auto-approve specs
+	UseHostDocker bool   `json:"use_host_docker"` // Optional: Use host Docker socket (requires privileged sandbox)
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

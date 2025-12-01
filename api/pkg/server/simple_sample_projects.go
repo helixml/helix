@@ -763,79 +763,8 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError500("failed to create project")
 	}
 
-	// Create internal repo (config only - .helix/ directory)
-	internalRepoPath, repoErr := s.projectInternalRepoService.InitializeProjectRepo(ctx, createdProject)
-	if repoErr != nil {
-		log.Error().
-			Err(repoErr).
-			Str("project_id", createdProject.ID).
-			Str("user_id", user.ID).
-			Str("sample_project_id", req.SampleProjectID).
-			Msg("❌ Failed to initialize internal repository")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize internal repository: %v", repoErr))
-	}
-
-	if internalRepoPath == "" {
-		log.Error().
-			Str("project_id", createdProject.ID).
-			Str("user_id", user.ID).
-			Msg("❌ Internal repo path is empty after initialization")
-		return nil, system.NewHTTPError500("internal repository path is empty")
-	}
-
-	// Update project with internal repo path
-	createdProject.InternalRepoPath = internalRepoPath
-	err = s.Store.UpdateProject(ctx, createdProject)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", createdProject.ID).
-			Msg("❌ Failed to update project with internal repo path")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update project: %v", err))
-	}
-
-	// Create GitRepository entry for internal repo
-	internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
-	internalRepo := &types.GitRepository{
-		ID:             internalRepoID,
-		Name:           fmt.Sprintf("%s-internal", data.SlugifyName(createdProject.Name)),
-		Description:    "Internal project repository for configuration and metadata",
-		OwnerID:        user.ID,
-		OrganizationID: createdProject.OrganizationID,
-		ProjectID:      createdProject.ID,
-		RepoType:       "internal",
-		Status:         "ready",
-		LocalPath:      internalRepoPath,
-		DefaultBranch:  "main",
-		Metadata:       map[string]interface{}{},
-	}
-
-	log.Info().
-		Str("project_id", createdProject.ID).
-		Str("repo_id", internalRepoID).
-		Str("local_path", internalRepoPath).
-		Str("organization_id", createdProject.OrganizationID).
-		Msg("📝 Creating GitRepository entry for internal repo")
-
-	err = s.Store.CreateGitRepository(ctx, internalRepo)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", createdProject.ID).
-			Str("repo_id", internalRepoID).
-			Str("local_path", internalRepoPath).
-			Str("organization_id", createdProject.OrganizationID).
-			Interface("repo", internalRepo).
-			Msg("❌ Failed to create git repository entry for internal repo")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create internal repository entry: %v", err))
-	}
-
-	log.Info().
-		Str("project_id", createdProject.ID).
-		Str("repo_id", internalRepoID).
-		Msg("✅ Internal repository created successfully")
-
-	// Create separate code repository with sample files
+	// Create code repository with sample files
+	// NOTE: Internal repos are no longer used - startup script lives in the primary code repo at .helix/startup.sh
 	if req.SampleProjectID == "helix-blog-posts" {
 		// Special case: Clone real HelixML/helix repo as code repo
 		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git")
@@ -888,6 +817,19 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Str("project_id", createdProject.ID).
 			Str("repo_id", codeRepoID).
 			Msg("✅ Helix code repository created successfully")
+
+		// Set as primary repo and initialize startup script
+		createdProject.DefaultRepoID = codeRepoID
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Error().Err(err).Msg("❌ Failed to set default repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to set default repository: %v", err))
+		}
+
+		// Initialize startup script in code repo
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript); err != nil {
+			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
+		}
 	} else if req.SampleProjectID == "jupyter-financial-analysis" {
 		// Special case: Create TWO repositories - one for notebooks, one for pyforest library
 
@@ -965,7 +907,13 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		createdProject.DefaultRepoID = notebooksRepoID
 		err = s.Store.UpdateProject(ctx, createdProject)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to set default repo, continuing anyway")
+			log.Error().Err(err).Msg("❌ Failed to set default repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to set default repository: %v", err))
+		}
+
+		// Initialize startup script in primary code repo (notebooks)
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript); err != nil {
+			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else {
 		// Use hardcoded sample code for all other samples
@@ -1029,6 +977,11 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Str("default_repo_id", codeRepo.ID).
 				Msg("❌ Failed to set default repository")
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to set default repository: %v", err))
+		}
+
+		// Initialize startup script in code repo
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript); err != nil {
+			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	}
 

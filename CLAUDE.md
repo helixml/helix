@@ -577,21 +577,30 @@ function getSidebarForRoute(routeName: string) {
 }
 ```
 
-## Docker Compose
+## 🚨 CRITICAL: Docker Compose restart Does NOT Update Env or Images 🚨
 
-**Always use:** `docker compose -f docker-compose.dev.yaml`
+**`docker compose restart` does NOT:**
+- Re-read `.env` file changes
+- Pull or use new images
+- Recreate containers
 
-**Restart vs Down+Up:**
+**It ONLY restarts the existing container with its original configuration.**
+
 ```bash
-# ✅ For config/image changes
-docker compose -f docker-compose.dev.yaml down wolf
-docker compose -f docker-compose.dev.yaml up -d wolf
+# ❌ WRONG: This does NOT pick up .env changes or new images
+docker compose -f docker-compose.dev.yaml restart api
+docker compose -f docker-compose.dev.yaml restart sandbox
 
-# ❌ Only restarts, doesn't recreate
-docker compose -f docker-compose.dev.yaml restart wolf
+# ✅ CORRECT: Must down+up to apply .env changes or new images
+docker compose -f docker-compose.dev.yaml down api sandbox
+docker compose -f docker-compose.dev.yaml up -d api sandbox
 ```
 
-Use `restart` only for bind-mounted file changes.
+**When to use each:**
+- `restart` - ONLY for bind-mounted file changes (code hot-reload handles this anyway)
+- `down` + `up` - For .env changes, image updates, or any config changes
+
+**Always use:** `docker compose -f docker-compose.dev.yaml`
 
 ## Database Migrations
 

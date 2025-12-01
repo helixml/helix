@@ -260,7 +260,7 @@ until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
-        exit 1
+        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
     sleep 1
@@ -493,14 +493,16 @@ RUN chmod +x /opt/moonlight-web/auto-pair.sh
 
 # 07: Start Wolf RevDial client (optional, only if HELIX_API_URL is set)
 # NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
 RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if no control plane configured (local dev mode)
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
     echo "ℹ️  No HELIX_API_URL set, skipping RevDial clients (local mode)"
-    exit 0
+    return 0
 fi
 
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
@@ -533,14 +535,16 @@ EOF
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
 # 08: Start Wolf instance heartbeat daemon (Go binary with disk space monitoring)
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
 RUN cat > /etc/cont-init.d/08-start-wolf-heartbeat.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if no control plane configured (local dev mode)
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
     echo "ℹ️  No HELIX_API_URL set, skipping Wolf heartbeat (local mode)"
-    exit 0
+    return 0
 fi
 
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
@@ -561,14 +565,17 @@ COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-tele
 RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
 
 # 10: Start Hydra multi-Docker isolation daemon (optional, only if HYDRA_ENABLED is set)
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
+# Using "exit" in a sourced script terminates the entire entrypoint process.
 RUN cat > /etc/cont-init.d/10-start-hydra.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if Hydra is not enabled
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ "$HYDRA_ENABLED" != "true" ]; then
     echo "ℹ️  Hydra not enabled (HYDRA_ENABLED != true), skipping multi-Docker isolation"
-    exit 0
+    return 0
 fi
 
 echo "🐉 Starting Hydra multi-Docker isolation daemon..."
@@ -601,7 +608,7 @@ ELAPSED=0
 until [ -S /var/run/hydra/hydra.sock ]; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: Hydra socket not ready within $TIMEOUT seconds"
-        exit 1
+        return 1
     fi
     echo "Waiting for Hydra socket... ($ELAPSED/$TIMEOUT)"
     sleep 1
