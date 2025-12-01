@@ -138,7 +138,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   // Fetch session data to get sway_version for debug panel
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
   const sessionData = sessionResponse?.data
-  const swayVersion = sessionData?.metadata?.sway_version
+  const swayVersion = sessionData?.config?.sway_version
 
   // Debug logging
   useEffect(() => {
