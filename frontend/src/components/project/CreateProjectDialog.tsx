@@ -23,14 +23,16 @@ import { TypesExternalRepositoryType } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import NewRepoForm from './forms/NewRepoForm'
 import ExternalRepoForm from './forms/ExternalRepoForm'
+import { useCreateProject } from '../../services'
+import useAccount from '../../hooks/useAccount'
+import useSnackbar from '../../hooks/useSnackbar'
 
 type RepoMode = 'select' | 'create' | 'link'
 
 interface CreateProjectDialogProps {
   open: boolean
   onClose: () => void
-  onSubmit: (name: string, description: string, repoId: string) => Promise<void>
-  isCreating: boolean
+  onSuccess?: (projectId: string) => void
   // For selecting existing repos
   repositories: TypesGitRepository[]
   reposLoading?: boolean
@@ -43,13 +45,15 @@ interface CreateProjectDialogProps {
 const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   open,
   onClose,
-  onSubmit,
-  isCreating,
+  onSuccess,
   repositories,
   reposLoading,
   onCreateRepo,
   onLinkRepo,
 }) => {
+  const account = useAccount()
+  const snackbar = useSnackbar()
+  const createProjectMutation = useCreateProject()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedRepoId, setSelectedRepoId] = useState('')
@@ -103,6 +107,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
 
   const handleSubmit = async () => {
     if (!name.trim()) {
+      snackbar.error('Project name is required')
       return
     }
 
@@ -184,10 +189,34 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       }
     }
 
-    await onSubmit(name, description, repoIdToUse)
+    if (!repoIdToUse) {
+      snackbar.error('Primary repository is required')
+      return
+    }
+
+    try {
+      const result = await createProjectMutation.mutateAsync({
+        name,
+        description,
+        default_repo_id: repoIdToUse,
+        organization_id: account.organizationTools.organization?.id,
+      })
+      snackbar.success('Project created successfully')
+      onClose()
+
+      if (result?.id) {
+        if (onSuccess) {
+          onSuccess(result.id)
+        } else {
+          account.orgNavigate('project-specs', { id: result.id })
+        }
+      }
+    } catch (err) {
+      snackbar.error('Failed to create project')
+    }
   }
 
-  const isSubmitDisabled = isCreating || creatingRepo || !name.trim() || (
+  const isSubmitDisabled = createProjectMutation.isPending || creatingRepo || !name.trim() || (
     repoMode === 'select' ? !selectedRepoId :
     repoMode === 'create' ? !newRepoName.trim() :
     !externalUrl.trim() || (externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!externalOrgUrl.trim() || !externalToken.trim()))
@@ -308,7 +337,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={isCreating || creatingRepo}>
+        <Button onClick={onClose} disabled={createProjectMutation.isPending || creatingRepo}>
           Cancel
         </Button>
         <Button
@@ -318,7 +347,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           disabled={isSubmitDisabled}
           sx={{ mr: 1, mb: 1 }}
         >
-          {isCreating || creatingRepo ? (
+          {createProjectMutation.isPending || creatingRepo ? (
             <>
               <CircularProgress size={16} sx={{ mr: 1 }} />
               Creating...
