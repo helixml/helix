@@ -8190,86 +8190,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/board-settings": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the Kanban board settings (WIP limits) for the default project",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get board settings for spec tasks",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update the Kanban board settings (WIP limits) for the default project",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Update board settings for spec tasks",
-                "parameters": [
-                    {
-                        "description": "Board settings",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/from-demo": {
             "post": {
                 "security": [
@@ -16733,10 +16653,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "wip_limits": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
+                    "$ref": "#/definitions/types.WIPLimits"
                 }
             }
         },
@@ -19812,10 +19729,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
                     "type": "string"
@@ -19877,6 +19791,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ProjectMetadata": {
+            "type": "object",
+            "properties": {
+                "board_settings": {
+                    "$ref": "#/definitions/types.BoardSettings"
+                }
+            }
+        },
         "types.ProjectUpdateRequest": {
             "type": "object",
             "properties": {
@@ -19894,6 +19816,9 @@ const docTemplate = `{
                 },
                 "github_repo_url": {
                     "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
                     "type": "string"
@@ -23301,18 +23226,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -23573,6 +23498,20 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.WIPLimits": {
+            "type": "object",
+            "properties": {
+                "implementation": {
+                    "type": "integer"
+                },
+                "planning": {
+                    "type": "integer"
+                },
+                "review": {
+                    "type": "integer"
                 }
             }
         },

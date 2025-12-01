@@ -8,7 +8,6 @@ export const projectQueryKey = (id: string) => ['project', id];
 export const projectRepositoriesQueryKey = (projectId: string) => ['project-repositories', projectId];
 export const sampleProjectsListQueryKey = () => ['sample-projects'];
 export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
-export const boardSettingsQueryKey = () => ['board-settings'];
 export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
 export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
 
@@ -217,41 +216,6 @@ export const useInstantiateSampleProject = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
-    },
-  });
-};
-
-/**
- * Hook to get board settings
- */
-export const useGetBoardSettings = () => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-
-  return useQuery<TypesBoardSettings>({
-    queryKey: boardSettingsQueryKey(),
-    queryFn: async () => {
-      const response = await apiClient.v1SpecTasksBoardSettingsList();
-      return response.data;
-    },
-  });
-};
-
-/**
- * Hook to update board settings
- */
-export const useUpdateBoardSettings = () => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (settings: TypesBoardSettings) => {
-      const response = await apiClient.v1SpecTasksBoardSettingsUpdate(settings);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: boardSettingsQueryKey() });
     },
   });
 };
