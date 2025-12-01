@@ -21188,6 +21188,10 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean"
                 },
+                "sway_version": {
+                    "description": "helix-sway image version (commit hash) running in this session",
+                    "type": "string"
+                },
                 "system_prompt": {
                     "type": "string"
                 },

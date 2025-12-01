@@ -937,6 +937,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			// Update session metadata with Wolf lobby information
 			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
 			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+			helixSession.Metadata.SwayVersion = wolfInstance.SwayVersion // Track which helix-sway version is running
 			helixSession.WolfInstanceID = wolfInstance.ID
 
 			_, err = w.store.UpdateSession(ctx, *helixSession)
@@ -948,7 +949,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 					Str("lobby_id", lobbyResp.LobbyID).
 					Str("lobby_pin", lobbyPINString).
 					Str("wolf_instance_id", wolfInstance.ID).
-					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, and instance")
+					Str("sway_version", wolfInstance.SwayVersion).
+					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, instance, and sway version")
 			}
 		}
 	}
@@ -990,9 +992,10 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
 		Status:         "running", // Lobby starts immediately
 		ContainerName:  containerHostname,
-		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:   lobbyPINString,    // NEW: Return PIN for storage in Helix session
-		WolfInstanceID: wolfInstance.ID,   // NEW: Return Wolf instance ID for multi-Wolf deployment
+		WolfLobbyID:    lobbyResp.LobbyID,        // NEW: Return lobby ID
+		WolfLobbyPIN:   lobbyPINString,           // NEW: Return PIN for storage in Helix session
+		WolfInstanceID: wolfInstance.ID,          // NEW: Return Wolf instance ID for multi-Wolf deployment
+		SwayVersion:    wolfInstance.SwayVersion, // helix-sway image version for debugging
 	}
 
 	log.Info().
