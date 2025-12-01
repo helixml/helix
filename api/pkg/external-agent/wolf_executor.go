@@ -770,54 +770,12 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// NEW: Create lobby instead of app for immediate auto-start
-	// Determine video buffer caps and render node based on GPU vendor from sandbox heartbeat
-	//
-	// For NVIDIA: waylanddisplaysrc (with cuda feature) can output video/x-raw(memory:CUDAMemory) directly
-	// This is the zero-copy path - frames stay in GPU memory from capture through encoding.
-	// REQUIRES: gst-plugin-wayland-display built with --features cuda
-	//
-	// For AMD/Intel: Use video/x-raw for VA-API encoders (vapostproc handles conversion)
-	// For software: Use video/x-raw for CPU-based x264enc
-	//
-	// CRITICAL: Use GPU info from sandbox heartbeat, NOT local environment!
-	// The wolf_executor runs on the controlplane (no GPU), but it creates lobbies
-	// on sandboxes that DO have GPUs. Each sandbox reports its GPU via heartbeat.
-	gpuVendor := wolfInstance.GPUVendor // From sandbox heartbeat, NOT os.Getenv
-	videoBufferCaps := "video/x-raw"    // Default for AMD/Intel/software/unknown (legacy pipeline)
-	renderNode := wolfInstance.RenderNode
-	if renderNode == "" {
-		renderNode = "/dev/dri/renderD128" // Default if sandbox hasn't reported yet
-	}
-
-	switch gpuVendor {
-	case "nvidia":
-		// NVIDIA zero-copy: waylanddisplaysrc outputs CUDA memory directly → nvh264enc
-		// Requires gst-plugin-wayland-display built with --features cuda
-		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
-	case "none":
-		// Software rendering fallback - use llvmpipe via SOFTWARE render node
-		// Per Wolf maintainer ABeltramo: "Setting the render node to SOFTWARE should do the trick"
-		renderNode = "SOFTWARE"
-		videoBufferCaps = "video/x-raw" // CPU memory for software encoding (x264enc)
-		log.Info().Msg("Sandbox reports no GPU - using software rendering (llvmpipe)")
-	case "":
-		// Empty string means sandbox hasn't reported GPU info yet (legacy or just started)
-		// Fall back to default render node, Wolf will auto-detect
-		log.Warn().
-			Str("wolf_instance_id", wolfInstance.ID).
-			Msg("Sandbox hasn't reported GPU info yet - using default render node (Wolf will auto-detect)")
-	default:
-		// Intel/AMD - use raw video for VA-API/VAAPI encoders
-		videoBufferCaps = "video/x-raw"
-	}
-
-	log.Info().
-		Str("gpu_vendor", gpuVendor).
-		Str("video_buffer_caps", videoBufferCaps).
-		Str("render_node", renderNode).
-		Str("wolf_instance_id", wolfInstance.ID).
-		Msg("Configured video settings from sandbox GPU info")
+	// Wolf's compute_pipeline_defaults() handles GPU auto-detection for video settings.
+	// We send empty strings and let Wolf figure out the optimal pipeline based on:
+	// - NVIDIA: video/x-raw(memory:CUDAMemory) for zero-copy CUDA encoding
+	// - AMD/Intel: video/x-raw(memory:DMABuf) for zero-copy VA-API encoding
+	// - Software: video/x-raw for CPU-based encoding
+	// This avoids duplicating GPU detection logic and enables AMD/Intel zero-copy DMABuf.
 
 	// Hydra multi-Docker isolation: Create isolated dockerd for this session
 	// When Hydra is enabled, each session gets its own dockerd for complete isolation
@@ -884,12 +842,13 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:                   displayWidth,
-			Height:                  displayHeight,
-			RefreshRate:             displayRefreshRate,
-			WaylandRenderNode:       renderNode,
-			RunnerRenderNode:        renderNode,
-			VideoProducerBufferCaps: videoBufferCaps,
+			Width:       displayWidth,
+			Height:      displayHeight,
+			RefreshRate: displayRefreshRate,
+			// Empty strings → Wolf's compute_pipeline_defaults() auto-detects optimal GPU pipeline
+			WaylandRenderNode:       "",
+			RunnerRenderNode:        "",
+			VideoProducerBufferCaps: "",
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
