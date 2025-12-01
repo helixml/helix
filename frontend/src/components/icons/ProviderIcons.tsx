@@ -56,6 +56,17 @@ export const SlackLogo = (props: any) => (
   </SvgIcon>
 );
 
+// Microsoft Teams Logo SVG
+export const TeamsLogo = (props: any) => (
+  <SvgIcon {...props} viewBox="0 0 24 24">
+    <path fill="#5059C9" d="M19.5 6.5c1.38 0 2.5-1.12 2.5-2.5S20.88 1.5 19.5 1.5 17 2.62 17 4s1.12 2.5 2.5 2.5z"/>
+    <path fill="#5059C9" d="M22 8h-5c-.55 0-1 .45-1 1v7c0 1.1.9 2 2 2h2c1.66 0 3-1.34 3-3V9c0-.55-.45-1-1-1z"/>
+    <path fill="#7B83EB" d="M13 6c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3z"/>
+    <path fill="#7B83EB" d="M15 8H6c-.55 0-1 .45-1 1v8c0 2.21 1.79 4 4 4h3c2.21 0 4-1.79 4-4V9c0-.55-.45-1-1-1z"/>
+    <path fill="#5059C9" d="M14.5 12h-8c-.28 0-.5.22-.5.5v4c0 .28.22.5.5.5h8c.28 0 .5-.22.5-.5v-4c0-.28-.22-.5-.5-.5z" opacity=".2"/>
+  </SvgIcon>
+);
+
 // LinkedIn Logo SVG
 export const LinkedInLogo = (props: any) => (
   <SvgIcon {...props} viewBox="0 0 24 24">
