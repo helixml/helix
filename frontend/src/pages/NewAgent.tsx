@@ -17,6 +17,10 @@ import Card from '@mui/material/Card'
 import Avatar from '@mui/material/Avatar'
 import Tooltip from '@mui/material/Tooltip'
 import InfoIcon from '@mui/icons-material/Info'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
@@ -76,6 +80,29 @@ interface ProviderModelPreset {
   smallReasoningModel: string  // Skill result interpretation
   smallReasoningModelEffort: string
   smallGenerationModel: string // Used for thoughts about tools/strategy
+}
+
+// Available models for each provider that users can select as their default model
+const PROVIDER_AVAILABLE_MODELS: Record<string, { id: string; name: string; description: string }[]> = {
+  'openai': [
+    { id: 'gpt-4o', name: 'GPT-4o', description: 'Most capable OpenAI model for complex tasks' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Fast and cost-effective for simpler tasks' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'Previous generation GPT-4 with vision' },
+    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', description: 'Fast and economical' },
+    { id: 'o1', name: 'o1', description: 'Advanced reasoning model' },
+    { id: 'o1-mini', name: 'o1 Mini', description: 'Faster reasoning model' },
+    { id: 'o3-mini', name: 'o3 Mini', description: 'Latest reasoning model' },
+  ],
+  'google': [
+    { id: 'gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', description: 'Fast multimodal model' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Most capable Gemini model' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Fast and efficient' },
+  ],
+  'anthropic': [
+    { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Best balance of capability and speed' },
+    { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fastest Claude model' },
+    { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', description: 'Most capable for complex tasks' },
+  ],
 }
 
 const PROVIDER_MODEL_PRESETS: Record<string, ProviderModelPreset> = {
@@ -152,6 +179,16 @@ const NewAgent: FC = () => {
   const [smallGenerationModelProvider, setSmallGenerationModelProvider] = useState('')
   const [smallGenerationModel, setSmallGenerationModel] = useState('')
 
+  // State for the selected default model (used for basic chat mode)
+  const [selectedDefaultModel, setSelectedDefaultModel] = useState('')
+
+  // Helper to get available models for the current provider
+  const getAvailableModels = (provider: string | null) => {
+    if (!provider || provider === 'custom') return []
+    const providerKey = provider.replace('user/', '').toLowerCase()
+    return PROVIDER_AVAILABLE_MODELS[providerKey] || []
+  }
+
   // Filter for main providers (OpenAI, Google, Anthropic)
   const mainProviders = providerEndpoints.filter(endpoint => 
     endpoint.name?.toLowerCase().includes('openai') ||
@@ -170,12 +207,11 @@ const NewAgent: FC = () => {
   const handleProviderSelect = (providerName: string) => {
     console.log('Provider selected:', providerName)
     setSelectedProvider(providerName)
-    
+
     // Auto-populate model fields based on provider selection
     const preset = getModelPreset(providerName)
     if (preset) {
       // Set the model fields in the form state
-      // Note: We'll need to add state variables for these fields
       setReasoningModelProvider(providerName)
       setReasoningModel(preset.reasoningModel)
       setReasoningModelEffort(preset.reasoningModelEffort)
@@ -186,6 +222,12 @@ const NewAgent: FC = () => {
       setSmallReasoningModelEffort(preset.smallReasoningModelEffort)
       setSmallGenerationModelProvider(providerName)
       setSmallGenerationModel(preset.smallGenerationModel)
+
+      // Set default model to the generation model
+      setSelectedDefaultModel(preset.generationModel)
+    } else {
+      // Reset default model when switching to custom or unknown provider
+      setSelectedDefaultModel('')
     }
   }
 
@@ -263,6 +305,7 @@ const NewAgent: FC = () => {
         name,
         systemPrompt,
         knowledge: knowledge.length > 0 ? knowledge : undefined,
+        model: selectedDefaultModel, // Default model for basic chat mode
         reasoningModelProvider,
         reasoningModel,
         reasoningModelEffort,
@@ -514,6 +557,34 @@ const NewAgent: FC = () => {
                 {/* Show selected models when provider is chosen */}
                 {selectedProvider && selectedProvider !== 'custom' && (
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                    {/* Model Selector Dropdown */}
+                    <FormControl fullWidth sx={{ mb: 3 }}>
+                      <InputLabel id="default-model-label">Default Model</InputLabel>
+                      <Select
+                        labelId="default-model-label"
+                        value={selectedDefaultModel}
+                        label="Default Model"
+                        onChange={(e) => setSelectedDefaultModel(e.target.value)}
+                      >
+                        {getAvailableModels(selectedProvider).map((model) => (
+                          <MenuItem key={model.id} value={model.id}>
+                            <Box>
+                              <Typography variant="body2">{model.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {model.description}
+                              </Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                        This model will be used for basic chat interactions
+                      </Typography>
+                    </FormControl>
+
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+                      Agent Mode Models (Advanced)
+                    </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={12} sm={6}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
