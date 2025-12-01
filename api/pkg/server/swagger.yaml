@@ -2975,9 +2975,7 @@ definitions:
   types.BoardSettings:
     properties:
       wip_limits:
-        additionalProperties:
-          type: integer
-        type: object
+        $ref: '#/definitions/types.WIPLimits'
     type: object
   types.ChatCompletionMessage:
     properties:
@@ -5092,9 +5090,7 @@ definitions:
       id:
         type: string
       metadata:
-        items:
-          type: integer
-        type: array
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       organization_id:
@@ -5136,6 +5132,11 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectMetadata:
+    properties:
+      board_settings:
+        $ref: '#/definitions/types.BoardSettings'
+    type: object
   types.ProjectUpdateRequest:
     properties:
       auto_start_backlog_tasks:
@@ -5148,6 +5149,8 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      metadata:
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       startup_script:
@@ -7550,18 +7553,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -7735,6 +7738,15 @@ definitions:
         type: array
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.WIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
     type: object
   types.Wallet:
     properties:
@@ -14506,56 +14518,6 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
-  /api/v1/spec-tasks/board-settings:
-    get:
-      description: Get the Kanban board settings (WIP limits) for the default project
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get board settings for spec tasks
-      tags:
-      - spec-driven-tasks
-    put:
-      consumes:
-      - application/json
-      description: Update the Kanban board settings (WIP limits) for the default project
-      parameters:
-      - description: Board settings
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.BoardSettings'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Update board settings for spec tasks
-      tags:
-      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:
