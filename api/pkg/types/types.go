@@ -1857,6 +1857,9 @@ type ZedAgent struct {
 	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	// Privileged mode - use host Docker socket instead of isolated dockerd
+	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
+	UseHostDocker bool `json:"use_host_docker,omitempty"`
 }
 
 // ZedAgentResponse represents the response from a Zed agent execution

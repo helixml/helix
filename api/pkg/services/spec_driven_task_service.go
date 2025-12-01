@@ -160,8 +160,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,   // Helix agent used for entire workflow
-		YoloMode:       req.YoloMode, // Set YOLO mode from request
+		HelixAppID:     helixAppID,         // Helix agent used for entire workflow
+		YoloMode:       req.YoloMode,       // Set YOLO mode from request
+		UseHostDocker:  req.UseHostDocker,  // Use host Docker socket (requires privileged sandbox)
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -338,10 +339,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace",   // Use relative path
-		SpecTaskID:          task.ID,       // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
+		ProjectPath:         "workspace",        // Use relative path
+		SpecTaskID:          task.ID,            // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -1055,12 +1057,13 @@ func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, u
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID string `json:"project_id"`
-	Prompt    string `json:"prompt"`
-	Type      string `json:"type"`
-	Priority  string `json:"priority"`
-	UserID    string `json:"user_id"`
-	AppID     string `json:"app_id"`    // Optional: Helix agent to use for spec generation
-	YoloMode  bool   `json:"yolo_mode"` // Optional: Skip human review and auto-approve specs
+	ProjectID     string `json:"project_id"`
+	Prompt        string `json:"prompt"`
+	Type          string `json:"type"`
+	Priority      string `json:"priority"`
+	UserID        string `json:"user_id"`
+	AppID         string `json:"app_id"`          // Optional: Helix agent to use for spec generation
+	YoloMode      bool   `json:"yolo_mode"`       // Optional: Skip human review and auto-approve specs
+	UseHostDocker bool   `json:"use_host_docker"` // Optional: Use host Docker socket (requires privileged sandbox)
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
