@@ -962,15 +962,14 @@ function transfer-sway-to-sandbox() {
   fi
 
   if [ -n "$TRANSFER_SUCCESS" ]; then
-    # Update version files inside sandbox so heartbeat daemon picks up new version
+    # Update version files inside sandbox
     echo "📝 Updating version files in sandbox (version: ${COMMIT_HASH}, hash: ${IMAGE_HASH})..."
     docker exec helix-sandbox-1 bash -c "echo '${COMMIT_HASH}' > /opt/images/helix-sway.version"
     docker exec helix-sandbox-1 bash -c "echo '${IMAGE_HASH}' > /opt/images/helix-sway.tar.hash"
 
-    # Restart heartbeat daemon to pick up new version
-    echo "🔄 Restarting heartbeat daemon to pick up new version..."
+    # Restart heartbeat to immediately report new version (supervisor loop will restart it)
+    echo "🔄 Restarting heartbeat daemon..."
     docker exec helix-sandbox-1 pkill -f sandbox-heartbeat 2>/dev/null || true
-    # Heartbeat daemon will be restarted automatically by its supervisor loop
 
     echo "✅ Version files updated and heartbeat restarted"
   else
