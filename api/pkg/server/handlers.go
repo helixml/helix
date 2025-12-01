@@ -1047,6 +1047,73 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 	return createdUser, nil
 }
 
+// adminResetPassword godoc
+// @Summary Reset a user's password (Admin only)
+// @Description Reset the password for any user. Only admins can use this endpoint.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param id path string true "User ID"
+// @Param request body types.AdminResetPasswordRequest true "New password"
+// @Success 200 {object} types.User
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id}/password [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can reset user passwords")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	var request types.AdminResetPasswordRequest
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.NewPassword == "" {
+		return nil, system.NewHTTPError400("new password is required")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Update the password using the authenticator
+	err = apiServer.authenticator.UpdatePassword(ctx, targetUserID, request.NewPassword)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("target_user_id", targetUserID).
+		Str("target_user_email", targetUser.Email).
+		Msg("admin reset user password")
+
+	// Return the updated user (without password hash)
+	updatedUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get updated user: " + err.Error())
+	}
+
+	return updatedUser, nil
+}
+
 // getSchedulerHeartbeats godoc
 // @Summary Get scheduler goroutine heartbeat status
 // @Description Get the health status of all scheduler goroutines
