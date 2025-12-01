@@ -31,41 +31,46 @@ interface SetupStep {
 const setupSteps: SetupStep[] = [
   {
     step: 1,
-    text: 'Go to the Azure Portal and create a new Bot resource',
-    link: 'https://portal.azure.com/#create/Microsoft.AzureBot'
+    text: 'Create an Entra ID App Registration',
+    link: 'https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
+    substeps: [
+      'Click "New registration" and provide an application name (e.g., "helix-teams-bot")',
+      'Select "Accounts in this organizational directory only (Single tenant)" for most cases',
+      'Click "Register"',
+      'Note the "Application (client) ID" - this is your App ID',
+      'Note the "Directory (tenant) ID" - this is your Tenant ID (required for Single Tenant bots)'
+    ]
   },
   {
     step: 2,
-    text: 'Configure your bot:',
+    text: 'Create a client secret',
+    link: 'https://learn.microsoft.com/en-us/microsoftteams/platform/teams-ai-library/teams/app-authentication/client-secret',
     substeps: [
-      'Choose a unique Bot handle (e.g., "helix-agent-bot")',
-      'Select your subscription and resource group',
-      'Choose "Single Tenant" or "Multi Tenant" for Type of App',
-      'Select "Create new Microsoft App ID"',
-      'Click "Review + create" then "Create"'
+      'In your app registration, go to "Certificates & secrets"',
+      'Click "New client secret", add a description, select an expiration period, and click "Add"',
+      'IMPORTANT: Copy the "Value" column immediately - this is your App Password',
+      'The value won\'t be shown again after you leave the page. The "Secret ID" is NOT the password.'
     ]
   },
   {
     step: 3,
-    text: 'After creation, go to your Bot resource and click "Configuration"',
+    text: 'Create an Azure Bot resource',
+    link: 'https://portal.azure.com/#create/Microsoft.AzureBot',
     substeps: [
-      'Copy the "Microsoft App ID" (this is your App ID)',
-      'Click "Manage Password" next to Microsoft App ID',
-      'This opens the Azure AD app registration - go to "Certificates & secrets"',
-      'Click "New client secret", add a description, and click "Add"',
-      'IMPORTANT: Copy the "Value" column immediately (this is your App Password) - it will be hidden after you leave the page',
-      'Note: The "Secret ID" is NOT the password - you need the "Value"',
-      'To find Tenant ID: In the app registration, go to "Overview" - the "Directory (tenant) ID" is your Tenant ID (REQUIRED for Single Tenant bots)'
+      'Provide a Bot handle (e.g., "helix-agent-bot")',
+      'Select your subscription, resource group, and pricing tier',
+      'Under "Microsoft App ID", choose "Single Tenant" (or Multi Tenant if needed)',
+      'Select "Use existing app registration"',
+      'Enter the Application (client) ID from step 1',
+      'Click "Review + create" then "Create"'
     ]
   },
   {
     step: 4,
     text: 'Configure the messaging endpoint:',
     substeps: [
-      'Go back to your Azure Bot resource (not the app registration)',
-      'Click "Configuration" in the left menu',
-      'Find the "Messaging endpoint" field',
-      'Paste the webhook URL shown above in this dialog',
+      'Go to your Azure Bot resource → Settings → Configuration',
+      'In the "Messaging endpoint" field, paste the webhook URL shown above',
       'Click "Apply" to save'
     ]
   },
@@ -73,22 +78,22 @@ const setupSteps: SetupStep[] = [
     step: 5,
     text: 'Enable the Teams channel:',
     substeps: [
-      'In your Bot resource, go to "Channels"',
+      'In your Azure Bot resource, go to Settings → Channels',
       'Click "Microsoft Teams"',
-      'Accept the Terms of Service',
-      'Click "Apply"'
+      'Accept the Terms of Service and click "Apply"'
     ]
   },
   {
     step: 6,
-    text: 'Install the bot in Teams:',
+    text: 'Install the bot in Teams',
+    link: 'https://dev.teams.microsoft.com/apps',
     substeps: [
-      'Go to Teams Developer Portal',
-      'Create a new app or import your bot',
-      'Add the Bot capability with your App ID',
-      'Publish to your organization or install directly'
-    ],
-    link: 'https://dev.teams.microsoft.com/apps'
+      'Go to Teams Developer Portal and create a new app',
+      'Under "Configure" → "App features", add "Bot"',
+      'Select "Enter a bot ID" and paste your Application (client) ID',
+      'Select the scopes where the bot can be used (Personal, Team, Group chat)',
+      'Go to "Publish" → "Publish to org" or "Download app package" to install'
+    ]
   },
   {
     step: 7,
@@ -152,8 +157,19 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
         </Box>
       </DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Follow these steps to set up your Microsoft Teams bot and connect it to Helix:
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Follow these steps to set up your Microsoft Teams bot and connect it to Helix.
+          For detailed documentation, see the{' '}
+          <Typography
+            component="a"
+            href="https://learn.microsoft.com/en-us/microsoftteams/platform/teams-ai-library/teams/configuration/manual-configuration"
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="body2"
+            sx={{ color: 'primary.main' }}
+          >
+            official Microsoft Teams bot configuration guide
+          </Typography>.
         </Typography>
 
         {/* Webhook URL Box */}
@@ -307,6 +323,22 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
             For local development, use a tunnel service like ngrok.
           </Typography>
         </Alert>
+
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            <strong>Learn more:</strong>{' '}
+            <Typography
+              component="a"
+              href="https://learn.microsoft.com/en-us/microsoftteams/platform/teams-ai-library/teams/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="body2"
+              sx={{ color: 'primary.main' }}
+            >
+              Microsoft Teams AI Library Overview
+            </Typography>
+          </Typography>
+        </Box>
       </DialogContent>
       <DialogActions sx={{ p: 3, pt: 1 }}>
         <Button onClick={onClose} variant="outlined">
