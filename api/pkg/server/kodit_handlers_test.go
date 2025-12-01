@@ -307,6 +307,20 @@ func (suite *KoditHandlersSuite) TestGetRepositoryIndexingStatus() {
 	// Status endpoint requires numeric kodit_repo_id
 	for _, tc := range suite.standardTestCases("123") {
 		suite.Run(tc.name, func() {
+			// Override success response for status summary format
+			if tc.wantStatus == 200 {
+				tc.koditResp = map[string]any{
+					"data": map[string]any{
+						"id":   "123",
+						"type": "repository_status_summary",
+						"attributes": map[string]any{
+							"status":     "completed",
+							"message":    "All indexing tasks completed",
+							"updated_at": "2024-01-01T00:00:00Z",
+						},
+					},
+				}
+			}
 			req := suite.makeRequest("/kodit-status", map[string]string{"id": "repo-123"}, "")
 			suite.runHandlerTest(tc, suite.apiServer.getRepositoryIndexingStatus, req)
 		})
