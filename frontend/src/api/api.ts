@@ -56,6 +56,22 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface KoditRepositoryStatusSummaryAttributes {
+  /** Message Error message if failed */
+  message?: string;
+  /** Status Overall indexing status */
+  status?: string;
+  /** UpdatedAt Most recent activity timestamp */
+  updated_at?: string;
+}
+
+export interface KoditRepositoryStatusSummaryData {
+  /** Attributes Attributes for repository status summary. */
+  attributes?: KoditRepositoryStatusSummaryAttributes;
+  id?: string;
+  type?: string;
+}
+
 export interface McpMeta {
   /**
    * AdditionalFields are any fields present in the Meta that are not
@@ -1034,18 +1050,9 @@ export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
 }
 
-export enum ServicesKoditIndexingState {
-  KoditIndexingStateUnknown = "unknown",
-  KoditIndexingStateQueued = "queued",
-  KoditIndexingStateIndexing = "indexing",
-  KoditIndexingStateCompleted = "completed",
-  KoditIndexingStateFailed = "failed",
-}
-
 export interface ServicesKoditIndexingStatus {
-  completed_at?: string;
-  message?: string;
-  state?: ServicesKoditIndexingState;
+  /** Data Data for repository status summary response. */
+  data?: KoditRepositoryStatusSummaryData;
 }
 
 export interface ServicesKoditSearchResult {
