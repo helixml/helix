@@ -16,10 +16,11 @@ import (
 
 // Server wraps a pion/turn server for WebRTC NAT traversal
 type Server struct {
-	server    *turn.Server
-	config    Config
-	udpConn   net.PacketConn
-	cancelCtx context.CancelFunc
+	server      *turn.Server
+	config      Config
+	udpConn     net.PacketConn
+	tcpListener net.Listener
+	cancelCtx   context.CancelFunc
 }
 
 // Config holds TURN server configuration
@@ -34,6 +35,15 @@ type Config struct {
 	Username string
 	// Password for TURN authentication
 	Password string
+	// TCPListener is an optional TCP listener for TURN-over-TCP/TLS
+	// When set, the TURN server will accept TCP connections on this listener.
+	// This enables TURNS (TURN over TLS) when used with a TLS-terminating proxy.
+	TCPListener net.Listener
+	// TURNSHost is the hostname to advertise for TURNS URLs (e.g., "helix.example.com")
+	// If empty, TURNS URLs won't be advertised
+	TURNSHost string
+	// TURNSPort is the port to advertise for TURNS (default: 443)
+	TURNSPort int
 }
 
 // detectPublicIP attempts to detect the public IP using api.ipify.org with a timeout
@@ -117,6 +127,19 @@ func New(cfg Config) (*Server, error) {
 	// Generate auth key for username/password
 	authKey := turn.GenerateAuthKey(cfg.Username, cfg.Realm, cfg.Password)
 
+	// Build ListenerConfigs for TCP if a listener was provided
+	var listenerConfigs []turn.ListenerConfig
+	if cfg.TCPListener != nil {
+		log.Printf("[TURN] Adding TCP listener for TURN-over-TCP/TLS support")
+		listenerConfigs = append(listenerConfigs, turn.ListenerConfig{
+			Listener: cfg.TCPListener,
+			RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
+				RelayAddress: net.ParseIP(cfg.PublicIP),
+				Address:      "0.0.0.0",
+			},
+		})
+	}
+
 	// Create TURN server with both local and public relay addresses
 	turnServer, err := turn.NewServer(turn.ServerConfig{
 		Realm: cfg.Realm,
@@ -147,6 +170,8 @@ func New(cfg Config) (*Server, error) {
 				},
 			},
 		},
+		// ListenerConfigs for TCP-based TURN (used for TURNS via TLS proxy)
+		ListenerConfigs: listenerConfigs,
 	})
 	if err != nil {
 		udpListener.Close()
@@ -156,13 +181,17 @@ func New(cfg Config) (*Server, error) {
 	_, cancel := context.WithCancel(context.Background())
 
 	s := &Server{
-		server:    turnServer,
-		config:    cfg,
-		udpConn:   udpListener,
-		cancelCtx: cancel,
+		server:      turnServer,
+		config:      cfg,
+		udpConn:     udpListener,
+		tcpListener: cfg.TCPListener,
+		cancelCtx:   cancel,
 	}
 
 	log.Printf("[TURN] Server started on 0.0.0.0:%d (public IP: %s)", cfg.Port, cfg.PublicIP)
+	if cfg.TCPListener != nil {
+		log.Printf("[TURN] TCP listener enabled for TURN-over-TCP/TLS (TURNS)")
+	}
 	log.Printf("[TURN] Realm: %s, Username: %s", cfg.Realm, cfg.Username)
 
 	return s, nil
@@ -202,8 +231,19 @@ func (s *Server) GetCredentials() (username, password, realm string) {
 
 // GetURLs returns TURN server URLs for WebRTC configuration
 func (s *Server) GetURLs() []string {
-	return []string{
-		fmt.Sprintf("turn:%s:%d", s.config.PublicIP, s.config.Port),
+	urls := []string{
 		fmt.Sprintf("turn:%s:%d?transport=udp", s.config.PublicIP, s.config.Port),
+		fmt.Sprintf("turn:%s:%d?transport=tcp", s.config.PublicIP, s.config.Port),
 	}
+
+	// Add TURNS URL if configured (for TLS-terminated connections)
+	if s.config.TURNSHost != "" {
+		port := s.config.TURNSPort
+		if port == 0 {
+			port = 443
+		}
+		urls = append(urls, fmt.Sprintf("turns:%s:%d?transport=tcp", s.config.TURNSHost, port))
+	}
+
+	return urls
 }

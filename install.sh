@@ -1737,6 +1737,13 @@ TURN_REALM=${TURN_HOST}
 TURN_USERNAME=helix
 TURN_PASSWORD=${TURN_PASSWORD}
 
+# TURNS (TURN over TLS) for restrictive enterprise networks
+# When API_HOST uses https://, TURNS is auto-configured on port 443
+# This allows WebRTC to work behind firewalls that only allow HTTPS traffic
+TURNS_ENABLED=false
+TURNS_HOST=
+TURNS_PORT=443
+
 # Moonlight Web pairing (internal, secure random)
 MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
 

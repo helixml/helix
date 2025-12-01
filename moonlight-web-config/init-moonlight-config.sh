@@ -48,8 +48,22 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "✅ Using configured TURN_PUBLIC_IP: $TURN_PUBLIC_IP"
     fi
 
+    # Build TURN URLs array
+    # Always include UDP and TCP on standard TURN port
+    TURN_URLS="[\"turn:$TURN_PUBLIC_IP:3478?transport=udp\", \"turn:$TURN_PUBLIC_IP:3478?transport=tcp\""
+
+    # Add TURNS URL if TURNS_HOST is set (for TLS-terminated connections through port 443)
+    if [ -n "$TURNS_HOST" ]; then
+        TURNS_PORT="${TURNS_PORT:-443}"
+        TURN_URLS="$TURN_URLS, \"turns:$TURNS_HOST:$TURNS_PORT?transport=tcp\""
+        echo "✅ TURNS enabled: turns:$TURNS_HOST:$TURNS_PORT"
+    fi
+
+    TURN_URLS="$TURN_URLS]"
+    echo "✅ TURN URLs: $TURN_URLS"
+
     # Substitute all template variables
-    sed -e "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" \
+    sed -e "s|{{TURN_URLS}}|$TURN_URLS|g" \
         -e "s/{{MOONLIGHT_CREDENTIALS}}/$MOONLIGHT_CREDENTIALS/g" \
         -e "s/{{TURN_PASSWORD}}/$TURN_PASSWORD/g" \
         "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
@@ -77,8 +91,18 @@ if [ -f "$CONFIG_FILE" ]; then
 
     if [ -n "$TURN_PUBLIC_IP" ]; then
         # Update TURN server URLs in config.json
-        sed -i "s|turn:[^:]*:3478|turn:$TURN_PUBLIC_IP:3478|g" "$CONFIG_FILE"
-        echo "✅ Updated TURN_PUBLIC_IP in config.json"
+        # Build new TURN URLs array
+        TURN_URLS="[\"turn:$TURN_PUBLIC_IP:3478?transport=udp\", \"turn:$TURN_PUBLIC_IP:3478?transport=tcp\""
+        if [ -n "$TURNS_HOST" ]; then
+            TURNS_PORT="${TURNS_PORT:-443}"
+            TURN_URLS="$TURN_URLS, \"turns:$TURNS_HOST:$TURNS_PORT?transport=tcp\""
+        fi
+        TURN_URLS="$TURN_URLS]"
+
+        # Update TURN URLs using jq
+        TMP_FILE=$(mktemp)
+        jq --argjson urls "$TURN_URLS" '.webrtc_ice_servers[1].urls = $urls' "$CONFIG_FILE" > "$TMP_FILE" && mv "$TMP_FILE" "$CONFIG_FILE"
+        echo "✅ Updated TURN URLs in config.json"
     fi
 
     echo "✅ Credentials synced successfully"

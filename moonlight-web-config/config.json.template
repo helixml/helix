@@ -4,7 +4,6 @@
   "webrtc_ice_servers": [
     {
       "urls": [
-        "stun:l.google.com:19302",
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
         "stun:stun2.l.google.com:19302",
@@ -13,10 +12,7 @@
       ]
     },
     {
-      "urls": [
-        "turn:{{TURN_PUBLIC_IP}}:3478?transport=udp",
-        "turn:{{TURN_PUBLIC_IP}}:3478?transport=tcp"
-      ],
+      "urls": {{TURN_URLS}},
       "username": "helix",
       "credential": "{{TURN_PASSWORD}}"
     }

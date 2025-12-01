@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -248,14 +249,40 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// Start TURN server for WebRTC NAT traversal if enabled
 	var turnServer *turn.Server
+	var muxListener *turn.MuxListener // For TURNS (TURN over TLS) support
+
 	if cfg.TURN.Enabled {
-		turnServer, err = turn.New(turn.Config{
-			PublicIP: cfg.TURN.PublicIP,
-			Port:     cfg.TURN.Port,
-			Realm:    cfg.TURN.Realm,
-			Username: cfg.TURN.Username,
-			Password: cfg.TURN.Password,
-		})
+		// Build TURN config
+		turnConfig := turn.Config{
+			PublicIP:  cfg.TURN.PublicIP,
+			Port:      cfg.TURN.Port,
+			Realm:     cfg.TURN.Realm,
+			Username:  cfg.TURN.Username,
+			Password:  cfg.TURN.Password,
+			TURNSHost: cfg.TURN.TURNSHost,
+			TURNSPort: cfg.TURN.TURNSPort,
+		}
+
+		// If TURNS is enabled, create a multiplexing listener on the API port
+		// This allows STUN/TURN traffic and HTTP to share the same TCP port
+		if cfg.TURN.TURNSEnabled {
+			addr := fmt.Sprintf("%s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
+			tcpListener, err := net.Listen("tcp", addr)
+			if err != nil {
+				return fmt.Errorf("failed to create TCP listener for TURNS multiplexing: %w", err)
+			}
+
+			muxListener = turn.NewMuxListener(tcpListener)
+			cm.RegisterCallbackWithContext(func(ctx context.Context) error {
+				return muxListener.Close()
+			})
+
+			// Provide the TURN listener to the TURN server
+			turnConfig.TCPListener = muxListener.TURNListener()
+			log.Info().Msgf("TURNS enabled: multiplexing TURN/TCP and HTTP on %s", addr)
+		}
+
+		turnServer, err = turn.New(turnConfig)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to start TURN server, WebRTC may not work properly")
 		} else {
@@ -263,6 +290,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 				return turnServer.Close()
 			})
 			log.Info().Msgf("TURN server enabled for WebRTC at %s:%d", cfg.TURN.PublicIP, cfg.TURN.Port)
+			if cfg.TURN.TURNSHost != "" {
+				log.Info().Msgf("TURNS available at turns:%s:%d", cfg.TURN.TURNSHost, cfg.TURN.TURNSPort)
+			}
 		}
 	}
 
@@ -562,6 +592,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	wolfHealthMonitor := store.NewWolfHealthMonitor(postgresStore, wolfScheduler)
 	go wolfHealthMonitor.Start(ctx)
 	log.Info().Msg("Wolf health monitor started")
+
+	// If TURNS multiplexing is enabled, provide the HTTP listener to the server
+	if muxListener != nil {
+		server.SetListener(muxListener.HTTPListener())
+	}
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 

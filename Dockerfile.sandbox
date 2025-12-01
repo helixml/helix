@@ -139,6 +139,7 @@ RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     libwayland-server0 libinput10 libxkbcommon0 libgbm1 \
     libglvnd0 libgl1 libglx0 libegl1 libgles2 xwayland hwdata \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker + NVIDIA Container Toolkit (from wolf.Dockerfile lines 154-182)
@@ -427,8 +428,19 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "✅ Using TURN IP: $TURN_PUBLIC_IP"
     fi
 
+    # Build TURN URLs array (always include UDP and TCP)
+    TURN_URLS="[\"turn:$TURN_PUBLIC_IP:3478?transport=udp\", \"turn:$TURN_PUBLIC_IP:3478?transport=tcp\""
+
+    # Add TURNS URL if TURNS_HOST is set (for TLS-terminated connections)
+    if [ -n "$TURNS_HOST" ]; then
+        TURNS_PORT="${TURNS_PORT:-443}"
+        TURN_URLS="$TURN_URLS, \"turns:$TURNS_HOST:$TURNS_PORT?transport=tcp\""
+        echo "✅ TURNS enabled: turns:$TURNS_HOST:$TURNS_PORT"
+    fi
+    TURN_URLS="$TURN_URLS]"
+
     # Substitute template variables
-    sed -e "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" \
+    sed -e "s|{{TURN_URLS}}|$TURN_URLS|g" \
         -e "s/{{MOONLIGHT_CREDENTIALS}}/$MOONLIGHT_CREDENTIALS/g" \
         -e "s/{{TURN_PASSWORD}}/$TURN_PASSWORD/g" \
         "$CONFIG_TEMPLATE" > "$CONFIG_FILE"

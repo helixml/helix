@@ -564,6 +564,15 @@ type TURN struct {
 	Realm    string `envconfig:"TURN_REALM" default:"helix.ai" description:"Authentication realm for TURN server."`
 	Username string `envconfig:"TURN_USERNAME" default:"helix" description:"Username for TURN authentication."`
 	Password string `envconfig:"TURN_PASSWORD" default:"helix-turn-secret" description:"Password for TURN authentication."`
+	// TURNSEnabled enables TURN-over-TLS support by multiplexing TURN/TCP on the API port.
+	// When enabled, the API server will detect STUN/TURN traffic vs HTTP and route accordingly.
+	// This allows TURNS clients to connect via a TLS-terminating proxy on port 443.
+	TURNSEnabled bool `envconfig:"TURNS_ENABLED" default:"false" description:"Enable TURNS (TURN over TLS) on API port."`
+	// TURNSHost is the hostname to advertise for TURNS URLs (e.g., 'turns.helix.example.com').
+	// This should be the external hostname where TLS is terminated before reaching the API.
+	TURNSHost string `envconfig:"TURNS_HOST" default:"" description:"Hostname for TURNS (separate subdomain recommended)."`
+	// TURNSPort is the external port for TURNS (default: 443 for standard HTTPS/TLS port).
+	TURNSPort int `envconfig:"TURNS_PORT" default:"443" description:"External port for TURNS connections."`
 }
 
 type ExternalAgents struct {

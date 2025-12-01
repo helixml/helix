@@ -114,6 +114,11 @@ services:
             - TURN_REALM=helix.ai
             - TURN_USERNAME=helix
             - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+            # TURNS (TURN over TLS) for restrictive enterprise networks
+            # Enable with TURNS_ENABLED=true and set TURNS_HOST to the hostname for TURNS
+            - TURNS_ENABLED=${TURNS_ENABLED:-false}
+            - TURNS_HOST=${TURNS_HOST:-}
+            - TURNS_PORT=${TURNS_PORT:-443}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
@@ -298,6 +303,8 @@ services:
         - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        - TURNS_HOST=${TURNS_HOST:-}
+        - TURNS_PORT=${TURNS_PORT:-443}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
         # Wolf debug dumps: 6 dumps max, 20GB quota
         - WOLF_MAX_DUMPS=6
@@ -395,6 +402,8 @@ services:
         - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        - TURNS_HOST=${TURNS_HOST:-}
+        - TURNS_PORT=${TURNS_PORT:-443}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
         # Wolf debug dumps: 6 dumps max, 20GB quota
         - WOLF_MAX_DUMPS=6
@@ -491,6 +500,8 @@ services:
         - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        - TURNS_HOST=${TURNS_HOST:-}
+        - TURNS_PORT=${TURNS_PORT:-443}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
         # RevDial connection (enables Wolf and Moonlight Web to connect to API)
         - HELIX_API_URL=http://api:8080

@@ -124,6 +124,16 @@ type HelixAPIServer struct {
 	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
 	adminAlerter                *notification.AdminAlerter
+	// listener is an optional pre-configured net.Listener for the HTTP server.
+	// When set, ListenAndServe will use this listener instead of creating one.
+	// This enables protocol multiplexing (e.g., TURNS on same port as HTTP).
+	listener net.Listener
+}
+
+// SetListener sets a custom listener for the HTTP server.
+// This must be called before ListenAndServe.
+func (apiServer *HelixAPIServer) SetListener(l net.Listener) {
+	apiServer.listener = l
 }
 
 func NewServer(
@@ -435,6 +445,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		ReadHeaderTimeout: time.Minute * 30,
 		IdleTimeout:       time.Minute * 60,
 		Handler:           apiServer.router,
+	}
+
+	// If a custom listener was provided (e.g., for protocol multiplexing), use it
+	if apiServer.listener != nil {
+		log.Info().Msg("Using custom listener for HTTP server (protocol multiplexing enabled)")
+		return srv.Serve(apiServer.listener)
 	}
 	return srv.ListenAndServe()
 }
