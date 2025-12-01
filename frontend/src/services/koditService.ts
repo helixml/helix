@@ -24,24 +24,8 @@ export const KODIT_SUBTYPE_DATABASE_SCHEMA = 'database_schema' // Database schem
 // Living documentation subtypes
 export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit descriptions
 
-/**
- * Kodit indexing status (matches Kodit API response)
- */
-export interface KoditIndexingStatusAttributes {
-  status: string
-  message?: string
-  updated_at: string
-}
-
-export interface KoditIndexingStatusData {
-  type: string
-  id: string
-  attributes: KoditIndexingStatusAttributes
-}
-
-export interface KoditIndexingStatus {
-  data: KoditIndexingStatusData
-}
+// Re-export generated types for Kodit indexing status
+export type { ServicesKoditIndexingStatus as KoditIndexingStatus } from '../api/api'
 
 /**
  * Query key factory for Kodit enrichments
