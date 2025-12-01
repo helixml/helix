@@ -16,16 +16,38 @@ import { KoditIndexingStatus } from '../../services/koditService'
 interface KoditStatusPillProps {
   data?: KoditIndexingStatus
   isLoading?: boolean
+  error?: Error | null
 }
 
 const KoditStatusPill: FC<KoditStatusPillProps> = ({
   data,
   isLoading,
+  error,
 }) => {
   const attrs = data?.data?.attributes
   const status = attrs?.status
   const message = attrs?.message
   const updatedAt = attrs?.updated_at
+
+  // Handle API errors first
+  if (error) {
+    return (
+      <Tooltip title={error.message || 'Failed to fetch status'} arrow placement="top">
+        <Chip
+          icon={<AlertCircle size={14} />}
+          label="Error"
+          size="small"
+          color="error"
+          sx={{
+            '& .MuiChip-icon': {
+              color: 'inherit',
+            },
+          }}
+        />
+      </Tooltip>
+    )
+  }
+
   if (isLoading) {
     return (
       <Chip
@@ -79,7 +101,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (status === 'indexing') {
+  if (status === 'indexing' || status === 'in_progress') {
     return (
       <Tooltip title={message || 'Repository is being indexed...'} arrow placement="top">
         <Chip
