@@ -152,7 +152,7 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
-Both commands rebuild the helix-sway image. `./stack build-sandbox` is one way to bump the sway image.
+`./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
 ```bash
 # ❌ WRONG: Build without committing
