@@ -337,9 +337,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={createProjectMutation.isPending || creatingRepo}>
-          Cancel
-        </Button>
         <Button
           variant="contained"
           color="secondary"
