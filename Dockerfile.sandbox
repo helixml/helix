@@ -160,14 +160,20 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Copy helix-sway tarball EARLY (rarely changes, ~3GB)
+# Copy desktop image tarballs EARLY (rarely change, ~3GB each)
 # This maximizes cache hits - changes to scripts/binaries below won't
-# invalidate this large layer, making pushes much faster
+# invalidate these large layers, making pushes much faster
 # ====================================================================
 RUN mkdir -p /opt/images
+
+# Sway desktop tarball (required)
 COPY helix-sway.tar /opt/images/helix-sway.tar
 COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
 COPY helix-sway.version /opt/images/helix-sway.version
+
+# Zorin desktop tarball (optional - may not exist during initial builds)
+# Use COPY with wildcard pattern to make it optional
+COPY helix-zorin.tar* /opt/images/
 
 # ====================================================================
 # Copy Wolf binaries and setup
@@ -316,6 +322,53 @@ if [ -f /opt/images/helix-sway.tar ]; then
     echo "✅ helix-sway:${SWAY_VERSION} ready for Wolf executor"
 else
     echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
+fi
+
+# Load helix-zorin image into sandbox's dockerd (optional - with version-based management)
+if [ -f /opt/images/helix-zorin.tar ]; then
+    # Read expected version from embedded metadata
+    ZORIN_VERSION="latest"
+    if [ -f /opt/images/helix-zorin.version ]; then
+        ZORIN_VERSION=$(cat /opt/images/helix-zorin.version)
+        echo "📦 helix-zorin version: ${ZORIN_VERSION}"
+    fi
+
+    # Check if versioned image already loaded (optimization to skip expensive docker load)
+    SHOULD_LOAD=true
+    EXPECTED_HASH=""
+    if [ -f /opt/images/helix-zorin.tar.hash ]; then
+        EXPECTED_HASH=$(cat /opt/images/helix-zorin.tar.hash)
+    fi
+
+    # Check for versioned tag first (more reliable than :latest)
+    CURRENT_HASH=$(docker images "helix-zorin:${ZORIN_VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
+
+    if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
+        echo "✅ helix-zorin:${ZORIN_VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
+        SHOULD_LOAD=false
+    else
+        echo "📦 Loading helix-zorin:${ZORIN_VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
+    fi
+
+    if [ "$SHOULD_LOAD" = true ]; then
+        if docker load -i /opt/images/helix-zorin.tar 2>&1 | tee /tmp/docker-load-zorin.log; then
+            # Verify both tags exist after load
+            if docker images "helix-zorin:${ZORIN_VERSION}" --format '{{.ID}}' | grep -q .; then
+                echo "✅ helix-zorin:${ZORIN_VERSION} loaded successfully"
+            else
+                # Tarball may be from before versioning - tag it now
+                echo "🏷️  Tagging helix-zorin:latest as helix-zorin:${ZORIN_VERSION}"
+                docker tag helix-zorin:latest "helix-zorin:${ZORIN_VERSION}" 2>/dev/null || true
+            fi
+        else
+            echo "⚠️  Failed to load helix-zorin tarball (may be corrupted or out of memory)"
+            echo "   Container will continue startup - transfer fresh image with './stack build-zorin'"
+        fi
+    fi
+
+    echo "✅ helix-zorin:${ZORIN_VERSION} ready for Wolf executor"
+else
+    echo "ℹ️  helix-zorin tarball not found (Zorin desktop not available)"
 fi
 DOCKERD_SCRIPT
 RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh
@@ -531,21 +584,25 @@ fi
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
 echo "💓 Starting Wolf heartbeat service for instance: $WOLF_INSTANCE_ID"
 
-# Read sway version from embedded metadata (set at build time)
+# Read desktop versions from embedded metadata (set at build time)
 SWAY_VERSION=""
 if [ -f /opt/images/helix-sway.version ]; then
     SWAY_VERSION=$(cat /opt/images/helix-sway.version)
     echo "📦 Reporting helix-sway version: ${SWAY_VERSION}"
 fi
 
+ZORIN_VERSION=""
+if [ -f /opt/images/helix-zorin.version ]; then
+    ZORIN_VERSION=$(cat /opt/images/helix-zorin.version)
+    echo "📦 Reporting helix-zorin version: ${ZORIN_VERSION}"
+fi
+
 # Start heartbeat loop in background
 (
     while true; do
-        # Build heartbeat request body with sway version
-        HEARTBEAT_BODY="{}"
-        if [ -n "$SWAY_VERSION" ]; then
-            HEARTBEAT_BODY="{\"sway_version\": \"${SWAY_VERSION}\"}"
-        fi
+        # Build heartbeat request body with all desktop versions
+        # Include both sway_version and zorin_version fields (empty string if not available)
+        HEARTBEAT_BODY="{\"sway_version\": \"${SWAY_VERSION}\", \"zorin_version\": \"${ZORIN_VERSION}\"}"
 
         # Send heartbeat to API with version metadata
         if curl -sf -X POST \
@@ -554,7 +611,7 @@ fi
             -d "$HEARTBEAT_BODY" \
             "$HELIX_API_URL/api/v1/wolf-instances/$WOLF_INSTANCE_ID/heartbeat" \
             >/dev/null 2>&1; then
-            echo "[$(date -Iseconds)] ✅ Heartbeat sent (sway: ${SWAY_VERSION:-unknown})"
+            echo "[$(date -Iseconds)] ✅ Heartbeat sent (sway: ${SWAY_VERSION:-unknown}, zorin: ${ZORIN_VERSION:-unknown})"
         else
             echo "[$(date -Iseconds)] ⚠️  Heartbeat failed (API may not be ready yet)"
         fi

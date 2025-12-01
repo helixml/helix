@@ -24,6 +24,29 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// DesktopType represents the type of desktop environment to use
+type DesktopType string
+
+const (
+	DesktopSway  DesktopType = "sway"
+	DesktopZorin DesktopType = "zorin"
+)
+
+// parseDesktopType converts a string to DesktopType, defaulting to Sway
+func parseDesktopType(s string) DesktopType {
+	switch strings.ToLower(s) {
+	case "zorin":
+		return DesktopZorin
+	default:
+		return DesktopSway
+	}
+}
+
+// getDesktopTypeFromEnv reads the HELIX_DESKTOP environment variable
+func getDesktopTypeFromEnv() DesktopType {
+	return parseDesktopType(os.Getenv("HELIX_DESKTOP"))
+}
+
 // extractHostPortAndTLS parses a URL and returns host:port and whether TLS is needed
 // Used to configure Zed's WebSocket connection to the API
 func extractHostPortAndTLS(rawURL string) (hostPort string, useTLS bool) {
@@ -155,36 +178,44 @@ func generateLobbyPIN() ([]int16, string) {
 	return pin, pinString
 }
 
-// SwayWolfAppConfig contains configuration for creating a Sway-based Wolf app
-type SwayWolfAppConfig struct {
+// DesktopWolfAppConfig configures a Wolf app with a desktop environment (Sway or Zorin)
+type DesktopWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string   // User ID for SSH key mounting
-	SessionID         string   // Session ID for settings sync daemon
+	UserID            string      // User ID for SSH key mounting
+	SessionID         string      // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
-	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
-	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
+	ExtraMounts       []string    // Additional directory mounts (e.g., internal project repo)
+	ZedImage          string      // Override for desktop image (uses instance's desktop version)
+	DesktopType       DesktopType // Type of desktop environment (sway or zorin)
 	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
 }
 
-// computeZedImageFromVersion converts a SwayVersion (commit hash) from Wolf instance
-// into a full Docker image tag. Returns empty string if no version is set (falls back to default).
-func (w *WolfExecutor) computeZedImageFromVersion(swayVersion string) string {
-	if swayVersion == "" {
-		return "" // Fall back to default w.zedImage in createSwayWolfApp
+// computeZedImageFromVersion converts a version string (commit hash) from Wolf instance
+// into a full Docker image tag based on desktop type. Returns empty string if no version is set.
+func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, version string) string {
+	if version == "" {
+		return "" // Fall back to default w.zedImage in createDesktopWolfApp
 	}
-	// SwayVersion is a commit hash (e.g., "abc123def")
-	// Convert to full image tag: helix-sway:abc123def
-	return fmt.Sprintf("helix-sway:%s", swayVersion)
+
+	// Select image prefix based on desktop type
+	prefix := "helix-sway"
+	if desktopType == DesktopZorin {
+		prefix = "helix-zorin"
+	}
+
+	// Version is a commit hash (e.g., "abc123def")
+	// Convert to full image tag: helix-sway:abc123def or helix-zorin:abc123def
+	return fmt.Sprintf("%s:%s", prefix, version)
 }
 
-// createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
-func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
+// createDesktopWolfApp creates a Wolf app with a desktop environment (Sway or Zorin)
+func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.App {
 	// Build GPU-specific device list based on GPU_VENDOR
 	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
 	gpuDevices := "/dev/input/*"         // Input devices always needed
@@ -239,19 +270,35 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Development mode: mount files for hot-reloading
 	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
 	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
-	// Production mode: use files baked into helix-sway image
+	// Production mode: use files baked into desktop image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
+		log.Info().
+			Str("desktop_type", string(config.DesktopType)).
+			Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
+
+		// Select config directory based on desktop type
+		configDir := "sway-config"
+		if config.DesktopType == DesktopZorin {
+			configDir = "zorin-config"
+		}
 
 		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
 		mounts = append(mounts,
 			"/helix-dev/zed-build:/zed-build:ro",
-			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
-			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
-			"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
+			fmt.Sprintf("/helix-dev/%s/startup-app.sh:/opt/gow/startup-app.sh:ro", configDir),
+			fmt.Sprintf("/helix-dev/%s/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", configDir),
 		)
+
+		// Sway-specific scripts (not needed for Zorin)
+		if config.DesktopType == DesktopSway {
+			mounts = append(mounts,
+				"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
+			)
+		}
 	} else {
-		log.Debug().Msg("Production mode - using files baked into helix-sway image")
+		log.Debug().
+			Str("desktop_type", string(config.DesktopType)).
+			Msg("Production mode - using files baked into desktop image")
 	}
 
 	// Add SSH keys mount if user has SSH keys
@@ -293,14 +340,15 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
   }
 }`, config.ContainerHostname)
 
-	// Determine which image to use (prefer config override from Wolf instance's SwayVersion)
+	// Determine which image to use (prefer config override from Wolf instance's desktop version)
 	zedImage := w.zedImage
 	if config.ZedImage != "" {
 		zedImage = config.ZedImage
 		log.Info().
-			Str("zed_image", zedImage).
+			Str("image", zedImage).
+			Str("desktop_type", string(config.DesktopType)).
 			Str("session_id", config.SessionID).
-			Msg("Using versioned helix-sway image from Wolf instance")
+			Msg("Using versioned desktop image from Wolf instance")
 	}
 
 	// Create Wolf app
@@ -786,7 +834,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			ChannelCount: 2,
 		},
 		RunnerStateFolder: filepath.Join("/wolf-state", "agent-"+agent.SessionID),
-		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
+		Runner: w.createDesktopWolfApp(DesktopWolfAppConfig{
 			WolfAppID:         wolfAppID, // Still used for app config, but not for Wolf API
 			Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
 			ContainerHostname: containerHostname,
@@ -798,7 +846,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
-			ZedImage:          w.computeZedImageFromVersion(wolfInstance.SwayVersion), // Use version from sandbox heartbeat
+			DesktopType:       getDesktopTypeFromEnv(),
+			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance.SwayVersion), // Use version from sandbox heartbeat
 		}).Runner, // Use the runner config from the app
 	}
 
