@@ -606,7 +606,7 @@ Examples:
                 >
                   {apps.apps.map((app) => (
                     <MenuItem key={app.id} value={app.id}>
-                      {app.config?.helix?.name || app.name || 'Unnamed Agent'}
+                      {app.config?.helix?.name || 'Unnamed Agent'}
                     </MenuItem>
                   ))}
                   <MenuItem value="__create_default__">
