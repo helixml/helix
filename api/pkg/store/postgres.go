@@ -19,7 +19,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/datatypes"
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -682,15 +681,15 @@ func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
 			Status:      "active",
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
-			Metadata: datatypes.JSON([]byte(`{
-				"board_settings": {
-					"wip_limits": {
-						"planning": 3,
-						"review": 2,
-						"implementation": 5
-					}
-				}
-			}`)),
+			Metadata: types.ProjectMetadata{
+				BoardSettings: &types.BoardSettings{
+					WIPLimits: types.WIPLimits{
+						Planning:       3,
+						Review:         2,
+						Implementation: 5,
+					},
+				},
+			},
 		}
 
 		err = s.gdb.WithContext(ctx).Create(defaultProject).Error
