@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -231,33 +230,30 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 
 	// Check WIP limits for planning column before auto-starting
 	// Get default project to load board settings
-	defaultProject, err := o.store.GetProject(ctx, "default")
-	if err == nil && len(defaultProject.Metadata) > 0 {
-		var metadata types.ProjectMetadata
-		if err := json.Unmarshal(defaultProject.Metadata, &metadata); err == nil {
-			if metadata.BoardSettings != nil && metadata.BoardSettings.WIPLimits != nil {
-				planningLimit, ok := metadata.BoardSettings.WIPLimits["planning"]
-				if ok && planningLimit > 0 {
-					// Count tasks currently in planning for THIS project
-					planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-						ProjectID: task.ProjectID,
-						Status:    types.TaskStatusSpecGeneration,
-					})
-					if err != nil {
-						log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
-					} else if len(planningTasks) >= planningLimit {
-						// Planning column is at WIP limit - don't auto-start
-						log.Info().
-							Str("task_id", task.ID).
-							Str("project_id", task.ProjectID).
-							Int("planning_count", len(planningTasks)).
-							Int("wip_limit", planningLimit).
-							Msg("Skipping backlog task - planning column at WIP limit")
-						return nil
-					}
-				}
-			}
-		}
+
+	var planningLimit int = 3
+
+	if project.Metadata.BoardSettings != nil &&
+		project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
+		planningLimit = project.Metadata.BoardSettings.WIPLimits.Planning
+	}
+
+	// Count tasks currently in planning for THIS project
+	planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: task.ProjectID,
+		Status:    types.TaskStatusSpecGeneration,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
+	} else if len(planningTasks) >= planningLimit {
+		// Planning column is at WIP limit - don't auto-start
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Int("planning_count", len(planningTasks)).
+			Int("wip_limit", planningLimit).
+			Msg("Skipping backlog task - planning column at WIP limit")
+		return nil
 	}
 
 	log.Info().
@@ -745,10 +741,10 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
-		ProjectPath:         "backend",         // Default primary repo path
-		RepositoryIDs:       repositoryIDs,     // Repositories to clone
-		PrimaryRepositoryID: primaryRepoID,     // Primary repository for design docs
-		SpecTaskID:          task.ID,           // Link to SpecTask
+		ProjectPath:         "backend",          // Default primary repo path
+		RepositoryIDs:       repositoryIDs,      // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID,      // Primary repository for design docs
+		SpecTaskID:          task.ID,            // Link to SpecTask
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
