@@ -559,6 +559,9 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
+	} else {
+		// If we are listing just for the user, we don't want to filter by organization
+		q = q.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
 	err := q.Order("created_at DESC").Find(&projects).Error
