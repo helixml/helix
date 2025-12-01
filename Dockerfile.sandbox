@@ -245,13 +245,24 @@ DAEMON_JSON
 
 echo "Configured Wolf's dockerd with nvidia runtime support"
 
-# Start dockerd in background (redirect to stdout with prefix for unified logs)
-dockerd --config-file /etc/docker/daemon.json \
-    --host=unix:///var/run/docker.sock \
-    2>&1 | sed -u 's/^/[DOCKERD] /' &
+# Start dockerd with auto-restart supervisor loop in background
+# This ensures dockerd restarts if it crashes (which would break all sandboxes)
+(
+    while true; do
+        # Clean up stale PID files before each restart attempt
+        rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
-DOCKERD_PID=$!
-echo "Started dockerd with PID: $DOCKERD_PID"
+        echo "[$(date -Iseconds)] Starting dockerd..."
+        dockerd --config-file /etc/docker/daemon.json \
+            --host=unix:///var/run/docker.sock
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[DOCKERD] /' &
+
+DOCKERD_WRAPPER_PID=$!
+echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
 # Wait for dockerd to be ready
 TIMEOUT=30
@@ -550,12 +561,22 @@ fi
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
 echo "💓 Starting Wolf heartbeat daemon for instance: $WOLF_INSTANCE_ID"
 
-# Start the Go heartbeat daemon in background
+# Start the Go heartbeat daemon with auto-restart supervisor loop
 # It monitors disk space on /var and / and reports to API
-/usr/local/bin/sandbox-heartbeat 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
+# The daemon can be safely killed (e.g., by transfer-sway-to-sandbox for version reload)
+# and will automatically restart within 2 seconds
+(
+    while true; do
+        echo "[$(date -Iseconds)] Starting heartbeat daemon..."
+        /usr/local/bin/sandbox-heartbeat
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
-echo "✅ Wolf heartbeat daemon started (PID: $HEARTBEAT_PID)"
+echo "✅ Wolf heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
 EOF
 RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 

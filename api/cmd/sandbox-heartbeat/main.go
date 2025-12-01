@@ -76,13 +76,6 @@ func main() {
 		wolfInstanceID = "local"
 	}
 
-	// Read sway version from embedded metadata
-	swayVersion := ""
-	if data, err := os.ReadFile("/opt/images/helix-sway.version"); err == nil {
-		swayVersion = string(bytes.TrimSpace(data))
-		log.Info().Str("sway_version", swayVersion).Msg("Read helix-sway version")
-	}
-
 	// Check if privileged mode is enabled
 	privilegedModeEnabled := os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true"
 
@@ -102,13 +95,13 @@ func main() {
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
-	sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion, privilegedModeEnabled)
+	sendHeartbeat(apiURL, runnerToken, wolfInstanceID, privilegedModeEnabled)
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion, privilegedModeEnabled)
+			sendHeartbeat(apiURL, runnerToken, wolfInstanceID, privilegedModeEnabled)
 		case sig := <-sigChan:
 			log.Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 			return
@@ -116,7 +109,13 @@ func main() {
 	}
 }
 
-func sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion string, privilegedModeEnabled bool) {
+func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEnabled bool) {
+	// Re-read sway version on each heartbeat (allows hot-reload after build-sway)
+	swayVersion := ""
+	if data, err := os.ReadFile("/opt/images/helix-sway.version"); err == nil {
+		swayVersion = string(bytes.TrimSpace(data))
+	}
+
 	// Collect disk usage metrics
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
