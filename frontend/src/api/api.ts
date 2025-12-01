@@ -56,6 +56,22 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface KoditRepositoryStatusSummaryAttributes {
+  /** Message Error message if failed */
+  message?: string;
+  /** Status Overall indexing status */
+  status?: string;
+  /** UpdatedAt Most recent activity timestamp */
+  updated_at?: string;
+}
+
+export interface KoditRepositoryStatusSummaryData {
+  /** Attributes Attributes for repository status summary. */
+  attributes?: KoditRepositoryStatusSummaryAttributes;
+  id?: string;
+  type?: string;
+}
+
 export interface McpMeta {
   /**
    * AdditionalFields are any fields present in the Meta that are not
@@ -1032,6 +1048,11 @@ export interface ServicesKoditEnrichmentData {
 
 export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
+}
+
+export interface ServicesKoditIndexingStatus {
+  /** Data Data for repository status summary response. */
+  data?: KoditRepositoryStatusSummaryData;
 }
 
 export interface ServicesKoditSearchResult {
@@ -6593,7 +6614,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
