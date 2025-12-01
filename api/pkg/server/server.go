@@ -30,9 +30,9 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/janitor"
-	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/moonlight"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -929,8 +929,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.getBoardSettings).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.updateBoardSettings).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)

@@ -1737,7 +1737,7 @@ export interface TypesAzureDevOpsTrigger {
 }
 
 export interface TypesBoardSettings {
-  wip_limits?: Record<string, number>;
+  wip_limits?: TypesWIPLimits;
 }
 
 export interface TypesChatCompletionMessage {
@@ -2983,7 +2983,7 @@ export interface TypesProject {
   description?: string;
   github_repo_url?: string;
   id?: string;
-  metadata?: number[];
+  metadata?: TypesProjectMetadata;
   name?: string;
   organization_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
@@ -3006,12 +3006,17 @@ export interface TypesProjectCreateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectMetadata {
+  board_settings?: TypesBoardSettings;
+}
+
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  metadata?: TypesProjectMetadata;
   name?: string;
   startup_script?: string;
   status?: string;
@@ -4388,11 +4393,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4501,6 +4506,12 @@ export interface TypesUserTokenUsageResponse {
 export interface TypesUsersAggregatedUsageMetric {
   metrics?: TypesAggregatedUsageMetric[];
   user?: TypesUser;
+}
+
+export interface TypesWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
 }
 
 export interface TypesWallet {
@@ -9725,44 +9736,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsList
-     * @summary Get board settings for spec tasks
-     * @request GET:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsUpdate
-     * @summary Update board settings for spec tasks
-     * @request PUT:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),

@@ -29,10 +29,10 @@ type Project struct {
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available
 
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
-	Metadata  datatypes.JSON `json:"metadata,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
+	Metadata  ProjectMetadata `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 }
 
 // ProjectTask represents a task within a project (extends AgentWorkItem for project-specific tasks)
@@ -133,15 +133,16 @@ type ProjectCreateRequest struct {
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                  *string  `json:"name,omitempty"`
-	Description           *string  `json:"description,omitempty"`
-	GitHubRepoURL         *string  `json:"github_repo_url,omitempty"`
-	DefaultBranch         *string  `json:"default_branch,omitempty"`
-	Technologies          []string `json:"technologies,omitempty"`
-	Status                *string  `json:"status,omitempty"`
-	DefaultRepoID         *string  `json:"default_repo_id,omitempty"`
-	StartupScript         *string  `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks *bool    `json:"auto_start_backlog_tasks,omitempty"`
+	Name                  *string          `json:"name,omitempty"`
+	Description           *string          `json:"description,omitempty"`
+	GitHubRepoURL         *string          `json:"github_repo_url,omitempty"`
+	DefaultBranch         *string          `json:"default_branch,omitempty"`
+	Technologies          []string         `json:"technologies,omitempty"`
+	Status                *string          `json:"status,omitempty"`
+	DefaultRepoID         *string          `json:"default_repo_id,omitempty"`
+	StartupScript         *string          `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks *bool            `json:"auto_start_backlog_tasks,omitempty"`
+	Metadata              *ProjectMetadata `json:"metadata,omitempty"`
 }
 
 // ProjectTaskCreateRequest represents a request to create a new project task
@@ -263,5 +264,14 @@ type ProjectMetadata struct {
 
 // BoardSettings represents the Kanban board settings for a project
 type BoardSettings struct {
-	WIPLimits map[string]int `json:"wip_limits"`
+	WIPLimits WIPLimits `json:"wip_limits"`
+}
+
+// "planning":       3,
+// "review":         2,
+// "implementation": 5,
+type WIPLimits struct {
+	Planning       int `json:"planning"`
+	Review         int `json:"review"`
+	Implementation int `json:"implementation"`
 }
