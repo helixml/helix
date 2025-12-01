@@ -14,7 +14,9 @@ type WolfInstance struct {
 	LastHeartbeat         time.Time `gorm:"index" json:"last_heartbeat"`
 	ConnectedSandboxes    int       `gorm:"default:0" json:"connected_sandboxes"`
 	MaxSandboxes          int       `gorm:"default:10" json:"max_sandboxes"`
-	GPUType               string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, none
+	GPUType               string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, intel, none (legacy, use GPUVendor)
+	GPUVendor             string    `gorm:"type:varchar(100)" json:"gpu_vendor"`        // nvidia, amd, intel, none (from sandbox heartbeat)
+	RenderNode            string    `gorm:"type:varchar(255)" json:"render_node"`       // /dev/dri/renderD128 or SOFTWARE (from sandbox heartbeat)
 	SwayVersion           string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (commit hash)
 	DiskUsageJSON         string    `gorm:"type:text" json:"-"`                         // JSON-encoded disk usage metrics
 	DiskAlertLevel        string    `gorm:"type:varchar(20)" json:"disk_alert_level"`   // highest alert level: ok, warning, critical
@@ -40,10 +42,12 @@ type WolfInstanceRequest struct {
 
 // WolfHeartbeatRequest is the request body for Wolf instance heartbeat
 type WolfHeartbeatRequest struct {
-	SwayVersion           string                  `json:"sway_version,omitempty"`             // helix-sway image version (commit hash)
-	DiskUsage             []DiskUsageMetric       `json:"disk_usage,omitempty"`               // disk usage metrics for monitored partitions
-	ContainerUsage        []ContainerDiskUsage    `json:"container_usage,omitempty"`          // per-container disk usage breakdown
-	PrivilegedModeEnabled bool                    `json:"privileged_mode_enabled,omitempty"`  // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
+	SwayVersion           string               `json:"sway_version,omitempty"`            // helix-sway image version (commit hash)
+	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`              // disk usage metrics for monitored partitions
+	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`         // per-container disk usage breakdown
+	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"` // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
+	GPUVendor             string               `json:"gpu_vendor,omitempty"`              // nvidia, amd, intel, none (from sandbox env)
+	RenderNode            string               `json:"render_node,omitempty"`             // /dev/dri/renderD128 or SOFTWARE (from sandbox env)
 }
 
 // DiskUsageMetric represents disk usage for a single mount point
@@ -113,6 +117,8 @@ type WolfInstanceResponse struct {
 	ConnectedSandboxes    int               `json:"connected_sandboxes"`
 	MaxSandboxes          int               `json:"max_sandboxes"`
 	GPUType               string            `json:"gpu_type"`
+	GPUVendor             string            `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none (from sandbox heartbeat)
+	RenderNode            string            `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
 	SwayVersion           string            `json:"sway_version"`
 	DiskUsage             []DiskUsageMetric `json:"disk_usage,omitempty"`
 	DiskAlertLevel        string            `json:"disk_alert_level,omitempty"`
@@ -132,6 +138,8 @@ func (w *WolfInstance) ToResponse() *WolfInstanceResponse {
 		ConnectedSandboxes:    w.ConnectedSandboxes,
 		MaxSandboxes:          w.MaxSandboxes,
 		GPUType:               w.GPUType,
+		GPUVendor:             w.GPUVendor,
+		RenderNode:            w.RenderNode,
 		SwayVersion:           w.SwayVersion,
 		DiskAlertLevel:        w.DiskAlertLevel,
 		PrivilegedModeEnabled: w.PrivilegedModeEnabled,

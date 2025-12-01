@@ -771,7 +771,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// NEW: Create lobby instead of app for immediate auto-start
-	// Determine video buffer caps and render node based on GPU vendor
+	// Determine video buffer caps and render node based on GPU vendor from sandbox heartbeat
 	//
 	// For NVIDIA: waylanddisplaysrc (with cuda feature) can output video/x-raw(memory:CUDAMemory) directly
 	// This is the zero-copy path - frames stay in GPU memory from capture through encoding.
@@ -779,11 +779,15 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	//
 	// For AMD/Intel: Use video/x-raw for VA-API encoders (vapostproc handles conversion)
 	// For software: Use video/x-raw for CPU-based x264enc
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
-	videoBufferCaps := "video/x-raw"     // Default for AMD/Intel/software/unknown (legacy pipeline)
-	renderNode := os.Getenv("WOLF_RENDER_NODE")
+	//
+	// CRITICAL: Use GPU info from sandbox heartbeat, NOT local environment!
+	// The wolf_executor runs on the controlplane (no GPU), but it creates lobbies
+	// on sandboxes that DO have GPUs. Each sandbox reports its GPU via heartbeat.
+	gpuVendor := wolfInstance.GPUVendor // From sandbox heartbeat, NOT os.Getenv
+	videoBufferCaps := "video/x-raw"    // Default for AMD/Intel/software/unknown (legacy pipeline)
+	renderNode := wolfInstance.RenderNode
 	if renderNode == "" {
-		renderNode = "/dev/dri/renderD128" // Default
+		renderNode = "/dev/dri/renderD128" // Default if sandbox hasn't reported yet
 	}
 
 	switch gpuVendor {
@@ -791,12 +795,18 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		// NVIDIA zero-copy: waylanddisplaysrc outputs CUDA memory directly → nvh264enc
 		// Requires gst-plugin-wayland-display built with --features cuda
 		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
-	case "none", "":
+	case "none":
 		// Software rendering fallback - use llvmpipe via SOFTWARE render node
 		// Per Wolf maintainer ABeltramo: "Setting the render node to SOFTWARE should do the trick"
 		renderNode = "SOFTWARE"
 		videoBufferCaps = "video/x-raw" // CPU memory for software encoding (x264enc)
-		log.Info().Msg("No GPU detected - using software rendering (llvmpipe)")
+		log.Info().Msg("Sandbox reports no GPU - using software rendering (llvmpipe)")
+	case "":
+		// Empty string means sandbox hasn't reported GPU info yet (legacy or just started)
+		// Fall back to default render node, Wolf will auto-detect
+		log.Warn().
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("Sandbox hasn't reported GPU info yet - using default render node (Wolf will auto-detect)")
 	default:
 		// Intel/AMD - use raw video for VA-API/VAAPI encoders
 		videoBufferCaps = "video/x-raw"
@@ -806,7 +816,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("gpu_vendor", gpuVendor).
 		Str("video_buffer_caps", videoBufferCaps).
 		Str("render_node", renderNode).
-		Msg("Configured video settings for GPU type")
+		Str("wolf_instance_id", wolfInstance.ID).
+		Msg("Configured video settings from sandbox GPU info")
 
 	// Hydra multi-Docker isolation: Create isolated dockerd for this session
 	// When Hydra is enabled, each session gets its own dockerd for complete isolation
