@@ -55,7 +55,7 @@ interface CodeIntelligenceTabProps {
 const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId, commitSha }) => {
   const router = useRouter()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
-  const { data: koditStatusData, isLoading: koditStatusLoading } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
+  const { data: koditStatusData, isLoading: koditStatusLoading, error: koditStatusError } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
 
   // Fetch commits for the dropdown
   const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: repoId && repository.kodit_indexing })
@@ -109,6 +109,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                 <KoditStatusPill
                   data={koditStatusData}
                   isLoading={koditStatusLoading}
+                  error={koditStatusError}
                 />
               </Box>
 
