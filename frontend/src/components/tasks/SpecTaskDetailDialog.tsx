@@ -745,7 +745,15 @@ I'll give you feedback and we can iterate on any changes needed.`
                     </Typography>
                     {swayVersion && (
                       <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
-                        Sway Version: {swayVersion}
+                        Sway Version:{' '}
+                        <a
+                          href={`https://github.com/helixml/helix/commit/${swayVersion}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#90caf9', textDecoration: 'underline' }}
+                        >
+                          {swayVersion}
+                        </a>
                       </Typography>
                     )}
                   </>
