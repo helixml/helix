@@ -230,7 +230,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 					Msg("Cannot register local repository with Kodit without API key - user must authenticate with API key")
 			} else {
 				// Build authenticated URL: http://api:APIKEY@host/git/repo_id
-				koditCloneURL = s.buildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
+				koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
 			}
 		}
 
@@ -510,11 +510,11 @@ func (s *GitRepositoryService) generateCloneURL(repoID string) string {
 	return fmt.Sprintf("%s/git/%s", s.serverBaseURL, repoID)
 }
 
-// buildAuthenticatedCloneURL builds a clone URL with embedded API key authentication
+// BuildAuthenticatedCloneURL builds a clone URL with embedded API key authentication
 // Uses koditGitURL (configurable) as the base URL for Kodit to access the git server
 // Input: repoID: repo-123, apiKey: hl-xxxxx
 // Output: http://api:hl-xxxxx@api:8080/git/repo-123 (when koditGitURL is http://api:8080)
-func (s *GitRepositoryService) buildAuthenticatedCloneURL(repoID, apiKey string) string {
+func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string) string {
 	// Use configured koditGitURL, falling back to serverBaseURL if not set
 	baseURL := s.koditGitURL
 	if baseURL == "" {
