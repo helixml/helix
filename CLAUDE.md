@@ -148,35 +148,20 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **NEVER assume you can delete someone else's code.**
 
-## 🚨 CRITICAL: COMMIT AND PUSH BEFORE BUILDING SANDBOX IMAGE 🚨
+## 🚨 CRITICAL: COMMIT BEFORE BUILDING SANDBOX IMAGE 🚨
 
-**ALWAYS commit and push before running `./stack build-sway` or `./stack build-sandbox`**
+**ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
 ```bash
-# ❌ WRONG: Build without committing - version link will 404
-./stack build-sway                    # DON'T DO THIS
-./stack build-sandbox                 # WITHOUT COMMITTING FIRST
+# ❌ WRONG: Build without committing
+./stack build-sway                    # Image tag won't update!
 
-# ✅ CORRECT: Commit and push first
-git add -A
-git commit -m "Your changes"
-git push
-./stack build-sway                    # NOW the version hash exists on GitHub
+# ✅ CORRECT
+git add -A && git commit -m "changes" && git push
+./stack build-sway                    # New tag detected, new image runs
 ```
 
-**Why this is required:**
-- The helix-sway image is tagged with the current git commit hash
-- This version is displayed in the Spec Task debug panel as a clickable GitHub link
-- If you build without committing, the version hash won't exist on GitHub
-- Users clicking the link will get a 404 error
-
-**The version tagging flow:**
-1. `./stack build-sway` tags the image with current git HEAD commit hash
-2. When a sandbox starts, Wolf instance reports `SwayVersion` from the image
-3. Frontend displays version as link to `github.com/helixml/helix/commit/{hash}`
-4. If commit wasn't pushed, the link is broken
-
-**ALWAYS: commit → push → build-sway/build-sandbox**
+**Why:** The image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
 
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
