@@ -365,6 +365,7 @@ type SessionMetadata struct {
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
@@ -1880,6 +1881,8 @@ type ZedAgentResponse struct {
 	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
+	// helix-sway image version (commit hash) running in this sandbox
+	SwayVersion string `json:"sway_version,omitempty"`
 	// WebSocket URL for thread sync connection
 	WebSocketURL string `json:"websocket_url,omitempty"`
 	// Auth token for WebSocket connection

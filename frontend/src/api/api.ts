@@ -3540,6 +3540,8 @@ export interface TypesSessionMetadata {
   /** Multi-session SpecTask context */
   spec_task_id?: string;
   stream?: boolean;
+  /** helix-sway image version (commit hash) running in this session */
+  sway_version?: string;
   system_prompt?: string;
   /** without any user input, this will default to true */
   text_finetune_enabled?: boolean;
