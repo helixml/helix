@@ -112,9 +112,14 @@ const Projects: FC = () => {
     setSelectedProject(null)
   }
 
-  const handleCreateProject = async (name: string, description: string) => {
+  const handleCreateProject = async (name: string, description: string, repoId: string) => {
     if (!name.trim()) {
       snackbar.error('Project name is required')
+      return
+    }
+
+    if (!repoId) {
+      snackbar.error('Primary repository is required')
       return
     }
 
@@ -122,6 +127,7 @@ const Projects: FC = () => {
       const result = await createProjectMutation.mutateAsync({
         name,
         description,
+        default_repo_id: repoId,
       })
       snackbar.success('Project created successfully')
       setCreateDialogOpen(false)
@@ -132,6 +138,66 @@ const Projects: FC = () => {
       }
     } catch (err) {
       snackbar.error('Failed to create project')
+    }
+  }
+
+  // Helper to create a new repo for the project dialog
+  const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
+    if (!name.trim() || !ownerId) return null
+
+    try {
+      const apiClient = api.getApiClient()
+      const response = await apiClient.v1GitRepositoriesCreate({
+        name,
+        description,
+        owner_id: ownerId,
+        organization_id: currentOrg?.id,
+        repo_type: 'code' as any,
+        default_branch: 'main',
+      })
+
+      // Invalidate repo query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to create repository:', error)
+      return null
+    }
+  }
+
+  // Helper to link an external repo for the project dialog
+  const handleLinkRepoForProject = async (
+    url: string,
+    name: string,
+    type: TypesExternalRepositoryType,
+    username?: string,
+    password?: string
+  ): Promise<TypesGitRepository | null> => {
+    if (!url.trim() || !ownerId) return null
+
+    try {
+      const apiClient = api.getApiClient()
+      const response = await apiClient.v1GitRepositoriesCreate({
+        name,
+        description: `External ${type} repository`,
+        owner_id: ownerId,
+        organization_id: currentOrg?.id,
+        repo_type: 'code' as any,
+        default_branch: 'main',
+        external_url: url,
+        external_type: type,
+        username,
+        password,
+      })
+
+      // Invalidate repo query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to link repository:', error)
+      return null
     }
   }
 
@@ -392,6 +458,10 @@ const Projects: FC = () => {
           onClose={() => setCreateDialogOpen(false)}
           onSubmit={handleCreateProject}
           isCreating={createProjectMutation.isPending}
+          repositories={repositories}
+          reposLoading={reposLoading}
+          onCreateRepo={handleCreateRepoForProject}
+          onLinkRepo={handleLinkRepoForProject}
         />
 
 

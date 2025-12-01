@@ -50,6 +50,8 @@ services:
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
+      # Hydra multi-Docker isolation (disabled by default - docker0 bridge interference issue)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-false}
       # GPU configuration for Wolf video pipelines
       # Values: "nvidia", "amd", "intel", "none" (software rendering with llvmpipe)
       - GPU_VENDOR=${GPU_VENDOR:-}

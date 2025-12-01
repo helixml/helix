@@ -112,7 +112,11 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Create docker group (docker-ce-cli doesn't create the group, only docker-ce does)
+    # Note: retro user is added to docker group at runtime via cont-init.d script
+    # because the user is created by GOW base-app at container startup
+    && groupadd -f docker
 
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
@@ -159,6 +163,10 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create
 # Copy GOW startup script
 ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
+
+# Add retro user to docker group at runtime (after GOW creates the user)
+ADD wolf/sway-config/11-add-docker-group.sh /etc/cont-init.d/11-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/11-add-docker-group.sh
 
 # Copy welcome README template for workspace initialization
 RUN mkdir -p /opt/helix

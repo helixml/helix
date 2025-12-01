@@ -39,6 +39,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
@@ -50,7 +51,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import { useFloatingModal } from '../contexts/floatingModal'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   useGetProject,
   useUpdateProject,
@@ -77,16 +78,13 @@ const ProjectSettings: FC = () => {
   const account = useAccount()
   const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
+  const api = useApi()
   const projectId = params.id as string
   const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
 
   const { data: project, isLoading, error } = useGetProject(projectId)
-  const { data: allRepositories = [] } = useGetProjectRepositories(projectId)
-
-  // Separate internal repo from code repos
-  const internalRepo = allRepositories.find(repo => repo.id?.endsWith('-internal'))
-  const repositories = allRepositories.filter(repo => !repo.id?.endsWith('-internal'))
+  const { data: repositories = [] } = useGetProjectRepositories(projectId)
 
   const updateProjectMutation = useUpdateProject(projectId)
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId)
@@ -112,6 +110,25 @@ const ProjectSettings: FC = () => {
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
+
+  // Create SpecTask mutation for "Fix Startup Script" feature
+  const createSpecTaskMutation = useMutation({
+    mutationFn: async (prompt: string) => {
+      const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
+        project_id: projectId,
+        prompt,
+      })
+      return response.data
+    },
+    onSuccess: (task) => {
+      snackbar.success('Created task to fix startup script')
+      // Navigate to the kanban board with the new task highlighted
+      account.orgNavigate('project-specs', { id: projectId, highlight: task.id })
+    },
+    onError: () => {
+      snackbar.error('Failed to create task')
+    }
+  })
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -542,32 +559,12 @@ const ProjectSettings: FC = () => {
             ) : (
               <ProjectRepositoriesList
                 repositories={repositories}
-                internalRepo={internalRepo}
                 primaryRepoId={project.default_repo_id}
                 onSetPrimaryRepo={handleSetPrimaryRepo}
                 onDetachRepo={handleDetachRepository}
                 setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
                 detachRepoPending={detachRepoMutation.isPending}
               />
-            )}
-
-            {/* Internal Repository Section - shown when no code repos */}
-            {repositories.length === 0 && internalRepo && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
-                  Internal Repository
-                </Typography>
-                <ProjectRepositoriesList
-                  repositories={[]}
-                  internalRepo={internalRepo}
-                  primaryRepoId={project.default_repo_id}
-                  onSetPrimaryRepo={handleSetPrimaryRepo}
-                  onDetachRepo={handleDetachRepository}
-                  setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
-                  detachRepoPending={detachRepoMutation.isPending}
-                />
-              </>
             )}
           </Paper>
 
@@ -735,6 +732,22 @@ const ProjectSettings: FC = () => {
                   showLoadingOverlay={testingStartupScript}
                   isRestart={isSessionRestart}
                 />
+              </Box>
+              <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Having trouble with your startup script?
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={createSpecTaskMutation.isPending ? <CircularProgress size={16} /> : <AutoFixHighIcon />}
+                  onClick={() => createSpecTaskMutation.mutate(
+                    `Fix the project startup script at .helix/startup.sh. The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues, then push the changes to the repository.`
+                  )}
+                  disabled={createSpecTaskMutation.isPending}
+                >
+                  {createSpecTaskMutation.isPending ? 'Creating task...' : 'Get AI to fix it'}
+                </Button>
               </Box>
             </Paper>
             </Box>

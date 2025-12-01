@@ -101,6 +101,9 @@ services:
             - SANDBOX_API_URL=http://api:8080
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
+            # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+            # Disabled by default until we fix the docker0 bridge interference issue
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-false}
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
             - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
             - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
@@ -253,6 +256,7 @@ services:
     # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
     # Replaces separate wolf and moonlight-web services with a single unified container
     # Built with: ./stack build-sandbox
+    # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
     sandbox:
       profiles: [code]  # NVIDIA GPU sandbox
       image: helix-sandbox:latest
@@ -273,8 +277,8 @@ services:
         - HELIX_API_BASE_URL=http://api:8080
         - WOLF_INSTANCE_ID=local
         - RUNNER_TOKEN=oh-hallo-insecure-token
-        # Hydra multi-Docker isolation (enabled by default for per-scope Docker isolation)
-        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+        # Hydra multi-Docker isolation (disabled by default - docker0 bridge interference issue)
+        - HYDRA_ENABLED=${HYDRA_ENABLED:-false}
         - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
@@ -316,6 +320,9 @@ services:
         - ./moonlight-web-config:/app/server:rw
         # Hydra persistent storage (shares filestore with API for workspace access)
         - ${FILESTORE_DATA:-helix-filestore}:/filestore
+        # Host Docker socket for privileged mode (Helix-in-Helix development)
+        # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+        - /var/run/docker.sock:/var/run/host-docker.sock:rw
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -410,6 +417,9 @@ services:
         - ./moonlight-web-config:/app/server:rw
         # Hydra persistent storage (shares filestore with API for workspace access)
         - ${FILESTORE_DATA:-helix-filestore}:/filestore
+        # Host Docker socket for privileged mode (Helix-in-Helix development)
+        # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+        - /var/run/docker.sock:/var/run/host-docker.sock:rw
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:

@@ -745,10 +745,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
-		ProjectPath:         "backend",     // Default primary repo path
-		RepositoryIDs:       repositoryIDs, // Repositories to clone
-		PrimaryRepositoryID: primaryRepoID, // Primary repository for design docs
-		SpecTaskID:          task.ID,       // Link to SpecTask
+		ProjectPath:         "backend",         // Default primary repo path
+		RepositoryIDs:       repositoryIDs,     // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID,     // Primary repository for design docs
+		SpecTaskID:          task.ID,           // Link to SpecTask
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
 		DisplayRefreshRate:  60,
@@ -864,11 +865,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	if len(projectRepos) > 0 {
 		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
 		for _, repo := range projectRepos {
-			repoPath := repo.Name
-			if repo.RepoType == "internal" {
-				repoPath = ".helix-project"
-			}
-			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repoPath)
+			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repo.Name)
 		}
 		repoInstructions += "\n"
 	}

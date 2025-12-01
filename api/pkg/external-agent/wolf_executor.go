@@ -171,9 +171,9 @@ type SwayWolfAppConfig struct {
 	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
-	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
-	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
-	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
+	ExtraMounts []string // Additional directory mounts
+	ZedImage    string   // Override for helix-sway image (uses instance's SwayVersion)
+	// NOTE: Startup script lives in primary code repo at .helix/startup.sh
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
@@ -234,8 +234,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"SETTINGS_SYNC_PORT=9877",
 	}
 
-	// Startup script is executed directly from cloned internal Git repo
-	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
+	// Startup script lives in primary code repo at .helix/startup.sh
+	// start-zed-helix.sh will execute it from disk if present
 
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
@@ -457,8 +457,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
 
 	// Select best Wolf instance for this sandbox
-	// TODO: Extract GPU type from agent config if needed
-	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
+	// Use SelectWolfInstanceWithOptions to support privileged mode filtering
+	wolfInstance, err := w.wolfScheduler.SelectWolfInstanceWithOptions(ctx, store.WolfSelectionOptions{
+		GPUType:               "", // TODO: Extract GPU type from agent config if needed
+		RequirePrivilegedMode: agent.UseHostDocker,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("no Wolf instances available - ensure Wolf container is running and connected via RevDial: %w", err)
 	}
@@ -468,6 +471,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("wolf_name", wolfInstance.Name).
 		Int("current_load", wolfInstance.ConnectedSandboxes).
 		Int("max_capacity", wolfInstance.MaxSandboxes).
+		Bool("privileged_mode", wolfInstance.PrivilegedModeEnabled).
+		Bool("use_host_docker", agent.UseHostDocker).
 		Msg("Selected Wolf instance for sandbox")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
@@ -496,11 +501,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	// Internal repos are now cloned like any other repo (no longer mounted)
-	// This allows Wolf server to be separated from API server over the network
-
 	// Clone git repositories if specified (for SpecTasks with repository context)
-	// Internal repos are now cloned like any other repo (no special handling)
+	// Repository cloning is handled by startup script (start-zed-helix.sh)
 	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
 		// Repository cloning now handled by startup script (start-zed-helix.sh)
@@ -617,7 +619,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// No extra mounts needed - internal repos are now cloned instead of mounted
+	// Extra mounts for additional directories
 	extraMounts := []string{}
 
 	// CRITICAL: Check if lobby already exists for this session to prevent duplicates
@@ -754,7 +756,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir_host", workspaceDirForMount).
 		Msg("Translated workspace path for Wolf mounting")
 
-	// Translate extra mounts (internal repo path) to host paths as well
+	// Translate extra mounts to host paths as well
 	translatedExtraMounts := []string{}
 	for _, mount := range extraMounts {
 		// Mount format is "source:dest:options"
@@ -831,6 +833,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			Str("scope_id", scopeID).
 			Str("session_id", agent.SessionID).
 			Str("spec_task_id", agent.SpecTaskID).
+			Bool("use_host_docker", agent.UseHostDocker).
 			Msg("Creating isolated Docker instance via Hydra")
 
 		// Call Hydra API to create Docker instance via RevDial
@@ -843,9 +846,10 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 		hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
 		dockerInstance, err := hydraClient.CreateDockerInstance(ctx, &hydra.CreateDockerInstanceRequest{
-			ScopeType: hydra.ScopeType(scopeType),
-			ScopeID:   scopeID,
-			UserID:    agent.UserID,
+			ScopeType:     hydra.ScopeType(scopeType),
+			ScopeID:       scopeID,
+			UserID:        agent.UserID,
+			UseHostDocker: agent.UseHostDocker, // Privileged mode: use host Docker socket
 		})
 		if err != nil {
 			// Hydra is enabled but failed - this is a hard error, not a fallback

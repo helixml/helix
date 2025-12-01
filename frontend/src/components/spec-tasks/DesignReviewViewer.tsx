@@ -450,7 +450,7 @@ export default function DesignReviewViewer({
   const handleRejectDesign = async () => {
     try {
       const apiClient = api.getApiClient()
-      await apiClient.v1SpecTasksArchivePartialUpdate(specTaskId, true)
+      await apiClient.v1SpecTasksArchivePartialUpdate(specTaskId, { archived: true })
 
       snackbar.success('Design rejected - spec task archived')
       setShowRejectDialog(false)

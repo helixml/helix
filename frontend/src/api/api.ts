@@ -965,6 +965,8 @@ export interface ServicesCreateTaskRequest {
   project_id?: string;
   prompt?: string;
   type?: string;
+  /** Optional: Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   user_id?: string;
   /** Optional: Skip human review and auto-approve specs */
   yolo_mode?: boolean;
@@ -2950,23 +2952,20 @@ export interface TypesProject {
   auto_start_backlog_tasks?: boolean;
   created_at?: string;
   default_branch?: string;
-  /** Project-level repository management */
+  /**
+   * Project-level repository management
+   * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
+   */
   default_repo_id?: string;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
   id?: string;
-  /**
-   * Internal project Git repository (stores project config, tasks, design docs)
-   * IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-   * It is NEVER stored in the database - Git is the single source of truth
-   */
-  internal_repo_path?: string;
   metadata?: number[];
   name?: string;
   organization_id?: string;
-  /** Transient field - loaded from Git, never persisted to database */
+  /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
   status?: string;
@@ -3737,6 +3736,8 @@ export interface TypesSpecTask {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   workspace_config?: number[];
   /** Skip human review, auto-approve specs */
   yolo_mode?: boolean;
@@ -3762,6 +3763,10 @@ export enum TypesSpecTaskActivityType {
   SpecTaskActivityZedConnected = "zed_connected",
   SpecTaskActivityZedDisconnected = "zed_disconnected",
   SpecTaskActivityPhaseTransition = "phase_transition",
+}
+
+export interface TypesSpecTaskArchiveRequest {
+  archived?: boolean;
 }
 
 export interface TypesSpecTaskDesignReview {
@@ -4360,11 +4365,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4515,6 +4520,8 @@ export interface TypesWolfHeartbeatRequest {
   container_usage?: TypesContainerDiskUsage[];
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
+  /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
+  privileged_mode_enabled?: boolean;
   /** helix-sway image version (commit hash) */
   sway_version?: string;
 }
@@ -4537,6 +4544,7 @@ export interface TypesWolfInstanceResponse {
   last_heartbeat?: string;
   max_sandboxes?: number;
   name?: string;
+  privileged_mode_enabled?: boolean;
   status?: string;
   sway_version?: string;
   updated_at?: string;
@@ -9304,11 +9312,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
      * @secure
      */
-    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+    v1SpecTasksArchivePartialUpdate: (
+      taskId: string,
+      request: TypesSpecTaskArchiveRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/archive`,
         method: "PATCH",
-        body: archived,
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

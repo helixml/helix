@@ -50,9 +50,10 @@ type ContainerDiskUsage struct {
 
 // HeartbeatRequest is the request body sent to the API
 type HeartbeatRequest struct {
-	SwayVersion    string               `json:"sway_version,omitempty"`
-	DiskUsage      []DiskUsageMetric    `json:"disk_usage,omitempty"`
-	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
+	SwayVersion           string               `json:"sway_version,omitempty"`
+	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
+	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
+	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
 }
 
 func main() {
@@ -82,9 +83,13 @@ func main() {
 		log.Info().Str("sway_version", swayVersion).Msg("Read helix-sway version")
 	}
 
+	// Check if privileged mode is enabled
+	privilegedModeEnabled := os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true"
+
 	log.Info().
 		Str("api_url", apiURL).
 		Str("wolf_instance_id", wolfInstanceID).
+		Bool("privileged_mode_enabled", privilegedModeEnabled).
 		Dur("interval", HeartbeatInterval).
 		Msg("Starting sandbox heartbeat daemon")
 
@@ -97,13 +102,13 @@ func main() {
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
-	sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion)
+	sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion, privilegedModeEnabled)
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion)
+			sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion, privilegedModeEnabled)
 		case sig := <-sigChan:
 			log.Info().Str("signal", sig.String()).Msg("Received signal, shutting down")
 			return
@@ -111,16 +116,17 @@ func main() {
 	}
 }
 
-func sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion string) {
+func sendHeartbeat(apiURL, runnerToken, wolfInstanceID, swayVersion string, privilegedModeEnabled bool) {
 	// Collect disk usage metrics
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
 
 	// Build request
 	req := HeartbeatRequest{
-		SwayVersion:    swayVersion,
-		DiskUsage:      diskUsage,
-		ContainerUsage: containerUsage,
+		SwayVersion:           swayVersion,
+		DiskUsage:             diskUsage,
+		ContainerUsage:        containerUsage,
+		PrivilegedModeEnabled: privilegedModeEnabled,
 	}
 
 	// Log disk status
