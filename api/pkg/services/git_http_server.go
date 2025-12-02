@@ -1357,7 +1357,7 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner always has access
+	// Repository owner always has access (for personal/non-org repos)
 	if repo.OwnerID == user.ID {
 		return true
 	}
@@ -1372,7 +1372,7 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Use existing RBAC system from server
+	// For org repos, use RBAC system to check access
 	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionGet)
 	return err == nil
 }
@@ -1390,7 +1390,7 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner always has write access
+	// Repository owner always has write access (for personal/non-org repos)
 	if repo.OwnerID == user.ID {
 		return true
 	}
@@ -1405,7 +1405,7 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Use existing RBAC system from server
+	// For org repos, use RBAC system to check access
 	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionUpdate)
 	return err == nil
 }

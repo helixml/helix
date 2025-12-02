@@ -113,14 +113,14 @@ const Projects: FC = () => {
 
   // Helper to create a new repo for the project dialog
   const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
-    if (!name.trim() || !ownerId) return null
+    if (!name.trim() || !account.user?.id) return null
 
     try {
       const apiClient = api.getApiClient()
       const response = await apiClient.v1GitRepositoriesCreate({
         name,
         description,
-        owner_id: ownerId,
+        owner_id: account.user.id, // Always use user ID, not org ID
         organization_id: currentOrg?.id,
         repo_type: 'code' as any,
         default_branch: 'main',
@@ -144,14 +144,14 @@ const Projects: FC = () => {
     username?: string,
     password?: string
   ): Promise<TypesGitRepository | null> => {
-    if (!url.trim() || !ownerId) return null
+    if (!url.trim() || !account.user?.id) return null
 
     try {
       const apiClient = api.getApiClient()
       const response = await apiClient.v1GitRepositoriesCreate({
         name,
         description: `External ${type} repository`,
-        owner_id: ownerId,
+        owner_id: account.user.id, // Always use user ID, not org ID
         organization_id: currentOrg?.id,
         repo_type: 'code' as any,
         default_branch: 'main',
@@ -222,7 +222,7 @@ const Projects: FC = () => {
 
 
   const handleCreateCustomRepo = async (name: string, description: string, koditIndexing: boolean) => {
-    if (!name.trim() || !ownerId) return
+    if (!name.trim() || !account.user?.id) return
 
     setCreating(true)
     setCreateError('')
@@ -231,7 +231,8 @@ const Projects: FC = () => {
       await apiClient.v1GitRepositoriesCreate({
         name,
         description,
-        owner_id: ownerId,
+        owner_id: account.user.id, // Always use user ID, not org ID
+        organization_id: currentOrg?.id,
         repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
         kodit_indexing: koditIndexing,
@@ -282,13 +283,14 @@ const Projects: FC = () => {
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: `External ${type} repository`,
-        owner_id: ownerId,
+        owner_id: account.user?.id || '', // Always use user ID, not org ID
+        organization_id: currentOrg?.id,
         repo_type: 'project' as any,
         default_branch: 'main',
         // Remote URL
         external_url: url,
         // Repository provider (github, gitlab, ado, etc.)
-        external_type: type as TypesExternalRepositoryType,        
+        external_type: type as TypesExternalRepositoryType,
         // Auth details
         username: username,
         password: password,

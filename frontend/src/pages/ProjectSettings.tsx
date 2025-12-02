@@ -152,7 +152,7 @@ const ProjectSettings: FC = () => {
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
-      
+
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
       if (projectWipLimits) {
@@ -689,7 +689,7 @@ const ProjectSettings: FC = () => {
                   size="small"
                   startIcon={createSpecTaskMutation.isPending ? <CircularProgress size={16} /> : <AutoFixHighIcon />}
                   onClick={() => createSpecTaskMutation.mutate(
-                    `Fix the project startup script at .helix/startup.sh. The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues, then push the changes to the repository.`
+                    `Fix the project startup script at .helix/startup.sh. The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent. Once the user approves the changes, you will then push the changes to the repository, at which point the user can test it in the projects settings panel.`
                   )}
                   disabled={createSpecTaskMutation.isPending}
                 >
