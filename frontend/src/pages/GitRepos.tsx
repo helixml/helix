@@ -297,7 +297,7 @@ const GitRepos: FC = () => {
                   },
                   cursor: 'pointer'
                 }}
-                onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
+                onClick={() => account.orgNavigate('git-repo-detail', { repoId: repo.id })}
               >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box sx={{ flex: 1 }}>

@@ -340,11 +340,11 @@ const GitRepoDetail: FC = () => {
       const apiClient = api.getApiClient()
       await apiClient.v1GitRepositoriesDelete(repoId)
 
-      // Invalidate queries
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate queries (use base key to match all variants)
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       // Navigate back to repositories tab in Projects
-      navigate('projects', { tab: 'repositories' })
+      account.orgNavigate('projects', { tab: 'repositories' })
       snackbar.success('Repository deleted successfully')
     } catch (error) {
       console.error('Failed to delete repository:', error)
@@ -559,7 +559,7 @@ const GitRepoDetail: FC = () => {
           </Alert>
           <Button
             startIcon={<ArrowLeft size={16} />}
-            onClick={() => navigate('projects', { tab: 'repositories' })}
+            onClick={() => account.orgNavigate('projects', { tab: 'repositories' })}
           >
             Back to Repositories
           </Button>
