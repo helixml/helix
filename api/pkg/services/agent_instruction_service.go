@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// sanitizeForBranchName is defined in design_docs_helpers.go
+
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
 	store store.Store
@@ -23,47 +25,212 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 	}
 }
 
-// SendApprovalInstruction sends a message to the agent to start implementation
-func (s *AgentInstructionService) SendApprovalInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-	baseBranch string,
-) error {
-	message := fmt.Sprintf(`# Design Approved! 🎉
+// BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
+// This is the single source of truth for this prompt - used by WebSocket and database approaches
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch string) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := task.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-Your design has been approved. Please begin implementation:
+	return fmt.Sprintf(`# Design Approved! 🎉
 
-**Steps:**
-1. Create and checkout feature branch: %[1]s git checkout -b %[2]s%[1]s
-2. Implement the features according to the approved design
-3. Write tests for all new functionality
-4. Commit your work with clear, descriptive messages
-5. When ready for review, push your branch: %[1]s git push origin %[2]s%[1]s
+Your design has been approved. Please begin implementation.
 
-I'll be watching for your push and will notify you when it's time for review.
+## 🚨🚨🚨 #1 RULE - PUSH PROGRESS AFTER EVERY TASK 🚨🚨🚨
 
-**Design Documents:**
-The approved design documents are in your repository under the design/ directory.
-`, "```", branchName)
+The tasks.md file in helix-specs contains your task checklist. You MUST update it as you work:
+- [ ] Task description (pending)
+- [~] Task description (in progress - YOU mark this)
+- [x] Task description (completed - YOU mark this)
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending approval instruction to agent")
+**Before starting EACH task:**
+%[1]sbash
+cd ~/work/helix-specs/design/tasks/%[4]s
+# Edit tasks.md: change "- [ ] Task" to "- [~] Task"
+git add tasks.md && git commit -m "🤖 Started: Task name" && git push origin helix-specs
+%[1]s
 
-	return s.sendMessage(ctx, sessionID, userID, message)
+**After completing EACH task:**
+%[1]sbash
+cd ~/work/helix-specs/design/tasks/%[4]s
+# Edit tasks.md: change "- [~] Task" to "- [x] Task"
+git add tasks.md && git commit -m "🤖 Completed: Task name" && git push origin helix-specs
+%[1]s
+
+**WHY:** The UI shows your live progress by monitoring pushes to helix-specs. No push = user thinks you're stuck!
+
+---
+
+## 🚨 CRITICAL: DO THE BARE MINIMUM - BE CONCISE 🚨
+
+- Only do what is STRICTLY NECESSARY to meet the requirements
+- DO NOT write code unless absolutely required - prefer existing tools, commands, or scripts
+- Simple tasks should have simple solutions (e.g., shell commands, not Python scripts)
+- Avoid over-engineering - no abstractions, helpers, or utilities unless explicitly needed
+- If a task can be done with a one-liner, use a one-liner
+- DO NOT add extra features, error handling, or edge cases beyond what's specified
+- Match solution complexity to task complexity - simple tasks get simple solutions
+
+**Don't over-engineer simple tasks:**
+- "Start a container" → docker-compose.yaml or docker run in .helix/startup.sh, NOT a Python framework
+- "Create sample data" → write data directly to files (unless it's too large or complex to write by hand)
+- "Run X at startup" → add to .helix/startup.sh (runs at sandbox startup), NOT a service wrapper
+
+**.helix/startup.sh - Startup Script:**
+- Located in the primary repo, runs automatically at sandbox startup
+- Use for: starting containers, background services, environment setup
+- MUST be idempotent (safe to run multiple times) - use "docker compose up -d" not "docker run"
+- After modifying, run it manually to start services for this session (changes apply to future sessions automatically)
+
+---
+
+## Your Mission
+
+1. Create feature branch: %[1]sgit checkout -b %[2]s%[1]s
+2. Read design docs from ~/work/helix-specs/design/tasks/%[4]s/
+3. Read tasks.md to see your task checklist
+4. Work through tasks one by one (discrete, trackable)
+5. Mark each task [~] when starting, [x] when done
+6. **CRITICAL: Push progress updates to helix-specs after EACH task**
+7. Implement code in the main repository
+8. Create feature branch and push when all tasks complete: %[1]sgit push origin %[2]s%[1]s
+
+## Guidelines
+
+- ALWAYS mark your progress in tasks.md with [~] and [x]
+- **CRITICAL: After ANY change to tasks.md, you MUST commit and push to helix-specs immediately**
+- The backend tracks your progress by monitoring pushes to helix-specs
+- Follow the technical design - don't add unnecessary complexity
+- Implement what's in the acceptance criteria
+- Write tests that verify core functionality
+- Handle edge cases sensibly, but don't over-engineer
+
+## 📓 Use Design Docs as a Lab Notebook
+
+Update the design documents as you work - they're your living record of discoveries:
+
+**Update design.md when you:**
+- Discover something that changes the approach (e.g., "Found existing utility that handles this")
+- Hit a blocker or limitation not anticipated in the design
+- Make a design decision that differs from the original plan
+- Learn something about the codebase relevant to future work
+
+**Update requirements.md when:**
+- User changes their mind about requirements
+- You discover edge cases that need clarification
+- Original requirements were ambiguous and you made a decision
+
+**Format for updates:**
+%[1]smarkdown
+## Implementation Notes (YYYY-MM-DD)
+
+### Discoveries
+- Found that X already exists in Y, reusing instead of building new
+- Database schema requires Z constraint not originally planned
+
+### Decisions Made
+- Chose approach A over B because [reason]
+- Simplified scope: skipping X as it's not needed for MVP
+
+### Blockers Resolved
+- Issue: Could not access X
+- Resolution: Used Y instead
+%[1]s
+
+**⚠️ PUSH REQUIREMENTS:**
+- After completing each task: commit and push to helix-specs
+- After modifying requirements.md: commit and push to helix-specs
+- After modifying design.md: commit and push to helix-specs
+- After modifying tasks.md: commit and push to helix-specs
+- The orchestrator monitors these pushes to track your progress
+
+Start by reading the spec documents from the worktree, then work through the task list systematically.
+
+---
+
+**Task:** %[5]s
+**SpecTask ID:** %[6]s
+**Feature Branch:** %[2]s
+**Base Branch:** %[3]s
+**Design Documents:** ~/work/helix-specs/design/tasks/%[4]s/
+
+**Original User Request:**
+%[7]s
+
+🚨 **REMEMBER:** Push to helix-specs after EVERY task change! The UI tracks your progress via git pushes. 🚨
+`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt)
 }
 
-// SendImplementationReviewRequest notifies agent that implementation is ready for review
-func (s *AgentInstructionService) SendImplementationReviewRequest(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-) error {
-	message := fmt.Sprintf(`# Implementation Review 🔍
+// BuildCommentPrompt builds a prompt for sending a design review comment to an agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := specTask.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(specTask.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, specTask.ID)
+
+	// Map document types to readable labels
+	documentTypeLabels := map[string]string{
+		"requirements":        "Requirements (requirements.md)",
+		"technical_design":    "Technical Design (design.md)",
+		"implementation_plan": "Implementation Plan (tasks.md)",
+	}
+	docLabel := documentTypeLabels[comment.DocumentType]
+	if docLabel == "" {
+		docLabel = comment.DocumentType
+	}
+
+	// Build the prompt
+	var promptBuilder string
+	promptBuilder = fmt.Sprintf("# Design Review Comment 📝\n\n")
+	promptBuilder += fmt.Sprintf("A reviewer has left a comment on your design documents.\n\n")
+	promptBuilder += fmt.Sprintf("**Document:** %s\n", docLabel)
+
+	if comment.SectionPath != "" {
+		promptBuilder += fmt.Sprintf("**Section:** %s\n", comment.SectionPath)
+	}
+	if comment.LineNumber > 0 {
+		promptBuilder += fmt.Sprintf("**Line:** %d\n", comment.LineNumber)
+	}
+
+	promptBuilder += "\n"
+
+	if comment.QuotedText != "" {
+		promptBuilder += fmt.Sprintf("**Regarding this text:**\n> %s\n\n", comment.QuotedText)
+	}
+
+	promptBuilder += fmt.Sprintf("**Comment:**\n%s\n\n", comment.CommentText)
+
+	promptBuilder += fmt.Sprintf("---\n\n")
+	promptBuilder += fmt.Sprintf("Please respond to this feedback. If changes are needed:\n")
+	promptBuilder += fmt.Sprintf("1. Update the relevant document in ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
+	promptBuilder += fmt.Sprintf("2. Commit and push your changes:\n")
+	promptBuilder += fmt.Sprintf("```bash\ncd ~/work/helix-specs\ngit add design/tasks/%s/\ngit commit -m \"📝 Address review comment\"\ngit push origin helix-specs\n```\n\n", taskDirName)
+	promptBuilder += fmt.Sprintf("**SpecTask ID:** %s\n", specTask.ID)
+	promptBuilder += fmt.Sprintf("**Design Documents:** ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
+
+	return promptBuilder
+}
+
+// BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := task.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+
+	return fmt.Sprintf(`# Implementation Review 🔍
 
 Great work pushing your changes! The implementation is now ready for review.
 
@@ -72,29 +239,61 @@ The user will test your work. If this is a web application, please:
 1. Start the development server
 2. Provide the URL where the user can test the application
 3. Answer any questions about your implementation
+4. Reference the spec documents if needed to verify requirements are met
 
 **Branch:** %[1]s%[2]s%[1]s
+**Design Documents:** ~/work/helix-specs/design/tasks/%[3]s/
 
 I'm here to help with any feedback or iterations needed.
-`, "```", branchName)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending implementation review request to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
+`, "```", branchName, taskDirName)
 }
 
-// SendMergeInstruction tells agent to merge their branch to main
-func (s *AgentInstructionService) SendMergeInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-	baseBranch string,
-) error {
-	message := fmt.Sprintf(`# Implementation Approved! ✅
+// BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := task.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+
+	return fmt.Sprintf(`# Changes Requested 📝
+
+The reviewer has requested changes to your design. Please update the spec documents based on the feedback below.
+
+## Reviewer Feedback
+
+%[2]s
+
+## Your Task
+
+1. Read the feedback carefully
+2. Update the relevant documents in ~/work/helix-specs/design/tasks/%[1]s/
+   - Update requirements.md if requirements need clarification
+   - Update design.md if the approach needs adjustment
+   - Update tasks.md if the implementation plan changes
+3. **CRITICAL: Commit and push your changes immediately after updating**
+
+%[3]sbash
+cd ~/work/helix-specs
+git add design/tasks/%[1]s/
+git commit -m "📝 Address review feedback for SpecTask %[4]s"
+git push origin helix-specs
+%[3]s
+
+After pushing, let me know what changes you made in response to the feedback.
+
+**SpecTask ID:** %[4]s
+**Design Documents:** ~/work/helix-specs/design/tasks/%[1]s/
+`, taskDirName, comments, "```", task.ID)
+}
+
+// BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
+	return fmt.Sprintf(`# Implementation Approved! ✅
 
 Your implementation has been approved. Please merge to main:
 
@@ -106,6 +305,80 @@ Your implementation has been approved. Please merge to main:
 
 Let me know once the merge is complete!
 `, "```", baseBranch, branchName)
+}
+
+// SendApprovalInstruction sends a message to the agent to start implementation
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildApprovalInstructionPrompt
+// and send via sendChatMessageToExternalAgent instead
+func (s *AgentInstructionService) SendApprovalInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+	baseBranch string,
+) error {
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending approval instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendImplementationReviewRequest notifies agent that implementation is ready for review
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildImplementationReviewPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendImplementationReviewRequest(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+) error {
+	message := BuildImplementationReviewPrompt(task, branchName)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending implementation review request to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendRevisionInstruction sends a message to the agent with revision feedback
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildRevisionInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendRevisionInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	comments string,
+) error {
+	message := BuildRevisionInstructionPrompt(task, comments)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("task_id", task.ID).
+		Msg("Sending revision instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendMergeInstruction tells agent to merge their branch to main
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildMergeInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendMergeInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	branchName string,
+	baseBranch string,
+) error {
+	message := BuildMergeInstructionPrompt(branchName, baseBranch)
 
 	log.Info().
 		Str("session_id", sessionID).

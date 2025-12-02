@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
@@ -32,6 +33,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/moonlight"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -97,6 +99,11 @@ type HelixAPIServer struct {
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	// Comment queue per planning session - serializes comment responses
+	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
+	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
+	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
+	requestToCommenterMapping   map[string]string    // request_id -> commenter user_id (for design review streaming)
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
@@ -119,9 +126,9 @@ type HelixAPIServer struct {
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
-	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
 	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
+	adminAlerter                *notification.AdminAlerter
 }
 
 func NewServer(
@@ -244,6 +251,9 @@ func NewServer(
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
 		contextMappings:            make(map[string]string),
+		sessionCommentQueue:        make(map[string][]string),
+		sessionCurrentComment:      make(map[string]string),
+		requestToCommenterMapping:  make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
@@ -317,8 +327,10 @@ func NewServer(
 	if cfg.Kodit.Enabled {
 		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
 		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
+		apiServer.gitRepositoryService.SetKoditGitURL(cfg.Kodit.GitURL)
 		log.Info().
 			Str("kodit_base_url", cfg.Kodit.BaseURL).
+			Str("kodit_git_url", cfg.Kodit.GitURL).
 			Msg("Initialized Kodit code intelligence service")
 	} else {
 		apiServer.koditService = services.NewKoditService("", "") // Disabled instance
@@ -342,21 +354,22 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
-	// Initialize Project Internal Repo Service
+	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
+	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
+
+	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
 	log.Info().
 		Str("projects_base_path", projectsBasePath).
-		Msg("Initialized project internal repository service")
+		Msg("Initialized project repository service")
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
+	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
+	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 
 	// Initialize SpecTask Orchestrator components
-	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
-		"Helix System",
-		"system@helix.ml",
-	)
 	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -364,8 +377,7 @@ func NewServer(
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentPool,
-		apiServer.designDocsWorktreeManager,
-		apiServer.externalAgentExecutor, // NEW: Pass Wolf executor for external agent management
+		apiServer.externalAgentExecutor, // Wolf executor for external agent management
 	)
 
 	// Start orchestrator
@@ -374,6 +386,15 @@ func NewServer(
 			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
 		}
 	}()
+
+	// Initialize AdminAlerter for sending alerts to admin users
+	adminAlerter, err := notification.NewAdminAlerter(&cfg.Notifications, store)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize admin alerter - admin email alerts will be disabled")
+	} else {
+		apiServer.adminAlerter = adminAlerter
+		log.Info().Msg("Initialized admin alerter for email notifications")
+	}
 
 	return apiServer, nil
 }
@@ -667,6 +688,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Wolf instance registry routes (multi-Wolf support)
 	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")
 	authRouter.HandleFunc("/wolf-instances/{id}/heartbeat", apiServer.wolfInstanceHeartbeat).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances/{id}/disk-history", apiServer.getDiskUsageHistory).Methods("GET")
 	authRouter.HandleFunc("/wolf-instances", apiServer.listWolfInstances).Methods("GET")
 	authRouter.HandleFunc("/wolf-instances/{id}", apiServer.deregisterWolfInstance).Methods("DELETE")
 
@@ -748,6 +770,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)
@@ -915,8 +938,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.getBoardSettings).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.updateBoardSettings).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)
@@ -960,6 +981,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status", apiServer.getDesignReviewCommentQueueStatus).Methods(http.MethodGet)
 
 	// Zed integration routes
 	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)
@@ -1002,7 +1024,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
 	// SpecTask orchestrator routes
-	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)
@@ -1731,8 +1752,20 @@ func (apiServer *HelixAPIServer) ensureWolfInstanceRegistered(ctx context.Contex
 
 	for _, instance := range instances {
 		if instance.ID == wolfInstanceID {
-			// Already registered
-			log.Debug().Str("wolf_instance_id", wolfInstanceID).Msg("Wolf instance already registered")
+			// Already registered - reset sandbox count and mark online
+			// This handles reconnects after crashes/restarts where stale counts remain
+			err := apiServer.Store.ResetWolfInstanceOnReconnect(ctx, wolfInstanceID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("wolf_instance_id", wolfInstanceID).
+					Msg("Failed to reset Wolf instance on reconnect")
+			} else {
+				log.Info().
+					Str("wolf_instance_id", wolfInstanceID).
+					Int("previous_sandbox_count", instance.ConnectedSandboxes).
+					Msg("🔄 Reset Wolf instance on reconnect (cleared stale sandbox count)")
+			}
 			return
 		}
 	}

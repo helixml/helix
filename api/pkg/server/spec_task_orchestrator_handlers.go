@@ -15,47 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// @Summary Get live agent fleet progress
-// @Description Get real-time progress of all agents working on SpecTasks
-// @Tags SpecTasks
-// @Produce json
-// @Success 200 {object} LiveAgentFleetProgressResponse
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/agents/fleet/live-progress [get]
-func (apiServer *HelixAPIServer) getAgentFleetLiveProgress(_ http.ResponseWriter, _ *http.Request) (*LiveAgentFleetProgressResponse, *system.HTTPError) {
-	// Get orchestrator (would be initialized in server startup)
-	orchestrator := apiServer.GetOrchestrator()
-	if orchestrator == nil {
-		return nil, system.NewHTTPError500("orchestrator not initialized")
-	}
-
-	// Get live progress
-	progress := orchestrator.GetLiveProgress()
-
-	// Convert to response format
-	agents := []AgentProgressItem{}
-	for _, p := range progress {
-		agents = append(agents, AgentProgressItem{
-			AgentID:     p.AgentID,
-			TaskID:      p.TaskID,
-			TaskName:    p.TaskName,
-			CurrentTask: convertTaskItem(p.CurrentTask),
-			TasksBefore: convertTaskItems(p.TasksBefore),
-			TasksAfter:  convertTaskItems(p.TasksAfter),
-			LastUpdate:  p.LastUpdate.Format("2006-01-02T15:04:05Z"),
-			Phase:       string(p.Phase),
-		})
-	}
-
-	response := &LiveAgentFleetProgressResponse{
-		Agents:    agents,
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
-	return response, nil
-}
-
 // @Summary Create SpecTask from demo repo
 // @Description Create a new SpecTask with a demo repository
 // @Tags SpecTasks
@@ -274,28 +233,6 @@ func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID s
 
 // Response types
 
-type LiveAgentFleetProgressResponse struct {
-	Agents    []AgentProgressItem `json:"agents"`
-	Timestamp string              `json:"timestamp"`
-}
-
-type AgentProgressItem struct {
-	AgentID     string        `json:"agent_id"`
-	TaskID      string        `json:"task_id"`
-	TaskName    string        `json:"task_name"`
-	CurrentTask *TaskItemDTO  `json:"current_task"`
-	TasksBefore []TaskItemDTO `json:"tasks_before"`
-	TasksAfter  []TaskItemDTO `json:"tasks_after"`
-	LastUpdate  string        `json:"last_update"`
-	Phase       string        `json:"phase"`
-}
-
-type TaskItemDTO struct {
-	Index       int    `json:"index"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-}
-
 type CreateSpecTaskFromDemoRequest struct {
 	Prompt         string `json:"prompt" validate:"required"`
 	DemoRepo       string `json:"demo_repo" validate:"required"`
@@ -316,29 +253,6 @@ type DesignDocument struct {
 }
 
 // Helper functions
-
-func convertTaskItem(item *services.TaskItem) *TaskItemDTO {
-	if item == nil {
-		return nil
-	}
-	return &TaskItemDTO{
-		Index:       item.Index,
-		Description: item.Description,
-		Status:      string(item.Status),
-	}
-}
-
-func convertTaskItems(items []services.TaskItem) []TaskItemDTO {
-	dtos := []TaskItemDTO{}
-	for _, item := range items {
-		dtos = append(dtos, TaskItemDTO{
-			Index:       item.Index,
-			Description: item.Description,
-			Status:      string(item.Status),
-		})
-	}
-	return dtos
-}
 
 func min(a, b int) int {
 	if a < b {
@@ -505,15 +419,44 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		Str("workspace_dir", externalAgent.WorkspaceDir).
 		Msg("Starting SpecTask external agent (resurrection)")
 
+	// Get project repositories (needed for Zed startup arguments)
+	project, err := apiServer.Store.GetProject(req.Context(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get project for resurrection, continuing without repo info")
+	}
+
+	var repositoryIDs []string
+	var primaryRepoID string
+	if project != nil {
+		repos, err := apiServer.Store.ListGitRepositories(req.Context(), &types.ListGitRepositoriesRequest{
+			ProjectID: task.ProjectID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get project repositories for resurrection")
+		} else {
+			for _, repo := range repos {
+				repositoryIDs = append(repositoryIDs, repo.ID)
+			}
+			primaryRepoID = project.DefaultRepoID
+			if primaryRepoID == "" && len(repositoryIDs) > 0 {
+				primaryRepoID = repositoryIDs[0]
+			}
+		}
+	}
+
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
-		SessionID:          externalAgent.ID,
-		UserID:             task.CreatedBy,
-		WorkDir:            externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
-		ProjectPath:        "backend",
-		DisplayWidth:       2560,
-		DisplayHeight:      1600,
-		DisplayRefreshRate: 60,
+		SessionID:           externalAgent.ID,
+		UserID:              task.CreatedBy,
+		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
+		ProjectPath:         "backend",
+		RepositoryIDs:       repositoryIDs,     // Needed for Zed startup arguments
+		PrimaryRepositoryID: primaryRepoID,     // Needed for design docs path
+		SpecTaskID:          task.ID,           // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        2560,
+		DisplayHeight:       1600,
+		DisplayRefreshRate:  60,
 	}
 
 	// Add user's API token for git operations

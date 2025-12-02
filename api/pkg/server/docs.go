@@ -112,6 +112,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/users/{id}/password": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reset the password for any user. Only admins can use this endpoint.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Reset a user's password (Admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New password",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AdminResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Not authorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/wolf/lobbies/{lobbyId}": {
             "delete": {
                 "security": [
@@ -235,37 +299,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.AgentFleetSummary"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/fleet/live-progress": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get real-time progress of all agents working on SpecTasks",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get live agent fleet progress",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.LiveAgentFleetProgressResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -3129,6 +3162,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/services.KoditEnrichmentListResponse"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3137,6 +3176,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3182,6 +3227,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/services.KoditEnrichmentData"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3190,6 +3241,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3238,6 +3295,12 @@ const docTemplate = `{
                             }
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -3246,6 +3309,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3281,8 +3350,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/services.KoditIndexingStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -3293,6 +3367,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3545,6 +3625,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -5178,6 +5264,14 @@ const docTemplate = `{
                     "Projects"
                 ],
                 "summary": "List projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6709,7 +6803,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectRequest"
+                            "$ref": "#/definitions/types.ForkSimpleProjectRequest"
                         }
                     }
                 ],
@@ -6717,7 +6811,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/server.ForkSimpleProjectResponse"
+                            "$ref": "#/definitions/types.ForkSimpleProjectResponse"
                         }
                     }
                 }
@@ -8129,86 +8223,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/board-settings": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the Kanban board settings (WIP limits) for the default project",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get board settings for spec tasks",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update the Kanban board settings (WIP limits) for the default project",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Update board settings for spec tasks",
-                "parameters": [
-                    {
-                        "description": "Board settings",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.BoardSettings"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/from-demo": {
             "post": {
                 "security": [
@@ -8664,6 +8678,62 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.SpecTaskDesignReviewDetailResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current comment being processed and the queue of pending comments for a review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get comment queue status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CommentQueueStatusResponse"
                         }
                     },
                     "403": {
@@ -9224,12 +9294,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Archive status (true to archive, false to unarchive)",
-                        "name": "archived",
+                        "description": "Archive request",
+                        "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "boolean"
+                            "$ref": "#/definitions/types.SpecTaskArchiveRequest"
                         }
                     }
                 ],
@@ -11278,6 +11348,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/wolf-instances/{id}/disk-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get time-series disk usage data for visualization (last 7 days)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "Get disk usage history for a Wolf instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Hours of history to return (default 24, max 168)",
+                        "name": "hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DiskUsageHistoryResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Wolf instance not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/wolf-instances/{id}/heartbeat": {
             "post": {
                 "security": [
@@ -11285,11 +11407,34 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update the last heartbeat timestamp for a Wolf instance",
+                "description": "Update the last heartbeat timestamp and optional metadata for a Wolf instance",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "wolf"
                 ],
                 "summary": "Send heartbeat for a Wolf instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Heartbeat metadata",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/types.WolfHeartbeatRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -12413,6 +12558,42 @@ const docTemplate = `{
                 }
             }
         },
+        "kodit.RepositoryStatusSummaryAttributes": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message Error message if failed",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status Overall indexing status",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "description": "UpdatedAt Most recent activity timestamp",
+                    "type": "string"
+                }
+            }
+        },
+        "kodit.RepositoryStatusSummaryData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "description": "Attributes Attributes for repository status summary.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryAttributes"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "mcp.Meta": {
             "type": "object",
             "properties": {
@@ -13272,41 +13453,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.AgentProgressItem": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "current_task": {
-                    "$ref": "#/definitions/server.TaskItemDTO"
-                },
-                "last_update": {
-                    "type": "string"
-                },
-                "phase": {
-                    "type": "string"
-                },
-                "task_id": {
-                    "type": "string"
-                },
-                "task_name": {
-                    "type": "string"
-                },
-                "tasks_after": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                },
-                "tasks_before": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                }
-            }
-        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -13623,37 +13769,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ForkSimpleProjectRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "project_name": {
-                    "type": "string"
-                },
-                "sample_project_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.ForkSimpleProjectResponse": {
-            "type": "object",
-            "properties": {
-                "github_repo_url": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "tasks_created": {
-                    "type": "integer"
-                }
-            }
-        },
         "server.GPUStats": {
             "type": "object",
             "properties": {
@@ -13762,20 +13877,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "license_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.LiveAgentFleetProgressResponse": {
-            "type": "object",
-            "properties": {
-                "agents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.AgentProgressItem"
-                    }
-                },
-                "timestamp": {
                     "type": "string"
                 }
             }
@@ -14244,23 +14345,17 @@ const docTemplate = `{
                 }
             }
         },
-        "server.TaskItemDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "server.TaskProgressResponse": {
             "type": "object",
             "properties": {
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -14450,6 +14545,10 @@ const docTemplate = `{
                         }
                     }
                 },
+                "idle_seconds": {
+                    "description": "Seconds since last ENET packet (for timeout monitoring)",
+                    "type": "integer"
+                },
                 "lobby_id": {
                     "description": "Which lobby this session is connected to (lobbies mode)",
                     "type": "string"
@@ -14580,6 +14679,10 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Optional: Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "priority": {
                     "type": "string"
                 },
@@ -14592,12 +14695,12 @@ const docTemplate = `{
                 "type": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "user_id": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Optional: Skip human review and auto-approve specs",
-                    "type": "boolean"
                 }
             }
         },
@@ -14784,6 +14887,19 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/services.KoditEnrichmentData"
                     }
+                }
+            }
+        },
+        "services.KoditIndexingStatus": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "Data Data for repository status summary response.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/kodit.RepositoryStatusSummaryData"
+                        }
+                    ]
                 }
             }
         },
@@ -15229,6 +15345,14 @@ const docTemplate = `{
             "x-enum-comments": {
                 "ActionUseAction": "For example \"use app\""
             },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "For example \"use app\""
+            ],
             "x-enum-varnames": [
                 "ActionGet",
                 "ActionList",
@@ -15272,6 +15396,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AdminResetPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "new_password": {
                     "type": "string"
                 }
             }
@@ -15533,6 +15665,11 @@ const docTemplate = `{
                 "AgentTypeHelixBasic": "Basic Helix agent",
                 "AgentTypeZedExternal": "Zed-integrated agent"
             },
+            "x-enum-descriptions": [
+                "Basic Helix agent",
+                "Standard Helix agent with skills",
+                "Zed-integrated agent"
+            ],
             "x-enum-varnames": [
                 "AgentTypeHelixBasic",
                 "AgentTypeHelixAgent",
@@ -15943,7 +16080,8 @@ const docTemplate = `{
                     "description": "GPU index -\u003e total memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "runner_id": {
@@ -15953,7 +16091,8 @@ const docTemplate = `{
                     "description": "GPU index -\u003e allocated memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "runtime": {
@@ -16534,6 +16673,11 @@ const docTemplate = `{
             "x-enum-comments": {
                 "AuthProviderRegular": "Embedded in Helix, no external dependencies"
             },
+            "x-enum-descriptions": [
+                "Embedded in Helix, no external dependencies",
+                "",
+                ""
+            ],
             "x-enum-varnames": [
                 "AuthProviderRegular",
                 "AuthProviderKeycloak",
@@ -16571,10 +16715,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "wip_limits": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
+                    "$ref": "#/definitions/types.WIPLimits"
                 }
             }
         },
@@ -16645,6 +16786,45 @@ const docTemplate = `{
                 "ChatMessagePartTypeImageURL"
             ]
         },
+        "types.ChecklistItem": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "pending, in_progress, completed",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ChecklistProgress": {
+            "type": "object",
+            "properties": {
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "in_progress_task": {
+                    "$ref": "#/definitions/types.ChecklistItem"
+                },
+                "progress_pct": {
+                    "description": "0-100",
+                    "type": "integer"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ChecklistItem"
+                    }
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Choice": {
             "type": "object",
             "properties": {
@@ -16678,6 +16858,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CommentQueueStatusResponse": {
+            "type": "object",
+            "properties": {
+                "current_comment_id": {
+                    "description": "Comment currently being processed (response streaming)",
+                    "type": "string"
+                },
+                "planning_session_id": {
+                    "description": "Session ID for WebSocket subscription",
+                    "type": "string"
+                },
+                "queued_comment_ids": {
+                    "description": "Comments waiting in queue",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.Commit": {
             "type": "object",
             "properties": {
@@ -16695,6 +16895,38 @@ const docTemplate = `{
                 },
                 "timestamp": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ContainerDiskUsage": {
+            "type": "object",
+            "properties": {
+                "container_id": {
+                    "description": "Docker container ID",
+                    "type": "string"
+                },
+                "container_name": {
+                    "description": "Container name (e.g., \"wolf-app-abc123\")",
+                    "type": "string"
+                },
+                "rw_size_bytes": {
+                    "description": "Size of read-write layer only",
+                    "type": "integer"
+                },
+                "size_bytes": {
+                    "description": "Total size of container's writable layer",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ContainerDiskUsageSummary": {
+            "type": "object",
+            "properties": {
+                "container_name": {
+                    "type": "string"
+                },
+                "latest_size_mb": {
+                    "type": "integer"
                 }
             }
         },
@@ -17010,6 +17242,84 @@ const docTemplate = `{
                 }
             }
         },
+        "types.DiskUsageDataPoint": {
+            "type": "object",
+            "properties": {
+                "alert_level": {
+                    "type": "string"
+                },
+                "avail_mb": {
+                    "type": "integer"
+                },
+                "mount_point": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "total_mb": {
+                    "type": "integer"
+                },
+                "used_mb": {
+                    "type": "integer"
+                },
+                "used_percent": {
+                    "type": "number"
+                }
+            }
+        },
+        "types.DiskUsageHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerDiskUsageSummary"
+                    }
+                },
+                "history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageDataPoint"
+                    }
+                },
+                "wolf_instance_id": {
+                    "type": "string"
+                },
+                "wolf_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.DiskUsageMetric": {
+            "type": "object",
+            "properties": {
+                "alert_level": {
+                    "description": "\"ok\", \"warning\", \"critical\"",
+                    "type": "string"
+                },
+                "avail_bytes": {
+                    "description": "available disk space",
+                    "type": "integer"
+                },
+                "mount_point": {
+                    "description": "e.g., \"/var\"",
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "description": "total disk space",
+                    "type": "integer"
+                },
+                "used_bytes": {
+                    "description": "used disk space",
+                    "type": "integer"
+                },
+                "used_percent": {
+                    "description": "percentage used (0-100)",
+                    "type": "number"
+                }
+            }
+        },
         "types.DynamicModelInfo": {
             "type": "object",
             "properties": {
@@ -17232,6 +17542,37 @@ const docTemplate = `{
                             "type": "integer"
                         }
                     }
+                }
+            }
+        },
+        "types.ForkSimpleProjectRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ForkSimpleProjectResponse": {
+            "type": "object",
+            "properties": {
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks_created": {
+                    "type": "integer"
                 }
             }
         },
@@ -17717,6 +18058,10 @@ const docTemplate = `{
                 "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
                 "GitRepositoryTypeInternal": "Internal project config repository"
             },
+            "x-enum-descriptions": [
+                "Internal project config repository",
+                "Code repository (user projects, samples, external repos)"
+            ],
             "x-enum-varnames": [
                 "GitRepositoryTypeInternal",
                 "GitRepositoryTypeCode"
@@ -19307,6 +19652,10 @@ const docTemplate = `{
                 "OrganizationRoleMember": "Can see every member and team in the organization and can create new apps",
                 "OrganizationRoleOwner": "Has full administrative access to the entire organization."
             },
+            "x-enum-descriptions": [
+                "Has full administrative access to the entire organization.",
+                "Can see every member and team in the organization and can create new apps"
+            ],
             "x-enum-varnames": [
                 "OrganizationRoleOwner",
                 "OrganizationRoleMember"
@@ -19488,7 +19837,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "default_repo_id": {
-                    "description": "Project-level repository management",
+                    "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
                 },
                 "deleted_at": {
@@ -19508,15 +19857,8 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "internal_repo_path": {
-                    "description": "Internal project Git repository (stores project config, tasks, design docs)\nIMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo\nIt is NEVER stored in the database - Git is the single source of truth",
-                    "type": "string"
-                },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
                     "type": "string"
@@ -19525,7 +19867,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "startup_script": {
-                    "description": "Transient field - loaded from Git, never persisted to database",
+                    "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
                 },
                 "status": {
@@ -19564,6 +19906,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "startup_script": {
                     "type": "string"
                 },
@@ -19572,6 +19917,14 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.ProjectMetadata": {
+            "type": "object",
+            "properties": {
+                "board_settings": {
+                    "$ref": "#/definitions/types.BoardSettings"
                 }
             }
         },
@@ -19592,6 +19945,9 @@ const docTemplate = `{
                 },
                 "github_repo_url": {
                     "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
                     "type": "string"
@@ -20430,6 +20786,15 @@ const docTemplate = `{
                 "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
                 "SchedulingDecisionTypeUnschedulable": "Cannot be scheduled (no warm slots available)"
             },
+            "x-enum-descriptions": [
+                "Added to queue",
+                "Reused existing warm model instance",
+                "Started new model instance",
+                "Evicted stale slot to free memory",
+                "Rejected (insufficient resources, etc.)",
+                "Error during scheduling",
+                "Cannot be scheduled (no warm slots available)"
+            ],
             "x-enum-varnames": [
                 "SchedulingDecisionTypeQueued",
                 "SchedulingDecisionTypeReuseWarmSlot",
@@ -20885,6 +21250,10 @@ const docTemplate = `{
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
+                    "type": "string"
+                },
                 "helix_version": {
                     "type": "string"
                 },
@@ -20917,6 +21286,10 @@ const docTemplate = `{
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
                 },
+                "render_node": {
+                    "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",
+                    "type": "string"
+                },
                 "session_rag_results": {
                     "type": "array",
                     "items": {
@@ -20933,6 +21306,10 @@ const docTemplate = `{
                 },
                 "stream": {
                     "type": "boolean"
+                },
+                "sway_version": {
+                    "description": "helix-sway image version (commit hash) running in this session",
+                    "type": "string"
                 },
                 "system_prompt": {
                     "type": "string"
@@ -20978,6 +21355,12 @@ const docTemplate = `{
             "x-enum-comments": {
                 "SessionModeAction": "Running tool actions (e.g. API, function calls)"
             },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "Running tool actions (e.g. API, function calls)"
+            ],
             "x-enum-varnames": [
                 "SessionModeNone",
                 "SessionModeInference",
@@ -21308,6 +21691,10 @@ const docTemplate = `{
                     "description": "Discrete tasks breakdown (markdown)",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "labels": {
                     "type": "array",
                     "items": {
@@ -21392,15 +21779,15 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string"
                 },
+                "use_host_docker": {
+                    "description": "Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
                 "workspace_config": {
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
-                },
-                "yolo_mode": {
-                    "description": "Skip human review, auto-approve specs",
-                    "type": "boolean"
                 },
                 "zed_instance_id": {
                     "description": "Multi-session support",
@@ -21455,6 +21842,14 @@ const docTemplate = `{
                 "SpecTaskActivityZedDisconnected",
                 "SpecTaskActivityPhaseTransition"
             ]
+        },
+        "types.SpecTaskArchiveRequest": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                }
+            }
         },
         "types.SpecTaskDesignReview": {
             "type": "object",
@@ -21565,6 +21960,10 @@ const docTemplate = `{
                     "description": "For inline comments - store the context around the comment",
                     "type": "string"
                 },
+                "request_id": {
+                    "description": "Request ID used when sending to agent (for response linking)",
+                    "type": "string"
+                },
                 "resolution_reason": {
                     "description": "\"manual\", \"auto_text_removed\", \"agent_updated\"",
                     "type": "string"
@@ -21667,6 +22066,13 @@ const docTemplate = `{
                 "SpecTaskDesignReviewCommentTypeQuestion": "Question needing clarification",
                 "SpecTaskDesignReviewCommentTypeSuggestion": "Suggested improvement"
             },
+            "x-enum-descriptions": [
+                "General comment",
+                "Question needing clarification",
+                "Suggested improvement",
+                "Critical issue must be fixed",
+                "Positive feedback"
+            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewCommentTypeGeneral",
                 "SpecTaskDesignReviewCommentTypeQuestion",
@@ -21722,6 +22128,13 @@ const docTemplate = `{
                 "SpecTaskDesignReviewStatusPending": "Waiting for reviewer",
                 "SpecTaskDesignReviewStatusSuperseded": "Newer review exists (agent pushed updates)"
             },
+            "x-enum-descriptions": [
+                "Waiting for reviewer",
+                "Reviewer is actively reviewing",
+                "Reviewer requested changes",
+                "Approved, ready for implementation",
+                "Newer review exists (agent pushed updates)"
+            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewStatusPending",
                 "SpecTaskDesignReviewStatusInReview",
@@ -21965,11 +22378,20 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SpecTaskWorkSession"
                     }
                 },
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "implementation_progress": {
                     "description": "Task index -\u003e progress",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "number"
+                        "type": "number",
+                        "format": "float64"
                     }
                 },
                 "overall_progress": {
@@ -21979,7 +22401,8 @@ const docTemplate = `{
                 "phase_progress": {
                     "type": "object",
                     "additionalProperties": {
-                        "type": "number"
+                        "type": "number",
+                        "format": "float64"
                     }
                 },
                 "recent_activity": {
@@ -21999,6 +22422,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22007,10 +22434,6 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Pointer to allow explicit false",
-                    "type": "boolean"
                 }
             }
         },
@@ -23258,6 +23681,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WIPLimits": {
+            "type": "object",
+            "properties": {
+                "implementation": {
+                    "type": "integer"
+                },
+                "planning": {
+                    "type": "integer"
+                },
+                "review": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Wallet": {
             "type": "object",
             "properties": {
@@ -23346,6 +23783,41 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WolfHeartbeatRequest": {
+            "type": "object",
+            "properties": {
+                "container_usage": {
+                    "description": "per-container disk usage breakdown",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ContainerDiskUsage"
+                    }
+                },
+                "disk_usage": {
+                    "description": "disk usage metrics for monitored partitions",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageMetric"
+                    }
+                },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox env)",
+                    "type": "string"
+                },
+                "privileged_mode_enabled": {
+                    "description": "true if HYDRA_PRIVILEGED_MODE_ENABLED=true",
+                    "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE (from sandbox env)",
+                    "type": "string"
+                },
+                "sway_version": {
+                    "description": "helix-sway image version (commit hash)",
+                    "type": "string"
+                }
+            }
+        },
         "types.WolfInstanceRequest": {
             "type": "object",
             "properties": {
@@ -23375,7 +23847,20 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "disk_alert_level": {
+                    "type": "string"
+                },
+                "disk_usage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DiskUsageMetric"
+                    }
+                },
                 "gpu_type": {
+                    "type": "string"
+                },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox heartbeat)",
                     "type": "string"
                 },
                 "id": {
@@ -23390,7 +23875,17 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "privileged_mode_enabled": {
+                    "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE",
+                    "type": "string"
+                },
                 "status": {
+                    "type": "string"
+                },
+                "sway_version": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -23509,6 +24004,28 @@ const docTemplate = `{
                 }
             }
         },
+        "wolf.KeyboardLayerState": {
+            "type": "object",
+            "properties": {
+                "modifier_state": {
+                    "$ref": "#/definitions/wolf.KeyboardModifierState"
+                },
+                "pressed_key_names": {
+                    "description": "Human-readable names",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pressed_keys": {
+                    "description": "Key codes (VK for wolf/inputtino, KEY_* for evdev)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "wolf.KeyboardModifierState": {
             "type": "object",
             "properties": {
@@ -23563,6 +24080,33 @@ const docTemplate = `{
                 "device_name": {
                     "type": "string"
                 },
+                "device_node": {
+                    "description": "e.g., /dev/input/event15",
+                    "type": "string"
+                },
+                "evdev_state": {
+                    "description": "Kernel's evdev state",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
+                },
+                "has_mismatch": {
+                    "description": "Mismatch detection",
+                    "type": "boolean"
+                },
+                "inputtino_state": {
+                    "description": "Inputtino's internal cur_press_keys",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
+                },
+                "mismatch_description": {
+                    "type": "string"
+                },
                 "modifier_state": {
                     "$ref": "#/definitions/wolf.KeyboardModifierState"
                 },
@@ -23573,6 +24117,7 @@ const docTemplate = `{
                     }
                 },
                 "pressed_keys": {
+                    "description": "Legacy fields for backwards compatibility",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -23583,6 +24128,14 @@ const docTemplate = `{
                 },
                 "timestamp_ms": {
                     "type": "integer"
+                },
+                "wolf_state": {
+                    "description": "Three layers of keyboard state for debugging:",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wolf.KeyboardLayerState"
+                        }
+                    ]
                 }
             }
         },
@@ -23659,12 +24212,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "0.1",
-	Host:             "app.helix.ml",
+	Version:          "",
+	Host:             "",
 	BasePath:         "",
-	Schemes:          []string{"https"},
-	Title:            "HelixML API reference",
-	Description:      "This is the HelixML API.",
+	Schemes:          []string{},
+	Title:            "",
+	Description:      "",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

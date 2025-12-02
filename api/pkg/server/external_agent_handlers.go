@@ -321,16 +321,6 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 		return
 	}
 
-	if apiServer.externalAgentExecutor == nil {
-		log.Error().Str("session_id", sessionID).Msg("External agent executor not available")
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	log.Debug().
-		Str("session_id", sessionID).
-		Msg("Getting external agent session info")
-
 	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
 	if err != nil {
 		log.Error().
@@ -1066,7 +1056,6 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Msg("Successfully set clipboard in external agent container")
 }
 
-
 // @Summary Auto-join Wolf lobby after connection
 // @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
 // @Tags ExternalAgents
@@ -1164,7 +1153,8 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 // autoJoinWolfLobby performs the actual auto-join operation by finding the Wolf UI session and joining the lobby
 // This is a helper function called by autoJoinExternalAgentLobby after the user has connected
 // SECURITY: Backend derives wolf_client_id from Wolf API by matching client_unique_id pattern
-//           This prevents frontend manipulation of which Wolf client gets joined to the lobby
+//
+//	This prevents frontend manipulation of which Wolf client gets joined to the lobby
 func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSessionID string, lobbyID string, lobbyPIN string) error {
 	// Look up session to get Wolf instance ID
 	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
@@ -1369,4 +1359,3 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 
 	return nil
 }
-

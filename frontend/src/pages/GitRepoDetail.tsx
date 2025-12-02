@@ -153,7 +153,7 @@ const GitRepoDetail: FC = () => {
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
-  const [editKoditIndexing, setEditKoditIndexing] = useState(false)
+  const [editKoditIndexing, setEditKoditIndexing] = useState<boolean | undefined>(undefined)
   const [editExternalUrl, setEditExternalUrl] = useState('')
   const [editExternalType, setEditExternalType] = useState<TypesExternalRepositoryType | undefined>(undefined)
   const [editUsername, setEditUsername] = useState('')
@@ -286,10 +286,8 @@ const GitRepoDetail: FC = () => {
         name: editName,
         description: editDescription,
         default_branch: editDefaultBranch || undefined,
-        metadata: {
-          ...repository.metadata,
-          kodit_indexing: editKoditIndexing,
-        },
+        kodit_indexing: editKoditIndexing !== undefined ? editKoditIndexing : repository.kodit_indexing,
+        metadata: repository.metadata,
       }
 
       if (repository.is_external || repository.external_url) {

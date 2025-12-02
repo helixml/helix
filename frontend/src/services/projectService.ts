@@ -1,30 +1,30 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject, TypesSampleProjectInstantiateRequest, StoreDBGitRepository, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest } from '../api/api';
 
 // Query keys
-export const projectsListQueryKey = () => ['projects'];
+export const projectsListQueryKey = (orgId?: string) => ['projects', orgId];
 export const projectQueryKey = (id: string) => ['project', id];
 export const projectRepositoriesQueryKey = (projectId: string) => ['project-repositories', projectId];
 export const sampleProjectsListQueryKey = () => ['sample-projects'];
 export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
-export const boardSettingsQueryKey = () => ['board-settings'];
 export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
 export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
 
 /**
  * Hook to list all projects for the current user
  */
-export const useListProjects = () => {
+export const useListProjects = (orgId?: string, options?: { enabled?: boolean }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
 
   return useQuery<TypesProject[]>({
-    queryKey: projectsListQueryKey(),
+    queryKey: projectsListQueryKey(orgId),
     queryFn: async () => {
-      const response = await apiClient.v1ProjectsList();
+      const response = await apiClient.v1ProjectsList({ organization_id: orgId || undefined });
       return response.data || [];
     },
+    enabled: options?.enabled ?? true,
   });
 };
 
@@ -58,8 +58,8 @@ export const useCreateProject = () => {
       const response = await apiClient.v1ProjectsCreate(request);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.organization_id) });
     },
   });
 };
@@ -111,11 +111,11 @@ export const useGetProjectRepositories = (projectId: string, enabled = true) => 
   const api = useApi();
   const apiClient = api.getApiClient();
 
-  return useQuery<StoreDBGitRepository[]>({
+  return useQuery<TypesGitRepository[]>({
     queryKey: projectRepositoriesQueryKey(projectId),
     queryFn: async () => {
       const response = await apiClient.getProjectRepositories(projectId);
-      return (response.data as StoreDBGitRepository[]) || [];
+      return (response.data as TypesGitRepository[]) || [];
     },
     enabled: enabled && !!projectId,
   });
@@ -198,23 +198,6 @@ export const useListSampleProjects = () => {
 };
 
 /**
- * Hook to get a specific sample project
- */
-export const useGetSampleProject = (sampleId: string, enabled = true) => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-
-  return useQuery<TypesSampleProject>({
-    queryKey: sampleProjectQueryKey(sampleId),
-    queryFn: async () => {
-      const response = await apiClient.v1SampleProjectsV2Detail(sampleId);
-      return response.data;
-    },
-    enabled: enabled && !!sampleId,
-  });
-};
-
-/**
  * Hook to instantiate a sample project (fork from simple in-memory list)
  */
 export const useInstantiateSampleProject = () => {
@@ -223,7 +206,7 @@ export const useInstantiateSampleProject = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ sampleId, request }: { sampleId: string; request: any }) => {
+    mutationFn: async ({ sampleId, request }: { sampleId: string; request: TypesForkSimpleProjectRequest }) => {
       const response = await apiClient.v1SampleProjectsSimpleForkCreate({
         sample_project_id: sampleId,
         project_name: request.project_name,
@@ -233,41 +216,6 @@ export const useInstantiateSampleProject = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
-    },
-  });
-};
-
-/**
- * Hook to get board settings
- */
-export const useGetBoardSettings = () => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-
-  return useQuery<TypesBoardSettings>({
-    queryKey: boardSettingsQueryKey(),
-    queryFn: async () => {
-      const response = await apiClient.v1SpecTasksBoardSettingsList();
-      return response.data;
-    },
-  });
-};
-
-/**
- * Hook to update board settings
- */
-export const useUpdateBoardSettings = () => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (settings: TypesBoardSettings) => {
-      const response = await apiClient.v1SpecTasksBoardSettingsUpdate(settings);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: boardSettingsQueryKey() });
     },
   });
 };
@@ -344,12 +292,13 @@ export const useStopProjectExploratorySession = (projectId: string) => {
  */
 export const useResumeProjectExploratorySession = (projectId: string) => {
   const api = useApi();
+  const apiClient = api.getApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
       // Get the current session first to get the session ID
-      const sessionResponse = await api.getApiClient().v1ProjectsExploratorySessionDetail(projectId);
+      const sessionResponse = await apiClient.v1ProjectsExploratorySessionDetail(projectId);
       const session = sessionResponse.data;
 
       if (!session?.id) {
@@ -357,7 +306,7 @@ export const useResumeProjectExploratorySession = (projectId: string) => {
       }
 
       // Call the resume endpoint
-      const response = await api.post(`/api/v1/sessions/${session.id}/resume`);
+      const response = await apiClient.v1SessionsResumeCreate(session.id);
       return session;
     },
     onSuccess: async () => {

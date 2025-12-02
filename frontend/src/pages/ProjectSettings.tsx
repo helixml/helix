@@ -39,6 +39,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
@@ -50,7 +51,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import { useFloatingModal } from '../contexts/floatingModal'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
 import {
   useGetProject,
   useUpdateProject,
@@ -59,8 +60,6 @@ import {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useDeleteProject,
-  useGetBoardSettings,
-  useUpdateBoardSettings,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
@@ -77,16 +76,13 @@ const ProjectSettings: FC = () => {
   const account = useAccount()
   const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
+  const api = useApi()
   const projectId = params.id as string
   const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
 
   const { data: project, isLoading, error } = useGetProject(projectId)
-  const { data: allRepositories = [] } = useGetProjectRepositories(projectId)
-
-  // Separate internal repo from code repos
-  const internalRepo = allRepositories.find(repo => repo.id?.endsWith('-internal'))
-  const repositories = allRepositories.filter(repo => !repo.id?.endsWith('-internal'))
+  const { data: repositories = [] } = useGetProjectRepositories(projectId)
 
   const updateProjectMutation = useUpdateProject(projectId)
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId)
@@ -104,14 +100,29 @@ const ProjectSettings: FC = () => {
   const createAccessGrantMutation = useCreateProjectAccessGrant(projectId)
   const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId)
 
-  // Board settings
-  const { data: boardSettingsData } = useGetBoardSettings()
-  const updateBoardSettingsMutation = useUpdateBoardSettings()
-
   // Exploratory session
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
+
+  // Create SpecTask mutation for "Fix Startup Script" feature
+  const createSpecTaskMutation = useMutation({
+    mutationFn: async (prompt: string) => {
+      const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
+        project_id: projectId,
+        prompt,
+      })
+      return response.data
+    },
+    onSuccess: (task) => {
+      snackbar.success('Created task to fix startup script')
+      // Navigate to the kanban board with the new task highlighted
+      account.orgNavigate('project-specs', { id: projectId, highlight: task.id })
+    },
+    onError: () => {
+      snackbar.error('Failed to create task')
+    }
+  })
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -141,19 +152,18 @@ const ProjectSettings: FC = () => {
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      
+      // Load WIP limits from project metadata
+      const projectWipLimits = project.metadata?.board_settings?.wip_limits
+      if (projectWipLimits) {
+        setWipLimits({
+          planning: projectWipLimits.planning || 3,
+          review: projectWipLimits.review || 2,
+          implementation: projectWipLimits.implementation || 5,
+        })
+      }
     }
   }, [project])
-
-  // Load board settings from query data
-  useEffect(() => {
-    if (boardSettingsData?.wip_limits) {
-      setWipLimits({
-        planning: boardSettingsData.wip_limits.planning || 3,
-        review: boardSettingsData.wip_limits.review || 2,
-        implementation: boardSettingsData.wip_limits.implementation || 5,
-      })
-    }
-  }, [boardSettingsData])
 
   const handleSave = async (showSuccessMessage = true) => {
     console.log('[ProjectSettings] handleSave called', {
@@ -162,7 +172,6 @@ const ProjectSettings: FC = () => {
       hasProject: !!project,
       hasName: !!name,
       updatePending: updateProjectMutation.isPending,
-      boardPending: updateBoardSettingsMutation.isPending,
     })
 
     if (savingProject) {
@@ -186,14 +195,13 @@ const ProjectSettings: FC = () => {
         description,
         startup_script: startupScript,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        metadata: {
+          board_settings: {
+            wip_limits: wipLimits,
+          },
+        },
       })
       console.log('[ProjectSettings] Project settings saved to database')
-
-      // Save board settings
-      await updateBoardSettingsMutation.mutateAsync({
-        wip_limits: wipLimits,
-      })
-      console.log('[ProjectSettings] Board settings saved')
 
       if (showSuccessMessage) {
         snackbar.success('Project settings saved')
@@ -244,50 +252,6 @@ const ProjectSettings: FC = () => {
       snackbar.success('Repository detached successfully')
     } catch (err) {
       snackbar.error('Failed to detach repository')
-    }
-  }
-
-  const handleStartExploratorySession = async () => {
-    try {
-      const session = await startExploratorySessionMutation.mutateAsync()
-      snackbar.success('Exploratory session started')
-      // Open in floating window instead of navigating
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id
-      }, { x: window.innerWidth - 400, y: 100 })
-    } catch (err: any) {
-      // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session'
-      snackbar.error(errorMessage)
-    }
-  }
-
-  const handleResumeExploratorySession = async (e: React.MouseEvent) => {
-    if (!exploratorySessionData) return
-
-    try {
-      // Call the resume endpoint to restart the stopped Wolf container
-      await api.post(`/api/v1/sessions/${exploratorySessionData.id}/resume`)
-      snackbar.success('Exploratory session resumed')
-      // Open floating window
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: exploratorySessionData.id,
-        wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
-      }, { x: e.clientX, y: e.clientY })
-    } catch (err) {
-      snackbar.error('Failed to resume exploratory session')
-    }
-  }
-
-  const handleStopExploratorySession = async () => {
-    try {
-      await stopExploratorySessionMutation.mutateAsync()
-      snackbar.success('Exploratory session stopped')
-    } catch (err) {
-      snackbar.error('Failed to stop exploratory session')
     }
   }
 
@@ -542,32 +506,12 @@ const ProjectSettings: FC = () => {
             ) : (
               <ProjectRepositoriesList
                 repositories={repositories}
-                internalRepo={internalRepo}
                 primaryRepoId={project.default_repo_id}
                 onSetPrimaryRepo={handleSetPrimaryRepo}
                 onDetachRepo={handleDetachRepository}
                 setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
                 detachRepoPending={detachRepoMutation.isPending}
               />
-            )}
-
-            {/* Internal Repository Section - shown when no code repos */}
-            {repositories.length === 0 && internalRepo && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
-                  Internal Repository
-                </Typography>
-                <ProjectRepositoriesList
-                  repositories={[]}
-                  internalRepo={internalRepo}
-                  primaryRepoId={project.default_repo_id}
-                  onSetPrimaryRepo={handleSetPrimaryRepo}
-                  onDetachRepo={handleDetachRepository}
-                  setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
-                  detachRepoPending={detachRepoMutation.isPending}
-                />
-              </>
             )}
           </Paper>
 
@@ -735,6 +679,22 @@ const ProjectSettings: FC = () => {
                   showLoadingOverlay={testingStartupScript}
                   isRestart={isSessionRestart}
                 />
+              </Box>
+              <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Having trouble with your startup script?
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={createSpecTaskMutation.isPending ? <CircularProgress size={16} /> : <AutoFixHighIcon />}
+                  onClick={() => createSpecTaskMutation.mutate(
+                    `Fix the project startup script at .helix/startup.sh. The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues, then push the changes to the repository.`
+                  )}
+                  disabled={createSpecTaskMutation.isPending}
+                >
+                  {createSpecTaskMutation.isPending ? 'Creating task...' : 'Get AI to fix it'}
+                </Button>
               </Box>
             </Paper>
             </Box>

@@ -7,7 +7,7 @@ STARTUP_LOG="$HOME/.helix-startup.log"
 exec > >(tee "$STARTUP_LOG") 2>&1
 
 echo "========================================="
-echo "Helix Agent Startup - $(date)"
+echo "Helix Agent Startup v3 - $(date)"
 echo "========================================="
 echo ""
 
@@ -85,6 +85,7 @@ echo ""
 # Clone project repositories using Helix git HTTP server
 # Repositories are cloned via HTTP with USER_API_TOKEN for RBAC enforcement
 # Format: HELIX_REPOSITORIES="id:name:type,id:name:type,..."
+# NOTE: Internal repos are no longer used - startup script lives in primary CODE repo
 if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     echo "========================================="
     echo "Cloning project repositories..."
@@ -95,14 +96,15 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         # Parse "id:name:type" format
         IFS=':' read -r REPO_ID REPO_NAME REPO_TYPE <<< "$REPO_SPEC"
 
-        echo "📦 Repository: $REPO_NAME (type: $REPO_TYPE)"
-
-        # Determine clone directory based on repo type
+        # Skip internal repos - they're deprecated
+        # Startup script now lives in the primary CODE repo at .helix/startup.sh
         if [ "$REPO_TYPE" = "internal" ]; then
-            CLONE_DIR="$WORK_DIR/.helix-project"
-        else
-            CLONE_DIR="$WORK_DIR/$REPO_NAME"
+            echo "📦 Skipping internal repo: $REPO_NAME (deprecated - startup script in code repo)"
+            continue
         fi
+
+        echo "📦 Repository: $REPO_NAME (type: $REPO_TYPE)"
+        CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
         # If already cloned, skip (preserve agent's work)
         # This is important for SpecTask workflow: planning → implementation reuses same workspace
@@ -257,44 +259,25 @@ fi
 
 # Git user and credentials already configured above (before repository cloning)
 
-# Execute project startup script from internal Git repo - run in terminal window
-# Internal repos are cloned directly to .helix-project (no guessing needed!)
-INTERNAL_REPO_PATH="$WORK_DIR/.helix-project"
+# Execute project startup script from PRIMARY CODE repo
+# Startup script lives at .helix/startup.sh in the primary repository
+# This is the new approach - no more separate internal repos!
 
-# Pull latest changes from internal repo before running startup script
-# This ensures we have the latest version if user edited it in the UI
-if [ -d "$INTERNAL_REPO_PATH/.git" ]; then
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+    PRIMARY_REPO_PATH="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+    STARTUP_SCRIPT_PATH="$PRIMARY_REPO_PATH/.helix/startup.sh"
+
     echo "========================================="
-    echo "Checking for startup script updates..."
+    echo "Looking for startup script in primary repo..."
+    echo "Primary repo: $HELIX_PRIMARY_REPO_NAME"
+    echo "Script path: $STARTUP_SCRIPT_PATH"
     echo "========================================="
-
-    # Detect the default branch (could be main or master)
-    DEFAULT_BRANCH=$(git -C "$INTERNAL_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    if [ -z "$DEFAULT_BRANCH" ]; then
-        # Fallback: try main first, then master
-        if git -C "$INTERNAL_REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
-            DEFAULT_BRANCH="main"
-        elif git -C "$INTERNAL_REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
-            DEFAULT_BRANCH="master"
-        else
-            echo "⚠️  Could not detect default branch, skipping pull"
-            DEFAULT_BRANCH=""
-        fi
-    fi
-
-    if [ -n "$DEFAULT_BRANCH" ]; then
-        if git -C "$INTERNAL_REPO_PATH" pull origin "$DEFAULT_BRANCH" 2>&1; then
-            echo "✅ Internal repo up to date (branch: $DEFAULT_BRANCH)"
-        else
-            echo "⚠️  Git pull failed (may have local changes or network issue)"
-        fi
-    fi
-    echo ""
+else
+    echo "⚠️  No primary repository set (HELIX_PRIMARY_REPO_NAME not set)"
+    STARTUP_SCRIPT_PATH=""
 fi
 
-STARTUP_SCRIPT_PATH="$INTERNAL_REPO_PATH/.helix/startup.sh"
-
-if [ -f "$STARTUP_SCRIPT_PATH" ]; then
+if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
     echo "========================================="
     echo "Found project startup script in Git repo"
     echo "Script: $STARTUP_SCRIPT_PATH"
@@ -404,7 +387,12 @@ WRAPPER_EOF
 
     echo "Startup script terminal launched (check right side of screen)"
 else
-    echo "No startup script found - .helix-project/.helix/startup.sh doesn't exist"
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+        echo "No startup script found at $PRIMARY_REPO_PATH/.helix/startup.sh"
+        echo "Add a startup script in Project Settings to run setup commands"
+    else
+        echo "No startup script - no primary repository configured"
+    fi
 fi
 
 # Wait for settings-sync-daemon to create configuration

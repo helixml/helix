@@ -23,20 +23,25 @@ import (
 // AuthorizationFunc is a callback to check if a user can perform an action on a resource
 type AuthorizationFunc func(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error
 
+// SpecTaskMessageSender is a callback to send messages to spec task agents via WebSocket
+// Returns requestID for tracking responses. notifyUserID can be empty if no specific user notification needed.
+type SpecTaskMessageSender func(ctx context.Context, specTask *types.SpecTask, message string, notifyUserID string) (requestID string, err error)
+
 // GitHTTPServer provides HTTP access to git repositories with API key authentication
 // Enables Zed agents to clone/push to repositories over the network
 type GitHTTPServer struct {
-	store             store.Store
-	gitRepoService    *GitRepositoryService
-	serverBaseURL     string
-	gitExecutablePath string
-	authTokenHeader   string
-	enablePush        bool
-	enablePull        bool
-	maxRepoSize       int64 // Maximum repository size in bytes
-	requestTimeout    time.Duration
-	testMode          bool
-	authorizeFn       AuthorizationFunc // Callback to server's RBAC system
+	store                  store.Store
+	gitRepoService         *GitRepositoryService
+	serverBaseURL          string
+	gitExecutablePath      string
+	authTokenHeader        string
+	enablePush             bool
+	enablePull             bool
+	maxRepoSize            int64 // Maximum repository size in bytes
+	requestTimeout         time.Duration
+	testMode               bool
+	authorizeFn            AuthorizationFunc    // Callback to server's RBAC system
+	sendMessageToAgentFunc SpecTaskMessageSender // Callback to send messages via WebSocket
 }
 
 // GitHTTPServerConfig represents configuration for the git HTTP server
@@ -99,6 +104,11 @@ func NewGitHTTPServer(
 // SetTestMode enables or disables test mode
 func (s *GitHTTPServer) SetTestMode(enabled bool) {
 	s.testMode = enabled
+}
+
+// SetMessageSender sets the callback for sending messages to spec task agents via WebSocket
+func (s *GitHTTPServer) SetMessageSender(sender SpecTaskMessageSender) {
+	s.sendMessageToAgentFunc = sender
 }
 
 // RegisterRoutes registers HTTP git server routes
@@ -608,30 +618,21 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		log.Info().
 			Str("task_id", task.ID).
 			Str("task_name", task.Name).
-			Bool("yolo_mode", task.YoloMode).
+			Bool("just_do_it_mode", task.JustDoItMode).
 			Msg("Processing SpecTask for design doc push")
 
 		now := time.Now()
 		task.DesignDocsPushedAt = &now // Track when design docs were actually pushed
 
-		if task.YoloMode {
-			// YOLO mode: Auto-approve specs and start implementation
-			task.Status = types.TaskStatusSpecApproved
-			task.SpecApprovedBy = "system"
-			task.SpecApprovedAt = &now
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("YOLO mode enabled: Auto-approving specs")
-		} else {
-			// Normal mode: Move to spec review
-			task.Status = types.TaskStatusSpecReview
-			log.Info().
-				Str("task_id", task.ID).
-				Msg("Moving task to spec review")
+		// Just Do It mode tasks skip spec generation entirely, so they shouldn't hit this code path
+		// Move to spec review for human review
+		task.Status = types.TaskStatusSpecReview
+		log.Info().
+			Str("task_id", task.ID).
+			Msg("Moving task to spec review")
 
-			// Auto-create a design review record so the floating window viewer can open
-			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
-		}
+		// Auto-create a design review record so the floating window viewer can open
+		go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
 
 		task.UpdatedAt = now
 		err = s.store.UpdateSpecTask(ctx, task)
@@ -647,13 +648,13 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 }
 
-// createDesignReviewForPush auto-creates a design review record when design docs are pushed
+// createDesignReviewForPush auto-creates or updates a design review record when design docs are pushed
 func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string) {
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Str("branch", branch).
 		Str("commit", commitHash).
-		Msg("Auto-creating design review for pushed design docs")
+		Msg("Auto-creating/updating design review for pushed design docs")
 
 	// List all files in helix-specs branch to find task directory
 	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
@@ -713,7 +714,59 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		docs[filename] = string(output)
 	}
 
-	// Create design review record
+	// Check if there's an existing pending/in_review design review to update
+	// This handles the case where the agent updates specs in response to comments
+	existingReviews, err := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to list existing design reviews")
+		// Continue to create new review
+	}
+
+	// Find an active review to update (pending or in_review status, not approved/superseded)
+	var activeReview *types.SpecTaskDesignReview
+	for i := range existingReviews {
+		review := &existingReviews[i]
+		if review.Status == types.SpecTaskDesignReviewStatusPending ||
+			review.Status == types.SpecTaskDesignReviewStatusInReview ||
+			review.Status == types.SpecTaskDesignReviewStatusChangesRequested {
+			activeReview = review
+			break
+		}
+	}
+
+	now := time.Now()
+
+	if activeReview != nil {
+		// Update existing review with new content
+		activeReview.RequirementsSpec = docs["requirements.md"]
+		activeReview.TechnicalDesign = docs["design.md"]
+		activeReview.ImplementationPlan = docs["tasks.md"]
+		activeReview.GitBranch = branch
+		activeReview.GitCommitHash = commitHash
+		activeReview.GitPushedAt = now
+		activeReview.UpdatedAt = now
+
+		if err := s.store.UpdateSpecTaskDesignReview(ctx, activeReview); err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Str("review_id", activeReview.ID).
+				Msg("Failed to update design review")
+			return
+		}
+
+		log.Info().
+			Str("review_id", activeReview.ID).
+			Str("spec_task_id", specTaskID).
+			Str("commit", commitHash).
+			Msg("✅ Design review updated with new content")
+		return
+	}
+
+	// No active review found, create new one
 	review := &types.SpecTaskDesignReview{
 		ID:                 system.GenerateUUID(),
 		SpecTaskID:         specTaskID,
@@ -723,9 +776,9 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		ImplementationPlan: docs["tasks.md"],
 		GitBranch:          branch,
 		GitCommitHash:      commitHash,
-		GitPushedAt:        time.Now(),
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		GitPushedAt:        now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := s.store.CreateSpecTaskDesignReview(ctx, review); err != nil {
@@ -902,26 +955,28 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			continue
 		}
 
-		// Send notification to agent that push was detected (reuse planning session)
-		sessionID := task.PlanningSessionID
-
-		if sessionID != "" {
-			agentInstructionService := NewAgentInstructionService(s.store)
-			go func() {
-				err := agentInstructionService.SendImplementationReviewRequest(
-					context.Background(),
-					sessionID,
-					task.CreatedBy, // User who created the task
-					branchName,
-				)
+		// Send notification to agent that push was detected via WebSocket
+		if s.sendMessageToAgentFunc != nil {
+			go func(t *types.SpecTask, branch string) {
+				message := BuildImplementationReviewPrompt(t, branch)
+				_, err := s.sendMessageToAgentFunc(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
-						Str("task_id", task.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to send implementation review request")
+						Str("task_id", t.ID).
+						Str("planning_session_id", t.PlanningSessionID).
+						Msg("Failed to send implementation review request via WebSocket")
+				} else {
+					log.Info().
+						Str("task_id", t.ID).
+						Str("branch", branch).
+						Msg("Sent implementation review request to agent via WebSocket")
 				}
-			}()
+			}(task, branchName)
+		} else {
+			log.Warn().
+				Str("task_id", task.ID).
+				Msg("No message sender configured - agent will not receive implementation review request")
 		}
 
 		log.Info().

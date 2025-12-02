@@ -12,13 +12,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -77,6 +77,8 @@ type lobbyCacheEntry struct {
 	timestamp time.Time
 }
 
+var _ Executor = &WolfExecutor{}
+
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
 	store    store.Store
@@ -88,12 +90,12 @@ type WolfExecutor struct {
 	helixAPIURL   string
 	helixAPIToken string
 
-	// Workspace configuration for dev stack
-	// CRITICAL: We need TWO paths because API container and Wolf/host see different paths:
-	// - workspaceBasePathForCloning: Path inside API container where we git clone repos
-	// - workspaceBasePathForMounting: Absolute host path that Wolf uses to mount into containers
-	workspaceBasePathForCloning  string // e.g., /filestore/workspaces (inside API container)
-	workspaceBasePathForMounting string // e.g., /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces (on host)
+	// Workspace path configuration
+	// NOTE: API and sandbox do NOT share filesystems. The API just generates path strings
+	// that are passed to Wolf to create bind mounts in the sandbox container.
+	// translateToHostPath() converts /filestore/workspaces/... to /data/workspaces/...
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
+	workspaceBasePathForCloning string // e.g., /filestore/workspaces - used to generate workspace paths
 
 	// Cache for lobby lookups to prevent Wolf API spam
 	lobbyCache      map[string]*lobbyCacheEntry
@@ -114,8 +116,9 @@ type WolfExecutor struct {
 	// Connection manager for RevDial connections to sandboxes and remote Wolf instances
 	connman connmanInterface
 
-	// Max concurrent lobbies (GPU streaming sessions) - configurable via EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES
-	maxConcurrentLobbies int
+	// Hydra multi-Docker isolation
+	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
+	hydraEnabled bool
 }
 
 // connmanInterface defines the interface for RevDial connection management
@@ -136,19 +139,27 @@ func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface 
 	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
 
-// translateToHostPath converts API container path to absolute host path for Wolf mounting
-// API container sees: /filestore/workspaces/...
-// Host sees: /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces/...
+// translateToHostPath converts API container path to sandbox container path for Wolf mounting
+//
+// Architecture:
+// - API container: mounts helix-filestore volume at /filestore/workspaces/...
+// - Sandbox container: mounts sandbox-data volume at /data/workspaces/...
+// - These are DIFFERENT volumes (helix-filestore vs sandbox-data)
+//
+// For Hydra bind-mount compatibility:
+// - Workspaces need to be at /data/workspaces/... in both sandbox AND dev containers
+// - Docker creates empty directories for bind-mount paths that don't exist yet
+// - The startup script clones repos into the workspace on first boot
+//
+// See: design/2025-12-01-hydra-bind-mount-symlink.md
 func (w *WolfExecutor) translateToHostPath(containerPath string) string {
-	// Replace /filestore with the absolute host volume path
-	if strings.HasPrefix(containerPath, "/filestore/") {
-		relativePath := strings.TrimPrefix(containerPath, "/filestore/")
-		// workspaceBasePathForMounting already includes "workspaces" from the volume root
-		// e.g., /var/lib/docker/volumes/.../workspaces
-		// So we need to go up to the volume root first
-		volumeRoot := filepath.Dir(w.workspaceBasePathForMounting)
-		return filepath.Join(volumeRoot, relativePath)
+	// Convert /filestore/workspaces/... to /data/workspaces/...
+	// This maps API container paths to sandbox container paths
+	if strings.HasPrefix(containerPath, "/filestore/workspaces/") {
+		return strings.Replace(containerPath, "/filestore/workspaces/", "/data/workspaces/", 1)
 	}
+	// For other /filestore/ paths (like SSH keys), keep them as-is
+	// SSH keys are mounted separately and exist in filestore
 	return containerPath
 }
 
@@ -183,17 +194,19 @@ type DesktopWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string      // User ID for SSH key mounting
-	SessionID         string      // Session ID for settings sync daemon
+	UserID            string // User ID for SSH key mounting
+	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	ExtraMounts       []string    // Additional directory mounts (e.g., internal project repo)
 	ZedImage          string      // Override for desktop image (uses instance's desktop version)
 	DesktopType       DesktopType // Type of desktop environment (sway or zorin)
-	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
+	// NOTE: Startup script lives in primary code repo at .helix/startup.sh
 	DisplayWidth  int
 	DisplayHeight int
 	DisplayFPS    int
+	// Docker socket configuration (Hydra multi-Docker isolation)
+	DockerSocket string // Path to Docker socket to mount (defaults to /var/run/docker.sock if empty)
 }
 
 // computeZedImageFromVersion converts a version string (commit hash) from Wolf instance
@@ -216,23 +229,14 @@ func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, versi
 
 // createDesktopWolfApp creates a Wolf app with a desktop environment (Sway or Zorin)
 func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.App {
-	// Build GPU-specific device list based on GPU_VENDOR
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
-	gpuDevices := "/dev/input/*"         // Input devices always needed
-
-	switch gpuVendor {
-	case "none":
-		// Software rendering - no GPU devices needed, llvmpipe uses CPU
-		// Still need /dev/dri for Mesa software rendering context
-		gpuDevices += " /dev/dri/*"
-	case "nvidia":
-		gpuDevices += " /dev/dri/* /dev/nvidia*"
-	case "amd":
-		gpuDevices += " /dev/dri/* /dev/kfd" // AMD ROCm Kernel Fusion Driver
-	default:
-		// Intel or unknown - just /dev/dri
-		gpuDevices += " /dev/dri/*"
-	}
+	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
+	// We include all possible GPU devices - the glob won't match non-existent devices.
+	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
+	// - /dev/input/*: Input devices (event*, mice, mouse*)
+	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
+	// - /dev/nvidia*: NVIDIA GPU devices
+	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
+	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
@@ -243,6 +247,7 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
+		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
@@ -253,18 +258,32 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
+		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
+		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
 	}
 
-	// Startup script is executed directly from cloned internal Git repo
-	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
+	// Startup script lives in primary code repo at .helix/startup.sh
+	// start-zed-helix.sh will execute it from disk if present
 
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
 
+	// Determine Docker socket to mount (Hydra isolation or default)
+	dockerSocket := config.DockerSocket
+	if dockerSocket == "" {
+		dockerSocket = "/var/run/docker.sock" // Default to Wolf's Docker socket
+	}
+
 	// Build standard mounts (common to all Sway apps)
+	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
+	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
+	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
-		"/var/run/docker.sock:/var/run/docker.sock",
+		fmt.Sprintf("%s:%s", config.WorkspaceDir, config.WorkspaceDir),
+		fmt.Sprintf("%s:/var/run/docker.sock", dockerSocket),
 	}
 
 	// Development mode: mount files for hot-reloading
@@ -304,12 +323,18 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 	// Add SSH keys mount if user has SSH keys
 	// The SSH key directory is created by the API when keys are created
 	// Mount as read-only for security
-	sshKeyDir := fmt.Sprintf("/opt/helix/filestore/ssh-keys/%s", config.UserID)
-	if _, err := os.Stat(sshKeyDir); err == nil {
-		mounts = append(mounts, fmt.Sprintf("%s:/home/retro/.ssh:ro", sshKeyDir))
+	// CRITICAL: Use /filestore/ prefix for translateToHostPath compatibility
+	// - Check existence with API container path (/filestore/...)
+	// - Mount with HOST path (translated for Wolf)
+	sshKeyDirAPI := fmt.Sprintf("/filestore/ssh-keys/%s", config.UserID)
+	if _, err := os.Stat(sshKeyDirAPI); err == nil {
+		// Translate to host path for Wolf mount
+		sshKeyDirHost := w.translateToHostPath(sshKeyDirAPI)
+		mounts = append(mounts, fmt.Sprintf("%s:/home/retro/.ssh:ro", sshKeyDirHost))
 		log.Info().
 			Str("user_id", config.UserID).
-			Str("ssh_key_dir", sshKeyDir).
+			Str("ssh_key_dir_api", sshKeyDirAPI).
+			Str("ssh_key_dir_host", sshKeyDirHost).
 			Msg("Mounting SSH keys for git access")
 	}
 
@@ -410,29 +435,26 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 			Msg("FILESTORE_VOLUME_PATH not set, using default Docker volume path")
 	}
 
-	// Get max concurrent lobbies from environment variable (default: 10)
-	maxLobbies := 10
-	if maxLobbiesStr := os.Getenv("EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES"); maxLobbiesStr != "" {
-		if parsed, err := strconv.Atoi(maxLobbiesStr); err == nil && parsed > 0 {
-			maxLobbies = parsed
-		}
+	// Check if Hydra multi-Docker isolation is enabled
+	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
+	hydraEnabled := os.Getenv("HYDRA_ENABLED") == "true"
+	if hydraEnabled {
+		log.Info().Msg("Hydra multi-Docker isolation enabled - each scope gets isolated dockerd")
 	}
-	log.Info().Int("max_concurrent_lobbies", maxLobbies).Msg("Wolf executor lobby limit configured")
 
 	executor := &WolfExecutor{
-		store:                        storeInst,
-		sessions:                     make(map[string]*ZedSession),
-		zedImage:                     zedImage,
-		helixAPIURL:                  helixAPIURL,
-		helixAPIToken:                helixAPIToken,
-		workspaceBasePathForCloning:  "/filestore/workspaces",                          // Path inside API container for git clone operations
-		workspaceBasePathForMounting: filepath.Join(filestoreVolumePath, "workspaces"), // Absolute host path for Wolf to mount
-		lobbyCache:                   make(map[string]*lobbyCacheEntry),
-		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
-		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
-		wolfScheduler:                store.NewWolfScheduler(storeInst),
-		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
-		maxConcurrentLobbies:         maxLobbies,
+		store:                       storeInst,
+		sessions:                    make(map[string]*ZedSession),
+		zedImage:                    zedImage,
+		helixAPIURL:                 helixAPIURL,
+		helixAPIToken:               helixAPIToken,
+		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
+		lobbyCache:                  make(map[string]*lobbyCacheEntry),
+		lobbyCacheTTL:               5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
+		creationLocks:               make(map[string]*sync.Mutex), // Per-session locks for lobby creation
+		wolfScheduler:               store.NewWolfScheduler(storeInst),
+		connman:                     connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
+		hydraEnabled:                hydraEnabled,
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -475,8 +497,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
 
 	// Select best Wolf instance for this sandbox
-	// TODO: Extract GPU type from agent config if needed
-	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
+	// Use SelectWolfInstanceWithOptions to support privileged mode filtering
+	wolfInstance, err := w.wolfScheduler.SelectWolfInstanceWithOptions(ctx, store.WolfSelectionOptions{
+		GPUType:               "", // TODO: Extract GPU type from agent config if needed
+		RequirePrivilegedMode: agent.UseHostDocker,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("no Wolf instances available - ensure Wolf container is running and connected via RevDial: %w", err)
 	}
@@ -486,6 +511,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("wolf_name", wolfInstance.Name).
 		Int("current_load", wolfInstance.ConnectedSandboxes).
 		Int("max_capacity", wolfInstance.MaxSandboxes).
+		Bool("privileged_mode", wolfInstance.PrivilegedModeEnabled).
+		Bool("use_host_docker", agent.UseHostDocker).
 		Msg("Selected Wolf instance for sandbox")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
@@ -509,16 +536,15 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// Create workspace directory if it doesn't exist
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
-	}
-
-	// Internal repos are now cloned like any other repo (no longer mounted)
-	// This allows Wolf server to be separated from API server over the network
+	// NOTE: Workspace directory is NOT created here because:
+	// 1. Sandbox runs on a different machine - API can't write to sandbox filesystem
+	// 2. Docker creates empty directories automatically when bind-mounting non-existent paths
+	// 3. Startup script (start-zed-helix.sh) handles repository cloning on first boot
+	//
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 
 	// Clone git repositories if specified (for SpecTasks with repository context)
-	// Internal repos are now cloned like any other repo (no special handling)
+	// Repository cloning is handled by startup script (start-zed-helix.sh)
 	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
 		// Repository cloning now handled by startup script (start-zed-helix.sh)
@@ -635,7 +661,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// No extra mounts needed - internal repos are now cloned instead of mounted
+	// Extra mounts for additional directories
 	extraMounts := []string{}
 
 	// CRITICAL: Check if lobby already exists for this session to prevent duplicates
@@ -734,27 +760,66 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// No existing lobby - create a new one
 	log.Info().Str("session_id", agent.SessionID).Msg("No existing lobby found, creating new lobby")
 
-	// CRITICAL: Enforce hard limit of 5 concurrent lobbies to prevent GPU resource exhaustion
-	// Discovery: NVML fails at ~5-6 lobbies, GPU crashes at 6-7 lobbies
-	// See: design/2025-11-05-wolf-gpu-resource-limits-and-monitoring.md
-	lobbies, err := w.getWolfClient(wolfInstance.ID).ListLobbies(ctx)
+	// CRITICAL: Enforce per-Wolf-instance lobby limit to prevent GPU resource exhaustion
+	// Query GPU memory dynamically and calculate max lobbies based on available resources
+	// At 10 lobbies we observed ~4.6GB GPU memory usage (~460MB per lobby)
+	const memoryPerLobbyMB = 460
+	const memoryHeadroomMB = 2048 // Leave 2GB headroom for safety
+
+	wolfClient := w.getWolfClient(wolfInstance.ID)
+	lobbies, err := wolfClient.ListLobbies(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to check lobby count before creation")
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
 	}
 
-	if len(lobbies) >= w.maxConcurrentLobbies {
+	// Calculate dynamic max lobbies based on GPU memory
+	// Default: assume 8GB GPU = 12 lobbies (conservative for production)
+	const defaultMaxLobbies = 12
+	maxLobbies := defaultMaxLobbies
+
+	memory, err := wolfClient.GetSystemMemory(ctx)
+	if err != nil {
+		log.Warn().Err(err).Int("fallback_max_lobbies", defaultMaxLobbies).Msg("Failed to get GPU memory stats, assuming 8GB GPU")
+	} else if memory.GPUStats != nil && memory.GPUStats.MemoryTotalMB > 0 {
+		// Calculate max lobbies: (total GPU memory - headroom) / memory per lobby
+		usableMemory := memory.GPUStats.MemoryTotalMB - memoryHeadroomMB
+		if usableMemory > 0 {
+			maxLobbies = usableMemory / memoryPerLobbyMB
+			if maxLobbies < 1 {
+				maxLobbies = 1 // At least allow 1 lobby
+			}
+		}
+		log.Info().
+			Int("gpu_memory_total_mb", memory.GPUStats.MemoryTotalMB).
+			Int("gpu_memory_used_mb", memory.GPUStats.MemoryUsedMB).
+			Int("usable_memory_mb", usableMemory).
+			Int("calculated_max_lobbies", maxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("Calculated dynamic lobby limit from GPU memory")
+	} else {
+		// No GPU stats available (software rendering or GPU monitoring unavailable)
+		// Assume 8GB GPU as conservative default
+		log.Warn().
+			Int("fallback_max_lobbies", defaultMaxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("No GPU memory stats available, assuming 8GB GPU")
+	}
+
+	if len(lobbies) >= maxLobbies {
 		log.Error().
 			Int("active_lobbies", len(lobbies)).
-			Int("max_lobbies", w.maxConcurrentLobbies).
+			Int("max_lobbies", maxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
 			Str("session_id", agent.SessionID).
-			Msg("GPU resource limit reached - cannot create new lobby")
-		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), w.maxConcurrentLobbies)
+			Msg("GPU resource limit reached on Wolf instance - cannot create new lobby")
+		return nil, fmt.Errorf("GPU resource limit reached on %s (%d/%d lobbies active). Please close an unused session and try again", wolfInstance.Name, len(lobbies), maxLobbies)
 	}
 
 	log.Info().
 		Int("active_lobbies", len(lobbies)).
-		Int("max_lobbies", w.maxConcurrentLobbies).
+		Int("max_lobbies", maxLobbies).
+		Str("wolf_instance_id", wolfInstance.ID).
 		Msg("GPU capacity check passed, proceeding with lobby creation")
 
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
@@ -772,7 +837,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir_host", workspaceDirForMount).
 		Msg("Translated workspace path for Wolf mounting")
 
-	// Translate extra mounts (internal repo path) to host paths as well
+	// Translate extra mounts to host paths as well
 	translatedExtraMounts := []string{}
 	for _, mount := range extraMounts {
 		// Mount format is "source:dest:options"
@@ -786,35 +851,70 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// NEW: Create lobby instead of app for immediate auto-start
-	// Determine video buffer caps and render node based on GPU vendor
-	// - NVIDIA uses CUDA memory for zero-copy GPU access
-	// - AMD/Intel use plain video/x-raw (legacy pipeline) because zero-copy VA memory
-	//   requires DMA-BUF support which may not be available on all AMD GPUs
-	// - "none" uses SOFTWARE render node for llvmpipe software rendering (no GPU)
-	// - Wolf logs: "Unable to find any compatible DMA formats for vapostproc, disabling zero copy pipeline"
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", "intel", or "none"
-	videoBufferCaps := "video/x-raw"     // Default for AMD/Intel/software/unknown (legacy pipeline)
-	renderNode := os.Getenv("WOLF_RENDER_NODE")
-	if renderNode == "" {
-		renderNode = "/dev/dri/renderD128" // Default
-	}
+	// Wolf's compute_pipeline_defaults() handles GPU auto-detection for video settings.
+	// We send empty strings and let Wolf figure out the optimal pipeline based on:
+	// - NVIDIA: video/x-raw(memory:CUDAMemory) for zero-copy CUDA encoding
+	// - AMD/Intel: video/x-raw(memory:DMABuf) for zero-copy VA-API encoding
+	// - Software: video/x-raw for CPU-based encoding
+	// This avoids duplicating GPU detection logic and enables AMD/Intel zero-copy DMABuf.
 
-	switch gpuVendor {
-	case "nvidia":
-		videoBufferCaps = "video/x-raw(memory:CUDAMemory)"
-	case "none", "":
-		// Software rendering fallback - use llvmpipe via SOFTWARE render node
-		// Per Wolf maintainer ABeltramo: "Setting the render node to SOFTWARE should do the trick"
-		renderNode = "SOFTWARE"
-		log.Info().Msg("No GPU detected - using software rendering (llvmpipe)")
-	}
+	// Hydra multi-Docker isolation: Create isolated dockerd for this session
+	// When Hydra is enabled, each session gets its own dockerd for complete isolation
+	// We always key on session ID (not SpecTask ID) because:
+	// 1. Session ID is unique per agent instance
+	// 2. Works for all agent types: SpecTask, exploratory, and direct session agents
+	// 3. Each session should have isolated Docker state
+	var dockerSocket string
+	if w.hydraEnabled {
+		// Determine scope type for categorization (but always use session ID as the key)
+		var scopeType string
+		if agent.SpecTaskID != "" {
+			scopeType = "spectask"
+		} else if agent.ProjectID != "" {
+			scopeType = "exploratory"
+		} else {
+			scopeType = "session"
+		}
+		// Always use session ID as the scope ID for isolation
+		scopeID := agent.SessionID
 
-	log.Info().
-		Str("gpu_vendor", gpuVendor).
-		Str("video_buffer_caps", videoBufferCaps).
-		Str("render_node", renderNode).
-		Msg("Configured video settings for GPU type")
+		log.Info().
+			Str("scope_type", scopeType).
+			Str("scope_id", scopeID).
+			Str("session_id", agent.SessionID).
+			Str("spec_task_id", agent.SpecTaskID).
+			Bool("use_host_docker", agent.UseHostDocker).
+			Msg("Creating isolated Docker instance via Hydra")
+
+		// Call Hydra API to create Docker instance via RevDial
+		// Hydra runs in sandbox container, accessible via RevDial tunnel
+		hydraRunnerID := fmt.Sprintf("hydra-%s", wolfInstance.ID)
+		log.Info().
+			Str("hydra_runner_id", hydraRunnerID).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("Connecting to Hydra via RevDial")
+
+		hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
+		dockerInstance, err := hydraClient.CreateDockerInstance(ctx, &hydra.CreateDockerInstanceRequest{
+			ScopeType:     hydra.ScopeType(scopeType),
+			ScopeID:       scopeID,
+			UserID:        agent.UserID,
+			UseHostDocker: agent.UseHostDocker, // Privileged mode: use host Docker socket
+		})
+		if err != nil {
+			// Hydra is enabled but failed - this is a hard error, not a fallback
+			// The user explicitly wants isolation, so don't silently use shared socket
+			return nil, fmt.Errorf("failed to create isolated Docker instance via Hydra (runner_id=%s): %w. "+
+				"Check that Hydra is running in sandbox and RevDial is connected", hydraRunnerID, err)
+		}
+		dockerSocket = dockerInstance.DockerSocket
+		log.Info().
+			Str("scope_type", scopeType).
+			Str("scope_id", scopeID).
+			Str("docker_socket", dockerSocket).
+			Str("hydra_runner_id", hydraRunnerID).
+			Msg("Created isolated Docker instance via Hydra")
+	}
 
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
@@ -823,12 +923,13 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:                   displayWidth,
-			Height:                  displayHeight,
-			RefreshRate:             displayRefreshRate,
-			WaylandRenderNode:       renderNode,
-			RunnerRenderNode:        renderNode,
-			VideoProducerBufferCaps: videoBufferCaps,
+			Width:       displayWidth,
+			Height:      displayHeight,
+			RefreshRate: displayRefreshRate,
+			// Empty strings → Wolf's compute_pipeline_defaults() auto-detects optimal GPU pipeline
+			WaylandRenderNode:       "",
+			RunnerRenderNode:        "",
+			VideoProducerBufferCaps: "",
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
@@ -848,6 +949,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayFPS:        displayRefreshRate,
 			DesktopType:       getDesktopTypeFromEnv(),
 			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance.SwayVersion), // Use version from sandbox heartbeat
+			DockerSocket:      dockerSocket,                                                                    // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
 
@@ -887,6 +989,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			// Update session metadata with Wolf lobby information
 			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
 			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+			helixSession.Metadata.SwayVersion = wolfInstance.SwayVersion // Track which helix-sway version is running
+			helixSession.Metadata.GPUVendor = wolfInstance.GPUVendor     // Track GPU vendor for debugging
+			helixSession.Metadata.RenderNode = wolfInstance.RenderNode   // Track render node for debugging
 			helixSession.WolfInstanceID = wolfInstance.ID
 
 			_, err = w.store.UpdateSession(ctx, *helixSession)
@@ -898,7 +1003,10 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 					Str("lobby_id", lobbyResp.LobbyID).
 					Str("lobby_pin", lobbyPINString).
 					Str("wolf_instance_id", wolfInstance.ID).
-					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, and instance")
+					Str("sway_version", wolfInstance.SwayVersion).
+					Str("gpu_vendor", wolfInstance.GPUVendor).
+					Str("render_node", wolfInstance.RenderNode).
+					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, instance, sway version, and GPU info")
 			}
 		}
 	}
@@ -940,9 +1048,10 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
 		Status:         "running", // Lobby starts immediately
 		ContainerName:  containerHostname,
-		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:   lobbyPINString,    // NEW: Return PIN for storage in Helix session
-		WolfInstanceID: wolfInstance.ID,   // NEW: Return Wolf instance ID for multi-Wolf deployment
+		WolfLobbyID:    lobbyResp.LobbyID,        // NEW: Return lobby ID
+		WolfLobbyPIN:   lobbyPINString,           // NEW: Return PIN for storage in Helix session
+		WolfInstanceID: wolfInstance.ID,          // NEW: Return Wolf instance ID for multi-Wolf deployment
+		SwayVersion:    wolfInstance.SwayVersion, // helix-sway image version for debugging
 	}
 
 	log.Info().
@@ -1225,6 +1334,41 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		}
 	}
 
+	// Stop Hydra Docker instance if enabled (preserves data for resume)
+	if w.hydraEnabled && wolfInstanceID != "" {
+		// Determine scope type for categorization (but always use session ID as the key)
+		var scopeType hydra.ScopeType
+		if dbSession.Metadata.SpecTaskID != "" {
+			scopeType = hydra.ScopeTypeSpecTask
+		} else if dbSession.Metadata.ProjectID != "" {
+			scopeType = hydra.ScopeTypeExploratory
+		} else {
+			scopeType = hydra.ScopeTypeSession
+		}
+		// Always use session ID as the scope ID (matches StartZedAgent)
+		scopeID := sessionID
+
+		log.Info().
+			Str("scope_type", string(scopeType)).
+			Str("scope_id", scopeID).
+			Msg("Stopping Hydra Docker instance (data preserved for resume)")
+
+		hydraClient := hydra.NewRevDialClient(w.connman, fmt.Sprintf("hydra-%s", wolfInstanceID))
+		_, err := hydraClient.DeleteDockerInstance(ctx, scopeType, scopeID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("scope_type", string(scopeType)).
+				Str("scope_id", scopeID).
+				Msg("Failed to stop Hydra Docker instance (non-fatal)")
+		} else {
+			log.Info().
+				Str("scope_type", string(scopeType)).
+				Str("scope_id", scopeID).
+				Msg("Hydra Docker instance stopped successfully")
+		}
+	}
+
 	log.Info().Str("session_id", sessionID).Msg("Zed agent stopped successfully")
 
 	return nil
@@ -1462,15 +1606,14 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	// Get workspace directory (should already exist)
 	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
 
-	// Create Wolf app using the same Sway configuration as the main creation function
-	// Build GPU-specific device list based on GPU_VENDOR
-	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
-	gpuDevices := "/dev/input/* /dev/dri/*"
-	if gpuVendor == "nvidia" {
-		gpuDevices += " /dev/nvidia*"
-	} else if gpuVendor == "amd" {
-		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
-	}
+	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
+	// We include all possible GPU devices - the glob won't match non-existent devices.
+	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
+	// - /dev/input/*: Input devices (event*, mice, mouse*)
+	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
+	// - /dev/nvidia*: NVIDIA GPU devices
+	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
+	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
@@ -1485,14 +1628,23 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
 		// Zed external websocket sync configuration
 		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
+		"ZED_ALLOW_EMULATED_GPU=1",       // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
+		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
+		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
 	}
+	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
+	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
+	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		fmt.Sprintf("%s:%s", workspaceDir, workspaceDir), // Mount persistent workspace at same path
 		"/var/run/docker.sock:/var/run/docker.sock:rw",   // Mount Wolf's docker socket for devcontainer support
 	}
 

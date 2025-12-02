@@ -89,12 +89,25 @@ type Client interface {
 	// Wolf Pairing
 	GetWolfPendingPairRequests(ctx context.Context) ([]byte, error)
 	CompleteWolfPairing(ctx context.Context, data []byte) ([]byte, error)
+
+	// Users
+	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)
+	GetCurrentUser(ctx context.Context) (*types.User, error)
+	UpdateOwnPassword(ctx context.Context, newPassword string) error
+	AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error)
 }
 
 type SessionFilter struct {
 	OrganizationID string
 	Offset         int
 	Limit          int
+}
+
+type UserFilter struct {
+	Email    string
+	Username string
+	Page     int
+	PerPage  int
 }
 
 // HelixClient is the client for the helix api
@@ -237,4 +250,68 @@ func (c *HelixClient) CompleteWolfPairing(ctx context.Context, data []byte) ([]b
 		return nil, err
 	}
 	return []byte(response), nil
+}
+
+// User methods
+
+// ListUsers returns a paginated list of users (admin only)
+func (c *HelixClient) ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error) {
+	path := "/users?"
+	if f != nil {
+		if f.Email != "" {
+			path += "email=" + f.Email + "&"
+		}
+		if f.Username != "" {
+			path += "username=" + f.Username + "&"
+		}
+		if f.Page > 0 {
+			path += fmt.Sprintf("page=%d&", f.Page)
+		}
+		if f.PerPage > 0 {
+			path += fmt.Sprintf("per_page=%d&", f.PerPage)
+		}
+	}
+	var response types.PaginatedUsersList
+	err := c.makeRequest(ctx, http.MethodGet, path, nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetCurrentUser returns the currently authenticated user
+func (c *HelixClient) GetCurrentUser(ctx context.Context) (*types.User, error) {
+	var response types.User
+	err := c.makeRequest(ctx, http.MethodGet, "/status", nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// UpdateOwnPassword updates the password for the currently authenticated user
+func (c *HelixClient) UpdateOwnPassword(ctx context.Context, newPassword string) error {
+	reqBody, err := json.Marshal(types.PasswordUpdateRequest{
+		NewPassword: newPassword,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return c.makeRequest(ctx, http.MethodPost, "/auth/password-update", strings.NewReader(string(reqBody)), nil)
+}
+
+// AdminResetPassword resets the password for any user (admin only)
+func (c *HelixClient) AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error) {
+	reqBody, err := json.Marshal(map[string]string{
+		"new_password": newPassword,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	var response types.User
+	err = c.makeRequest(ctx, http.MethodPut, "/admin/users/"+userID+"/password", strings.NewReader(string(reqBody)), &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
 }

@@ -56,6 +56,22 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface KoditRepositoryStatusSummaryAttributes {
+  /** Message Error message if failed */
+  message?: string;
+  /** Status Overall indexing status */
+  status?: string;
+  /** UpdatedAt Most recent activity timestamp */
+  updated_at?: string;
+}
+
+export interface KoditRepositoryStatusSummaryData {
+  /** Attributes Attributes for repository status summary. */
+  attributes?: KoditRepositoryStatusSummaryAttributes;
+  id?: string;
+  type?: string;
+}
+
 export interface McpMeta {
   /**
    * AdditionalFields are any fields present in the Meta that are not
@@ -480,17 +496,6 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
-export interface ServerAgentProgressItem {
-  agent_id?: string;
-  current_task?: ServerTaskItemDTO;
-  last_update?: string;
-  phase?: string;
-  task_id?: string;
-  task_name?: string;
-  tasks_after?: ServerTaskItemDTO[];
-  tasks_before?: ServerTaskItemDTO[];
-}
-
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
@@ -603,19 +608,6 @@ export interface ServerForkSampleProjectResponse {
   project_id?: string;
 }
 
-export interface ServerForkSimpleProjectRequest {
-  description?: string;
-  project_name?: string;
-  sample_project_id?: string;
-}
-
-export interface ServerForkSimpleProjectResponse {
-  github_repo_url?: string;
-  message?: string;
-  project_id?: string;
-  tasks_created?: number;
-}
-
 export interface ServerGPUStats {
   /** false if nvidia-smi failed */
   available?: boolean;
@@ -659,11 +651,6 @@ export interface ServerInitializeSampleRepositoriesResponse {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
-}
-
-export interface ServerLiveAgentFleetProgressResponse {
-  agents?: ServerAgentProgressItem[];
-  timestamp?: string;
 }
 
 export interface ServerLogsSummary {
@@ -840,13 +827,9 @@ export interface ServerSpecTaskExternalAgentStatusResponse {
   workspace_dir?: string;
 }
 
-export interface ServerTaskItemDTO {
-  description?: string;
-  index?: number;
-  status?: string;
-}
-
 export interface ServerTaskProgressResponse {
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   created_at?: string;
   implementation?: ServerPhaseProgress;
   specification?: ServerPhaseProgress;
@@ -922,6 +905,8 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
+  /** Seconds since last ENET packet (for timeout monitoring) */
+  idle_seconds?: number;
   /** Which lobby this session is connected to (lobbies mode) */
   lobby_id?: string;
   /** Exposed as session_id for frontend (Wolf's client_id) */
@@ -972,13 +957,15 @@ export enum ServicesCoordinationEventType {
 export interface ServicesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Optional: Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   priority?: string;
   project_id?: string;
   prompt?: string;
   type?: string;
+  /** Optional: Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   user_id?: string;
-  /** Optional: Skip human review and auto-approve specs */
-  yolo_mode?: boolean;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -1041,6 +1028,11 @@ export interface ServicesKoditEnrichmentData {
 
 export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
+}
+
+export interface ServicesKoditIndexingStatus {
+  /** Data Data for repository status summary response. */
+  data?: KoditRepositoryStatusSummaryData;
 }
 
 export interface ServicesKoditSearchResult {
@@ -1228,6 +1220,10 @@ export interface TypesAdminCreateUserRequest {
   email?: string;
   full_name?: string;
   password?: string;
+}
+
+export interface TypesAdminResetPasswordRequest {
+  new_password?: string;
 }
 
 export interface TypesAgentDashboardSummary {
@@ -1725,7 +1721,7 @@ export interface TypesAzureDevOpsTrigger {
 }
 
 export interface TypesBoardSettings {
-  wip_limits?: Record<string, number>;
+  wip_limits?: TypesWIPLimits;
 }
 
 export interface TypesChatCompletionMessage {
@@ -1755,6 +1751,22 @@ export enum TypesChatMessagePartType {
   ChatMessagePartTypeImageURL = "image_url",
 }
 
+export interface TypesChecklistItem {
+  description?: string;
+  index?: number;
+  /** pending, in_progress, completed */
+  status?: string;
+}
+
+export interface TypesChecklistProgress {
+  completed_tasks?: number;
+  in_progress_task?: TypesChecklistItem;
+  /** 0-100 */
+  progress_pct?: number;
+  tasks?: TypesChecklistItem[];
+  total_tasks?: number;
+}
+
 export interface TypesChoice {
   delta?: TypesOpenAIMessage;
   finish_reason?: string;
@@ -1770,12 +1782,37 @@ export interface TypesClipboardData {
   type?: string;
 }
 
+export interface TypesCommentQueueStatusResponse {
+  /** Comment currently being processed (response streaming) */
+  current_comment_id?: string;
+  /** Session ID for WebSocket subscription */
+  planning_session_id?: string;
+  /** Comments waiting in queue */
+  queued_comment_ids?: string[];
+}
+
 export interface TypesCommit {
   author?: string;
   email?: string;
   message?: string;
   sha?: string;
   timestamp?: string;
+}
+
+export interface TypesContainerDiskUsage {
+  /** Docker container ID */
+  container_id?: string;
+  /** Container name (e.g., "wolf-app-abc123") */
+  container_name?: string;
+  /** Size of read-write layer only */
+  rw_size_bytes?: number;
+  /** Total size of container's writable layer */
+  size_bytes?: number;
+}
+
+export interface TypesContainerDiskUsageSummary {
+  container_name?: string;
+  latest_size_mb?: number;
 }
 
 export interface TypesContextMenuAction {
@@ -1900,6 +1937,38 @@ export interface TypesDiscordTrigger {
   server_name?: string;
 }
 
+export interface TypesDiskUsageDataPoint {
+  alert_level?: string;
+  avail_mb?: number;
+  mount_point?: string;
+  timestamp?: string;
+  total_mb?: number;
+  used_mb?: number;
+  used_percent?: number;
+}
+
+export interface TypesDiskUsageHistoryResponse {
+  containers?: TypesContainerDiskUsageSummary[];
+  history?: TypesDiskUsageDataPoint[];
+  wolf_instance_id?: string;
+  wolf_name?: string;
+}
+
+export interface TypesDiskUsageMetric {
+  /** "ok", "warning", "critical" */
+  alert_level?: string;
+  /** available disk space */
+  avail_bytes?: number;
+  /** e.g., "/var" */
+  mount_point?: string;
+  /** total disk space */
+  total_bytes?: number;
+  /** used disk space */
+  used_bytes?: number;
+  /** percentage used (0-100) */
+  used_percent?: number;
+}
+
 export interface TypesDynamicModelInfo {
   created?: string;
   id?: string;
@@ -1993,6 +2062,19 @@ export interface TypesFlexibleEmbeddingResponse {
     prompt_tokens?: number;
     total_tokens?: number;
   };
+}
+
+export interface TypesForkSimpleProjectRequest {
+  description?: string;
+  project_name?: string;
+  sample_project_id?: string;
+}
+
+export interface TypesForkSimpleProjectResponse {
+  github_repo_url?: string;
+  message?: string;
+  project_id?: string;
+  tasks_created?: number;
 }
 
 export interface TypesFrontendLicenseInfo {
@@ -2900,23 +2982,20 @@ export interface TypesProject {
   auto_start_backlog_tasks?: boolean;
   created_at?: string;
   default_branch?: string;
-  /** Project-level repository management */
+  /**
+   * Project-level repository management
+   * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
+   */
   default_repo_id?: string;
   /** Soft delete timestamp */
   deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
   id?: string;
-  /**
-   * Internal project Git repository (stores project config, tasks, design docs)
-   * IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-   * It is NEVER stored in the database - Git is the single source of truth
-   */
-  internal_repo_path?: string;
-  metadata?: number[];
+  metadata?: TypesProjectMetadata;
   name?: string;
   organization_id?: string;
-  /** Transient field - loaded from Git, never persisted to database */
+  /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
   status?: string;
@@ -2931,8 +3010,13 @@ export interface TypesProjectCreateRequest {
   description?: string;
   github_repo_url?: string;
   name?: string;
+  organization_id?: string;
   startup_script?: string;
   technologies?: string[];
+}
+
+export interface TypesProjectMetadata {
+  board_settings?: TypesBoardSettings;
 }
 
 export interface TypesProjectUpdateRequest {
@@ -2941,6 +3025,7 @@ export interface TypesProjectUpdateRequest {
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  metadata?: TypesProjectMetadata;
   name?: string;
   startup_script?: string;
   status?: string;
@@ -3464,6 +3549,8 @@ export interface TypesSessionMetadata {
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
+  /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
+  gpu_vendor?: string;
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
@@ -3484,12 +3571,16 @@ export interface TypesSessionMetadata {
    */
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
+  /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
+  render_node?: string;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
   /** Multi-session SpecTask context */
   spec_task_id?: string;
   stream?: boolean;
+  /** helix-sway image version (commit hash) running in this session */
+  sway_version?: string;
   system_prompt?: string;
   /** without any user input, this will default to true */
   text_finetune_enabled?: boolean;
@@ -3647,6 +3738,8 @@ export interface TypesSpecTask {
   implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   labels?: string[];
   /** When branch was last pushed */
   last_push_at?: string;
@@ -3686,9 +3779,9 @@ export interface TypesSpecTask {
   /** "feature", "bug", "refactor" */
   type?: string;
   updated_at?: string;
+  /** Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
   workspace_config?: number[];
-  /** Skip human review, auto-approve specs */
-  yolo_mode?: boolean;
   /** Multi-session support */
   zed_instance_id?: string;
 }
@@ -3711,6 +3804,10 @@ export enum TypesSpecTaskActivityType {
   SpecTaskActivityZedConnected = "zed_connected",
   SpecTaskActivityZedDisconnected = "zed_disconnected",
   SpecTaskActivityPhaseTransition = "phase_transition",
+}
+
+export interface TypesSpecTaskArchiveRequest {
+  archived?: boolean;
 }
 
 export interface TypesSpecTaskDesignReview {
@@ -3760,6 +3857,8 @@ export interface TypesSpecTaskDesignReviewComment {
   line_number?: number;
   /** For inline comments - store the context around the comment */
   quoted_text?: string;
+  /** Request ID used when sending to agent (for response linking) */
+  request_id?: string;
   /** "manual", "auto_text_removed", "agent_updated" */
   resolution_reason?: string;
   /** Status tracking */
@@ -3902,6 +4001,8 @@ export enum TypesSpecTaskPhase {
 
 export interface TypesSpecTaskProgressResponse {
   active_work_sessions?: TypesSpecTaskWorkSession[];
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   /** Task index -> progress */
   implementation_progress?: Record<string, number>;
   /** 0.0 to 1.0 */
@@ -3913,11 +4014,11 @@ export interface TypesSpecTaskProgressResponse {
 
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
+  /** Pointer to allow explicit false */
+  just_do_it_mode?: boolean;
   name?: string;
   priority?: string;
   status?: string;
-  /** Pointer to allow explicit false */
-  yolo_mode?: boolean;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4424,6 +4525,12 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
+}
+
 export interface TypesWallet {
   balance?: number;
   created_at?: string;
@@ -4459,6 +4566,21 @@ export interface TypesWebsiteCrawler {
   user_agent?: string;
 }
 
+export interface TypesWolfHeartbeatRequest {
+  /** per-container disk usage breakdown */
+  container_usage?: TypesContainerDiskUsage[];
+  /** disk usage metrics for monitored partitions */
+  disk_usage?: TypesDiskUsageMetric[];
+  /** nvidia, amd, intel, none (from sandbox env) */
+  gpu_vendor?: string;
+  /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
+  privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
+  render_node?: string;
+  /** helix-sway image version (commit hash) */
+  sway_version?: string;
+}
+
 export interface TypesWolfInstanceRequest {
   address?: string;
   gpu_type?: string;
@@ -4470,12 +4592,20 @@ export interface TypesWolfInstanceResponse {
   address?: string;
   connected_sandboxes?: number;
   created_at?: string;
+  disk_alert_level?: string;
+  disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
+  /** nvidia, amd, intel, none (from sandbox heartbeat) */
+  gpu_vendor?: string;
   id?: string;
   last_heartbeat?: string;
   max_sandboxes?: number;
   name?: string;
+  privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
   status?: string;
+  sway_version?: string;
   updated_at?: string;
 }
 
@@ -4520,6 +4650,14 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
+export interface WolfKeyboardLayerState {
+  modifier_state?: WolfKeyboardModifierState;
+  /** Human-readable names */
+  pressed_key_names?: string[];
+  /** Key codes (VK for wolf/inputtino, KEY_* for evdev) */
+  pressed_keys?: number[];
+}
+
 export interface WolfKeyboardModifierState {
   alt?: boolean;
   ctrl?: boolean;
@@ -4540,11 +4678,23 @@ export interface WolfKeyboardStateResponse {
 
 export interface WolfSessionKeyboardState {
   device_name?: string;
+  /** e.g., /dev/input/event15 */
+  device_node?: string;
+  /** Kernel's evdev state */
+  evdev_state?: WolfKeyboardLayerState;
+  /** Mismatch detection */
+  has_mismatch?: boolean;
+  /** Inputtino's internal cur_press_keys */
+  inputtino_state?: WolfKeyboardLayerState;
+  mismatch_description?: string;
   modifier_state?: WolfKeyboardModifierState;
   pressed_key_names?: string[];
+  /** Legacy fields for backwards compatibility */
   pressed_keys?: number[];
   session_id?: string;
   timestamp_ms?: number;
+  /** Three layers of keyboard state for debugging: */
+  wolf_state?: WolfKeyboardLayerState;
 }
 
 export interface WolfSystemHealthResponse {
@@ -4617,7 +4767,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4707,12 +4857,8 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title HelixML API reference
- * @version 0.1
- * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
- *
- * This is the HelixML API.
+ * @title No title
+ * @contact
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -4757,6 +4903,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Reset the password for any user. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersPasswordUpdate
+     * @summary Reset a user's password (Admin only)
+     * @request PUT:/api/v1/admin/users/{id}/password
+     * @secure
+     */
+    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}/password`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -4824,24 +4990,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/agents/fleet`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get real-time progress of all agents working on SpecTasks
-     *
-     * @tags SpecTasks
-     * @name V1AgentsFleetLiveProgressList
-     * @summary Get live agent fleet progress
-     * @request GET:/api/v1/agents/fleet/live-progress
-     * @secure
-     */
-    v1AgentsFleetLiveProgressList: (params: RequestParams = {}) =>
-      this.request<ServerLiveAgentFleetProgressResponse, SystemHTTPError>({
-        path: `/api/v1/agents/fleet/live-progress`,
-        method: "GET",
-        secure: true,
-        format: "json",
         ...params,
       }),
 
@@ -6500,7 +6648,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
@@ -7525,10 +7673,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects
      * @secure
      */
-    v1ProjectsList: (params: RequestParams = {}) =>
+    v1ProjectsList: (
+      query?: {
+        /** Organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesProject[], SystemHTTPError>({
         path: `/api/v1/projects`,
         method: "GET",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -8230,8 +8385,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/sample-projects/simple/fork
      * @secure
      */
-    v1SampleProjectsSimpleForkCreate: (request: ServerForkSimpleProjectRequest, params: RequestParams = {}) =>
-      this.request<ServerForkSimpleProjectResponse, any>({
+    v1SampleProjectsSimpleForkCreate: (request: TypesForkSimpleProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesForkSimpleProjectResponse, any>({
         path: `/api/v1/sample-projects/simple/fork`,
         method: "POST",
         body: request,
@@ -9018,6 +9173,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the current comment being processed and the queue of pending comments for a review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentQueueStatusDetail
+     * @summary Get comment queue status
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentQueueStatusDetail: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesCommentQueueStatusResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comment-queue-status`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all comments for a specific design review
      *
      * @tags SpecTasks
@@ -9214,11 +9392,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
      * @secure
      */
-    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+    v1SpecTasksArchivePartialUpdate: (
+      taskId: string,
+      request: TypesSpecTaskArchiveRequest,
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/archive`,
         method: "PATCH",
-        body: archived,
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -9600,44 +9782,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsList
-     * @summary Get board settings for spec tasks
-     * @request GET:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsUpdate
-     * @summary Update board settings for spec tasks
-     * @request PUT:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -10214,7 +10358,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Update the last heartbeat timestamp for a Wolf instance
+     * @description Get time-series disk usage data for visualization (last 7 days)
+     *
+     * @tags wolf
+     * @name V1WolfInstancesDiskHistoryDetail
+     * @summary Get disk usage history for a Wolf instance
+     * @request GET:/api/v1/wolf-instances/{id}/disk-history
+     * @secure
+     */
+    v1WolfInstancesDiskHistoryDetail: (
+      id: string,
+      query?: {
+        /** Hours of history to return (default 24, max 168) */
+        hours?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesDiskUsageHistoryResponse, string>({
+        path: `/api/v1/wolf-instances/${id}/disk-history`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the last heartbeat timestamp and optional metadata for a Wolf instance
      *
      * @tags wolf
      * @name V1WolfInstancesHeartbeatCreate
@@ -10222,11 +10392,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/wolf-instances/{id}/heartbeat
      * @secure
      */
-    v1WolfInstancesHeartbeatCreate: (id: string, params: RequestParams = {}) =>
+    v1WolfInstancesHeartbeatCreate: (id: string, request: TypesWolfHeartbeatRequest, params: RequestParams = {}) =>
       this.request<string, string>({
         path: `/api/v1/wolf-instances/${id}/heartbeat`,
         method: "POST",
+        body: request,
         secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

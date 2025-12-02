@@ -100,6 +100,10 @@ type GitRepositoryCreateRequest struct {
 	AzureDevOps *AzureDevOps `json:"azure_devops,omitempty"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
+
+	// Internal field - not exposed in API
+	// Set by handler when user authenticates with API key, used for Kodit to clone local repos
+	KoditAPIKey string `json:"-"`
 }
 
 // GitRepositoryUpdateRequest represents a request to update a repository

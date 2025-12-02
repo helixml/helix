@@ -49,6 +49,7 @@ import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import MoonlightMonitor from "../components/admin/MoonlightMonitor";
 import WolfHealthPanel from "../components/wolf/WolfHealthPanel";
+import DiskUsageChart from "../components/wolf/DiskUsageChart";
 import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -657,8 +658,8 @@ const Dashboard: FC = () => {
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box sx={{ width: "100%" }}>
                         {/* Global Sandbox Selector - applies to all sub-tabs */}
-                        <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2 }}>
-                            <FormControl size="small" sx={{ minWidth: 350 }}>
+                        <Box sx={{ mb: 3, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                            <FormControl size="small" sx={{ minWidth: 400 }}>
                                 <InputLabel id="sandbox-selector-label">Agent Sandbox</InputLabel>
                                 <Select
                                     labelId="sandbox-selector-label"
@@ -668,12 +669,17 @@ const Dashboard: FC = () => {
                                     disabled={isLoadingSandboxes || !sandboxInstances?.length}
                                     startAdornment={<StorageIcon sx={{ mr: 1, color: "text.secondary" }} />}
                                 >
-                                    {sandboxInstances?.map((instance) => (
-                                        <MenuItem key={instance.id} value={instance.id}>
-                                            {instance.status === "healthy" ? "🟢" : instance.status === "unhealthy" ? "🟡" : "🔴"}{" "}
-                                            {instance.name} ({instance.current_sandboxes || 0}/{instance.max_sandboxes || 10} sessions)
-                                        </MenuItem>
-                                    ))}
+                                    {sandboxInstances?.map((instance) => {
+                                        const diskIcon = instance.disk_alert_level === "critical" ? "🔴" :
+                                                        instance.disk_alert_level === "warning" ? "🟡" : "";
+                                        return (
+                                            <MenuItem key={instance.id} value={instance.id}>
+                                                {instance.status === "healthy" ? "🟢" : instance.status === "unhealthy" ? "🟡" : "🔴"}{" "}
+                                                {instance.name} ({instance.connected_sandboxes || 0}/{instance.max_sandboxes || 10} sessions)
+                                                {diskIcon && <span style={{ marginLeft: 8 }}>💾{diskIcon}</span>}
+                                            </MenuItem>
+                                        );
+                                    })}
                                 </Select>
                             </FormControl>
                             {sandboxInstances && sandboxInstances.length > 0 && (
@@ -686,6 +692,39 @@ const Dashboard: FC = () => {
                                     No agent sandboxes registered
                                 </Typography>
                             )}
+                            {/* Disk usage summary for selected sandbox */}
+                            {selectedSandboxId && sandboxInstances?.find(i => i.id === selectedSandboxId)?.disk_usage?.map((disk) => (
+                                <Box
+                                    key={disk.mount_point}
+                                    sx={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 1,
+                                        px: 1.5,
+                                        py: 0.5,
+                                        borderRadius: 1,
+                                        bgcolor: disk.alert_level === "critical" ? "error.dark" :
+                                                disk.alert_level === "warning" ? "warning.dark" : "grey.800",
+                                    }}
+                                >
+                                    <Typography variant="caption" sx={{ fontFamily: "monospace" }}>
+                                        {disk.mount_point}:
+                                    </Typography>
+                                    <Box sx={{ width: 60, height: 6, bgcolor: "grey.700", borderRadius: 1, overflow: "hidden" }}>
+                                        <Box
+                                            sx={{
+                                                width: `${disk.used_percent}%`,
+                                                height: "100%",
+                                                bgcolor: disk.alert_level === "critical" ? "error.main" :
+                                                        disk.alert_level === "warning" ? "warning.main" : "success.main",
+                                            }}
+                                        />
+                                    </Box>
+                                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                        {disk.used_percent?.toFixed(0)}%
+                                    </Typography>
+                                </Box>
+                            ))}
                         </Box>
 
                         <Paper sx={{ mb: 2 }}>
@@ -695,12 +734,14 @@ const Dashboard: FC = () => {
                                 sx={{ borderBottom: 1, borderColor: 'divider' }}
                             >
                                 <Tab label="Overview" value="overview" />
+                                <Tab label="Disk Usage" value="disk_usage" />
                                 <Tab label="Wolf Health" value="wolf_health" />
                                 <Tab label="Moonlight Monitor" value="moonlight" />
                             </Tabs>
                         </Paper>
 
                         {agentSandboxSubTab === "overview" && <AgentSandboxes selectedSandboxId={selectedSandboxId} />}
+                        {agentSandboxSubTab === "disk_usage" && <DiskUsageChart sandboxInstanceId={selectedSandboxId} />}
                         {agentSandboxSubTab === "wolf_health" && <WolfHealthPanel sandboxInstanceId={selectedSandboxId} />}
                         {agentSandboxSubTab === "moonlight" && <MoonlightMonitor sandboxInstanceId={selectedSandboxId} />}
                     </Box>

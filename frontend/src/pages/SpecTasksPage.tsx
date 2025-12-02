@@ -1,4 +1,5 @@
-import React, { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Box,
   Button,
@@ -67,18 +68,29 @@ const SpecTasksPage: FC = () => {
   // Fetch project data for breadcrumbs and title
   const { data: project } = useGetProject(projectId || '', !!projectId);
 
-  // Fetch project repositories for display in topbar
-  const { data: allProjectRepositories = [] } = useGetProjectRepositories(projectId || '', !!projectId);
-
-  // Separate internal repo from code repos
-  const internalRepo = allProjectRepositories.find(repo => repo.id?.endsWith('-internal'));
-  const projectRepositories = allProjectRepositories.filter(repo => !repo.id?.endsWith('-internal'));
+  // Fetch project repositories for display in topbar (filters out internal repos)
+  const { data: projectRepositories = [] } = useGetProjectRepositories(projectId || '', !!projectId);
 
   // Exploratory session hooks
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId || '', !!projectId);
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
+
+  // Query wolf instances to check for privileged mode availability
+  const { data: wolfInstances } = useQuery({
+    queryKey: ['wolf-instances'],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1WolfInstancesList();
+      return response.data;
+    },
+    staleTime: 60000, // Cache for 1 minute
+  });
+
+  // Check if any sandbox has privileged mode enabled
+  const hasPrivilegedSandbox = useMemo(() => {
+    return wolfInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
+  }, [wolfInstances]);
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -95,18 +107,12 @@ const SpecTasksPage: FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Board WIP limits (loaded from backend, edited in Project Settings)
-  const [wipLimits, setWipLimits] = useState({
-    planning: 3,
-    review: 2,
-    implementation: 5,
-  });
-
   // Create task form state (SIMPLIFIED)
   const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
-  const [yoloMode, setYoloMode] = useState(false); // YOLO mode: skip human review
+  const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
+  const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
   // Repository configuration moved to project level - no task-level repo selection needed
 
   // Task detail windows state - array to support multiple windows
@@ -169,29 +175,6 @@ const SpecTasksPage: FC = () => {
       }, 100);
     }
   }, [createDialogOpen, apps.apps]);
-
-  // Load board settings on mount
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const response = await api.get('/api/v1/spec-tasks/board-settings');
-        if (response.data && response.data.wip_limits) {
-          setWipLimits({
-            planning: response.data.wip_limits.planning || 3,
-            review: response.data.wip_limits.review || 2,
-            implementation: response.data.wip_limits.implementation || 5,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to load board settings:', error);
-        // Use default values if loading fails
-      }
-    };
-
-    if (account.user?.id) {
-      loadSettings();
-    }
-  }, [account.user?.id]);
 
   // Handle URL parameters for opening dialog
   useEffect(() => {
@@ -324,7 +307,8 @@ const SpecTasksPage: FC = () => {
         priority: taskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
-        yolo_mode: yoloMode, // YOLO mode: skip human review
+        just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
+        use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
         // Repositories inherited from parent project - no task-level repo configuration
       };
 
@@ -339,7 +323,8 @@ const SpecTasksPage: FC = () => {
         setTaskPrompt('');
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
-        setYoloMode(false); // Reset YOLO mode
+        setJustDoItMode(false); // Reset Just Do It mode
+        setUseHostDocker(false); // Reset host Docker mode
 
         // Trigger immediate refresh of Kanban board
         setRefreshTrigger(prev => prev + 1);
@@ -535,7 +520,6 @@ const SpecTasksPage: FC = () => {
               }}
               refreshing={refreshing}
               refreshTrigger={refreshTrigger}
-              wipLimits={wipLimits}
             />
           </Box>
         </Box>
@@ -638,7 +622,7 @@ Examples:
                 >
                   {apps.apps.map((app) => (
                     <MenuItem key={app.id} value={app.id}>
-                      {app.config?.helix?.name || app.name || 'Unnamed Agent'}
+                      {app.config?.helix?.name || 'Unnamed Agent'}
                     </MenuItem>
                   ))}
                   <MenuItem value="__create_default__">
@@ -652,30 +636,57 @@ Examples:
                 </Typography>
               </FormControl>
 
-              {/* YOLO Mode Checkbox */}
+              {/* Just Do It Mode Checkbox */}
               <FormControl fullWidth>
-                <Tooltip title="When enabled, specs will be automatically approved without human review" placement="top">
+                <Tooltip title="Skip writing a spec and just get the agent to immediately start doing what you ask" placement="top">
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={yoloMode}
-                        onChange={(e) => setYoloMode(e.target.checked)}
+                        checked={justDoItMode}
+                        onChange={(e) => setJustDoItMode(e.target.checked)}
                         color="warning"
                       />
                     }
                     label={
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          YOLO Mode ⚡
+                          Just Do It
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Skip human review — agent goes straight from planning to implementation
+                          Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
                         </Typography>
                       </Box>
                     }
                   />
                 </Tooltip>
               </FormControl>
+
+              {/* Use Host Docker Checkbox (for Helix-in-Helix development) - only show if a privileged sandbox is available */}
+              {hasPrivilegedSandbox && (
+                <FormControl fullWidth>
+                  <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={useHostDocker}
+                          onChange={(e) => setUseHostDocker(e.target.checked)}
+                          color="info"
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Use Host Docker 🐳
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            For Helix-in-Helix development — agent can build and run Helix containers
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </Tooltip>
+                </FormControl>
+              )}
             </Stack>
           </Box>
 
@@ -686,7 +697,8 @@ Examples:
               setTaskPrompt('');
               setTaskPriority('medium');
               setSelectedHelixAgent('');
-              setYoloMode(false);
+              setJustDoItMode(false);
+              setUseHostDocker(false);
             }}>
               Cancel
             </Button>

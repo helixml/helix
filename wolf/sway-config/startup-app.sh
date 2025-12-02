@@ -13,14 +13,41 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
+# CRITICAL: Create workspace symlink for Hydra bind-mount compatibility
+# When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+# By mounting workspace at its actual path (e.g., /filestore/workspaces/spec-tasks/{id})
+# and symlinking /home/retro/work -> that path, user bind-mounts work correctly.
+# See: design/2025-12-01-hydra-bind-mount-symlink.md
+if [ -n "$WORKSPACE_DIR" ] && [ -d "$WORKSPACE_DIR" ]; then
+    # Remove existing symlink or directory if it exists
+    if [ -L /home/retro/work ]; then
+        rm -f /home/retro/work
+    elif [ -d /home/retro/work ]; then
+        # If it's a real directory (not a symlink), remove it only if empty
+        rmdir /home/retro/work 2>/dev/null || true
+    fi
+
+    # Create symlink: /home/retro/work -> $WORKSPACE_DIR
+    if [ ! -e /home/retro/work ]; then
+        ln -sf "$WORKSPACE_DIR" /home/retro/work
+        echo "Created workspace symlink: /home/retro/work -> $WORKSPACE_DIR"
+    fi
+
+    # Ensure correct ownership on the actual workspace directory
+    sudo chown retro:retro "$WORKSPACE_DIR"
+else
+    echo "Warning: WORKSPACE_DIR not set or doesn't exist, using /home/retro/work directly"
+    # Fallback: ensure /home/retro/work exists
+    mkdir -p /home/retro/work
+    sudo chown retro:retro /home/retro/work
+fi
+
 # CRITICAL: Create Zed config symlinks BEFORE Sway starts
 # Settings-sync-daemon (started by Sway) needs the symlink to exist
 WORK_DIR=/home/retro/work
 ZED_STATE_DIR=$WORK_DIR/.zed-state
 
-# Ensure workspace directory exists with correct ownership
-cd /home/retro
-sudo chown retro:retro work
+# Ensure we're in the workspace (works with both symlink and direct mount)
 cd /home/retro/work
 
 # Create persistent state directory structure

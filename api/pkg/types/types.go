@@ -365,6 +365,9 @@ type SessionMetadata struct {
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
+	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
+	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
@@ -1857,6 +1860,9 @@ type ZedAgent struct {
 	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	// Privileged mode - use host Docker socket instead of isolated dockerd
+	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
+	UseHostDocker bool `json:"use_host_docker,omitempty"`
 }
 
 // ZedAgentResponse represents the response from a Zed agent execution
@@ -1877,6 +1883,8 @@ type ZedAgentResponse struct {
 	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
+	// helix-sway image version (commit hash) running in this sandbox
+	SwayVersion string `json:"sway_version,omitempty"`
 	// WebSocket URL for thread sync connection
 	WebSocketURL string `json:"websocket_url,omitempty"`
 	// Auth token for WebSocket connection
@@ -2444,6 +2452,10 @@ type AdminCreateUserRequest struct {
 	Admin    bool   `json:"admin"`
 }
 
+type AdminResetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
 type UserResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
@@ -2834,4 +2846,19 @@ type Memory struct {
 type ListMemoryRequest struct {
 	UserID string
 	AppID  string
+}
+
+// ForkSimpleProjectRequest represents request to fork a simple sample project
+type ForkSimpleProjectRequest struct {
+	SampleProjectID string `json:"sample_project_id"`
+	ProjectName     string `json:"project_name"`
+	Description     string `json:"description,omitempty"`
+}
+
+// ForkSimpleProjectResponse represents the fork response
+type ForkSimpleProjectResponse struct {
+	ProjectID     string `json:"project_id"`
+	GitHubRepoURL string `json:"github_repo_url"`
+	TasksCreated  int    `json:"tasks_created"`
+	Message       string `json:"message"`
 }

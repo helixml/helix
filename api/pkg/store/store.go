@@ -9,6 +9,11 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+type ListProjectsQuery struct {
+	UserID         string
+	OrganizationID string
+}
+
 type GetJobsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
@@ -422,6 +427,7 @@ type Store interface {
 	ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
 	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
 	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
 
 	// design review comment replies
@@ -528,7 +534,7 @@ type Store interface {
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
-	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
+	ListProjects(ctx context.Context, query *ListProjectsQuery) ([]*types.Project, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
@@ -582,14 +588,20 @@ type Store interface {
 
 	// Wolf instance methods
 	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
-	UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error
+	UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error
 	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
 	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
 	DeregisterWolfInstance(ctx context.Context, id string) error
 	UpdateWolfStatus(ctx context.Context, id string, status string) error
 	IncrementWolfSandboxCount(ctx context.Context, id string) error
 	DecrementWolfSandboxCount(ctx context.Context, id string) error
+	ResetWolfInstanceOnReconnect(ctx context.Context, id string) error
 	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
+
+	// Disk usage history methods
+	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
+	GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error)
+	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
 type EmbeddingsStore interface {

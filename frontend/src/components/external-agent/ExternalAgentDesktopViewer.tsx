@@ -18,7 +18,8 @@ const useWolfAppState = (sessionId: string) => {
       try {
         const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
         if (response.data) {
-          setWolfState(response.data.state || 'absent');
+          const newState = response.data.state || 'absent';
+          setWolfState(newState);
         }
       } catch (err) {
         console.error('Failed to fetch Wolf state:', err);
@@ -27,13 +28,19 @@ const useWolfAppState = (sessionId: string) => {
 
     fetchState();
     const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+    };
   }, [sessionId]); // Removed 'api' - getApiClient() is stable
 
+  // Backend now returns 'starting' state for recently-created lobbies
   const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+  const isStarting = wolfState === 'starting';
+  // Show "paused" only if container was previously running but is now absent
+  const isPaused = wolfState === 'absent';
 
-  return { wolfState, isRunning, isPaused };
+  return { wolfState, isRunning, isPaused, isStarting };
 };
 
 interface ExternalAgentDesktopViewerProps {
@@ -53,7 +60,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const { isRunning, isPaused } = useWolfAppState(sessionId);
+  const { isRunning, isPaused, isStarting } = useWolfAppState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
 
   const handleResume = async (e?: React.MouseEvent) => {
@@ -69,6 +76,34 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       setIsResuming(false);
     }
   };
+
+  // Starting state - show spinner while container is booting
+  if (isStarting) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          position: 'relative',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          overflow: 'hidden',
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+        }}
+      >
+        <CircularProgress size={32} sx={{ color: 'primary.main' }} />
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+          Starting Desktop...
+        </Typography>
+      </Box>
+    );
+  }
 
   if (isPaused) {
     // Paused state - show saved screenshot with gray-out effect + Start button overlay
@@ -152,6 +187,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           refreshInterval={3000}
           enableStreaming={false}
           showToolbar={false}
+          showTimestamp={false}
           height={height}
         />
       </Box>

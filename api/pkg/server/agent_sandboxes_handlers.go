@@ -126,6 +126,7 @@ type WolfSessionInfo struct {
 	ClientIP         string  `json:"client_ip"`
 	AppID            string  `json:"app_id"`             // Wolf UI app ID in lobbies mode
 	LobbyID          *string `json:"lobby_id,omitempty"` // Which lobby this session is connected to (lobbies mode)
+	IdleSeconds      int     `json:"idle_seconds"`       // Seconds since last ENET packet (for timeout monitoring)
 	VideoWidth       int     `json:"-"`                  // Internal field from Wolf
 	VideoHeight      int     `json:"-"`                  // Internal field from Wolf
 	VideoRefreshRate int     `json:"-"`                  // Internal field from Wolf
@@ -452,16 +453,7 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Get Wolf client for this session's Wolf instance
-	type WolfClientForSessionProvider interface {
-		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
-	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
-	if !ok {
-		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
-		return
-	}
-	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
+	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Fetch Wolf apps
 	apps, err := fetchWolfApps(ctx, wolfClient)
@@ -504,8 +496,9 @@ func fetchWolfSessions(ctx context.Context, wolfClient external_agent.WolfClient
 			SessionID:      raw.ClientID,
 			ClientUniqueID: clientUniqueID, // Helix session identifier (helix-agent-{session_id}-{instance_id})
 			ClientIP:       raw.ClientIP,
-			AppID:          raw.AppID, // May be empty string for lobbies mode
-			LobbyID:        nil, // Will be populated later by matching against lobbies
+			AppID:          raw.AppID,       // May be empty string for lobbies mode
+			LobbyID:        nil,             // Will be populated later by matching against lobbies
+			IdleSeconds:    raw.IdleSeconds, // Seconds since last ENET packet (for timeout monitoring)
 			DisplayMode: struct {
 				Width         int  `json:"width"`
 				Height        int  `json:"height"`
@@ -666,13 +659,7 @@ func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter,
 		return
 	}
 
-	// Get Wolf client from external agent executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
-		return
-	}
-	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
+	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Connect to Wolf's SSE endpoint
 	resp, err := wolfClient.Get(ctx, "/api/v1/events")
@@ -786,20 +773,23 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 
 	// Get session's Wolf instance ID for proper RevDial routing
 	wolfInstanceID := session.WolfInstanceID
-	if wolfInstanceID == "" {
-		wolfInstanceID = "dev" // Default for sessions created before multi-Wolf support
-	}
 
-	// Get Wolf client for this session's Wolf instance
-	type WolfClientForSessionProvider interface {
-		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
-	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
-	if !ok {
-		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
+	// CRITICAL: If session has no WolfInstanceID yet, the lobby hasn't been created
+	// WolfInstanceID is set in wolf_executor.go AFTER the lobby is created
+	// This is the simplest and most reliable way to detect "starting" state
+	if wolfInstanceID == "" {
+		response := SessionWolfAppStateResponse{
+			SessionID:      sessionID,
+			WolfAppID:      "", // Not known yet
+			State:          "starting",
+			HasWebsocket:   false,
+			ClientUniqueID: fmt.Sprintf("helix-agent-%s", sessionID),
+		}
+		writeResponse(rw, response, http.StatusOK)
 		return
 	}
-	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
+
+	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Determine the expected Wolf app ID and client_unique_id for this session
 	// These must match what the backend used in wolf_executor_apps.go
@@ -837,18 +827,13 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 	var isLobbiesMode bool
 
 	// Query Wolf API directly for lobbies (ONLY source of truth)
-	type LobbyFinderProvider interface {
-		FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error)
-	}
-	if provider, ok := apiServer.externalAgentExecutor.(LobbyFinderProvider); ok {
-		foundLobbyID, err := provider.FindExistingLobbyForSession(ctx, sessionID)
-		if err != nil {
-			// Wolf query failed - session will be reported as "absent"
-		} else if foundLobbyID != "" {
-			// Found existing lobby in Wolf
-			wolfLobbyID = foundLobbyID
-			isLobbiesMode = true
-		}
+	foundLobbyID, err := apiServer.externalAgentExecutor.FindExistingLobbyForSession(ctx, sessionID)
+	if err != nil {
+		// Wolf query failed - session will be reported as "absent"
+	} else if foundLobbyID != "" {
+		// Found existing lobby in Wolf
+		wolfLobbyID = foundLobbyID
+		isLobbiesMode = true
 	}
 
 	// Determine state based on moonlight-web and Wolf data
@@ -899,7 +884,9 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		if resourceExists {
 			state = "resumable" // App/lobby exists but no moonlight session
 		} else {
-			state = "absent" // No app/lobby, no session
+			// No app/lobby found and we have a WolfInstanceID = container was stopped
+			// (if no WolfInstanceID, we already returned "starting" earlier)
+			state = "absent"
 		}
 	}
 
@@ -991,12 +978,7 @@ func (apiServer *HelixAPIServer) deleteWolfLobby(rw http.ResponseWriter, req *ht
 	}
 
 	// Get Wolf client from external agent executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
-		return
-	}
-	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
+	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Stop the lobby with PIN
 	stopReq := &wolf.StopLobbyRequest{
@@ -1059,12 +1041,7 @@ func (apiServer *HelixAPIServer) deleteWolfSession(rw http.ResponseWriter, req *
 		Msg("Admin stopping Wolf streaming session")
 
 	// Get Wolf client from external agent executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
-		return
-	}
-	wolfClient := wolfExecutor.GetWolfClientForSession(wolfInstanceID)
+	wolfClient := apiServer.externalAgentExecutor.GetWolfClientForSession(wolfInstanceID)
 
 	// Stop the session
 	err := wolfClient.StopSession(req.Context(), sessionID)
