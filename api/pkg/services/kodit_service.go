@@ -116,6 +116,9 @@ type (
 	}
 )
 
+// KoditIndexingStatus is an alias to the Kodit client type for repository status
+type KoditIndexingStatus = kodit.RepositoryStatusSummaryResponse
+
 // RegisterRepository registers a repository with Kodit for indexing
 func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) (*KoditRepositoryResponse, error) {
 	if !s.enabled {
@@ -395,7 +398,7 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query st
 }
 
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
-func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {
+func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (*KoditIndexingStatus, error) {
 	if !s.enabled {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
@@ -405,7 +408,7 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID stri
 		return nil, fmt.Errorf("invalid repository ID format (expected numeric): %w", err)
 	}
 
-	resp, err := s.client.GetIndexStatusApiV1RepositoriesRepoIdStatusGet(ctx, repoIDInt)
+	resp, err := s.client.GetStatusSummaryApiV1RepositoriesRepoIdStatusSummaryGet(ctx, repoIDInt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get repository status: %w", err)
 	}
@@ -416,12 +419,16 @@ func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID stri
 		return nil, &KoditError{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 
-	var response map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	parsed, err := kodit.ParseGetStatusSummaryApiV1RepositoriesRepoIdStatusSummaryGetResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse status response: %w", err)
 	}
 
-	return response, nil
+	if parsed.JSON200 == nil {
+		return nil, fmt.Errorf("unexpected nil response from kodit status endpoint")
+	}
+
+	return parsed.JSON200, nil
 }
 
 // filterAndConvertEnrichments filters out internal summaries and converts to simplified types

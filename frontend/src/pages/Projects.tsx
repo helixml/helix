@@ -26,7 +26,6 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import {
   useListProjects,
-  useCreateProject,
   useListSampleProjects,
   useInstantiateSampleProject,
   TypesProject,
@@ -47,7 +46,6 @@ const Projects: FC = () => {
 
   const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '')
   const { data: sampleProjects = [] } = useListSampleProjects()
-  const createProjectMutation = useCreateProject()
   const instantiateSampleMutation = useInstantiateSampleProject()
 
   // Get tab from URL query parameter
@@ -112,34 +110,6 @@ const Projects: FC = () => {
     setSelectedProject(null)
   }
 
-  const handleCreateProject = async (name: string, description: string, repoId: string) => {
-    if (!name.trim()) {
-      snackbar.error('Project name is required')
-      return
-    }
-
-    if (!repoId) {
-      snackbar.error('Primary repository is required')
-      return
-    }
-
-    try {
-      const result = await createProjectMutation.mutateAsync({
-        name,
-        description,
-        default_repo_id: repoId,
-      })
-      snackbar.success('Project created successfully')
-      setCreateDialogOpen(false)
-
-      // Navigate to the new project
-      if (result) {
-        account.orgNavigate('project-specs', { id: result.id })
-      }
-    } catch (err) {
-      snackbar.error('Failed to create project')
-    }
-  }
 
   // Helper to create a new repo for the project dialog
   const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
@@ -261,9 +231,7 @@ const Projects: FC = () => {
         owner_id: ownerId,
         repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
-        metadata: {
-          kodit_indexing: koditIndexing,
-        },
+        kodit_indexing: koditIndexing,
       })
 
       // Invalidate and refetch git repositories query
@@ -373,7 +341,7 @@ const Projects: FC = () => {
           onCreateEmpty={handleNewProject}
           onCreateFromSample={handleInstantiateSample}
           sampleProjects={sampleProjects}
-          isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
+          isCreating={instantiateSampleMutation.isPending}
           variant="contained"
           color="secondary"
         />
@@ -419,7 +387,7 @@ const Projects: FC = () => {
             onCreateEmpty={handleNewProject}
             onCreateFromSample={handleInstantiateSample}
             sampleProjects={sampleProjects}
-            isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
+            isCreating={instantiateSampleMutation.isPending}
           />
         )}
 
@@ -456,8 +424,6 @@ const Projects: FC = () => {
         <CreateProjectDialog
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
-          onSubmit={handleCreateProject}
-          isCreating={createProjectMutation.isPending}
           repositories={repositories}
           reposLoading={reposLoading}
           onCreateRepo={handleCreateRepoForProject}
