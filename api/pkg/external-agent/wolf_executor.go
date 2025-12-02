@@ -120,19 +120,16 @@ func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface 
 	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
 
-// translateToHostPath converts API container path to absolute host path for Wolf mounting
-// API container sees: /filestore/workspaces/...
-// Host sees: /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces/...
+// translateToHostPath converts API container path for Wolf mounting
+// In containerized deployments (sandbox), the /filestore mount is shared between
+// API container and sandbox container, so paths can be used directly.
+// For Hydra bind-mount compatibility, we use /filestore/... paths which exist
+// in both the sandbox container (where Hydra's dockerd runs) and the dev container.
+// See: design/2025-12-01-hydra-bind-mount-symlink.md
 func (w *WolfExecutor) translateToHostPath(containerPath string) string {
-	// Replace /filestore with the absolute host volume path
-	if strings.HasPrefix(containerPath, "/filestore/") {
-		relativePath := strings.TrimPrefix(containerPath, "/filestore/")
-		// workspaceBasePathForMounting already includes "workspaces" from the volume root
-		// e.g., /var/lib/docker/volumes/.../workspaces
-		// So we need to go up to the volume root first
-		volumeRoot := filepath.Dir(w.workspaceBasePathForMounting)
-		return filepath.Join(volumeRoot, relativePath)
-	}
+	// Use /filestore paths directly - sandbox container has /filestore mounted
+	// This is required for Hydra bind-mount compatibility since Hydra's dockerd
+	// runs in the sandbox container and needs to access the same paths
 	return containerPath
 }
 
