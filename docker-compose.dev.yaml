@@ -306,6 +306,9 @@ services:
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
         - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
+        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+        - hydra-storage:/hydra-data
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -409,6 +412,9 @@ services:
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
         - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
+        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+        - hydra-storage:/hydra-data
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -703,6 +709,7 @@ volumes:
     wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
     wolf-debug-dumps:  # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
     sandbox-data:  # Workspace data for dev containers - mounted at /data in sandbox and dev containers
+    hydra-storage:  # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
     zed-work:
 
     go-pkg-mod: # Go module cache

@@ -2433,6 +2433,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -v sandbox-storage:/var/lib/docker \
     -v sandbox-data:/data \
     -v sandbox-debug-dumps:/var/wolf-debug-dumps \
+    -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
     --device /dev/uinput \
     --device /dev/uhid \
