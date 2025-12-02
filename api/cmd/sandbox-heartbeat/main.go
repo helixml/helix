@@ -286,10 +286,10 @@ func getDiskUsage(path string) (DiskUsageMetric, error) {
 
 // DockerContainer represents a container from Docker API
 type DockerContainer struct {
-	ID      string   `json:"Id"`
-	Names   []string `json:"Names"`
-	SizeRw  int64    `json:"SizeRw"`
-	SizeRootFs int64 `json:"SizeRootFs"`
+	ID         string   `json:"Id"`
+	Names      []string `json:"Names"`
+	SizeRw     int64    `json:"SizeRw"`
+	SizeRootFs int64    `json:"SizeRootFs"`
 }
 
 // collectContainerDiskUsage queries Docker for container disk usage
