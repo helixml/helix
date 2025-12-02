@@ -88,7 +88,7 @@ export function useDesignReviews(specTaskId: string) {
   })
 }
 
-export function useDesignReview(specTaskId: string, reviewId: string) {
+export function useDesignReview(specTaskId: string, reviewId: string, options?: { refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -99,6 +99,9 @@ export function useDesignReview(specTaskId: string, reviewId: string) {
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
+    // Poll when refetchInterval is set - used when awaiting agent responses
+    // The backend updates the review content when agent pushes spec changes
+    refetchInterval: options?.refetchInterval,
   })
 }
 
@@ -124,7 +127,7 @@ export interface CommentQueueStatus {
   planning_session_id?: string
 }
 
-export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean }) {
+export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean; refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -135,6 +138,10 @@ export function useCommentQueueStatus(specTaskId: string, reviewId: string, opti
       return response.data as CommentQueueStatus
     },
     enabled: options?.enabled !== false && !!specTaskId && !!reviewId,
+    // Poll every second when enabled to pick up current_comment_id and planning_session_id
+    // This is critical for WebSocket subscription to work - without polling,
+    // the subscription never gets the session ID needed to connect
+    refetchInterval: options?.refetchInterval ?? 1000,
   })
 }
 

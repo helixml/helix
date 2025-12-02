@@ -638,13 +638,13 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 }
 
-// createDesignReviewForPush auto-creates a design review record when design docs are pushed
+// createDesignReviewForPush auto-creates or updates a design review record when design docs are pushed
 func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string) {
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Str("branch", branch).
 		Str("commit", commitHash).
-		Msg("Auto-creating design review for pushed design docs")
+		Msg("Auto-creating/updating design review for pushed design docs")
 
 	// List all files in helix-specs branch to find task directory
 	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
@@ -704,7 +704,59 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		docs[filename] = string(output)
 	}
 
-	// Create design review record
+	// Check if there's an existing pending/in_review design review to update
+	// This handles the case where the agent updates specs in response to comments
+	existingReviews, err := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to list existing design reviews")
+		// Continue to create new review
+	}
+
+	// Find an active review to update (pending or in_review status, not approved/superseded)
+	var activeReview *types.SpecTaskDesignReview
+	for i := range existingReviews {
+		review := &existingReviews[i]
+		if review.Status == types.SpecTaskDesignReviewStatusPending ||
+			review.Status == types.SpecTaskDesignReviewStatusInReview ||
+			review.Status == types.SpecTaskDesignReviewStatusChangesRequested {
+			activeReview = review
+			break
+		}
+	}
+
+	now := time.Now()
+
+	if activeReview != nil {
+		// Update existing review with new content
+		activeReview.RequirementsSpec = docs["requirements.md"]
+		activeReview.TechnicalDesign = docs["design.md"]
+		activeReview.ImplementationPlan = docs["tasks.md"]
+		activeReview.GitBranch = branch
+		activeReview.GitCommitHash = commitHash
+		activeReview.GitPushedAt = now
+		activeReview.UpdatedAt = now
+
+		if err := s.store.UpdateSpecTaskDesignReview(ctx, activeReview); err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Str("review_id", activeReview.ID).
+				Msg("Failed to update design review")
+			return
+		}
+
+		log.Info().
+			Str("review_id", activeReview.ID).
+			Str("spec_task_id", specTaskID).
+			Str("commit", commitHash).
+			Msg("✅ Design review updated with new content")
+		return
+	}
+
+	// No active review found, create new one
 	review := &types.SpecTaskDesignReview{
 		ID:                 system.GenerateUUID(),
 		SpecTaskID:         specTaskID,
@@ -714,9 +766,9 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		ImplementationPlan: docs["tasks.md"],
 		GitBranch:          branch,
 		GitCommitHash:      commitHash,
-		GitPushedAt:        time.Now(),
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		GitPushedAt:        now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := s.store.CreateSpecTaskDesignReview(ctx, review); err != nil {
