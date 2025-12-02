@@ -44,8 +44,13 @@ func (s *HelixAPIServer) startImplementation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check authorization
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+	// Check authorization using project-level auth (handles personal + org projects)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		log.Warn().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", specTask.ProjectID).
+			Msg("User not authorized to start implementation")
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
