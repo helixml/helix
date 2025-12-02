@@ -42,6 +42,40 @@ echo ""
 echo "=== MINIMAL STARTUP BEGINS ==="
 echo "Starting Helix Zorin environment with MINIMAL custom configuration..."
 
+# ============================================================================
+# Workspace Directory Setup (Hydra Compatibility)
+# ============================================================================
+# CRITICAL: Create workspace symlink for Hydra bind-mount compatibility
+# When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
+# By mounting workspace at its actual path (e.g., /filestore/workspaces/spec-tasks/{id})
+# and symlinking /home/retro/work -> that path, user bind-mounts work correctly.
+# See: design/2025-12-01-hydra-bind-mount-symlink.md
+if [ -n "$WORKSPACE_DIR" ] && [ -d "$WORKSPACE_DIR" ]; then
+    echo "[Workspace] Setting up workspace symlink: /home/retro/work → $WORKSPACE_DIR"
+
+    # Remove existing symlink or directory if it exists
+    if [ -L /home/retro/work ]; then
+        rm -f /home/retro/work
+    elif [ -d /home/retro/work ]; then
+        # If it's a real directory (not a symlink), remove it only if empty
+        rmdir /home/retro/work 2>/dev/null || true
+    fi
+
+    # Create symlink: /home/retro/work -> $WORKSPACE_DIR
+    if [ ! -e /home/retro/work ]; then
+        ln -sf "$WORKSPACE_DIR" /home/retro/work
+        echo "✅ Created workspace symlink: /home/retro/work -> $WORKSPACE_DIR"
+    fi
+
+    # Ensure correct ownership on the actual workspace directory
+    sudo chown retro:retro "$WORKSPACE_DIR"
+else
+    echo "[Workspace] Warning: WORKSPACE_DIR not set or doesn't exist, using /home/retro/work directly"
+    # Fallback: ensure /home/retro/work exists
+    mkdir -p /home/retro/work
+    sudo chown retro:retro /home/retro/work
+fi
+
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     sudo ln -sf /zed-build/zed /usr/local/bin/zed
@@ -77,6 +111,36 @@ mkdir -p ~/.cache
 ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created"
+
+# ============================================================================
+# RevDial Client for API Communication
+# ============================================================================
+# Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
+# CRITICAL: Starts BEFORE GNOME so API can reach sandbox immediately
+# Uses user's API token for authentication (session-scoped, user-owned)
+if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
+    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
+    RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
+
+    echo "[RevDial] Starting client for API ↔ sandbox communication..."
+    echo "[RevDial] Server: $REVDIAL_SERVER"
+    echo "[RevDial] Runner ID: $RUNNER_ID"
+
+    /usr/local/bin/revdial-client \
+        -server "$REVDIAL_SERVER" \
+        -runner-id "$RUNNER_ID" \
+        -token "$USER_API_TOKEN" \
+        -local "localhost:9876" \
+        >> /tmp/revdial-client.log 2>&1 &
+
+    REVDIAL_PID=$!
+    echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
+else
+    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
+    echo "    HELIX_API_BASE_URL: ${HELIX_API_BASE_URL:-NOT SET}"
+    echo "    HELIX_SESSION_ID: ${HELIX_SESSION_ID:-NOT SET}"
+    echo "    USER_API_TOKEN: ${USER_API_TOKEN:+SET (hidden)}"
+fi
 
 # ============================================================================
 # Disable GNOME Screensaver Proxy
