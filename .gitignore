@@ -68,7 +68,7 @@ wolf/cert.pem
 wolf/key.pem
 
 # Helix sway build artifacts
-helix-sway.tar
-helix-sway.tar.hash
-helix-sway.version
+helix-*.tar
+helix-*.tar.hash
+helix-*.version
 sandbox-heartbeat
