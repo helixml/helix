@@ -1920,6 +1920,37 @@ func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRe
 	return nil
 }
 
+// PullRepository pulls the latest changes from the remote repository
+// This is used to ensure we have the latest version before running startup scripts
+func (s *GitRepositoryService) PullRepository(ctx context.Context, repoID string) error {
+	gitRepo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if gitRepo.LocalPath == "" {
+		return fmt.Errorf("repository has no local path")
+	}
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Pull changes
+	err = s.pullChanges(repo, w, gitRepo)
+	if err != nil {
+		return fmt.Errorf("failed to pull changes: %w", err)
+	}
+
+	return nil
+}
+
 // PushPullRequest pulls from external repository all commits and pushes any commits from the local repository to the external repository (upstream)
 // This is used to update the external repository with the latest commits from the local repository that we have made changes to
 func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
