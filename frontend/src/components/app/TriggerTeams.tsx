@@ -225,7 +225,7 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
               value={tenantId}
               onChange={(e) => handleTenantIdChange(e.target.value)}
               disabled={readOnly || !hasTeamsTrigger}
-              helperText="Required for Single Tenant bots. Leave empty for Multi Tenant bots."
+              helperText="The Directory (tenant) ID from your Azure app registration"
             />
           </Box>
 
@@ -324,8 +324,10 @@ const TriggerTeams: FC<TriggerTeamsProps> = ({
         appId={appId}
         msAppId={msAppId}
         appPassword={appPassword}
+        tenantId={tenantId}
         onAppIdChange={handleAppIdChange}
         onAppPasswordChange={handleAppPasswordChange}
+        onTenantIdChange={handleTenantIdChange}
       />
     </Box>
   )
