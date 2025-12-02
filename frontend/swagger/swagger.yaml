@@ -1300,6 +1300,10 @@ definitions:
     type: object
   server.TaskProgressResponse:
     properties:
+      checklist:
+        allOf:
+        - $ref: '#/definitions/types.ChecklistProgress'
+        description: Progress from tasks.md
       created_at:
         type: string
       implementation:
@@ -2955,6 +2959,32 @@ definitions:
     x-enum-varnames:
     - ChatMessagePartTypeText
     - ChatMessagePartTypeImageURL
+  types.ChecklistItem:
+    properties:
+      description:
+        type: string
+      index:
+        type: integer
+      status:
+        description: pending, in_progress, completed
+        type: string
+    type: object
+  types.ChecklistProgress:
+    properties:
+      completed_tasks:
+        type: integer
+      in_progress_task:
+        $ref: '#/definitions/types.ChecklistItem'
+      progress_pct:
+        description: 0-100
+        type: integer
+      tasks:
+        items:
+          $ref: '#/definitions/types.ChecklistItem'
+        type: array
+      total_tasks:
+        type: integer
+    type: object
   types.Choice:
     properties:
       delta:
@@ -6777,6 +6807,10 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskWorkSession'
         type: array
+      checklist:
+        allOf:
+        - $ref: '#/definitions/types.ChecklistProgress'
+        description: Progress from tasks.md
       implementation_progress:
         additionalProperties:
           type: number
@@ -7486,18 +7520,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:

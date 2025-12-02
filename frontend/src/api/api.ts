@@ -812,6 +812,8 @@ export interface ServerSpecTaskExternalAgentStatusResponse {
 }
 
 export interface ServerTaskProgressResponse {
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   created_at?: string;
   implementation?: ServerPhaseProgress;
   specification?: ServerPhaseProgress;
@@ -1722,6 +1724,22 @@ export interface TypesChatMessagePart {
 export enum TypesChatMessagePartType {
   ChatMessagePartTypeText = "text",
   ChatMessagePartTypeImageURL = "image_url",
+}
+
+export interface TypesChecklistItem {
+  description?: string;
+  index?: number;
+  /** pending, in_progress, completed */
+  status?: string;
+}
+
+export interface TypesChecklistProgress {
+  completed_tasks?: number;
+  in_progress_task?: TypesChecklistItem;
+  /** 0-100 */
+  progress_pct?: number;
+  tasks?: TypesChecklistItem[];
+  total_tasks?: number;
 }
 
 export interface TypesChoice {
@@ -3942,6 +3960,8 @@ export enum TypesSpecTaskPhase {
 
 export interface TypesSpecTaskProgressResponse {
   active_work_sessions?: TypesSpecTaskWorkSession[];
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   /** Task index -> progress */
   implementation_progress?: Record<string, number>;
   /** 0.0 to 1.0 */
@@ -4349,11 +4369,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {

@@ -244,6 +244,23 @@ type SpecTaskProgressResponse struct {
 	ImplementationProgress map[int]float64            `json:"implementation_progress"` // Task index -> progress
 	ActiveWorkSessions     []SpecTaskWorkSession      `json:"active_work_sessions"`
 	RecentActivity         []SpecTaskActivityLogEntry `json:"recent_activity"`
+	Checklist              *ChecklistProgress         `json:"checklist,omitempty"` // Progress from tasks.md
+}
+
+// ChecklistProgress represents task checklist progress from tasks.md in helix-specs
+type ChecklistProgress struct {
+	Tasks          []ChecklistItem `json:"tasks"`
+	TotalTasks     int             `json:"total_tasks"`
+	CompletedTasks int             `json:"completed_tasks"`
+	InProgressTask *ChecklistItem  `json:"in_progress_task,omitempty"`
+	ProgressPct    int             `json:"progress_pct"` // 0-100
+}
+
+// ChecklistItem represents a single task from tasks.md
+type ChecklistItem struct {
+	Index       int    `json:"index"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // pending, in_progress, completed
 }
 
 type SpecTaskActivityLogEntry struct {

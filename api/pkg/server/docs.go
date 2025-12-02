@@ -14273,6 +14273,14 @@ const docTemplate = `{
         "server.TaskProgressResponse": {
             "type": "object",
             "properties": {
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -16664,6 +16672,45 @@ const docTemplate = `{
                 "ChatMessagePartTypeText",
                 "ChatMessagePartTypeImageURL"
             ]
+        },
+        "types.ChecklistItem": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "pending, in_progress, completed",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ChecklistProgress": {
+            "type": "object",
+            "properties": {
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "in_progress_task": {
+                    "$ref": "#/definitions/types.ChecklistItem"
+                },
+                "progress_pct": {
+                    "description": "0-100",
+                    "type": "integer"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ChecklistItem"
+                    }
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
         },
         "types.Choice": {
             "type": "object",
@@ -22149,6 +22196,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SpecTaskWorkSession"
                     }
                 },
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "implementation_progress": {
                     "description": "Task index -\u003e progress",
                     "type": "object",
@@ -23167,18 +23222,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
