@@ -8,6 +8,12 @@
 
 COMPOSE_REAL="/usr/libexec/docker/cli-plugins/docker-compose.real"
 
+# Handle docker-cli-plugin-metadata - pass through directly
+# Docker calls plugins with this arg to get plugin info (version, description)
+if [[ "$1" == "docker-cli-plugin-metadata" ]]; then
+    exec "$COMPOSE_REAL" "$@"
+fi
+
 # Docker CLI plugin protocol: first arg is the plugin name ("compose")
 # We need to preserve it and process the remaining args
 PLUGIN_NAME="$1"
@@ -44,15 +50,26 @@ process_compose_file() {
     # Read file and process volume lines
     while IFS= read -r line || [[ -n "$line" ]]; do
         # Check if this looks like a volume mount line: "- /path:/path" or "- ./path:/path"
-        if [[ "$line" =~ ^([[:space:]]*-[[:space:]]*)([\"\'"]?)([^:\"\']+):(.+)$ ]]; then
+        # Note: We use a simpler regex and handle quotes separately
+        if [[ "$line" =~ ^([[:space:]]*-[[:space:]]*)(.+):(.+)$ ]]; then
             prefix="${BASH_REMATCH[1]}"
-            quote="${BASH_REMATCH[2]}"
-            src="${BASH_REMATCH[3]}"
-            rest="${BASH_REMATCH[4]}"
+            src="${BASH_REMATCH[2]}"
+            rest="${BASH_REMATCH[3]}"
 
-            # Remove trailing quote from rest if present
-            rest="${rest%\"}"
-            rest="${rest%\'}"
+            # Strip leading/trailing quotes from src
+            quote=""
+            if [[ "$src" =~ ^[\"\'] ]]; then
+                quote="${src:0:1}"
+                src="${src:1}"
+            fi
+            if [[ "$src" =~ [\"\']$ ]]; then
+                src="${src:0:-1}"
+            fi
+
+            # Strip trailing quote from rest
+            if [[ "$rest" =~ [\"\']$ ]]; then
+                rest="${rest:0:-1}"
+            fi
 
             # Resolve the source path
             resolved="$src"
@@ -200,7 +217,11 @@ if needs_processing "$@"; then
             done
         fi
 
-        exec "$COMPOSE_REAL" "$PLUGIN_NAME" "${new_args[@]}"
+        # Run compose and capture exit code, then clean up temp files
+        "$COMPOSE_REAL" "$PLUGIN_NAME" "${new_args[@]}"
+        exit_code=$?
+        cleanup_tmp_files
+        exit $exit_code
     fi
 fi
 
