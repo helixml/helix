@@ -47,33 +47,15 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get project: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	// For personal projects (no organization), check if user is the project owner
-	if project.OrganizationID == "" {
-		if user.ID != project.UserID {
-			log.Warn().
-				Str("user_id", user.ID).
-				Str("project_owner", project.UserID).
-				Str("project_id", project.ID).
-				Msg("User is not the owner of this personal project")
-			http.Error(w, "Not authorized", http.StatusForbidden)
-			return
-		}
-		// User is the owner - authorized
-	} else {
-		// Organization project - use RBAC
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionGet); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		// Also allow the spec task creator to access their own design reviews
+		if user.ID != specTask.CreatedBy {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
-				Str("org_id", project.OrganizationID).
+				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to read spec task design reviews")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
@@ -138,16 +120,16 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		// Also allow the spec task creator to access their own design reviews
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to read design review")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
 		}
@@ -209,19 +191,26 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Get project to check ownership
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		// Also allow the spec task creator to submit reviews for their own tasks
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to submit design review")
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Get project for branch info (needed later in the function)
 	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
-			http.Error(w, "Not authorized", http.StatusForbidden)
-			return
-		}
 	}
 
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
@@ -353,16 +342,16 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		// Also allow the spec task creator to comment on their own tasks
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to create design review comment")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
 		}
@@ -449,16 +438,16 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		// Also allow the spec task creator to list comments on their own tasks
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to list design review comments")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
 		}
@@ -506,16 +495,16 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		// Also allow the spec task creator to resolve comments on their own tasks
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to resolve design review comment")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
 		}
@@ -567,16 +556,16 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 		return
 	}
 
-	// Get project to check ownership
-	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Allow if user is project owner, otherwise check access grants
-	if user.ID != project.UserID {
-		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+	// Authorize user to the project (uses consistent logic from authz.go)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		// Also allow the spec task creator to check queue status on their own tasks
+		if user.ID != specTask.CreatedBy {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("spec_task_creator", specTask.CreatedBy).
+				Msg("User not authorized to get comment queue status")
 			http.Error(w, "Not authorized", http.StatusForbidden)
 			return
 		}
