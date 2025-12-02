@@ -64,6 +64,25 @@ export default function InlineCommentBubble({
         {comment.comment_text}
       </Typography>
 
+      {/* Show status when comment has been sent to agent but no response yet */}
+      {!comment.agent_response && !comment.resolved && (
+        <Box
+          sx={{
+            mt: 2,
+            p: 1,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            💬 Sent to agent • View session for response
+          </Typography>
+        </Box>
+      )}
+
       {comment.agent_response && (
         <Box
           sx={{

@@ -52,9 +52,9 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Verify status
-	if specTask.Status != types.TaskStatusImplementationReview {
-		http.Error(w, fmt.Sprintf("Task must be in implementation_review status, currently: %s", specTask.Status), http.StatusBadRequest)
+	// Verify status - allow approval from implementation or implementation_review
+	if specTask.Status != types.TaskStatusImplementation && specTask.Status != types.TaskStatusImplementationReview {
+		http.Error(w, fmt.Sprintf("Task must be in implementation or implementation_review status, currently: %s", specTask.Status), http.StatusBadRequest)
 		return
 	}
 
