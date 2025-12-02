@@ -31,42 +31,33 @@ interface SetupStep {
 const setupSteps: SetupStep[] = [
   {
     step: 1,
-    text: 'Create an Entra ID App Registration',
+    text: 'Create an Entra ID App Registration and Client Secret',
     link: 'https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
     substeps: [
       'Click "New registration" and provide an application name (e.g., "helix-teams-bot")',
-      'Select "Accounts in this organizational directory only (Single tenant)" for most cases',
-      'Click "Register"',
+      'Select "Accounts in this organizational directory only" and click "Register"',
       'Note the "Application (client) ID" - this is your App ID',
-      'Note the "Directory (tenant) ID" - this is your Tenant ID (required for Single Tenant bots)'
-    ]
-  },
-  {
-    step: 2,
-    text: 'Create a client secret',
-    link: 'https://learn.microsoft.com/en-us/microsoftteams/platform/teams-ai-library/teams/app-authentication/client-secret',
-    substeps: [
-      'In your app registration, go to "Certificates & secrets"',
-      'Click "New client secret", add a description, select an expiration period, and click "Add"',
+      'Note the "Directory (tenant) ID" - this is your Tenant ID',
+      'Go to "Certificates & secrets" and click "New client secret"',
+      'Add a description, select an expiration period, and click "Add"',
       'IMPORTANT: Copy the "Value" column immediately - this is your App Password',
       'The value won\'t be shown again after you leave the page. The "Secret ID" is NOT the password.'
     ]
   },
   {
-    step: 3,
+    step: 2,
     text: 'Create an Azure Bot resource',
     link: 'https://portal.azure.com/#create/Microsoft.AzureBot',
     substeps: [
       'Provide a Bot handle (e.g., "helix-agent-bot")',
       'Select your subscription, resource group, and pricing tier',
-      'Under "Microsoft App ID", choose "Single Tenant" (or Multi Tenant if needed)',
-      'Select "Use existing app registration"',
+      'Under "Microsoft App ID", select "Use existing app registration"',
       'Enter the Application (client) ID from step 1',
       'Click "Review + create" then "Create"'
     ]
   },
   {
-    step: 4,
+    step: 3,
     text: 'Configure the messaging endpoint:',
     substeps: [
       'Go to your Azure Bot resource → Settings → Configuration',
@@ -75,7 +66,7 @@ const setupSteps: SetupStep[] = [
     ]
   },
   {
-    step: 5,
+    step: 4,
     text: 'Enable the Teams channel:',
     substeps: [
       'In your Azure Bot resource, go to Settings → Channels',
@@ -84,7 +75,7 @@ const setupSteps: SetupStep[] = [
     ]
   },
   {
-    step: 6,
+    step: 5,
     text: 'Install the bot in Teams',
     link: 'https://dev.teams.microsoft.com/apps',
     substeps: [
@@ -96,7 +87,7 @@ const setupSteps: SetupStep[] = [
     ]
   },
   {
-    step: 7,
+    step: 6,
     text: 'Enter your credentials above and test by mentioning your bot in Teams'
   }
 ]
@@ -108,8 +99,10 @@ interface TriggerTeamsSetupProps {
   appId: string
   msAppId?: string
   appPassword?: string
+  tenantId?: string
   onAppIdChange?: (value: string) => void
   onAppPasswordChange?: (value: string) => void
+  onTenantIdChange?: (value: string) => void
 }
 
 const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
@@ -119,8 +112,10 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
   appId,
   msAppId = '',
   appPassword = '',
+  tenantId = '',
   onAppIdChange,
-  onAppPasswordChange
+  onAppPasswordChange,
+  onTenantIdChange
 }) => {
   const [showAppPassword, setShowAppPassword] = useState<boolean>(false)
 
@@ -141,6 +136,10 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
 
   const handleAppPasswordChange = (value: string) => {
     onAppPasswordChange?.(value)
+  }
+
+  const handleTenantIdChange = (value: string) => {
+    onTenantIdChange?.(value)
   }
 
   return (
@@ -216,7 +215,7 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
               helperText="The App ID from your Azure Bot resource"
             />
           </Box>
-          <Box>
+          <Box sx={{ mb: 2 }}>
             <TextField
               fullWidth
               size="small"
@@ -240,6 +239,17 @@ const TriggerTeamsSetup: FC<TriggerTeamsSetupProps> = ({
                   </InputAdornment>
                 ),
               }}
+            />
+          </Box>
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              label="Tenant ID"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              value={tenantId}
+              onChange={(e) => handleTenantIdChange(e.target.value)}
+              helperText="The Directory (tenant) ID from your Azure app registration"
             />
           </Box>
         </Box>
