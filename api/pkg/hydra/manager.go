@@ -19,7 +19,8 @@ const (
 	DefaultSocketDir = "/var/run/hydra/active"
 
 	// DefaultDataDir is the persistent directory for docker data
-	DefaultDataDir = "/filestore/hydra"
+	// This path must be on a real volume, not overlay filesystem (overlay2 can't stack on overlay)
+	DefaultDataDir = "/hydra-data"
 
 	// DefaultDockerdTimeout is the timeout for dockerd to become ready
 	DefaultDockerdTimeout = 30 * time.Second
