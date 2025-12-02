@@ -60,8 +60,6 @@ import {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useDeleteProject,
-  useGetBoardSettings,
-  useUpdateBoardSettings,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
@@ -101,10 +99,6 @@ const ProjectSettings: FC = () => {
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListProjectAccessGrants(projectId, !!project?.organization_id)
   const createAccessGrantMutation = useCreateProjectAccessGrant(projectId)
   const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId)
-
-  // Board settings
-  const { data: boardSettingsData } = useGetBoardSettings()
-  const updateBoardSettingsMutation = useUpdateBoardSettings()
 
   // Exploratory session
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
@@ -158,19 +152,18 @@ const ProjectSettings: FC = () => {
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      
+      // Load WIP limits from project metadata
+      const projectWipLimits = project.metadata?.board_settings?.wip_limits
+      if (projectWipLimits) {
+        setWipLimits({
+          planning: projectWipLimits.planning || 3,
+          review: projectWipLimits.review || 2,
+          implementation: projectWipLimits.implementation || 5,
+        })
+      }
     }
   }, [project])
-
-  // Load board settings from query data
-  useEffect(() => {
-    if (boardSettingsData?.wip_limits) {
-      setWipLimits({
-        planning: boardSettingsData.wip_limits.planning || 3,
-        review: boardSettingsData.wip_limits.review || 2,
-        implementation: boardSettingsData.wip_limits.implementation || 5,
-      })
-    }
-  }, [boardSettingsData])
 
   const handleSave = async (showSuccessMessage = true) => {
     console.log('[ProjectSettings] handleSave called', {
@@ -179,7 +172,6 @@ const ProjectSettings: FC = () => {
       hasProject: !!project,
       hasName: !!name,
       updatePending: updateProjectMutation.isPending,
-      boardPending: updateBoardSettingsMutation.isPending,
     })
 
     if (savingProject) {
@@ -203,14 +195,13 @@ const ProjectSettings: FC = () => {
         description,
         startup_script: startupScript,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        metadata: {
+          board_settings: {
+            wip_limits: wipLimits,
+          },
+        },
       })
       console.log('[ProjectSettings] Project settings saved to database')
-
-      // Save board settings
-      await updateBoardSettingsMutation.mutateAsync({
-        wip_limits: wipLimits,
-      })
-      console.log('[ProjectSettings] Board settings saved')
 
       if (showSuccessMessage) {
         snackbar.success('Project settings saved')
@@ -261,50 +252,6 @@ const ProjectSettings: FC = () => {
       snackbar.success('Repository detached successfully')
     } catch (err) {
       snackbar.error('Failed to detach repository')
-    }
-  }
-
-  const handleStartExploratorySession = async () => {
-    try {
-      const session = await startExploratorySessionMutation.mutateAsync()
-      snackbar.success('Exploratory session started')
-      // Open in floating window instead of navigating
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id
-      }, { x: window.innerWidth - 400, y: 100 })
-    } catch (err: any) {
-      // Extract error message from API response
-      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session'
-      snackbar.error(errorMessage)
-    }
-  }
-
-  const handleResumeExploratorySession = async (e: React.MouseEvent) => {
-    if (!exploratorySessionData) return
-
-    try {
-      // Call the resume endpoint to restart the stopped Wolf container
-      await api.post(`/api/v1/sessions/${exploratorySessionData.id}/resume`)
-      snackbar.success('Exploratory session resumed')
-      // Open floating window
-      floatingModal.showFloatingModal({
-        type: 'exploratory_session',
-        sessionId: exploratorySessionData.id,
-        wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
-      }, { x: e.clientX, y: e.clientY })
-    } catch (err) {
-      snackbar.error('Failed to resume exploratory session')
-    }
-  }
-
-  const handleStopExploratorySession = async () => {
-    try {
-      await stopExploratorySessionMutation.mutateAsync()
-      snackbar.success('Exploratory session stopped')
-    } catch (err) {
-      snackbar.error('Failed to stop exploratory session')
     }
   }
 

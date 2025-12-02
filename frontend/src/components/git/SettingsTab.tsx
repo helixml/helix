@@ -39,7 +39,7 @@ interface SettingsTabProps {
   setEditDescription: (value: string) => void
   editDefaultBranch: string
   setEditDefaultBranch: (value: string) => void
-  editKoditIndexing: boolean
+  editKoditIndexing: boolean | undefined
   setEditKoditIndexing: (value: boolean) => void
   editExternalUrl: string
   setEditExternalUrl: (value: string) => void

@@ -888,12 +888,14 @@ function build-sway() {
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sway-helix \
       -t helix-sway:latest \
+      -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sway-helix \
       -t helix-sway:latest \
+      -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       .
   fi
@@ -941,9 +943,48 @@ function transfer-sway-to-sandbox() {
     return 0
   fi
 
-  echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
-  if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
-    echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+  # Get commit hash BEFORE transfer (needed for tagging)
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
+
+  # Check if versioned tag exists on host
+  local HAS_VERSIONED_TAG=""
+  if docker images "helix-sway:${COMMIT_HASH}" -q | grep -q .; then
+    HAS_VERSIONED_TAG="true"
+  fi
+
+  # Transfer image(s) to sandbox's dockerd
+  local TRANSFER_SUCCESS=""
+  if [ -n "$HAS_VERSIONED_TAG" ]; then
+    # Transfer BOTH tags: latest and versioned (Wolf uses helix-sway:${version})
+    echo "📦 Transferring helix-sway:latest and helix-sway:${COMMIT_HASH} to sandbox's dockerd..."
+    if docker save helix-sway:latest "helix-sway:${COMMIT_HASH}" | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+      TRANSFER_SUCCESS="true"
+      echo "✅ helix-sway images transferred to sandbox's dockerd"
+    fi
+  else
+    # Only :latest exists - transfer and tag inside sandbox
+    echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
+    if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+      echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+      # Tag it with the version inside sandbox
+      echo "🏷️  Tagging helix-sway:latest as helix-sway:${COMMIT_HASH} inside sandbox..."
+      docker exec helix-sandbox-1 docker tag helix-sway:latest "helix-sway:${COMMIT_HASH}"
+      TRANSFER_SUCCESS="true"
+    fi
+  fi
+
+  if [ -n "$TRANSFER_SUCCESS" ]; then
+    # Update version files inside sandbox
+    echo "📝 Updating version files in sandbox (version: ${COMMIT_HASH}, hash: ${IMAGE_HASH})..."
+    docker exec helix-sandbox-1 bash -c "echo '${COMMIT_HASH}' > /opt/images/helix-sway.version"
+    docker exec helix-sandbox-1 bash -c "echo '${IMAGE_HASH}' > /opt/images/helix-sway.tar.hash"
+
+    # Restart heartbeat to immediately report new version (supervisor loop will restart it)
+    echo "🔄 Restarting heartbeat daemon..."
+    docker exec helix-sandbox-1 pkill -f sandbox-heartbeat 2>/dev/null || true
+
+    echo "✅ Version files updated and heartbeat restarted"
   else
     echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
     echo "   Image will be loaded from embedded tarball when sandbox is ready"
