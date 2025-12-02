@@ -109,6 +109,8 @@ services:
             - TURN_REALM=helix.ai
             - TURN_USERNAME=helix
             - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+            # which desktop shall we ask Wolf to run for code agents?
+            - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
