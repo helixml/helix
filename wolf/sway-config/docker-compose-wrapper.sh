@@ -127,19 +127,29 @@ if needs_processing "$@"; then
     fi
 
     if [[ ${#compose_files[@]} -gt 0 ]]; then
-        # Create temp dir for modified files
-        tmp_dir=$(mktemp -d)
-        trap "rm -rf '$tmp_dir'" EXIT
-
-        # Process each compose file
+        # Process each compose file - create temp file in same directory
         declare -A file_map
+        declare -a tmp_files=()
+
         for file in "${compose_files[@]}"; do
             if [[ -f "$file" ]]; then
-                tmp_file="$tmp_dir/$(basename "$file")"
+                file_dir=$(dirname "$file")
+                file_base=$(basename "$file")
+                # Create temp file in same directory with .hydra-resolved prefix
+                tmp_file="${file_dir}/.hydra-resolved.${file_base}"
                 process_compose_file "$file" "$tmp_file"
                 file_map["$file"]="$tmp_file"
+                tmp_files+=("$tmp_file")
             fi
         done
+
+        # Clean up temp files on exit
+        cleanup_tmp_files() {
+            for f in "${tmp_files[@]}"; do
+                rm -f "$f"
+            done
+        }
+        trap cleanup_tmp_files EXIT
 
         # Rebuild args with modified file paths
         new_args=()
@@ -188,14 +198,6 @@ if needs_processing "$@"; then
                 break
             done
         fi
-
-        # Preserve project directory for correct project naming
-        # Use the resolved path of the first compose file's directory
-        for orig in "${!file_map[@]}"; do
-            project_dir=$(dirname "$(readlink -f "$orig")")
-            new_args=("--project-directory" "$project_dir" "${new_args[@]}")
-            break
-        done
 
         exec "$COMPOSE_REAL" "$PLUGIN_NAME" "${new_args[@]}"
     fi
