@@ -378,6 +378,12 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		},
 	}
 
+	// Try to get checklist progress from tasks.md in helix-specs branch
+	checklistProgress := s.getChecklistProgress(ctx, task)
+	if checklistProgress != nil {
+		progress.Checklist = checklistProgress
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(progress)
 }
@@ -746,12 +752,13 @@ type TaskSpecsResponse struct {
 }
 
 type TaskProgressResponse struct {
-	TaskID         string        `json:"task_id"`
-	Status         string        `json:"status"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
-	Specification  PhaseProgress `json:"specification"`
-	Implementation PhaseProgress `json:"implementation"`
+	TaskID         string                   `json:"task_id"`
+	Status         string                   `json:"status"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
+	Specification  PhaseProgress            `json:"specification"`
+	Implementation PhaseProgress            `json:"implementation"`
+	Checklist      *types.ChecklistProgress `json:"checklist,omitempty"` // Progress from tasks.md
 }
 
 type PhaseProgress struct {
@@ -761,6 +768,60 @@ type PhaseProgress struct {
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	RevisionCount int        `json:"revision_count,omitempty"`
+}
+
+// getChecklistProgress fetches task checklist progress from helix-specs branch
+func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.SpecTask) *types.ChecklistProgress {
+	// Get the project's default repository
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Debug().Err(err).Str("project_id", task.ProjectID).Msg("Could not get project for checklist progress")
+		return nil
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil
+	}
+
+	// Get repository path
+	repo, err := s.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Could not get repository for checklist progress")
+		return nil
+	}
+
+	// Parse task progress from tasks.md in helix-specs branch
+	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
+		return nil
+	}
+
+	// Convert to response type
+	checklist := &types.ChecklistProgress{
+		Tasks:          make([]types.ChecklistItem, len(taskProgress.Tasks)),
+		TotalTasks:     taskProgress.TotalTasks,
+		CompletedTasks: taskProgress.CompletedTasks,
+		ProgressPct:    taskProgress.ProgressPct,
+	}
+
+	for i, t := range taskProgress.Tasks {
+		checklist.Tasks[i] = types.ChecklistItem{
+			Index:       t.Index,
+			Description: t.Description,
+			Status:      string(t.Status),
+		}
+	}
+
+	if taskProgress.InProgressTask != nil {
+		checklist.InProgressTask = &types.ChecklistItem{
+			Index:       taskProgress.InProgressTask.Index,
+			Description: taskProgress.InProgressTask.Description,
+			Status:      string(taskProgress.InProgressTask.Status),
+		}
+	}
+
+	return checklist
 }
 
 // getBoardSettings godoc

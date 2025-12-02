@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   Card,
   CardContent,
@@ -9,6 +9,8 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
+  LinearProgress,
+  keyframes,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -21,9 +23,37 @@ import {
   Restore as RestoreIcon,
   MenuBook as DesignDocsIcon,
   Circle as CircleIcon,
+  CheckCircle as CheckCircleIcon,
+  RadioButtonUnchecked as UncheckedIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
+import { useTaskProgress } from '../../services/specTaskService'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+
+// Pulse animation for the active task spinner
+const pulseRing = keyframes`
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+`
+
+const spin = keyframes`
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+`
 
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed'
 
@@ -54,6 +84,198 @@ interface TaskCardProps {
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
 }
+
+// Interface for checklist items from API
+interface ChecklistItem {
+  index: number
+  description: string
+  status: string
+}
+
+interface ChecklistProgress {
+  tasks: ChecklistItem[]
+  total_tasks: number
+  completed_tasks: number
+  in_progress_task?: ChecklistItem
+  progress_pct: number
+}
+
+// Gorgeous task progress display with fade effect and spinner
+const TaskProgressDisplay: React.FC<{
+  checklist: ChecklistProgress
+  phaseColor: string
+}> = React.memo(({ checklist, phaseColor }) => {
+  // Find the in-progress task index
+  const inProgressIndex = checklist.in_progress_task?.index ?? -1
+
+  // Get visible tasks: 1 before, in-progress, 2 after (or adjust based on available)
+  const visibleTasks = useMemo(() => {
+    if (!checklist.tasks || checklist.tasks.length === 0) return []
+
+    const tasks = checklist.tasks
+    const activeIdx = inProgressIndex >= 0 ? inProgressIndex : tasks.findIndex(t => t.status === 'pending')
+
+    if (activeIdx < 0) {
+      // All completed - show last 3
+      return tasks.slice(-3).map((t, i) => ({ ...t, fadeLevel: i === 2 ? 0 : 1 }))
+    }
+
+    // Show 1 before, active, 2 after with fade levels
+    const start = Math.max(0, activeIdx - 1)
+    const end = Math.min(tasks.length, activeIdx + 3)
+
+    return tasks.slice(start, end).map((t, i, arr) => {
+      const relativePos = t.index - activeIdx
+      let fadeLevel = 0
+      if (relativePos < 0) fadeLevel = 2 // Before: more faded
+      else if (relativePos > 1) fadeLevel = 2 // Far after: more faded
+      else if (relativePos === 1) fadeLevel = 1 // Just after: slightly faded
+      return { ...t, fadeLevel }
+    })
+  }, [checklist.tasks, inProgressIndex])
+
+  if (visibleTasks.length === 0) return null
+
+  return (
+    <Box
+      sx={{
+        mt: 1.5,
+        mb: 0.5,
+        background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+        borderRadius: 2,
+        border: '1px solid rgba(255,255,255,0.06)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Progress bar header */}
+      <Box
+        sx={{
+          px: 1.5,
+          py: 0.75,
+          background: 'linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.04)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
+        <LinearProgress
+          variant="determinate"
+          value={checklist.progress_pct}
+          sx={{
+            flex: 1,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: 'rgba(255,255,255,0.08)',
+            '& .MuiLinearProgress-bar': {
+              background: `linear-gradient(90deg, ${phaseColor}99 0%, ${phaseColor} 100%)`,
+              borderRadius: 2,
+            },
+          }}
+        />
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: '0.65rem',
+            color: 'rgba(255,255,255,0.5)',
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+            minWidth: 32,
+            textAlign: 'right',
+          }}
+        >
+          {checklist.completed_tasks}/{checklist.total_tasks}
+        </Typography>
+      </Box>
+
+      {/* Task list with fade effect */}
+      <Box sx={{ py: 0.5 }}>
+        {visibleTasks.map((task, idx) => {
+          const isActive = task.status === 'in_progress'
+          const isCompleted = task.status === 'completed'
+          const opacity = task.fadeLevel === 2 ? 0.35 : task.fadeLevel === 1 ? 0.6 : 1
+
+          return (
+            <Box
+              key={task.index}
+              sx={{
+                px: 1.5,
+                py: 0.5,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 0.75,
+                opacity,
+                transition: 'opacity 0.3s ease',
+              }}
+            >
+              {/* Status indicator */}
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  mt: 0.1,
+                }}
+              >
+                {isActive ? (
+                  // Animated spinner for active task
+                  <Box sx={{ position: 'relative', width: 14, height: 14 }}>
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        borderRadius: '50%',
+                        border: `2px solid ${phaseColor}`,
+                        borderTopColor: 'transparent',
+                        animation: `${spin} 1s linear infinite`,
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        inset: 2,
+                        borderRadius: '50%',
+                        backgroundColor: phaseColor,
+                        animation: `${pulseRing} 2s ease-in-out infinite`,
+                      }}
+                    />
+                  </Box>
+                ) : isCompleted ? (
+                  <CheckCircleIcon sx={{ fontSize: 14, color: '#10b981' }} />
+                ) : (
+                  <UncheckedIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.25)' }} />
+                )}
+              </Box>
+
+              {/* Task description */}
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: '0.68rem',
+                  lineHeight: 1.35,
+                  color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)',
+                  fontWeight: isActive ? 500 : 400,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  textDecoration: isCompleted ? 'line-through' : 'none',
+                  textDecorationColor: 'rgba(255,255,255,0.3)',
+                }}
+              >
+                {task.description}
+              </Typography>
+            </Box>
+          )
+        })}
+      </Box>
+    </Box>
+  )
+})
 
 const LiveAgentScreenshot: React.FC<{ sessionId: string; projectId?: string }> = React.memo(
   ({ sessionId, projectId }) => {
@@ -114,6 +336,13 @@ export default function TaskCard({
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
+
+  // Fetch checklist progress for active tasks (planning/implementation)
+  const showProgress = task.phase === 'planning' || task.phase === 'implementation'
+  const { data: progressData } = useTaskProgress(task.id, {
+    enabled: showProgress,
+    refetchInterval: 5000, // Refresh every 5 seconds for live updates
+  })
 
   // Check if planning column is full
   const planningColumn = columns.find((col) => col.id === 'planning')
@@ -256,6 +485,14 @@ export default function TaskCard({
             </Typography>
           </Box>
         </Box>
+
+        {/* Gorgeous checklist progress for active tasks */}
+        {progressData?.checklist && progressData.checklist.total_tasks > 0 && (
+          <TaskProgressDisplay
+            checklist={progressData.checklist as ChecklistProgress}
+            phaseColor={accentColor}
+          />
+        )}
 
         {/* Live screenshot for active sessions */}
         {task.planning_session_id && <LiveAgentScreenshot sessionId={task.planning_session_id} projectId={projectId} />}
