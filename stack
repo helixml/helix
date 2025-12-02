@@ -1050,6 +1050,7 @@ function build-sandbox() {
   echo "  • RevDial client (built from source)"
   echo "  • Docker-in-Docker with NVIDIA runtime"
   echo "  • helix-sway image (pre-loaded into Wolf's dockerd)"
+  echo "  • helix-zorin image (pre-loaded into Wolf's dockerd)"
   echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
   echo ""
 
@@ -1059,7 +1060,7 @@ function build-sandbox() {
 
   # Step 0: Build Wolf and Moonlight Web (fast if unchanged due to Docker cache)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [0/4] Building Wolf and Moonlight Web dependencies..."
+  echo "📝 [0/5] Building Wolf and Moonlight Web dependencies..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build Wolf (skip container restart - we'll restart sandbox instead)
@@ -1077,9 +1078,9 @@ function build-sandbox() {
   fi
   echo ""
 
-  # Step 1: Build Zed if needed (required for helix-sway)
+  # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [1/4] Checking Zed binary..."
+  echo "📝 [1/5] Checking Zed binary..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
     echo "Building Zed in release mode..."
@@ -1094,7 +1095,7 @@ function build-sandbox() {
 
   # Step 2: Build helix-sway and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [2/4] Building helix-sway and exporting tarball..."
+  echo "📝 [2/5] Building helix-sway and exporting tarball..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build helix-sway image and export tarball (build-desktop now handles tarball export)
@@ -1117,9 +1118,31 @@ function build-sandbox() {
   echo "✅ Using helix-sway.tar ($TARBALL_SIZE) version=$(cat helix-sway.version)"
   echo ""
 
-  # Step 3: Build unified sandbox container with embedded tarball
+  # Step 3: Build helix-zorin and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [3/4] Building helix-sandbox container..."
+  echo "📝 [3/5] Building helix-zorin and exporting tarball..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build helix-zorin image and export tarball (build-desktop now handles tarball export)
+  # Skip image transfer since we'll restart sandbox with new embedded tarball
+  if ! SKIP_DESKTOP_TRANSFER=1 build-zorin; then
+    echo "❌ Failed to build helix-zorin"
+    return 1
+  fi
+
+  # Verify tarball was created (build-desktop exports it)
+  if [ ! -f helix-zorin.tar ]; then
+    echo "❌ helix-zorin.tar not found after build-zorin - this shouldn't happen"
+    return 1
+  fi
+
+  TARBALL_SIZE=$(du -h helix-zorin.tar | cut -f1)
+  echo "✅ Using helix-zorin.tar ($TARBALL_SIZE) version=$(cat helix-zorin.version)"
+  echo ""
+
+  # Step 4: Build unified sandbox container with embedded tarballs
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [4/5] Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build sandbox with tarball embedded
@@ -1139,18 +1162,18 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f helix-sway.tar
+    rm -f helix-sway.tar helix-zorin.tar
     return 1
   fi
 
-  # Keep tarball for future builds (enables fast rebuilds when helix-sway is cached)
+  # Keep tarballs for future builds (enables fast rebuilds when desktop images are cached)
   # Only cleanup on failure or when explicitly requested
-  echo "✅ helix-sandbox container built successfully (kept helix-sway.tar for next build)"
+  echo "✅ helix-sandbox container built successfully (kept tarballs for next build)"
   echo ""
 
-  # Step 4: Restart sandbox and transfer fresh image
+  # Step 5: Restart sandbox and transfer fresh image
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [4/4] Restarting sandbox container..."
+  echo "📝 [5/5] Restarting sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Restart to pick up new image (handled by existing code below)
@@ -1159,7 +1182,7 @@ function build-sandbox() {
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing sandbox image to registry..."
 
-    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway tarball)
+    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway + helix-zorin tarballs)
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1168,7 +1191,7 @@ function build-sandbox() {
       return 1
     fi
 
-    echo "📦 Registry images pushed (helix-sway is embedded, not pushed separately)"
+    echo "📦 Registry images pushed (desktop images are embedded, not pushed separately)"
   fi
 
   # Restart sandbox in dev mode
