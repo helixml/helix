@@ -387,8 +387,13 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		delete(task.Metadata, "error_timestamp")
 	}
 
+	// Generate feature branch name (same logic as spec approval flow)
+	branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+	branchName = sanitizeBranchName(branchName)
+
 	// Update task status directly to implementation (skip all spec phases)
 	task.Status = types.TaskStatusImplementation
+	task.BranchName = branchName
 	task.UpdatedAt = time.Now()
 	now := time.Now()
 	task.StartedAt = &now
@@ -453,7 +458,18 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		s.RegisterRequestMapping(requestID, session.ID)
 	}
 
-	// In Just Do It mode, send ONLY the user's original prompt - no spec generation instructions
+	// In Just Do It mode, send the user's prompt with brief branch instructions
+	// Keep it minimal - no detailed spec generation instructions, just branch info
+	promptWithBranch := fmt.Sprintf(`%s
+
+---
+
+**Important:** If you need to make any code changes or modifications to files in the repository, please:
+1. Create and checkout the feature branch: `+"`git checkout -b %s`"+`
+2. Make your changes
+3. Commit and push when done: `+"`git push origin %s`"+`
+`, task.OriginalPrompt, branchName, branchName)
+
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
 		Created:       time.Now(),
@@ -463,7 +479,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		UserID:        task.CreatedBy,
 		Mode:          types.SessionModeInference,
 		SystemPrompt:  "", // Don't override agent's system prompt
-		PromptMessage: task.OriginalPrompt,
+		PromptMessage: promptWithBranch,
 		State:         types.InteractionStateWaiting,
 	}
 
@@ -541,9 +557,10 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	log.Info().
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
+		Str("branch_name", branchName).
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
-		Msg("Just Do It mode: Zed agent launched with user's prompt only")
+		Msg("Just Do It mode: Zed agent launched with branch instructions")
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent
