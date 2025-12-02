@@ -57,9 +57,14 @@ const Projects: FC = () => {
 
   // Repository management
   const currentOrg = account.organizationTools.organization
-  const ownerId = currentOrg?.id || account.user?.id || ''
+  const ownerId = account.user?.id || ''
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
-  const { data: repositories = [], isLoading: reposLoading } = useGitRepositories(ownerId)
+  // List repos by organization_id when in org context, or by owner_id for personal workspace
+  const { data: repositories = [], isLoading: reposLoading } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
 
   // Repository dialog states
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false)
@@ -126,8 +131,8 @@ const Projects: FC = () => {
         default_branch: 'main',
       })
 
-      // Invalidate repo query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate repo queries (use base key to match all variants)
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       return response.data
     } catch (error) {
@@ -161,8 +166,8 @@ const Projects: FC = () => {
         password,
       })
 
-      // Invalidate repo query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate repo queries (use base key to match all variants)
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       return response.data
     } catch (error) {
@@ -238,8 +243,8 @@ const Projects: FC = () => {
         kodit_indexing: koditIndexing,
       })
 
-      // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate and refetch git repositories query (use base key to match all variants)
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       // Reset pagination to show the new repo at the top
       setReposPage(0)
@@ -300,8 +305,8 @@ const Projects: FC = () => {
         kodit_indexing: koditIndexing,
       })
 
-      // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      // Invalidate and refetch git repositories query (use base key to match all variants)
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       // Reset pagination to show the new repo at the top
       setReposPage(0)

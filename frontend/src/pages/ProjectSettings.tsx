@@ -90,10 +90,14 @@ const ProjectSettings: FC = () => {
   const detachRepoMutation = useDetachRepositoryFromProject(projectId)
   const deleteProjectMutation = useDeleteProject()
 
-  // Get current org/user ID for fetching all user repositories
+  // Get current org context for fetching repositories
   const currentOrg = account.organizationTools.organization
-  const ownerId = currentOrg?.id || account.user?.id || ''
-  const { data: allUserRepositories = [] } = useGitRepositories(ownerId)
+  // List repos by organization_id when in org context, or by owner_id for personal workspace
+  const { data: allUserRepositories = [] } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
 
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListProjectAccessGrants(projectId, !!project?.organization_id)
