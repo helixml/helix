@@ -47,9 +47,23 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	// Authorize - check if user has access to this project
-	if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionUpdate); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
-		return
+	// For personal projects (no organization), check if user is the project owner
+	if project.OrganizationID == "" {
+		if user.ID != project.UserID {
+			log.Warn().
+				Str("user_id", user.ID).
+				Str("project_owner", project.UserID).
+				Str("project_id", project.ID).
+				Msg("User is not the owner of this personal project")
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
+	} else {
+		// Organization project - use RBAC
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionUpdate); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Verify status - allow approval from implementation or implementation_review
@@ -153,9 +167,24 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionUpdate); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
-		return
+	// Authorize - check if user has access to this project
+	// For personal projects (no organization), check if user is the project owner
+	if project.OrganizationID == "" {
+		if user.ID != project.UserID {
+			log.Warn().
+				Str("user_id", user.ID).
+				Str("project_owner", project.UserID).
+				Str("project_id", project.ID).
+				Msg("User is not the owner of this personal project")
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
+	} else {
+		// Organization project - use RBAC
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionUpdate); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Stop external agent if exists

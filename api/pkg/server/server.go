@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
@@ -98,6 +99,10 @@ type HelixAPIServer struct {
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	// Comment queue per planning session - serializes comment responses
+	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
+	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
+	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
@@ -245,6 +250,8 @@ func NewServer(
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
 		contextMappings:            make(map[string]string),
+		sessionCommentQueue:        make(map[string][]string),
+		sessionCurrentComment:      make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
@@ -966,6 +973,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status", apiServer.getDesignReviewCommentQueueStatus).Methods(http.MethodGet)
 
 	// Zed integration routes
 	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)

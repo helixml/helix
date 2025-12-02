@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Box,
   Tabs,
@@ -33,6 +33,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useQueryClient } from '@tanstack/react-query'
+import ReconnectingWebSocket from 'reconnecting-websocket'
 import {
   useDesignReview,
   useDesignReviewComments,
@@ -43,9 +45,12 @@ import {
   getCommentTypeIcon,
   getUnresolvedCount,
   DesignReviewComment,
+  designReviewKeys,
+  useCommentQueueStatus,
 } from '../../services/designReviewService'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import useAccount from '../../hooks/useAccount'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 import InlineCommentBubble from './InlineCommentBubble'
@@ -57,15 +62,16 @@ import RejectDesignDialog from './RejectDesignDialog'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
+type DocumentType = 'requirements' | 'technical_design' | 'implementation_plan'
+
 interface DesignReviewViewerProps {
   open: boolean
   onClose: () => void
   specTaskId: string
   reviewId: string
   onImplementationStarted?: () => void
+  initialTab?: DocumentType
 }
-
-type DocumentType = 'requirements' | 'technical_design' | 'implementation_plan'
 
 const DOCUMENT_LABELS = {
   requirements: 'Requirements Specification',
@@ -79,6 +85,7 @@ export default function DesignReviewViewer({
   specTaskId,
   reviewId,
   onImplementationStarted,
+  initialTab = 'requirements',
 }: DesignReviewViewerProps) {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -115,7 +122,7 @@ export default function DesignReviewViewer({
   })
 
   // Review state
-  const [activeTab, setActiveTab] = useState<DocumentType>('requirements')
+  const [activeTab, setActiveTab] = useState<DocumentType>(initialTab)
   const [showCommentForm, setShowCommentForm] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [commentText, setCommentText] = useState('')
@@ -132,13 +139,31 @@ export default function DesignReviewViewer({
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null)
+  const markdownRef = useRef<HTMLDivElement>(null)
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId)
-  const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId)
+  const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId, {
+    refetchInterval: 5000, // Fallback polling for when WebSocket misses updates
+  })
   const submitReviewMutation = useSubmitReview(specTaskId, reviewId)
   const createCommentMutation = useCreateComment(specTaskId, reviewId)
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId)
+
+  // Check if there are comments awaiting agent responses
+  const hasAwaitingComments = useMemo(() => {
+    return (commentsData?.comments || []).some(c => c.request_id && !c.agent_response)
+  }, [commentsData])
+
+  // Get queue status for streaming - only poll when there are comments awaiting responses
+  const { data: queueStatus } = useCommentQueueStatus(specTaskId, reviewId, {
+    enabled: hasAwaitingComments,
+  })
+
+  // Track streaming agent response for the current comment
+  const [streamingResponse, setStreamingResponse] = useState<{ commentId: string; content: string } | null>(null)
+  const account = useAccount()
+  const queryClient = useQueryClient()
 
   const review = reviewData?.review
   const allComments = commentsData?.comments || []
@@ -148,15 +173,32 @@ export default function DesignReviewViewer({
   )
   const unresolvedCount = getUnresolvedCount(allComments)
 
+  // Memoize document content for use as a stable dependency in position calculation
+  const documentContent = useMemo(() => {
+    if (!review) return ''
+    switch (activeTab) {
+      case 'requirements':
+        return review.requirements_spec || '# No requirements specification available'
+      case 'technical_design':
+        return review.technical_design || '# No technical design available'
+      case 'implementation_plan':
+        return review.implementation_plan || '# No implementation plan available'
+    }
+  }, [review, activeTab])
+
   // Get comment counts per document type
   const getCommentCount = (docType: DocumentType) => {
     return allComments.filter(c => c.document_type === docType && !c.resolved).length
   }
 
-  // Handle tab change - mark as viewed
+  // Handle tab change - mark as viewed and scroll to top
   const handleTabChange = (newTab: DocumentType) => {
     setActiveTab(newTab)
     setViewedTabs(prev => new Set(prev).add(newTab))
+    // Scroll document to top when switching tabs
+    if (documentRef.current) {
+      documentRef.current.scrollTop = 0
+    }
   }
 
   // Debug logging
@@ -179,6 +221,65 @@ export default function DesignReviewViewer({
     () => activeDocComments.filter(c => !c.quoted_text),
     [activeDocComments]
   )
+
+  // WebSocket subscription for real-time agent responses
+  useEffect(() => {
+    if (!open || !queueStatus?.planning_session_id || !queueStatus?.current_comment_id || !account.token) {
+      return
+    }
+
+    const sessionId = queueStatus.planning_session_id
+    const currentCommentId = queueStatus.current_comment_id
+
+    console.log('[DesignReview] Subscribing to WebSocket for streaming response', {
+      sessionId,
+      currentCommentId,
+    })
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHost = window.location.host
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}`
+    const rws = new ReconnectingWebSocket(url)
+
+    let accumulatedResponse = ''
+
+    const messageHandler = (event: MessageEvent) => {
+      try {
+        const parsedData = JSON.parse(event.data)
+
+        // Handle session_update events with interaction data
+        if (parsedData.type === 'session_update' && parsedData.session?.interactions) {
+          const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1]
+
+          if (lastInteraction?.response_message) {
+            accumulatedResponse = lastInteraction.response_message
+            setStreamingResponse({
+              commentId: currentCommentId,
+              content: accumulatedResponse,
+            })
+
+            // If interaction is complete, refetch comments to get the persisted response
+            if (lastInteraction.state === 'complete') {
+              console.log('[DesignReview] Interaction complete, refetching comments')
+              queryClient.invalidateQueries({ queryKey: designReviewKeys.comments(specTaskId, reviewId) })
+              // Clear streaming state - the final response is now in the database
+              setStreamingResponse(null)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[DesignReview] Error parsing WebSocket message:', error)
+      }
+    }
+
+    rws.addEventListener('message', messageHandler)
+
+    return () => {
+      console.log('[DesignReview] Closing WebSocket connection')
+      rws.removeEventListener('message', messageHandler)
+      rws.close()
+    }
+  }, [open, queueStatus?.planning_session_id, queueStatus?.current_comment_id, account.token, specTaskId, reviewId, queryClient])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -232,23 +333,38 @@ export default function DesignReviewViewer({
     [inlineComments]
   )
 
+  // Track retry attempts for position calculation
+  const positionRetryRef = useRef(0)
+  const maxPositionRetries = 5
+
   useEffect(() => {
-    if (!documentRef.current || inlineComments.length === 0) {
+    if (!documentRef.current || inlineComments.length === 0 || !documentContent) {
       // Only update if positions map is not empty to avoid unnecessary state updates
       setCommentPositions(prev => prev.size === 0 ? prev : new Map())
+      positionRetryRef.current = 0
       return
     }
 
-    // Use requestAnimationFrame to ensure DOM is fully rendered before measuring
-    const rafId = requestAnimationFrame(() => {
+    const calculatePositions = (retryCount: number) => {
+      // Verify the document has actually rendered by checking if textContent exists
+      if (!documentRef.current?.textContent) {
+        console.warn('[DesignReviewViewer] Document content not yet rendered, skipping position calculation')
+        return false
+      }
+
       // Calculate initial positions based on quoted text location
       const positions: Array<{ id: string; baseY: number; height: number }> = []
+      let hasInvalidPositions = false
 
       inlineComments.forEach(comment => {
         if (!comment.quoted_text) return
 
         const baseY = findQuotedTextPosition(comment.quoted_text)
-        if (baseY === null) return
+        if (baseY === null) {
+          hasInvalidPositions = true
+          console.warn('[DesignReviewViewer] Could not find quoted text position for comment:', comment.id, 'quoted:', comment.quoted_text?.substring(0, 50))
+          return
+        }
 
         // Get actual height from DOM if available
         const ref = commentRefs.current.get(comment.id!)
@@ -256,6 +372,12 @@ export default function DesignReviewViewer({
 
         positions.push({ id: comment.id!, baseY, height })
       })
+
+      // If we got invalid positions and haven't exceeded retries, schedule another attempt
+      if (hasInvalidPositions && retryCount < maxPositionRetries) {
+        console.log(`[DesignReviewViewer] Scheduling retry ${retryCount + 1}/${maxPositionRetries} for position calculation`)
+        return false
+      }
 
       // Calculate stacked positions to prevent overlaps
       const newPositions = new Map<string, number>()
@@ -296,17 +418,44 @@ export default function DesignReviewViewer({
         }
         return prev // Return same reference if no changes
       })
-    })
 
-    return () => cancelAnimationFrame(rafId)
-  }, [inlineCommentIds, activeTab]) // Use stable string of IDs instead of array reference
+      return true // Success
+    }
+
+    // Use increasing delays for retries: 100ms, 200ms, 400ms, 800ms, 1600ms
+    const scheduleCalculation = (retryCount: number) => {
+      const delay = 100 * Math.pow(2, retryCount)
+      const timeoutId = setTimeout(() => {
+        requestAnimationFrame(() => {
+          const success = calculatePositions(retryCount)
+          if (!success && retryCount < maxPositionRetries) {
+            scheduleCalculation(retryCount + 1)
+          }
+        })
+      }, delay)
+      return timeoutId
+    }
+
+    positionRetryRef.current = 0
+    const timeoutId = scheduleCalculation(0)
+
+    return () => clearTimeout(timeoutId)
+  }, [inlineCommentIds, activeTab, documentContent]) // Include documentContent to re-run when content loads
 
   // Helper to find the Y position of quoted text in the document
   const findQuotedTextPosition = (quotedText: string): number | null => {
     if (!documentRef.current) return null
 
-    const documentContent = documentRef.current.textContent || ''
-    const index = documentContent.indexOf(quotedText)
+    const docTextContent = documentRef.current.textContent || ''
+    const index = docTextContent.indexOf(quotedText)
+
+    console.log('[DesignReviewViewer] Text search:', {
+      quotedText: quotedText.substring(0, 50),
+      quotedTextLength: quotedText.length,
+      foundAtIndex: index,
+      docTextContentLength: docTextContent.length,
+      docTextContentStart: docTextContent.substring(0, 100),
+    })
 
     if (index === -1) return null
 
@@ -326,16 +475,73 @@ export default function DesignReviewViewer({
       const nodeLength = nodeText.length
 
       if (currentPos + nodeLength >= index) {
-        // Found the node containing the start of quoted text
+        // Found a node that contains the index position
         const offsetInNode = index - currentPos
-        range.setStart(node, offsetInNode)
-        range.setEnd(node, Math.min(offsetInNode + quotedText.length, nodeLength))
+
+        // Check if this node actually contains meaningful text at the offset
+        // If offset is beyond the node's content or node is just whitespace,
+        // the quoted text actually starts in the NEXT node
+        const remainingInNode = nodeLength - offsetInNode
+        if (remainingInNode <= 0 || nodeText.trim() === '') {
+          // This node doesn't have the actual text, continue to next node
+          currentPos += nodeLength
+          continue
+        }
+
+        // Verify this node actually contains the start of our quoted text
+        const textFromOffset = nodeText.substring(offsetInNode)
+        if (!quotedText.startsWith(textFromOffset.substring(0, Math.min(textFromOffset.length, quotedText.length)))) {
+          // Text doesn't match, continue searching
+          currentPos += nodeLength
+          continue
+        }
+
+        console.log('[DesignReviewViewer] Found text node:', {
+          quotedText: quotedText.substring(0, 30),
+          nodeText: nodeText.substring(0, 50),
+          nodeLength,
+          offsetInNode,
+          currentPos,
+          index,
+          parentElement: (node as Text).parentElement?.tagName,
+        })
+
+        try {
+          range.setStart(node, offsetInNode)
+          range.setEnd(node, Math.min(offsetInNode + quotedText.length, nodeLength))
+        } catch (e) {
+          console.error('[DesignReviewViewer] Failed to set range:', e)
+          return null
+        }
 
         const rect = range.getBoundingClientRect()
         const containerRect = documentRef.current.getBoundingClientRect()
 
-        // Return Y position relative to document container
-        return rect.top - containerRect.top + documentRef.current.scrollTop
+        console.log('[DesignReviewViewer] Range rect:', {
+          rect: { top: rect.top, bottom: rect.bottom, height: rect.height, left: rect.left, width: rect.width },
+          rangeContents: range.toString().substring(0, 30),
+        })
+
+        // Check if rect is valid (not zero - means element isn't laid out yet)
+        if (rect.top === 0 && rect.bottom === 0 && rect.height === 0) {
+          console.warn('[DesignReviewViewer] Invalid rect - element not laid out yet:', quotedText.substring(0, 30))
+          return null
+        }
+
+        // Calculate Y position relative to document container (accounting for scroll)
+        const yPosition = rect.top - containerRect.top + documentRef.current.scrollTop
+
+        console.log('[DesignReviewViewer] Position calculation:', {
+          quotedText: quotedText.substring(0, 30),
+          rectTop: rect.top,
+          containerRectTop: containerRect.top,
+          scrollTop: documentRef.current.scrollTop,
+          calculatedY: yPosition,
+          containerHeight: documentRef.current.clientHeight,
+          containerScrollHeight: documentRef.current.scrollHeight,
+        })
+
+        return yPosition
       }
 
       currentPos += nodeLength
@@ -364,9 +570,28 @@ export default function DesignReviewViewer({
   const handleTextSelection = () => {
     const selection = window.getSelection()
     const text = selection?.toString().trim()
-    if (text && text.length > 0) {
-      // Get position of selected text for inline comment positioning
+    if (text && text.length > 0 && selection.rangeCount > 0) {
+      // Check if selection is within the markdown content (not in comment bubbles)
       const range = selection.getRangeAt(0)
+      const selectionContainer = range.commonAncestorContainer
+
+      // Walk up to check if we're inside the markdown-body Paper
+      let node: Node | null = selectionContainer
+      let isInMarkdown = false
+      while (node) {
+        if (node === markdownRef.current) {
+          isInMarkdown = true
+          break
+        }
+        node = node.parentNode
+      }
+
+      if (!isInMarkdown) {
+        // Selection is not in the markdown content (e.g., in a comment bubble)
+        return
+      }
+
+      // Get position of selected text - show tooltip near selection end
       const rect = range.getBoundingClientRect()
       const containerRect = documentRef.current?.getBoundingClientRect()
 
@@ -374,6 +599,7 @@ export default function DesignReviewViewer({
         const scrollTop = documentRef.current?.scrollTop || 0
         const yPosition = rect.top - containerRect.top + scrollTop
 
+        // Store selected text and go straight to comment form
         setSelectedText(text)
         setCommentFormPosition({ x: 0, y: yPosition })
         setShowCommentForm(true)
@@ -489,15 +715,7 @@ export default function DesignReviewViewer({
   }
 
   const getDocumentContent = (): string => {
-    if (!review) return ''
-    switch (activeTab) {
-      case 'requirements':
-        return review.requirements_spec || '# No requirements specification available'
-      case 'technical_design':
-        return review.technical_design || '# No technical design available'
-      case 'implementation_plan':
-        return review.implementation_plan || '# No implementation plan available'
-    }
+    return documentContent
   }
 
   const getStatusColor = (status: string) => {
@@ -1003,10 +1221,19 @@ export default function DesignReviewViewer({
                     bgcolor: '#b3d7ff',
                     color: '#000',
                   },
+                  // Visual hint that text is commentable
+                  cursor: 'text',
+                  '& p, & li, & h1, & h2, & h3, & h4': {
+                    cursor: 'text',
+                    transition: 'background-color 0.15s ease',
+                    '&:hover': {
+                      backgroundColor: 'rgba(59, 130, 246, 0.03)', // Very subtle blue tint on hover
+                    },
+                  },
                 },
               }}
             >
-              <Paper className="markdown-body" elevation={2}>
+              <Paper ref={markdownRef} className="markdown-body" elevation={2}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -1045,12 +1272,16 @@ export default function DesignReviewViewer({
                 const yPos = commentPositions.get(comment.id!)
                 if (yPos === undefined) return null
 
+                // Check if this comment is currently being streamed
+                const isCurrentlyStreaming = streamingResponse?.commentId === comment.id
+
                 return (
                   <InlineCommentBubble
                     key={comment.id}
                     comment={comment}
                     yPos={yPos}
                     onResolve={handleResolveComment}
+                    streamingResponse={isCurrentlyStreaming ? streamingResponse.content : undefined}
                     commentRef={(el) => {
                       if (el) {
                         commentRefs.current.set(comment.id!, el)

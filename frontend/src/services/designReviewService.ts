@@ -43,6 +43,7 @@ export interface DesignReviewComment {
   comment_text: string
   comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise' // Made optional
   // Agent integration fields
+  request_id?: string // For correlating streaming responses
   agent_response?: string
   agent_response_at?: string
   interaction_id?: string
@@ -113,6 +114,27 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string, op
     },
     enabled: !!specTaskId && !!reviewId,
     refetchInterval: options?.refetchInterval,
+  })
+}
+
+// Comment queue status for streaming responses
+export interface CommentQueueStatus {
+  current_comment_id?: string
+  queued_comment_ids: string[]
+  planning_session_id?: string
+}
+
+export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...designReviewKeys.comments(specTaskId, reviewId), 'queue-status'],
+    queryFn: async (): Promise<CommentQueueStatus> => {
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentQueueStatusDetail(specTaskId, reviewId)
+      return response.data as CommentQueueStatus
+    },
+    enabled: options?.enabled !== false && !!specTaskId && !!reviewId,
   })
 }
 

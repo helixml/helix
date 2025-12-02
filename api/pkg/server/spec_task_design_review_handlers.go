@@ -413,16 +413,28 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Send comment to agent session asynchronously
-	go func() {
-		if err := s.sendCommentToAgent(context.Background(), specTask, comment); err != nil {
-			log.Error().
-				Err(err).
-				Str("comment_id", comment.ID).
-				Str("spec_task_id", specTask.ID).
-				Msg("Failed to send comment to agent (async)")
-		}
-	}()
+	log.Info().
+		Str("comment_id", comment.ID).
+		Str("spec_task_id", specTask.ID).
+		Str("planning_session_id", specTask.PlanningSessionID).
+		Msg("📝 Comment created, sending to agent...")
+
+	// Send comment to agent session synchronously so we can return the request_id
+	// The frontend can then subscribe to the stream endpoint for real-time response
+	if err := s.sendCommentToAgent(ctx, specTask, comment); err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", comment.ID).
+			Str("spec_task_id", specTask.ID).
+			Str("planning_session_id", specTask.PlanningSessionID).
+			Msg("❌ Failed to send comment to agent (will retry via polling)")
+		// Don't fail the request - comment is still created, agent response will be linked via polling
+	} else {
+		log.Info().
+			Str("comment_id", comment.ID).
+			Str("spec_task_id", specTask.ID).
+			Msg("✅ Comment queued for agent successfully")
+	}
 
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
 	if err == nil && review.Status == types.SpecTaskDesignReviewStatusPending {
@@ -556,8 +568,63 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 	json.NewEncoder(w).Encode(comment)
 }
 
-// sendCommentToAgent sends a design review comment to the agent's session
-func (s *HelixAPIServer) sendCommentToAgent(
+// getDesignReviewCommentQueueStatus returns the current comment being processed and queue status
+// @Summary Get comment queue status
+// @Description Get the current comment being processed and the queue of pending comments for a review
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Success 200 {object} types.CommentQueueStatusResponse
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	specTaskID := vars["spec_task_id"]
+
+	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
+	}
+
+	sessionID := specTask.PlanningSessionID
+	currentCommentID := s.GetCurrentCommentForSession(sessionID)
+	queuedCommentIDs := s.GetCommentQueueForSession(sessionID)
+
+	response := &types.CommentQueueStatusResponse{
+		CurrentCommentID:  currentCommentID,
+		QueuedCommentIDs:  queuedCommentIDs,
+		PlanningSessionID: sessionID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// queueCommentForAgent adds a comment to the queue for the agent to respond to
+// Comments are processed one at a time per planning session to avoid interleaving responses
+func (s *HelixAPIServer) queueCommentForAgent(
 	ctx context.Context,
 	specTask *types.SpecTask,
 	comment *types.SpecTaskDesignReviewComment,
@@ -569,6 +636,161 @@ func (s *HelixAPIServer) sendCommentToAgent(
 		return nil
 	}
 
+	sessionID := specTask.PlanningSessionID
+
+	s.sessionCommentMutex.Lock()
+
+	// Add comment to queue
+	s.sessionCommentQueue[sessionID] = append(s.sessionCommentQueue[sessionID], comment.ID)
+	queueLen := len(s.sessionCommentQueue[sessionID])
+
+	// Check if there's already a comment being processed
+	currentComment := s.sessionCurrentComment[sessionID]
+
+	s.sessionCommentMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("comment_id", comment.ID).
+		Int("queue_length", queueLen).
+		Str("current_comment", currentComment).
+		Msg("Queued comment for agent response")
+
+	// If no comment is currently being processed, start processing this one
+	// Use context.Background() because this runs async after HTTP request completes
+	if currentComment == "" {
+		go s.processNextCommentInQueue(context.Background(), sessionID)
+	}
+
+	return nil
+}
+
+// processNextCommentInQueue processes the next comment in the queue for a session
+func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionID string) {
+	s.sessionCommentMutex.Lock()
+
+	// Check if there are comments in the queue
+	queue := s.sessionCommentQueue[sessionID]
+	if len(queue) == 0 {
+		// No more comments to process
+		delete(s.sessionCurrentComment, sessionID)
+		s.sessionCommentMutex.Unlock()
+		log.Debug().Str("session_id", sessionID).Msg("Comment queue empty")
+		return
+	}
+
+	// Pop the next comment from the queue
+	commentID := queue[0]
+	s.sessionCommentQueue[sessionID] = queue[1:]
+	s.sessionCurrentComment[sessionID] = commentID
+
+	s.sessionCommentMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("comment_id", commentID).
+		Int("remaining_in_queue", len(queue)-1).
+		Msg("Processing next comment in queue")
+
+	// Fetch comment from database
+	comment, err := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", commentID).
+			Msg("Failed to fetch comment for processing")
+		// Try next comment
+		go s.processNextCommentInQueue(ctx, sessionID)
+		return
+	}
+
+	// Fetch spec task for the comment
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("review_id", comment.ReviewID).
+			Msg("Failed to fetch review for comment processing")
+		go s.processNextCommentInQueue(ctx, sessionID)
+		return
+	}
+
+	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", review.SpecTaskID).
+			Msg("Failed to fetch spec task for comment processing")
+		go s.processNextCommentInQueue(ctx, sessionID)
+		return
+	}
+
+	// Now actually send the comment to the agent
+	err = s.sendCommentToAgentNow(ctx, specTask, comment)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", commentID).
+			Msg("Failed to send comment to agent")
+		// Clear current and try next
+		s.sessionCommentMutex.Lock()
+		delete(s.sessionCurrentComment, sessionID)
+		s.sessionCommentMutex.Unlock()
+		go s.processNextCommentInQueue(ctx, sessionID)
+	}
+}
+
+// findConnectedSessionForSpecTask finds an active WebSocket connection for a spec task
+// It first tries the planning session ID, then searches for any connected session with matching spec task ID
+func (s *HelixAPIServer) findConnectedSessionForSpecTask(ctx context.Context, specTask *types.SpecTask) (string, error) {
+	// First, try the planning session ID directly
+	if specTask.PlanningSessionID != "" {
+		if _, exists := s.externalAgentWSManager.getConnection(specTask.PlanningSessionID); exists {
+			log.Debug().
+				Str("spec_task_id", specTask.ID).
+				Str("session_id", specTask.PlanningSessionID).
+				Msg("Found WebSocket connection for planning session ID")
+			return specTask.PlanningSessionID, nil
+		}
+	}
+
+	// PlanningSessionID not connected - search for any connected session with this spec task ID
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("planning_session_id", specTask.PlanningSessionID).
+		Msg("PlanningSessionID not connected, searching for alternate connected session")
+
+	// Get all connected session IDs
+	connectedSessions := s.externalAgentWSManager.listConnections()
+
+	for _, conn := range connectedSessions {
+		// Look up the session to check its SpecTaskID
+		session, err := s.Store.GetSession(ctx, conn.SessionID)
+		if err != nil {
+			continue // Session not found or error, skip
+		}
+
+		// Check if this session is for our spec task
+		if session.Metadata.SpecTaskID == specTask.ID {
+			log.Info().
+				Str("spec_task_id", specTask.ID).
+				Str("found_session_id", conn.SessionID).
+				Str("original_planning_session_id", specTask.PlanningSessionID).
+				Msg("✅ Found alternate connected session for spec task")
+			return conn.SessionID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no WebSocket connection found for spec task %s (tried planning session %s and %d other connected sessions)",
+		specTask.ID, specTask.PlanningSessionID, len(connectedSessions))
+}
+
+// sendCommentToAgentNow actually sends a comment to the agent (called from queue processor)
+func (s *HelixAPIServer) sendCommentToAgentNow(
+	ctx context.Context,
+	specTask *types.SpecTask,
+	comment *types.SpecTaskDesignReviewComment,
+) error {
 	// Build prompt for agent
 	documentTypeLabels := map[string]string{
 		"requirements":        "Requirements Specification",
@@ -596,14 +818,45 @@ Your response will be shown to the reviewer in the design review interface.`,
 		comment.QuotedText,
 		comment.CommentText)
 
-	// Send comment to agent via websocket
-	requestID := "req_" + system.GenerateUUID()
-	err := s.sendChatMessageToExternalAgent(specTask.PlanningSessionID, promptText, requestID)
+	// Find a connected session for this spec task
+	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("spec_task_id", specTask.ID).
 			Str("comment_id", comment.ID).
+			Msg("No connected session found for spec task")
+		return fmt.Errorf("failed to find connected session: %w", err)
+	}
+
+	// Send comment to agent via websocket
+	requestID := "req_" + system.GenerateUUID()
+
+	// Store the requestID on the comment in the database for persistent linking
+	comment.RequestID = requestID
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", comment.ID).
+			Msg("Failed to update comment with request_id")
+		// Continue anyway - the comment was sent, just won't have response linking
+	}
+
+	// Also store the requestID -> sessionID mapping for response routing (in-memory for HTTP streaming)
+	if s.requestToSessionMapping == nil {
+		s.requestToSessionMapping = make(map[string]string)
+	}
+	s.requestToSessionMapping[requestID] = sessionID
+
+	err = s.sendChatMessageToExternalAgent(sessionID, promptText, requestID)
+	if err != nil {
+		// Clean up mapping on failure
+		delete(s.requestToSessionMapping, requestID)
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTask.ID).
+			Str("comment_id", comment.ID).
+			Str("session_id", sessionID).
 			Msg("Failed to send comment to agent via websocket")
 		return fmt.Errorf("failed to send comment to agent: %w", err)
 	}
@@ -612,13 +865,40 @@ Your response will be shown to the reviewer in the design review interface.`,
 		Str("spec_task_id", specTask.ID).
 		Str("comment_id", comment.ID).
 		Str("request_id", requestID).
-		Str("session_id", specTask.PlanningSessionID).
-		Msg("Sent design review comment to agent via websocket")
+		Str("session_id", sessionID).
+		Msg("Sent design review comment to agent via websocket (with response mapping)")
 
 	return nil
 }
 
+// sendCommentToAgent queues a comment for agent response (backwards compatible wrapper)
+func (s *HelixAPIServer) sendCommentToAgent(
+	ctx context.Context,
+	specTask *types.SpecTask,
+	comment *types.SpecTaskDesignReviewComment,
+) error {
+	return s.queueCommentForAgent(ctx, specTask, comment)
+}
+
+// GetCurrentCommentForSession returns the comment ID currently being processed for a session
+func (s *HelixAPIServer) GetCurrentCommentForSession(sessionID string) string {
+	s.sessionCommentMutex.RLock()
+	defer s.sessionCommentMutex.RUnlock()
+	return s.sessionCurrentComment[sessionID]
+}
+
+// GetCommentQueueForSession returns the list of comment IDs waiting in queue for a session
+func (s *HelixAPIServer) GetCommentQueueForSession(sessionID string) []string {
+	s.sessionCommentMutex.RLock()
+	defer s.sessionCommentMutex.RUnlock()
+	queue := s.sessionCommentQueue[sessionID]
+	result := make([]string, len(queue))
+	copy(result, queue)
+	return result
+}
+
 // linkAgentResponseToComment links an agent's interaction response to the design review comment
+// This is called from handleMessageAdded when we have an interaction but no request_id
 func (s *HelixAPIServer) linkAgentResponseToComment(
 	ctx context.Context,
 	interaction *types.Interaction,
@@ -650,6 +930,108 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 		Msg("Linked agent response to design review comment")
 
 	return nil
+}
+
+// updateCommentWithStreamingResponse updates a comment with streaming agent response content
+// This is called during streaming (message_added events) - does NOT clear request_id or trigger next queue item
+func (s *HelixAPIServer) updateCommentWithStreamingResponse(
+	ctx context.Context,
+	requestID string,
+	responseContent string,
+) error {
+	if requestID == "" {
+		return fmt.Errorf("request ID is empty")
+	}
+
+	// Look up comment by request ID from database
+	comment, err := s.Store.GetCommentByRequestID(ctx, requestID)
+	if err != nil {
+		// Not all requests are linked to comments - this is normal
+		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
+	}
+
+	// Update comment with agent response (streaming update)
+	comment.AgentResponse = responseContent
+	now := time.Now()
+	comment.AgentResponseAt = &now
+	// NOTE: Do NOT clear request_id here - streaming is still in progress
+
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		return fmt.Errorf("failed to update comment with streaming response: %w", err)
+	}
+
+	log.Debug().
+		Str("comment_id", comment.ID).
+		Str("request_id", requestID).
+		Int("response_length", len(responseContent)).
+		Msg("Updated comment with streaming agent response")
+
+	return nil
+}
+
+// finalizeCommentResponse marks a comment response as complete, clears request_id and triggers next queue item
+// This is called when message_completed event is received
+func (s *HelixAPIServer) finalizeCommentResponse(
+	ctx context.Context,
+	requestID string,
+) error {
+	if requestID == "" {
+		return fmt.Errorf("request ID is empty")
+	}
+
+	// Look up comment by request ID from database
+	comment, err := s.Store.GetCommentByRequestID(ctx, requestID)
+	if err != nil {
+		// Not all requests are linked to comments - this is normal
+		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
+	}
+
+	// Clear the request_id to mark as processed
+	comment.RequestID = ""
+
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		return fmt.Errorf("failed to finalize comment response: %w", err)
+	}
+
+	log.Info().
+		Str("comment_id", comment.ID).
+		Str("original_request_id", requestID).
+		Int("final_response_length", len(comment.AgentResponse)).
+		Msg("✅ Finalized comment response (cleared request_id)")
+
+	// Response complete - process next comment in queue
+	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
+	if err == nil {
+		specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+		if err == nil && specTask.PlanningSessionID != "" {
+			sessionID := specTask.PlanningSessionID
+
+			// Clear the current comment and process next
+			s.sessionCommentMutex.Lock()
+			delete(s.sessionCurrentComment, sessionID)
+			s.sessionCommentMutex.Unlock()
+
+			log.Info().
+				Str("session_id", sessionID).
+				Str("completed_comment", comment.ID).
+				Msg("Comment response complete, checking for next in queue")
+
+			go s.processNextCommentInQueue(ctx, sessionID)
+		}
+	}
+
+	return nil
+}
+
+// linkAgentResponseToCommentByRequestID is a legacy function - kept for backwards compatibility
+// Use updateCommentWithStreamingResponse for streaming updates and finalizeCommentResponse for completion
+func (s *HelixAPIServer) linkAgentResponseToCommentByRequestID(
+	ctx context.Context,
+	requestID string,
+	responseContent string,
+) error {
+	// For backwards compatibility, this now just updates the streaming response
+	return s.updateCommentWithStreamingResponse(ctx, requestID, responseContent)
 }
 
 // backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch

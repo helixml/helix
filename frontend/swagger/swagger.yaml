@@ -3007,6 +3007,20 @@ definitions:
         description: '"text" or "image"'
         type: string
     type: object
+  types.CommentQueueStatusResponse:
+    properties:
+      current_comment_id:
+        description: Comment currently being processed (response streaming)
+        type: string
+      planning_session_id:
+        description: Session ID for WebSocket subscription
+        type: string
+      queued_comment_ids:
+        description: Comments waiting in queue
+        items:
+          type: string
+        type: array
+    type: object
   types.Commit:
     properties:
       author:
@@ -6529,6 +6543,9 @@ definitions:
       quoted_text:
         description: For inline comments - store the context around the comment
         type: string
+      request_id:
+        description: Request ID used when sending to agent (for response linking)
+        type: string
       resolution_reason:
         description: '"manual", "auto_text_removed", "agent_updated"'
         type: string
@@ -7520,18 +7537,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -13461,6 +13478,43 @@ paths:
       security:
       - BearerAuth: []
       summary: Get design review details
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status:
+    get:
+      consumes:
+      - application/json
+      description: Get the current comment being processed and the queue of pending
+        comments for a review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CommentQueueStatusResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get comment queue status
       tags:
       - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments:
