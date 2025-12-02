@@ -924,22 +924,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					primaryRepoID = projectRepos[0].ID
 				}
 
-				// Pull latest changes from the primary repository to get the latest startup script
-				if primaryRepoID != "" {
-					if err := s.gitRepositoryService.PullRepository(r.Context(), primaryRepoID); err != nil {
-						log.Warn().
-							Err(err).
-							Str("project_id", projectID).
-							Str("repo_id", primaryRepoID).
-							Msg("Failed to pull latest changes from primary repository (continuing)")
-					} else {
-						log.Info().
-							Str("project_id", projectID).
-							Str("repo_id", primaryRepoID).
-							Msg("Pulled latest changes from primary repository for restart")
-					}
-				}
-
 				// Restart Zed agent with existing session
 				zedAgent := &types.ZedAgent{
 					SessionID:           existingSession.ID,
@@ -1047,24 +1031,6 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	primaryRepoID := project.DefaultRepoID
 	if primaryRepoID == "" && len(projectRepos) > 0 {
 		primaryRepoID = projectRepos[0].ID
-	}
-
-	// Pull latest changes from the primary repository to get the latest startup script
-	// This ensures "Test Script" runs the most recent version
-	if primaryRepoID != "" {
-		if err := s.gitRepositoryService.PullRepository(r.Context(), primaryRepoID); err != nil {
-			// Log warning but don't fail - repo might not have a remote
-			log.Warn().
-				Err(err).
-				Str("project_id", projectID).
-				Str("repo_id", primaryRepoID).
-				Msg("Failed to pull latest changes from primary repository (continuing)")
-		} else {
-			log.Info().
-				Str("project_id", projectID).
-				Str("repo_id", primaryRepoID).
-				Msg("Pulled latest changes from primary repository")
-		}
 	}
 
 	// Create ZedAgent for exploratory session
