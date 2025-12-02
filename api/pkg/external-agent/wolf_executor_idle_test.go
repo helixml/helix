@@ -128,6 +128,13 @@ func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agen
 }
 
 // Additional methods added to satisfy store.Store interface evolution
+func (m *MockStoreForWolf) GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error) {
+	args := m.Called(ctx, requestID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.SpecTaskDesignReviewComment), args.Error(1)
+}
 func (m *MockStoreForWolf) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
 	return nil
 }

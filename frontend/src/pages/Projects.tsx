@@ -203,7 +203,10 @@ const Projects: FC = () => {
 
       const result = await instantiateSampleMutation.mutateAsync({
         sampleId,
-        request: { project_name: sampleName }, // Use sample name as default
+        request: {
+          project_name: sampleName,
+          organization_id: account.organizationTools.organization?.id, // Pass current workspace context
+        },
       })
 
       snackbar.success('Sample project created successfully!')
