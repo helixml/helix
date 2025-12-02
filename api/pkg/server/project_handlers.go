@@ -191,6 +191,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Attach the primary repository to the project
+	// This sets the project_id on the repository so it shows up in the project's repo list
+	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
+		log.Warn().
+			Err(err).
+			Str("project_id", created.ID).
+			Str("repo_id", req.DefaultRepoID).
+			Msg("failed to attach primary repository to project (continuing)")
+	}
+
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)

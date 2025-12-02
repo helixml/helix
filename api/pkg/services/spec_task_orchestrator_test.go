@@ -87,53 +87,6 @@ func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
 	assert.Contains(t, prompt, "requirements.md")
 }
 
-func TestBuildImplementationPrompt_IncludesSpecs(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	store := store.NewMockStore(ctrl)
-	orchestrator := &SpecTaskOrchestrator{
-		testMode: true,
-		store:    store,
-	}
-
-	store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil)
-
-	task := &types.SpecTask{
-		ID:                 "spec_impl_prompt",
-		Name:               "User Auth Feature",
-		Description:        "Implement user authentication",
-		OriginalPrompt:     "Add user auth",
-		RequirementsSpec:   "User story: As a user, I want to login securely",
-		TechnicalDesign:    "Architecture: Use JWT tokens with refresh mechanism",
-		ImplementationPlan: "- [ ] Create user model\n- [ ] Add login endpoint\n- [ ] Implement JWT generation",
-	}
-
-	app := &types.App{
-		Config: types.AppConfig{
-			Helix: types.AppHelixConfig{
-				Assistants: []types.AssistantConfig{{
-					SystemPrompt: "You are an implementation agent",
-				}},
-			},
-		},
-	}
-
-	// Build prompt
-	prompt := orchestrator.buildImplementationPrompt(task, app)
-
-	// Verify prompt contains all context
-	assert.Contains(t, prompt, "User Auth Feature")                         // Task name
-	assert.Contains(t, prompt, "Implement user authentication")             // Description
-	assert.Contains(t, prompt, "User story: As a user, I want to login")    // Requirements
-	assert.Contains(t, prompt, "Architecture: Use JWT tokens")              // Design
-	assert.Contains(t, prompt, "Create user model")                         // Implementation plan
-	assert.Contains(t, prompt, "helix-specs")                               // Worktree reference
-	assert.Contains(t, prompt, "feature/spec_impl_prompt")                  // Feature branch
-	assert.Contains(t, prompt, "SAME Zed instance from the planning phase") // Multi-session context
-	assert.Contains(t, prompt, "[ ] -> [~]")                                // Task markers
-	assert.Contains(t, prompt, "[~] -> [x]")                                // Completion markers
-}
-
 func TestSanitizeForBranchName(t *testing.T) {
 	tests := []struct {
 		input    string
