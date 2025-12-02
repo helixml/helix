@@ -681,11 +681,41 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to update task for revision: %w", err)
 		}
 
-		// TODO: Send revision request back to Helix agent
-		log.Info().
-			Str("task_id", req.TaskID).
-			Str("comments", req.Comments).
-			Msg("Specs require revision")
+		// Send revision instruction to existing agent session
+		sessionID := task.PlanningSessionID
+
+		if sessionID != "" && !s.testMode {
+			// Create agent instruction service
+			agentInstructionService := NewAgentInstructionService(s.store)
+
+			// Send revision instruction asynchronously (don't block the response)
+			go func() {
+				err := agentInstructionService.SendRevisionInstruction(
+					context.Background(),
+					sessionID,
+					task.CreatedBy,
+					task,
+					req.Comments,
+				)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Str("session_id", sessionID).
+						Msg("Failed to send revision instruction to agent")
+				}
+			}()
+
+			log.Info().
+				Str("task_id", task.ID).
+				Str("session_id", sessionID).
+				Str("comments", req.Comments).
+				Msg("Specs require revision - sent revision instruction to agent")
+		} else {
+			log.Warn().
+				Str("task_id", task.ID).
+				Msg("No planning session ID found - agent will not receive revision instruction")
+		}
 	}
 
 	return nil

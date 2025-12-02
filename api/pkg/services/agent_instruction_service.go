@@ -208,6 +208,60 @@ I'm here to help with any feedback or iterations needed.
 	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
+// SendRevisionInstruction sends a message to the agent with revision feedback
+func (s *AgentInstructionService) SendRevisionInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	comments string,
+) error {
+	// Generate task directory name (same format as planning phase)
+	dateStr := task.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+
+	message := fmt.Sprintf(`# Changes Requested 📝
+
+The reviewer has requested changes to your design. Please update the spec documents based on the feedback below.
+
+## Reviewer Feedback
+
+%[2]s
+
+## Your Task
+
+1. Read the feedback carefully
+2. Update the relevant documents in ~/work/helix-specs/design/tasks/%[1]s/
+   - Update requirements.md if requirements need clarification
+   - Update design.md if the approach needs adjustment
+   - Update tasks.md if the implementation plan changes
+3. **CRITICAL: Commit and push your changes immediately after updating**
+
+%[3]sbash
+cd ~/work/helix-specs
+git add design/tasks/%[1]s/
+git commit -m "📝 Address review feedback for SpecTask %[4]s"
+git push origin helix-specs
+%[3]s
+
+After pushing, let me know what changes you made in response to the feedback.
+
+**SpecTask ID:** %[4]s
+**Design Documents:** ~/work/helix-specs/design/tasks/%[1]s/
+`, taskDirName, comments, "```", task.ID)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("task_id", task.ID).
+		Msg("Sending revision instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
 // SendMergeInstruction tells agent to merge their branch to main
 func (s *AgentInstructionService) SendMergeInstruction(
 	ctx context.Context,
