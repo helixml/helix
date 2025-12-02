@@ -211,11 +211,13 @@ export const useInstantiateSampleProject = () => {
         sample_project_id: sampleId,
         project_name: request.project_name,
         description: request.description,
+        organization_id: request.organization_id,
       });
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+    onSuccess: (_data, variables) => {
+      // Invalidate the specific org's project list (or personal if no org)
+      queryClient.invalidateQueries({ queryKey: projectsListQueryKey(variables.request.organization_id) });
     },
   });
 };

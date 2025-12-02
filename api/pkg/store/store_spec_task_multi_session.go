@@ -457,6 +457,17 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 		return nil, fmt.Errorf("failed to get spec task: %w", err)
 	}
 
+	// Get organization ID from the project
+	orgID := ""
+	if specTask.ProjectID != "" {
+		project, err := s.GetProject(ctx, specTask.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", specTask.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	// Update spec task with Zed instance configuration
 	if config.ProjectPath != "" {
 		specTask.ProjectPath = config.ProjectPath
@@ -498,13 +509,14 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 
 			// Create corresponding Helix session
 			helixSession := &types.Session{
-				ID:      system.GenerateSessionID(),
-				Name:    fmt.Sprintf("[%s] %s", specTask.Name, implTask.Title),
-				Owner:   specTask.CreatedBy,
-				Type:    types.SessionTypeText,
-				Mode:    types.SessionModeInference,
-				Created: time.Now(),
-				Updated: time.Now(),
+				ID:             system.GenerateSessionID(),
+				Name:           fmt.Sprintf("[%s] %s", specTask.Name, implTask.Title),
+				Owner:          specTask.CreatedBy,
+				OrganizationID: orgID,
+				Type:           types.SessionTypeText,
+				Mode:           types.SessionModeInference,
+				Created:        time.Now(),
+				Updated:        time.Now(),
 				Metadata: types.SessionMetadata{
 					AgentType:               "zed_external", // Same external agent as planning
 					SpecTaskID:              specTask.ID,
@@ -573,6 +585,17 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		return nil, fmt.Errorf("failed to get SpecTask: %w", err)
 	}
 
+	// Get organization ID from the project
+	orgID := ""
+	if specTask.ProjectID != "" {
+		project, err := s.GetProject(ctx, specTask.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", specTask.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	// Create new work session
 	workSession := &types.SpecTaskWorkSession{
 		SpecTaskID:          parentSession.SpecTaskID,
@@ -603,13 +626,14 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 
 	// Create corresponding Helix session
 	helixSession := &types.Session{
-		ID:      system.GenerateSessionID(),
-		Name:    fmt.Sprintf("[Spawned] %s", config.Name),
-		Owner:   specTask.CreatedBy,
-		Type:    types.SessionTypeText,
-		Mode:    types.SessionModeInference,
-		Created: time.Now(),
-		Updated: time.Now(),
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("[Spawned] %s", config.Name),
+		Owner:          specTask.CreatedBy,
+		OrganizationID: orgID,
+		Type:           types.SessionTypeText,
+		Mode:           types.SessionModeInference,
+		Created:        time.Now(),
+		Updated:        time.Now(),
 		Metadata: types.SessionMetadata{
 			AgentType:    "zed_external", // Same external agent as planning
 			SpecTaskID:   parentSession.SpecTaskID,

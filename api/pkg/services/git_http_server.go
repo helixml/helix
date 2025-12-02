@@ -607,44 +607,62 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			continue
 		}
 
-		if task.Status != types.TaskStatusSpecGeneration {
+		// Handle pushes based on task status
+		switch task.Status {
+		case types.TaskStatusSpecGeneration:
+			// Initial push from spec generation - transition to spec_review
+			log.Info().
+				Str("task_id", task.ID).
+				Str("task_name", task.Name).
+				Bool("just_do_it_mode", task.JustDoItMode).
+				Msg("Processing SpecTask for design doc push (spec_generation → spec_review)")
+
+			now := time.Now()
+			task.DesignDocsPushedAt = &now
+			task.Status = types.TaskStatusSpecReview
+			task.UpdatedAt = now
+
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to update spec task status after design doc push")
+			}
+
+			// Create a design review record
+			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+
+			// Check for design review comments that need auto-resolution
+			go s.checkCommentResolution(context.Background(), task.ID, repoPath)
+
+		case types.TaskStatusSpecReview, types.TaskStatusSpecRevision:
+			// Push during review - agent is updating specs in response to comments
+			log.Info().
+				Str("task_id", task.ID).
+				Str("current_status", task.Status).
+				Msg("Processing SpecTask for design doc update during review")
+
+			// Update the existing design review with new content
+			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+
+			// Check for design review comments that need auto-resolution
+			go s.checkCommentResolution(context.Background(), task.ID, repoPath)
+
+		case types.TaskStatusImplementation:
+			// Push during implementation - agent is updating tasks.md with progress
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("Processing SpecTask for design doc update during implementation")
+
+			// Update the existing design review with new content (e.g., tasks.md progress)
+			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+
+		default:
 			log.Debug().
 				Str("task_id", taskID).
 				Str("current_status", task.Status).
-				Msg("Task not in spec_generation status, skipping")
-			continue
+				Msg("Task in terminal status, skipping design doc processing")
 		}
-
-		log.Info().
-			Str("task_id", task.ID).
-			Str("task_name", task.Name).
-			Bool("just_do_it_mode", task.JustDoItMode).
-			Msg("Processing SpecTask for design doc push")
-
-		now := time.Now()
-		task.DesignDocsPushedAt = &now // Track when design docs were actually pushed
-
-		// Just Do It mode tasks skip spec generation entirely, so they shouldn't hit this code path
-		// Move to spec review for human review
-		task.Status = types.TaskStatusSpecReview
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("Moving task to spec review")
-
-		// Auto-create a design review record so the floating window viewer can open
-		go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
-
-		task.UpdatedAt = now
-		err = s.store.UpdateSpecTask(ctx, task)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.ID).
-				Msg("Failed to update spec task status after design doc push")
-		}
-
-		// Check for design review comments that need auto-resolution
-		go s.checkCommentResolution(context.Background(), task.ID, repoPath)
 	}
 }
 
@@ -725,13 +743,13 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		// Continue to create new review
 	}
 
-	// Find an active review to update (pending or in_review status, not approved/superseded)
+	// Find an active review to update
+	// Include approved reviews so that implementation progress (tasks.md) is reflected
+	// Only skip superseded reviews
 	var activeReview *types.SpecTaskDesignReview
 	for i := range existingReviews {
 		review := &existingReviews[i]
-		if review.Status == types.SpecTaskDesignReviewStatusPending ||
-			review.Status == types.SpecTaskDesignReviewStatusInReview ||
-			review.Status == types.SpecTaskDesignReviewStatusChangesRequested {
+		if review.Status != types.SpecTaskDesignReviewStatusSuperseded {
 			activeReview = review
 			break
 		}
@@ -1339,7 +1357,7 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner always has access
+	// Repository owner always has access (for personal/non-org repos)
 	if repo.OwnerID == user.ID {
 		return true
 	}
@@ -1354,7 +1372,7 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Use existing RBAC system from server
+	// For org repos, use RBAC system to check access
 	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionGet)
 	return err == nil
 }
@@ -1372,7 +1390,7 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner always has write access
+	// Repository owner always has write access (for personal/non-org repos)
 	if repo.OwnerID == user.ID {
 		return true
 	}
@@ -1387,7 +1405,7 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Use existing RBAC system from server
+	// For org repos, use RBAC system to check access
 	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionUpdate)
 	return err == nil
 }
