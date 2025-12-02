@@ -1,6 +1,7 @@
 #!/bin/bash
 # Docker Compose wrapper that resolves symlinks in volume paths
 # This is needed for Hydra (nested dockerd) to work correctly.
+# See: https://github.com/helixml/helix/issues/1405
 #
 # Note: When invoked as a Docker CLI plugin, the first argument is "compose"
 # which we need to preserve and pass through.
