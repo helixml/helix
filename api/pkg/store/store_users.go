@@ -209,13 +209,12 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 			db = db.Where("type = ?", query.Type)
 		}
 		if query.Email != "" {
-			// Support ILIKE matching for email domain filtering
 			if strings.Contains(query.Email, "@") {
-				// If it contains @, treat as domain filter
-				db = db.Where("email ILIKE ?", "%@"+query.Email)
+				// Full email address - exact match (case-insensitive)
+				db = db.Where("LOWER(email) = LOWER(?)", query.Email)
 			} else {
-				// Otherwise, exact match
-				db = db.Where("email = ?", query.Email)
+				// Domain only - filter by email domain
+				db = db.Where("email ILIKE ?", "%@"+query.Email)
 			}
 		}
 		if query.Username != "" {
