@@ -72,11 +72,12 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Update task
+	// Update task - move straight to done when implementation is approved
 	now := time.Now()
 	specTask.ImplementationApprovedBy = user.ID
 	specTask.ImplementationApprovedAt = &now
-	// Keep in implementation_review - will move to done when merge detected by git hook
+	specTask.Status = types.TaskStatusDone
+	specTask.CompletedAt = &now
 
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
@@ -95,40 +96,23 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		baseBranch = "main"
 	}
 
-	// Send merge instruction to agent (reuse planning session)
-	sessionID := specTask.PlanningSessionID
-
-	if sessionID != "" {
-		agentInstructionService := services.NewAgentInstructionService(s.Store)
-
-		// Send instruction asynchronously (don't block the response)
-		go func() {
-			err := agentInstructionService.SendMergeInstruction(
-				context.Background(),
-				sessionID,
-				specTask.CreatedBy, // User who created the task
-				specTask.BranchName,
-				baseBranch,
-			)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("task_id", specTask.ID).
-					Str("session_id", sessionID).
-					Msg("Failed to send merge instruction to agent")
-			}
-		}()
-
-		log.Info().
-			Str("task_id", specTask.ID).
-			Str("session_id", sessionID).
-			Str("branch_name", specTask.BranchName).
-			Msg("Implementation approved - sent merge instruction to agent")
-	} else {
-		log.Warn().
-			Str("task_id", specTask.ID).
-			Msg("No session ID found - agent will not receive merge instruction")
-	}
+	// Send merge instruction to agent via WebSocket
+	go func() {
+		message := services.BuildMergeInstructionPrompt(specTask.BranchName, baseBranch)
+		_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", specTask.ID).
+				Str("planning_session_id", specTask.PlanningSessionID).
+				Msg("Failed to send merge instruction to agent via WebSocket")
+		} else {
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("branch_name", specTask.BranchName).
+				Msg("Implementation approved - sent merge instruction to agent via WebSocket")
+		}
+	}()
 
 	// Return updated task
 	w.Header().Set("Content-Type", "application/json")

@@ -25,15 +25,9 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 	}
 }
 
-// SendApprovalInstruction sends a message to the agent to start implementation
-func (s *AgentInstructionService) SendApprovalInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	branchName string,
-	baseBranch string,
-) error {
+// BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
+// This is the single source of truth for this prompt - used by WebSocket and database approaches
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch string) string {
 	// Generate task directory name (same format as planning phase)
 	dateStr := task.CreatedAt.Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
@@ -42,7 +36,7 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	message := fmt.Sprintf(`# Design Approved! 🎉
+	return fmt.Sprintf(`# Design Approved! 🎉
 
 Your design has been approved. Please begin implementation.
 
@@ -169,53 +163,65 @@ Start by reading the spec documents from the worktree, then work through the tas
 
 🚨 **REMEMBER:** Push to helix-specs after EVERY task change! The UI tracks your progress via git pushes. 🚨
 `, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending approval instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
-// SendImplementationReviewRequest notifies agent that implementation is ready for review
-func (s *AgentInstructionService) SendImplementationReviewRequest(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-) error {
-	message := fmt.Sprintf(`# Implementation Review 🔍
+// BuildCommentPrompt builds a prompt for sending a design review comment to an agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := specTask.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(specTask.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, specTask.ID)
 
-Great work pushing your changes! The implementation is now ready for review.
+	// Map document types to readable labels
+	documentTypeLabels := map[string]string{
+		"requirements":        "Requirements (requirements.md)",
+		"technical_design":    "Technical Design (design.md)",
+		"implementation_plan": "Implementation Plan (tasks.md)",
+	}
+	docLabel := documentTypeLabels[comment.DocumentType]
+	if docLabel == "" {
+		docLabel = comment.DocumentType
+	}
 
-The user will test your work. If this is a web application, please:
+	// Build the prompt
+	var promptBuilder string
+	promptBuilder = fmt.Sprintf("# Design Review Comment 📝\n\n")
+	promptBuilder += fmt.Sprintf("A reviewer has left a comment on your design documents.\n\n")
+	promptBuilder += fmt.Sprintf("**Document:** %s\n", docLabel)
 
-1. Start the development server
-2. Provide the URL where the user can test the application
-3. Answer any questions about your implementation
+	if comment.SectionPath != "" {
+		promptBuilder += fmt.Sprintf("**Section:** %s\n", comment.SectionPath)
+	}
+	if comment.LineNumber > 0 {
+		promptBuilder += fmt.Sprintf("**Line:** %d\n", comment.LineNumber)
+	}
 
-**Branch:** %[1]s%[2]s%[1]s
+	promptBuilder += "\n"
 
-I'm here to help with any feedback or iterations needed.
-`, "```", branchName)
+	if comment.QuotedText != "" {
+		promptBuilder += fmt.Sprintf("**Regarding this text:**\n> %s\n\n", comment.QuotedText)
+	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending implementation review request to agent")
+	promptBuilder += fmt.Sprintf("**Comment:**\n%s\n\n", comment.CommentText)
 
-	return s.sendMessage(ctx, sessionID, userID, message)
+	promptBuilder += fmt.Sprintf("---\n\n")
+	promptBuilder += fmt.Sprintf("Please respond to this feedback. If changes are needed:\n")
+	promptBuilder += fmt.Sprintf("1. Update the relevant document in ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
+	promptBuilder += fmt.Sprintf("2. Commit and push your changes:\n")
+	promptBuilder += fmt.Sprintf("```bash\ncd ~/work/helix-specs\ngit add design/tasks/%s/\ngit commit -m \"📝 Address review comment\"\ngit push origin helix-specs\n```\n\n", taskDirName)
+	promptBuilder += fmt.Sprintf("**SpecTask ID:** %s\n", specTask.ID)
+	promptBuilder += fmt.Sprintf("**Design Documents:** ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
+
+	return promptBuilder
 }
 
-// SendRevisionInstruction sends a message to the agent with revision feedback
-func (s *AgentInstructionService) SendRevisionInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	comments string,
-) error {
+// BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
 	// Generate task directory name (same format as planning phase)
 	dateStr := task.CreatedAt.Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
@@ -224,7 +230,36 @@ func (s *AgentInstructionService) SendRevisionInstruction(
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	message := fmt.Sprintf(`# Changes Requested 📝
+	return fmt.Sprintf(`# Implementation Review 🔍
+
+Great work pushing your changes! The implementation is now ready for review.
+
+The user will test your work. If this is a web application, please:
+
+1. Start the development server
+2. Provide the URL where the user can test the application
+3. Answer any questions about your implementation
+4. Reference the spec documents if needed to verify requirements are met
+
+**Branch:** %[1]s%[2]s%[1]s
+**Design Documents:** ~/work/helix-specs/design/tasks/%[3]s/
+
+I'm here to help with any feedback or iterations needed.
+`, "```", branchName, taskDirName)
+}
+
+// BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
+	// Generate task directory name (same format as planning phase)
+	dateStr := task.CreatedAt.Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+
+	return fmt.Sprintf(`# Changes Requested 📝
 
 The reviewer has requested changes to your design. Please update the spec documents based on the feedback below.
 
@@ -253,24 +288,12 @@ After pushing, let me know what changes you made in response to the feedback.
 **SpecTask ID:** %[4]s
 **Design Documents:** ~/work/helix-specs/design/tasks/%[1]s/
 `, taskDirName, comments, "```", task.ID)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("task_id", task.ID).
-		Msg("Sending revision instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
-// SendMergeInstruction tells agent to merge their branch to main
-func (s *AgentInstructionService) SendMergeInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-	baseBranch string,
-) error {
-	message := fmt.Sprintf(`# Implementation Approved! ✅
+// BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
+// This is the single source of truth for this prompt - used by WebSocket approaches
+func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
+	return fmt.Sprintf(`# Implementation Approved! ✅
 
 Your implementation has been approved. Please merge to main:
 
@@ -282,6 +305,80 @@ Your implementation has been approved. Please merge to main:
 
 Let me know once the merge is complete!
 `, "```", baseBranch, branchName)
+}
+
+// SendApprovalInstruction sends a message to the agent to start implementation
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildApprovalInstructionPrompt
+// and send via sendChatMessageToExternalAgent instead
+func (s *AgentInstructionService) SendApprovalInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+	baseBranch string,
+) error {
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending approval instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendImplementationReviewRequest notifies agent that implementation is ready for review
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildImplementationReviewPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendImplementationReviewRequest(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	branchName string,
+) error {
+	message := BuildImplementationReviewPrompt(task, branchName)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("branch_name", branchName).
+		Msg("Sending implementation review request to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendRevisionInstruction sends a message to the agent with revision feedback
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildRevisionInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendRevisionInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	task *types.SpecTask,
+	comments string,
+) error {
+	message := BuildRevisionInstructionPrompt(task, comments)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("task_id", task.ID).
+		Msg("Sending revision instruction to agent")
+
+	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// SendMergeInstruction tells agent to merge their branch to main
+// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildMergeInstructionPrompt
+// and send via sendMessageToSpecTaskAgent instead
+func (s *AgentInstructionService) SendMergeInstruction(
+	ctx context.Context,
+	sessionID string,
+	userID string,
+	branchName string,
+	baseBranch string,
+) error {
+	message := BuildMergeInstructionPrompt(branchName, baseBranch)
 
 	log.Info().
 		Str("session_id", sessionID).

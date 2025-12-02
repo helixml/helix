@@ -23,20 +23,25 @@ import (
 // AuthorizationFunc is a callback to check if a user can perform an action on a resource
 type AuthorizationFunc func(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error
 
+// SpecTaskMessageSender is a callback to send messages to spec task agents via WebSocket
+// Returns requestID for tracking responses. notifyUserID can be empty if no specific user notification needed.
+type SpecTaskMessageSender func(ctx context.Context, specTask *types.SpecTask, message string, notifyUserID string) (requestID string, err error)
+
 // GitHTTPServer provides HTTP access to git repositories with API key authentication
 // Enables Zed agents to clone/push to repositories over the network
 type GitHTTPServer struct {
-	store             store.Store
-	gitRepoService    *GitRepositoryService
-	serverBaseURL     string
-	gitExecutablePath string
-	authTokenHeader   string
-	enablePush        bool
-	enablePull        bool
-	maxRepoSize       int64 // Maximum repository size in bytes
-	requestTimeout    time.Duration
-	testMode          bool
-	authorizeFn       AuthorizationFunc // Callback to server's RBAC system
+	store                  store.Store
+	gitRepoService         *GitRepositoryService
+	serverBaseURL          string
+	gitExecutablePath      string
+	authTokenHeader        string
+	enablePush             bool
+	enablePull             bool
+	maxRepoSize            int64 // Maximum repository size in bytes
+	requestTimeout         time.Duration
+	testMode               bool
+	authorizeFn            AuthorizationFunc    // Callback to server's RBAC system
+	sendMessageToAgentFunc SpecTaskMessageSender // Callback to send messages via WebSocket
 }
 
 // GitHTTPServerConfig represents configuration for the git HTTP server
@@ -99,6 +104,11 @@ func NewGitHTTPServer(
 // SetTestMode enables or disables test mode
 func (s *GitHTTPServer) SetTestMode(enabled bool) {
 	s.testMode = enabled
+}
+
+// SetMessageSender sets the callback for sending messages to spec task agents via WebSocket
+func (s *GitHTTPServer) SetMessageSender(sender SpecTaskMessageSender) {
+	s.sendMessageToAgentFunc = sender
 }
 
 // RegisterRoutes registers HTTP git server routes
@@ -945,26 +955,28 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			continue
 		}
 
-		// Send notification to agent that push was detected (reuse planning session)
-		sessionID := task.PlanningSessionID
-
-		if sessionID != "" {
-			agentInstructionService := NewAgentInstructionService(s.store)
-			go func() {
-				err := agentInstructionService.SendImplementationReviewRequest(
-					context.Background(),
-					sessionID,
-					task.CreatedBy, // User who created the task
-					branchName,
-				)
+		// Send notification to agent that push was detected via WebSocket
+		if s.sendMessageToAgentFunc != nil {
+			go func(t *types.SpecTask, branch string) {
+				message := BuildImplementationReviewPrompt(t, branch)
+				_, err := s.sendMessageToAgentFunc(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
-						Str("task_id", task.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to send implementation review request")
+						Str("task_id", t.ID).
+						Str("planning_session_id", t.PlanningSessionID).
+						Msg("Failed to send implementation review request via WebSocket")
+				} else {
+					log.Info().
+						Str("task_id", t.ID).
+						Str("branch", branch).
+						Msg("Sent implementation review request to agent via WebSocket")
 				}
-			}()
+			}(task, branchName)
+		} else {
+			log.Warn().
+				Str("task_id", task.ID).
+				Msg("No message sender configured - agent will not receive implementation review request")
 		}
 
 		log.Info().

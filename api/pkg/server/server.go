@@ -103,6 +103,7 @@ type HelixAPIServer struct {
 	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
 	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
 	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
+	requestToCommenterMapping   map[string]string    // request_id -> commenter user_id (for design review streaming)
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
@@ -252,6 +253,7 @@ func NewServer(
 		contextMappings:            make(map[string]string),
 		sessionCommentQueue:        make(map[string][]string),
 		sessionCurrentComment:      make(map[string]string),
+		requestToCommenterMapping:  make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
@@ -350,6 +352,9 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
+	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
+	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
+
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
@@ -359,6 +364,8 @@ func NewServer(
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
+	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
+	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 
 	// Initialize SpecTask Orchestrator components
 	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)

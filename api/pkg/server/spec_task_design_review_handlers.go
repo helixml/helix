@@ -265,40 +265,24 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Send implementation instruction to agent via AgentInstructionService
+		// Send implementation instruction to agent via WebSocket
 		// This sends the detailed prompt with tasks.md progress tracking instructions
-		sessionID := specTask.PlanningSessionID
-
-		if sessionID != "" {
-			agentInstructionService := services.NewAgentInstructionService(s.Store)
-			go func() {
-				err := agentInstructionService.SendApprovalInstruction(
-					context.Background(),
-					sessionID,
-					user.ID,
-					specTask,
-					branchName,
-					baseBranch,
-				)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("task_id", specTask.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to send approval instruction to agent")
-				}
-			}()
-
-			log.Info().
-				Str("task_id", specTask.ID).
-				Str("session_id", sessionID).
-				Str("branch_name", branchName).
-				Msg("Design approved - sent detailed implementation instruction to agent")
-		} else {
-			log.Warn().
-				Str("task_id", specTask.ID).
-				Msg("No session ID found - agent will not receive implementation instruction")
-		}
+		go func() {
+			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Str("session_id", specTask.PlanningSessionID).
+					Msg("Failed to send approval instruction to agent via WebSocket")
+			} else {
+				log.Info().
+					Str("task_id", specTask.ID).
+					Str("session_id", specTask.PlanningSessionID).
+					Str("branch_name", branchName).
+					Msg("Design approved - sent detailed implementation instruction to agent via WebSocket")
+			}
+		}()
 
 	case "request_changes":
 		review.Status = types.SpecTaskDesignReviewStatusChangesRequested
@@ -781,46 +765,19 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	specTask *types.SpecTask,
 	comment *types.SpecTaskDesignReviewComment,
 ) error {
-	// Build prompt for agent
-	documentTypeLabels := map[string]string{
-		"requirements":        "Requirements Specification",
-		"technical_design":    "Technical Design",
-		"implementation_plan": "Implementation Plan",
-	}
-	docLabel := documentTypeLabels[comment.DocumentType]
-	if docLabel == "" {
-		docLabel = comment.DocumentType
-	}
+	// Build prompt for agent using the shared helper
+	promptText := services.BuildCommentPrompt(specTask, comment)
 
-	promptText := fmt.Sprintf(`A reviewer left a comment on your design document:
-
-**Document:** %s
-**Quoted Text:**
-> %s
-
-**Comment:**
-%s
-
-Please respond to this comment and explain your approach. If the reviewer's feedback requires changes to the design, update the relevant document in your helix-specs repository and push your changes.
-
-Your response will be shown to the reviewer in the design review interface.`,
-		docLabel,
-		comment.QuotedText,
-		comment.CommentText)
-
-	// Find a connected session for this spec task
-	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
+	// Send via the unified helper, notifying the commenter of responses
+	requestID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("spec_task_id", specTask.ID).
 			Str("comment_id", comment.ID).
-			Msg("No connected session found for spec task")
-		return fmt.Errorf("failed to find connected session: %w", err)
+			Msg("Failed to send comment to agent via websocket")
+		return err
 	}
-
-	// Send comment to agent via websocket
-	requestID := "req_" + system.GenerateUUID()
 
 	// Store the requestID on the comment in the database for persistent linking
 	comment.RequestID = requestID
@@ -832,30 +789,10 @@ Your response will be shown to the reviewer in the design review interface.`,
 		// Continue anyway - the comment was sent, just won't have response linking
 	}
 
-	// Also store the requestID -> sessionID mapping for response routing (in-memory for HTTP streaming)
-	if s.requestToSessionMapping == nil {
-		s.requestToSessionMapping = make(map[string]string)
-	}
-	s.requestToSessionMapping[requestID] = sessionID
-
-	err = s.sendChatMessageToExternalAgent(sessionID, promptText, requestID)
-	if err != nil {
-		// Clean up mapping on failure
-		delete(s.requestToSessionMapping, requestID)
-		log.Error().
-			Err(err).
-			Str("spec_task_id", specTask.ID).
-			Str("comment_id", comment.ID).
-			Str("session_id", sessionID).
-			Msg("Failed to send comment to agent via websocket")
-		return fmt.Errorf("failed to send comment to agent: %w", err)
-	}
-
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("comment_id", comment.ID).
 		Str("request_id", requestID).
-		Str("session_id", sessionID).
 		Msg("Sent design review comment to agent via websocket (with response mapping)")
 
 	return nil
@@ -1137,4 +1074,80 @@ func sanitizeBranchName(name string) string {
 		}
 	}
 	return result.String()
+}
+
+// sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
+// It handles: finding connected session, generating request ID, setting up response routing, and sending
+// Returns the generated requestID for callers that need to track responses
+func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
+	ctx context.Context,
+	specTask *types.SpecTask,
+	message string,
+	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
+) (string, error) {
+	// Find a connected session for this spec task
+	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
+	if err != nil {
+		return "", fmt.Errorf("no connected session found: %w", err)
+	}
+
+	// Generate request ID for tracking
+	requestID := "req_" + system.GenerateUUID()
+
+	// Store the requestID -> sessionID mapping for response routing
+	if s.requestToSessionMapping == nil {
+		s.requestToSessionMapping = make(map[string]string)
+	}
+	s.requestToSessionMapping[requestID] = sessionID
+
+	// If a notifyUserID is provided, store it for response notification
+	if notifyUserID != "" {
+		if s.requestToCommenterMapping == nil {
+			s.requestToCommenterMapping = make(map[string]string)
+		}
+		s.requestToCommenterMapping[requestID] = notifyUserID
+	}
+
+	// Send the message via WebSocket
+	err = s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+	if err != nil {
+		// Clean up mappings on failure
+		delete(s.requestToSessionMapping, requestID)
+		if notifyUserID != "" {
+			delete(s.requestToCommenterMapping, requestID)
+		}
+		return "", fmt.Errorf("failed to send message via WebSocket: %w", err)
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Msg("✅ Sent message to spec task agent via WebSocket")
+
+	return requestID, nil
+}
+
+// sendApprovalInstructionToAgent sends the detailed implementation instruction to the agent via WebSocket
+// This is called when a design review is approved
+func (s *HelixAPIServer) sendApprovalInstructionToAgent(
+	ctx context.Context,
+	specTask *types.SpecTask,
+	branchName string,
+	baseBranch string,
+) error {
+	// Build the prompt using the shared function from services package
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch)
+
+	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
+	if err != nil {
+		return err
+	}
+
+	log.Info().
+		Str("spec_task_id", specTask.ID).
+		Str("branch_name", branchName).
+		Msg("✅ Sent approval instruction to agent via WebSocket")
+
+	return nil
 }
