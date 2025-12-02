@@ -480,17 +480,6 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
-export interface ServerAgentProgressItem {
-  agent_id?: string;
-  current_task?: ServerTaskItemDTO;
-  last_update?: string;
-  phase?: string;
-  task_id?: string;
-  task_name?: string;
-  tasks_after?: ServerTaskItemDTO[];
-  tasks_before?: ServerTaskItemDTO[];
-}
-
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
@@ -646,11 +635,6 @@ export interface ServerInitializeSampleRepositoriesResponse {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
-}
-
-export interface ServerLiveAgentFleetProgressResponse {
-  agents?: ServerAgentProgressItem[];
-  timestamp?: string;
 }
 
 export interface ServerLogsSummary {
@@ -825,12 +809,6 @@ export interface ServerSpecTaskExternalAgentStatusResponse {
   will_terminate_in?: number;
   wolf_app_id?: string;
   workspace_dir?: string;
-}
-
-export interface ServerTaskItemDTO {
-  description?: string;
-  index?: number;
-  status?: string;
 }
 
 export interface ServerTaskProgressResponse {
@@ -4929,24 +4907,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/agents/fleet`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get real-time progress of all agents working on SpecTasks
-     *
-     * @tags SpecTasks
-     * @name V1AgentsFleetLiveProgressList
-     * @summary Get live agent fleet progress
-     * @request GET:/api/v1/agents/fleet/live-progress
-     * @secure
-     */
-    v1AgentsFleetLiveProgressList: (params: RequestParams = {}) =>
-      this.request<ServerLiveAgentFleetProgressResponse, SystemHTTPError>({
-        path: `/api/v1/agents/fleet/live-progress`,
-        method: "GET",
-        secure: true,
-        format: "json",
         ...params,
       }),
 

@@ -2373,6 +2373,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
+    -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
     -e HOST_APPS_STATE_FOLDER=/etc/wolf \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
@@ -2382,6 +2383,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e WOLF_MAX_DUMPS=6 \
     -e WOLF_MAX_DUMPS_GB=20 \
     -v sandbox-storage:/var/lib/docker \
+    -v sandbox-data:/data \
     -v sandbox-debug-dumps:/var/wolf-debug-dumps \
     -v /run/udev:/run/udev:rw \
     --device /dev/uinput \

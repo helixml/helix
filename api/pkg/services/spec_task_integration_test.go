@@ -302,73 +302,9 @@ func TestPromptGeneration_RealRepoURLs(t *testing.T) {
 }
 
 // TestDesignDocsWorktree_RealGitOperations tests worktree manager with real git
+// SKIP: DesignDocsWorktreeManager has been removed - worktree handling now done by shell scripts in sandbox
 func TestDesignDocsWorktree_RealGitOperations(t *testing.T) {
-	testDir := t.TempDir()
-	repoPath := filepath.Join(testDir, "test-repo")
-
-	// Initialize repo
-	repo, err := git.PlainInit(repoPath, false)
-	require.NoError(t, err)
-
-	// Create initial commit
-	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test"), 0644))
-	worktree, err := repo.Worktree()
-	require.NoError(t, err)
-	_, err = worktree.Add(".")
-	require.NoError(t, err)
-
-	signature := &object.Signature{
-		Name:  "Test Agent",
-		Email: "test@helix.ml",
-		When:  time.Now(),
-	}
-	_, err = worktree.Commit("Initial", &git.CommitOptions{Author: signature})
-	require.NoError(t, err)
-
-	// Use real DesignDocsWorktreeManager
-	manager := NewDesignDocsWorktreeManager("Test Agent", "test@helix.ml")
-
-	// Setup worktree
-	worktreePath, err := manager.SetupWorktree(context.Background(), repoPath)
-	require.NoError(t, err)
-	assert.NotEmpty(t, worktreePath)
-
-	t.Logf("✅ Worktree created at: %s", worktreePath)
-
-	// Verify helix-specs branch was created
-	branchRef, err := repo.Reference(plumbing.NewBranchReferenceName("helix-specs"), false)
-	require.NoError(t, err)
-	assert.NotNil(t, branchRef)
-
-	// Initialize task directory
-	taskDir, err := manager.InitializeTaskDirectory(worktreePath, "spec_worktree_test", "Add Feature")
-	require.NoError(t, err)
-	assert.NotEmpty(t, taskDir)
-
-	// Verify template files were created
-	assert.FileExists(t, filepath.Join(taskDir, "requirements.md"))
-	assert.FileExists(t, filepath.Join(taskDir, "design.md"))
-	assert.FileExists(t, filepath.Join(taskDir, "tasks.md"))
-
-	// Read and verify tasks.md
-	tasksContent, err := os.ReadFile(filepath.Join(taskDir, "tasks.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(tasksContent), "[ ]") // Has pending tasks
-
-	// Test task parsing
-	tasks, err := manager.ParseTaskList(taskDir)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(tasks), 1, "Should have at least one task")
-
-	// Verify all tasks are pending initially
-	for _, task := range tasks {
-		assert.Equal(t, TaskStatusPending, task.Status)
-	}
-
-	t.Log("✅ DesignDocsWorktreeManager working with real git")
-	t.Logf("   Worktree path: %s", worktreePath)
-	t.Logf("   Task directory: %s", taskDir)
-	t.Logf("   Parsed tasks: %d", len(tasks))
+	t.Skip("DesignDocsWorktreeManager removed - worktree handling now done by shell scripts in sandbox container")
 }
 
 // TestMultiPhaseWorkflow_GitBranches tests that both phases use correct git branches

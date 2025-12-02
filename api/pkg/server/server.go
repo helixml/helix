@@ -120,7 +120,6 @@ type HelixAPIServer struct {
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
-	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
 	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
 	adminAlerter                *notification.AdminAlerter
@@ -355,10 +354,6 @@ func NewServer(
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 
 	// Initialize SpecTask Orchestrator components
-	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
-		"Helix System",
-		"system@helix.ml",
-	)
 	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -366,8 +361,7 @@ func NewServer(
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentPool,
-		apiServer.designDocsWorktreeManager,
-		apiServer.externalAgentExecutor, // NEW: Pass Wolf executor for external agent management
+		apiServer.externalAgentExecutor, // Wolf executor for external agent management
 	)
 
 	// Start orchestrator
@@ -1014,7 +1008,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
 	// SpecTask orchestrator routes
-	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)

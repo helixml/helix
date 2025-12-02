@@ -68,12 +68,12 @@ type WolfExecutor struct {
 	helixAPIURL   string
 	helixAPIToken string
 
-	// Workspace configuration for dev stack
-	// CRITICAL: We need TWO paths because API container and Wolf/host see different paths:
-	// - workspaceBasePathForCloning: Path inside API container where we git clone repos
-	// - workspaceBasePathForMounting: Absolute host path that Wolf uses to mount into containers
-	workspaceBasePathForCloning  string // e.g., /filestore/workspaces (inside API container)
-	workspaceBasePathForMounting string // e.g., /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces (on host)
+	// Workspace path configuration
+	// NOTE: API and sandbox do NOT share filesystems. The API just generates path strings
+	// that are passed to Wolf to create bind mounts in the sandbox container.
+	// translateToHostPath() converts /filestore/workspaces/... to /data/workspaces/...
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
+	workspaceBasePathForCloning string // e.g., /filestore/workspaces - used to generate workspace paths
 
 	// Cache for lobby lookups to prevent Wolf API spam
 	lobbyCache      map[string]*lobbyCacheEntry
@@ -120,16 +120,27 @@ func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface 
 	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
 
-// translateToHostPath converts API container path for Wolf mounting
-// In containerized deployments (sandbox), the /filestore mount is shared between
-// API container and sandbox container, so paths can be used directly.
-// For Hydra bind-mount compatibility, we use /filestore/... paths which exist
-// in both the sandbox container (where Hydra's dockerd runs) and the dev container.
+// translateToHostPath converts API container path to sandbox container path for Wolf mounting
+//
+// Architecture:
+// - API container: mounts helix-filestore volume at /filestore/workspaces/...
+// - Sandbox container: mounts sandbox-data volume at /data/workspaces/...
+// - These are DIFFERENT volumes (helix-filestore vs sandbox-data)
+//
+// For Hydra bind-mount compatibility:
+// - Workspaces need to be at /data/workspaces/... in both sandbox AND dev containers
+// - Docker creates empty directories for bind-mount paths that don't exist yet
+// - The startup script clones repos into the workspace on first boot
+//
 // See: design/2025-12-01-hydra-bind-mount-symlink.md
 func (w *WolfExecutor) translateToHostPath(containerPath string) string {
-	// Use /filestore paths directly - sandbox container has /filestore mounted
-	// This is required for Hydra bind-mount compatibility since Hydra's dockerd
-	// runs in the sandbox container and needs to access the same paths
+	// Convert /filestore/workspaces/... to /data/workspaces/...
+	// This maps API container paths to sandbox container paths
+	if strings.HasPrefix(containerPath, "/filestore/workspaces/") {
+		return strings.Replace(containerPath, "/filestore/workspaces/", "/data/workspaces/", 1)
+	}
+	// For other /filestore/ paths (like SSH keys), keep them as-is
+	// SSH keys are mounted separately and exist in filestore
 	return containerPath
 }
 
@@ -402,8 +413,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		zedImage:                     zedImage,
 		helixAPIURL:                  helixAPIURL,
 		helixAPIToken:                helixAPIToken,
-		workspaceBasePathForCloning:  "/filestore/workspaces",                          // Path inside API container for git clone operations
-		workspaceBasePathForMounting: filepath.Join(filestoreVolumePath, "workspaces"), // Absolute host path for Wolf to mount
+		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
@@ -492,10 +502,12 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// Create workspace directory if it doesn't exist
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
-	}
+	// NOTE: Workspace directory is NOT created here because:
+	// 1. Sandbox runs on a different machine - API can't write to sandbox filesystem
+	// 2. Docker creates empty directories automatically when bind-mounting non-existent paths
+	// 3. Startup script (start-zed-helix.sh) handles repository cloning on first boot
+	//
+	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 
 	// Clone git repositories if specified (for SpecTasks with repository context)
 	// Repository cloning is handled by startup script (start-zed-helix.sh)

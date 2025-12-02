@@ -24,14 +24,11 @@ type SpecTaskOrchestrator struct {
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
 	agentPool             *ExternalAgentPool
-	worktreeManager       *DesignDocsWorktreeManager
-	wolfExecutor          WolfExecutorInterface // NEW: Wolf executor for external agents
-	runningTasks          map[string]*OrchestratedTask
+	wolfExecutor          WolfExecutorInterface // Wolf executor for external agents
 	mutex                 sync.RWMutex
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
-	liveProgressHandlers  []LiveProgressHandler
 	testMode              bool
 }
 
@@ -41,33 +38,6 @@ type WolfExecutorInterface interface {
 	StopZedAgent(ctx context.Context, sessionID string) error
 }
 
-// OrchestratedTask represents a task being orchestrated
-type OrchestratedTask struct {
-	SpecTask         *types.SpecTask        `json:"spec_task"`
-	Agent            *ExternalAgentInstance `json:"agent"`
-	CurrentSessionID string                 `json:"current_session_id"`
-	DesignDocsPath   string                 `json:"design_docs_path"`
-	RepoPath         string                 `json:"repo_path"`
-	CurrentTaskIndex int                    `json:"current_task_index"`
-	TaskList         []TaskItem             `json:"task_list"`
-	LastUpdate       time.Time              `json:"last_update"`
-	Phase            string                 `json:"phase"`
-}
-
-// LiveProgressHandler handles live progress updates for dashboard
-type LiveProgressHandler func(progress *LiveAgentProgress)
-
-// LiveAgentProgress represents current agent progress for dashboard
-type LiveAgentProgress struct {
-	AgentID     string     `json:"agent_id"`
-	TaskID      string     `json:"task_id"`
-	TaskName    string     `json:"task_name"`
-	CurrentTask *TaskItem  `json:"current_task"`
-	TasksBefore []TaskItem `json:"tasks_before"`
-	TasksAfter  []TaskItem `json:"tasks_after"`
-	LastUpdate  time.Time  `json:"last_update"`
-	Phase       string     `json:"phase"`
-}
 
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
@@ -76,8 +46,7 @@ func NewSpecTaskOrchestrator(
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
 	agentPool *ExternalAgentPool,
-	worktreeManager *DesignDocsWorktreeManager,
-	wolfExecutor WolfExecutorInterface, // NEW: Wolf executor for external agents
+	wolfExecutor WolfExecutorInterface, // Wolf executor for external agents
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
 		store:                 store,
@@ -85,12 +54,9 @@ func NewSpecTaskOrchestrator(
 		gitService:            gitService,
 		specTaskService:       specTaskService,
 		agentPool:             agentPool,
-		worktreeManager:       worktreeManager,
-		wolfExecutor:          wolfExecutor, // NEW
-		runningTasks:          make(map[string]*OrchestratedTask),
+		wolfExecutor:          wolfExecutor,
 		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
-		liveProgressHandlers:  []LiveProgressHandler{},
 		testMode:              false,
 	}
 }
@@ -98,11 +64,6 @@ func NewSpecTaskOrchestrator(
 // SetTestMode enables/disables test mode
 func (o *SpecTaskOrchestrator) SetTestMode(enabled bool) {
 	o.testMode = enabled
-}
-
-// RegisterLiveProgressHandler registers a handler for live progress updates
-func (o *SpecTaskOrchestrator) RegisterLiveProgressHandler(handler LiveProgressHandler) {
-	o.liveProgressHandlers = append(o.liveProgressHandlers, handler)
 }
 
 // Start begins the orchestration loop
@@ -500,156 +461,12 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
-	// If no external agent or not running, check old orchestration pattern
-	o.mutex.RLock()
-	orchestratedTask, exists := o.runningTasks[task.ID]
-	o.mutex.RUnlock()
-
-	if !exists {
-		// Task not tracked in old orchestration system - this is OK for new reuse-agent pattern
-		log.Debug().
-			Str("task_id", task.ID).
-			Msg("Task in implementation but not in orchestrator tracking (using reused agent pattern)")
-		return nil
-	}
-
-	// Check current task progress via git commits
-	currentTask, err := o.worktreeManager.GetCurrentTask(orchestratedTask.DesignDocsPath)
-	if err != nil {
-		return fmt.Errorf("failed to get current task: %w", err)
-	}
-
-	// If no current task, start next one
-	if currentTask == nil {
-		err = o.startNextTask(ctx, task.ID)
-		if err != nil {
-			return fmt.Errorf("failed to start next task: %w", err)
-		}
-	}
-
-	// Broadcast live progress
-	o.broadcastLiveProgress(orchestratedTask)
-
-	// Check if all tasks complete
-	allComplete := true
-	for _, t := range orchestratedTask.TaskList {
-		if t.Status != TaskStatusCompleted {
-			allComplete = false
-			break
-		}
-	}
-
-	if allComplete {
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("All implementation tasks complete")
-
-		task.Status = types.TaskStatusImplementationReview
-		task.UpdatedAt = time.Now()
-		task.CompletedAt = &task.UpdatedAt
-
-		// Clean up orchestrated task
-		o.mutex.Lock()
-		delete(o.runningTasks, task.ID)
-		o.mutex.Unlock()
-
-		return o.store.UpdateSpecTask(ctx, task)
-	}
-
+	// Task not tracked - this is OK for new reuse-agent pattern
+	// Implementation progress is tracked via shell scripts in the sandbox
+	log.Debug().
+		Str("task_id", task.ID).
+		Msg("Task in implementation (using reused agent pattern)")
 	return nil
-}
-
-// startNextTask starts the next pending task
-func (o *SpecTaskOrchestrator) startNextTask(ctx context.Context, taskID string) error {
-	o.mutex.RLock()
-	orchestratedTask, exists := o.runningTasks[taskID]
-	o.mutex.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("orchestrated task %s not found", taskID)
-	}
-
-	// Find next pending task
-	nextTask, err := o.worktreeManager.GetNextPendingTask(orchestratedTask.DesignDocsPath)
-	if err != nil {
-		return fmt.Errorf("failed to get next task: %w", err)
-	}
-
-	if nextTask == nil {
-		log.Info().
-			Str("task_id", taskID).
-			Msg("No more pending tasks")
-		return nil
-	}
-
-	// Mark task as in progress
-	err = o.worktreeManager.MarkTaskInProgress(ctx, orchestratedTask.DesignDocsPath, nextTask.Index)
-	if err != nil {
-		return fmt.Errorf("failed to mark task in progress: %w", err)
-	}
-
-	// Update orchestrated task
-	o.mutex.Lock()
-	orchestratedTask.CurrentTaskIndex = nextTask.Index
-	orchestratedTask.LastUpdate = time.Now()
-	o.mutex.Unlock()
-
-	// Broadcast update
-	o.broadcastLiveProgress(orchestratedTask)
-
-	log.Info().
-		Str("task_id", taskID).
-		Int("task_index", nextTask.Index).
-		Str("description", nextTask.Description).
-		Msg("Started next implementation task")
-
-	return nil
-}
-
-// setupTaskEnvironment sets up git repo and design docs for a task
-func (o *SpecTaskOrchestrator) setupTaskEnvironment(ctx context.Context, task *types.SpecTask) (repoPath, designDocsPath string, err error) {
-	// Get or create git repository for task
-	// This would use the GitRepositoryService to clone demo repo or setup project repo
-
-	// For now, assume repo exists at standard path
-	repoPath = fmt.Sprintf("/workspace/repos/%s/%s", task.CreatedBy, task.ProjectID)
-
-	// Setup design docs worktree
-	designDocsPath, err = o.worktreeManager.SetupWorktree(ctx, repoPath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to setup worktree: %w", err)
-	}
-
-	return repoPath, designDocsPath, nil
-}
-
-// broadcastLiveProgress broadcasts live progress to dashboard
-func (o *SpecTaskOrchestrator) broadcastLiveProgress(task *OrchestratedTask) {
-	// Get task context for dashboard
-	context, err := o.worktreeManager.GetTaskContext(task.DesignDocsPath, 2)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("task_id", task.SpecTask.ID).
-			Msg("Failed to get task context for broadcast")
-		return
-	}
-
-	progress := &LiveAgentProgress{
-		AgentID:     task.Agent.InstanceID,
-		TaskID:      task.SpecTask.ID,
-		TaskName:    task.SpecTask.Name,
-		CurrentTask: context.CurrentTask,
-		TasksBefore: context.TasksBefore,
-		TasksAfter:  context.TasksAfter,
-		LastUpdate:  time.Now(),
-		Phase:       task.Phase,
-	}
-
-	// Call all registered handlers
-	for _, handler := range o.liveProgressHandlers {
-		handler(progress)
-	}
 }
 
 // cleanupLoop periodically cleans up stale agents
@@ -985,36 +802,4 @@ func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID
 		Msg("✅ Created personal API key for agent access")
 
 	return createdKey.Key, nil
-}
-
-// GetLiveProgress returns current live progress for all running tasks
-func (o *SpecTaskOrchestrator) GetLiveProgress() []*LiveAgentProgress {
-	o.mutex.RLock()
-	defer o.mutex.RUnlock()
-
-	progress := []*LiveAgentProgress{}
-
-	for _, task := range o.runningTasks {
-		context, err := o.worktreeManager.GetTaskContext(task.DesignDocsPath, 2)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.SpecTask.ID).
-				Msg("Failed to get task context")
-			continue
-		}
-
-		progress = append(progress, &LiveAgentProgress{
-			AgentID:     task.Agent.InstanceID,
-			TaskID:      task.SpecTask.ID,
-			TaskName:    task.SpecTask.Name,
-			CurrentTask: context.CurrentTask,
-			TasksBefore: context.TasksBefore,
-			TasksAfter:  context.TasksAfter,
-			LastUpdate:  task.LastUpdate,
-			Phase:       task.Phase,
-		})
-	}
-
-	return progress
 }
