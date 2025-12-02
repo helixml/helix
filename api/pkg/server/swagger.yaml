@@ -711,29 +711,6 @@ definitions:
       severity:
         type: string
     type: object
-  server.AgentProgressItem:
-    properties:
-      agent_id:
-        type: string
-      current_task:
-        $ref: '#/definitions/server.TaskItemDTO'
-      last_update:
-        type: string
-      phase:
-        type: string
-      task_id:
-        type: string
-      task_name:
-        type: string
-      tasks_after:
-        items:
-          $ref: '#/definitions/server.TaskItemDTO'
-        type: array
-      tasks_before:
-        items:
-          $ref: '#/definitions/server.TaskItemDTO'
-        type: array
-    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       apps:
@@ -1010,15 +987,6 @@ definitions:
   server.LicenseKeyRequest:
     properties:
       license_key:
-        type: string
-    type: object
-  server.LiveAgentFleetProgressResponse:
-    properties:
-      agents:
-        items:
-          $ref: '#/definitions/server.AgentProgressItem'
-        type: array
-      timestamp:
         type: string
     type: object
   server.LogsSummary:
@@ -1328,15 +1296,6 @@ definitions:
       wolf_app_id:
         type: string
       workspace_dir:
-        type: string
-    type: object
-  server.TaskItemDTO:
-    properties:
-      description:
-        type: string
-      index:
-        type: integer
-      status:
         type: string
     type: object
   server.TaskProgressResponse:
@@ -8205,25 +8164,6 @@ paths:
       summary: Get agent fleet data
       tags:
       - agents
-  /api/v1/agents/fleet/live-progress:
-    get:
-      description: Get real-time progress of all agents working on SpecTasks
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.LiveAgentFleetProgressResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get live agent fleet progress
-      tags:
-      - SpecTasks
   /api/v1/agents/help-requests:
     get:
       description: List help requests from agents needing human assistance

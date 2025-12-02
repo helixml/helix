@@ -240,37 +240,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/agents/fleet/live-progress": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get real-time progress of all agents working on SpecTasks",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get live agent fleet progress",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.LiveAgentFleetProgressResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/agents/help-requests": {
             "get": {
                 "security": [
@@ -13409,41 +13378,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.AgentProgressItem": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "current_task": {
-                    "$ref": "#/definitions/server.TaskItemDTO"
-                },
-                "last_update": {
-                    "type": "string"
-                },
-                "phase": {
-                    "type": "string"
-                },
-                "task_id": {
-                    "type": "string"
-                },
-                "task_name": {
-                    "type": "string"
-                },
-                "tasks_after": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                },
-                "tasks_before": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                }
-            }
-        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -13868,20 +13802,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "license_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.LiveAgentFleetProgressResponse": {
-            "type": "object",
-            "properties": {
-                "agents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.AgentProgressItem"
-                    }
-                },
-                "timestamp": {
                     "type": "string"
                 }
             }
@@ -14346,20 +14266,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "workspace_dir": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.TaskItemDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "status": {
                     "type": "string"
                 }
             }
