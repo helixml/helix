@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -264,38 +265,27 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Send implementation instruction to agent via websocket (reuse planning session)
+		// Send implementation instruction to agent via AgentInstructionService
+		// This sends the detailed prompt with tasks.md progress tracking instructions
 		sessionID := specTask.PlanningSessionID
 
 		if sessionID != "" {
-			// Build the approval message
-			message := fmt.Sprintf(`# Design Approved! 🎉
-
-Your design has been approved. Please begin implementation:
-
-**Steps:**
-1. Create and checkout feature branch: %[1]sgit checkout -b %[2]s%[1]s
-2. Implement the features according to the approved design
-3. Write tests for all new functionality
-4. Commit your work with clear, descriptive messages
-5. When ready for review, push your branch: %[1]sgit push origin %[2]s%[1]s
-
-I'll be watching for your push and will notify you when it's time for review.
-
-**Design Documents:**
-The approved design documents are in your repository under the design/ directory.
-`, "```", branchName)
-
-			// Send via websocket to external agent
-			requestID := "req_" + system.GenerateUUID()
+			agentInstructionService := services.NewAgentInstructionService(s.Store)
 			go func() {
-				err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
+				err := agentInstructionService.SendApprovalInstruction(
+					context.Background(),
+					sessionID,
+					user.ID,
+					specTask,
+					branchName,
+					baseBranch,
+				)
 				if err != nil {
 					log.Error().
 						Err(err).
 						Str("task_id", specTask.ID).
 						Str("session_id", sessionID).
-						Msg("Failed to send approval instruction to agent via websocket")
+						Msg("Failed to send approval instruction to agent")
 				}
 			}()
 
@@ -303,7 +293,7 @@ The approved design documents are in your repository under the design/ directory
 				Str("task_id", specTask.ID).
 				Str("session_id", sessionID).
 				Str("branch_name", branchName).
-				Msg("Design approved - sent implementation instruction to existing agent via websocket")
+				Msg("Design approved - sent detailed implementation instruction to agent")
 		} else {
 			log.Warn().
 				Str("task_id", specTask.ID).

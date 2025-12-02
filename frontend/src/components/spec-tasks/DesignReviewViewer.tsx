@@ -142,18 +142,26 @@ export default function DesignReviewViewer({
   const markdownRef = useRef<HTMLDivElement>(null)
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId)
+  // First fetch comments to know if we should poll for review updates
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId, {
     refetchInterval: 5000, // Fallback polling for when WebSocket misses updates
   })
-  const submitReviewMutation = useSubmitReview(specTaskId, reviewId)
-  const createCommentMutation = useCreateComment(specTaskId, reviewId)
-  const resolveCommentMutation = useResolveComment(specTaskId, reviewId)
 
   // Check if there are comments awaiting agent responses
   const hasAwaitingComments = useMemo(() => {
     return (commentsData?.comments || []).some(c => c.request_id && !c.agent_response)
   }, [commentsData])
+
+  // Fetch review data - poll when awaiting agent responses so we pick up spec content changes
+  const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId, {
+    // Poll for review updates when comments are awaiting responses
+    // This picks up spec content changes when agent pushes updates
+    refetchInterval: hasAwaitingComments ? 3000 : undefined,
+  })
+
+  const submitReviewMutation = useSubmitReview(specTaskId, reviewId)
+  const createCommentMutation = useCreateComment(specTaskId, reviewId)
+  const resolveCommentMutation = useResolveComment(specTaskId, reviewId)
 
   // Get queue status for streaming - only poll when there are comments awaiting responses
   const { data: queueStatus } = useCommentQueueStatus(specTaskId, reviewId, {
