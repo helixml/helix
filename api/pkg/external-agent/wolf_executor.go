@@ -28,8 +28,9 @@ import (
 type DesktopType string
 
 const (
-	DesktopSway  DesktopType = "sway"
-	DesktopZorin DesktopType = "zorin"
+	DesktopSway   DesktopType = "sway"
+	DesktopZorin  DesktopType = "zorin"
+	DesktopUbuntu DesktopType = "ubuntu"
 )
 
 // parseDesktopType converts a string to DesktopType, defaulting to Sway
@@ -37,6 +38,8 @@ func parseDesktopType(s string) DesktopType {
 	switch strings.ToLower(s) {
 	case "zorin":
 		return DesktopZorin
+	case "ubuntu":
+		return DesktopUbuntu
 	default:
 		return DesktopSway
 	}
@@ -209,21 +212,33 @@ type DesktopWolfAppConfig struct {
 	DockerSocket string // Path to Docker socket to mount (defaults to /var/run/docker.sock if empty)
 }
 
-// computeZedImageFromVersion converts a version string (commit hash) from Wolf instance
-// into a full Docker image tag based on desktop type. Returns empty string if no version is set.
-func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, version string) string {
+// computeZedImageFromVersion returns the Docker image reference for the given desktop type.
+// With content-addressable hashes, the version IS the image hash and can be used directly.
+// Returns empty string if no version is set (falls back to default w.zedImage).
+func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, wolfInstance *types.WolfInstance) string {
+	if wolfInstance == nil {
+		return "" // Fall back to default w.zedImage
+	}
+
+	// Get version (image hash) for this desktop type
+	version := wolfInstance.GetDesktopVersion(string(desktopType))
 	if version == "" {
-		return "" // Fall back to default w.zedImage in createDesktopWolfApp
+		return "" // Fall back to default w.zedImage
 	}
 
 	// Select image prefix based on desktop type
 	prefix := "helix-sway"
-	if desktopType == DesktopZorin {
+	switch desktopType {
+	case DesktopZorin:
 		prefix = "helix-zorin"
+	case DesktopUbuntu:
+		prefix = "helix-ubuntu"
 	}
 
-	// Version is a commit hash (e.g., "abc123def")
-	// Convert to full image tag: helix-sway:abc123def or helix-zorin:abc123def
+	// Version is a Docker image hash (e.g., "sha256:abc123def...")
+	// Create full image reference: helix-sway:abc123def or use hash directly
+	// For short hashes (commit hashes for backward compat), use as tag
+	// For full sha256 hashes, can use directly
 	return fmt.Sprintf("%s:%s", prefix, version)
 }
 
@@ -948,8 +963,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
 			DesktopType:       getDesktopTypeFromEnv(),
-			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance.SwayVersion), // Use version from sandbox heartbeat
-			DockerSocket:      dockerSocket,                                                                    // Hydra-managed socket (empty = default)
+			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance), // Use version from sandbox heartbeat
+			DockerSocket:      dockerSocket,                                                        // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
 

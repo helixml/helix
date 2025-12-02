@@ -614,57 +614,32 @@ fi
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
 echo "💓 Starting Wolf heartbeat daemon for instance: $WOLF_INSTANCE_ID"
 
-# Read desktop versions from embedded metadata (set at build time)
-SWAY_VERSION=""
-if [ -f /opt/images/helix-sway.version ]; then
-    SWAY_VERSION=$(cat /opt/images/helix-sway.version)
-    echo "📦 Reporting helix-sway version: ${SWAY_VERSION}"
-fi
-
-ZORIN_VERSION=""
-if [ -f /opt/images/helix-zorin.version ]; then
-    ZORIN_VERSION=$(cat /opt/images/helix-zorin.version)
-    echo "📦 Reporting helix-zorin version: ${ZORIN_VERSION}"
-fi
-
-# Start heartbeat loop in background
-(
-    while true; do
-        # Build heartbeat request body with all desktop versions
-        # Include both sway_version and zorin_version fields (empty string if not available)
-        HEARTBEAT_BODY="{\"sway_version\": \"${SWAY_VERSION}\", \"zorin_version\": \"${ZORIN_VERSION}\"}"
-
-        # Send heartbeat to API with version metadata
-        if curl -sf -X POST \
-            -H "Authorization: Bearer $RUNNER_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$HEARTBEAT_BODY" \
-            "$HELIX_API_URL/api/v1/wolf-instances/$WOLF_INSTANCE_ID/heartbeat" \
-            >/dev/null 2>&1; then
-            echo "[$(date -Iseconds)] ✅ Heartbeat sent (sway: ${SWAY_VERSION:-unknown}, zorin: ${ZORIN_VERSION:-unknown})"
-        else
-            echo "[$(date -Iseconds)] ⚠️  Heartbeat failed (API may not be ready yet)"
-        fi
-
-        # Sleep for 30 seconds before next heartbeat
-        sleep 30
-    done
-) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
-
+# Log discovered desktop versions
+echo "📦 Discovering desktop versions..."
+for f in /opt/images/helix-*.version; do
+    if [ -f "$f" ]; then
+        NAME=$(basename "$f" | sed 's/helix-//' | sed 's/.version//')
+        VERSION=$(cat "$f")
+        echo "   ${NAME}: ${VERSION}"
+    fi
+done
 
 # Start the Go heartbeat daemon with auto-restart supervisor loop
-# It monitors disk space on /var and / and reports to API
-# The daemon can be safely killed (e.g., by transfer-sway-to-sandbox for version reload)
-# and will automatically restart within 2 seconds
-# (
-#     while true; do
-#         echo "[$(date -Iseconds)] Starting heartbeat daemon..."
-#         /usr/local/bin/sandbox-heartbeat
-#         EXIT_CODE=$?
-#         echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
-#         sleep 2
-#     done
-# ) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
+# The daemon:
+# - Dynamically discovers all desktop versions from /opt/images/helix-*.version
+# - Monitors disk space on /var and /
+# - Reports container disk usage
+# - Sends heartbeat every 30 seconds
+# The daemon can be safely killed and will automatically restart within 2 seconds
+(
+    while true; do
+        echo "[$(date -Iseconds)] Starting heartbeat daemon..."
+        /usr/local/bin/sandbox-heartbeat
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
 echo "✅ Wolf heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
