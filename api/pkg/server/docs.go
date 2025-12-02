@@ -304,37 +304,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/agents/fleet/live-progress": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get real-time progress of all agents working on SpecTasks",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Get live agent fleet progress",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.LiveAgentFleetProgressResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/agents/help-requests": {
             "get": {
                 "security": [
@@ -8726,6 +8695,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current comment being processed and the queue of pending comments for a review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get comment queue status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CommentQueueStatusResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments": {
             "get": {
                 "security": [
@@ -13428,41 +13453,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.AgentProgressItem": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string"
-                },
-                "current_task": {
-                    "$ref": "#/definitions/server.TaskItemDTO"
-                },
-                "last_update": {
-                    "type": "string"
-                },
-                "phase": {
-                    "type": "string"
-                },
-                "task_id": {
-                    "type": "string"
-                },
-                "task_name": {
-                    "type": "string"
-                },
-                "tasks_after": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                },
-                "tasks_before": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.TaskItemDTO"
-                    }
-                }
-            }
-        },
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
@@ -13887,20 +13877,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "license_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.LiveAgentFleetProgressResponse": {
-            "type": "object",
-            "properties": {
-                "agents": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.AgentProgressItem"
-                    }
-                },
-                "timestamp": {
                     "type": "string"
                 }
             }
@@ -14369,23 +14345,17 @@ const docTemplate = `{
                 }
             }
         },
-        "server.TaskItemDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "server.TaskProgressResponse": {
             "type": "object",
             "properties": {
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -14709,6 +14679,10 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Optional: Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "priority": {
                     "type": "string"
                 },
@@ -14727,10 +14701,6 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Optional: Skip human review and auto-approve specs",
-                    "type": "boolean"
                 }
             }
         },
@@ -16816,6 +16786,45 @@ const docTemplate = `{
                 "ChatMessagePartTypeImageURL"
             ]
         },
+        "types.ChecklistItem": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "pending, in_progress, completed",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ChecklistProgress": {
+            "type": "object",
+            "properties": {
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "in_progress_task": {
+                    "$ref": "#/definitions/types.ChecklistItem"
+                },
+                "progress_pct": {
+                    "description": "0-100",
+                    "type": "integer"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ChecklistItem"
+                    }
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Choice": {
             "type": "object",
             "properties": {
@@ -16846,6 +16855,26 @@ const docTemplate = `{
                 "type": {
                     "description": "\"text\" or \"image\"",
                     "type": "string"
+                }
+            }
+        },
+        "types.CommentQueueStatusResponse": {
+            "type": "object",
+            "properties": {
+                "current_comment_id": {
+                    "description": "Comment currently being processed (response streaming)",
+                    "type": "string"
+                },
+                "planning_session_id": {
+                    "description": "Session ID for WebSocket subscription",
+                    "type": "string"
+                },
+                "queued_comment_ids": {
+                    "description": "Comments waiting in queue",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -21221,6 +21250,10 @@ const docTemplate = `{
                     "description": "NEW: External agent status (running, stopped, terminated_idle)",
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "GPU vendor of sandbox running this session (nvidia, amd, intel, none)",
+                    "type": "string"
+                },
                 "helix_version": {
                     "type": "string"
                 },
@@ -21252,6 +21285,10 @@ const docTemplate = `{
                 },
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
+                },
+                "render_node": {
+                    "description": "GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)",
+                    "type": "string"
                 },
                 "session_rag_results": {
                     "type": "array",
@@ -21654,6 +21691,10 @@ const docTemplate = `{
                     "description": "Discrete tasks breakdown (markdown)",
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
                 "labels": {
                     "type": "array",
                     "items": {
@@ -21747,10 +21788,6 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
-                },
-                "yolo_mode": {
-                    "description": "Skip human review, auto-approve specs",
-                    "type": "boolean"
                 },
                 "zed_instance_id": {
                     "description": "Multi-session support",
@@ -21921,6 +21958,10 @@ const docTemplate = `{
                 },
                 "quoted_text": {
                     "description": "For inline comments - store the context around the comment",
+                    "type": "string"
+                },
+                "request_id": {
+                    "description": "Request ID used when sending to agent (for response linking)",
                     "type": "string"
                 },
                 "resolution_reason": {
@@ -22337,6 +22378,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SpecTaskWorkSession"
                     }
                 },
+                "checklist": {
+                    "description": "Progress from tasks.md",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ChecklistProgress"
+                        }
+                    ]
+                },
                 "implementation_progress": {
                     "description": "Task index -\u003e progress",
                     "type": "object",
@@ -22373,6 +22422,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "just_do_it_mode": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -22381,10 +22434,6 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
-                },
-                "yolo_mode": {
-                    "description": "Pointer to allow explicit false",
-                    "type": "boolean"
                 }
             }
         },
@@ -23751,9 +23800,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.DiskUsageMetric"
                     }
                 },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox env)",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "true if HYDRA_PRIVILEGED_MODE_ENABLED=true",
                     "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE (from sandbox env)",
+                    "type": "string"
                 },
                 "sway_version": {
                     "description": "helix-sway image version (commit hash)",
@@ -23802,6 +23859,10 @@ const docTemplate = `{
                 "gpu_type": {
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "nvidia, amd, intel, none (from sandbox heartbeat)",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -23816,6 +23877,10 @@ const docTemplate = `{
                 },
                 "privileged_mode_enabled": {
                     "type": "boolean"
+                },
+                "render_node": {
+                    "description": "/dev/dri/renderD128 or SOFTWARE",
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

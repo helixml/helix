@@ -496,17 +496,6 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
-export interface ServerAgentProgressItem {
-  agent_id?: string;
-  current_task?: ServerTaskItemDTO;
-  last_update?: string;
-  phase?: string;
-  task_id?: string;
-  task_name?: string;
-  tasks_after?: ServerTaskItemDTO[];
-  tasks_before?: ServerTaskItemDTO[];
-}
-
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
@@ -662,11 +651,6 @@ export interface ServerInitializeSampleRepositoriesResponse {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
-}
-
-export interface ServerLiveAgentFleetProgressResponse {
-  agents?: ServerAgentProgressItem[];
-  timestamp?: string;
 }
 
 export interface ServerLogsSummary {
@@ -843,13 +827,9 @@ export interface ServerSpecTaskExternalAgentStatusResponse {
   workspace_dir?: string;
 }
 
-export interface ServerTaskItemDTO {
-  description?: string;
-  index?: number;
-  status?: string;
-}
-
 export interface ServerTaskProgressResponse {
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   created_at?: string;
   implementation?: ServerPhaseProgress;
   specification?: ServerPhaseProgress;
@@ -977,6 +957,8 @@ export enum ServicesCoordinationEventType {
 export interface ServicesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** Optional: Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   priority?: string;
   project_id?: string;
   prompt?: string;
@@ -984,8 +966,6 @@ export interface ServicesCreateTaskRequest {
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   user_id?: string;
-  /** Optional: Skip human review and auto-approve specs */
-  yolo_mode?: boolean;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -1771,6 +1751,22 @@ export enum TypesChatMessagePartType {
   ChatMessagePartTypeImageURL = "image_url",
 }
 
+export interface TypesChecklistItem {
+  description?: string;
+  index?: number;
+  /** pending, in_progress, completed */
+  status?: string;
+}
+
+export interface TypesChecklistProgress {
+  completed_tasks?: number;
+  in_progress_task?: TypesChecklistItem;
+  /** 0-100 */
+  progress_pct?: number;
+  tasks?: TypesChecklistItem[];
+  total_tasks?: number;
+}
+
 export interface TypesChoice {
   delta?: TypesOpenAIMessage;
   finish_reason?: string;
@@ -1784,6 +1780,15 @@ export interface TypesClipboardData {
   data?: string;
   /** "text" or "image" */
   type?: string;
+}
+
+export interface TypesCommentQueueStatusResponse {
+  /** Comment currently being processed (response streaming) */
+  current_comment_id?: string;
+  /** Session ID for WebSocket subscription */
+  planning_session_id?: string;
+  /** Comments waiting in queue */
+  queued_comment_ids?: string[];
 }
 
 export interface TypesCommit {
@@ -3544,6 +3549,8 @@ export interface TypesSessionMetadata {
   external_agent_id?: string;
   /** NEW: External agent status (running, stopped, terminated_idle) */
   external_agent_status?: string;
+  /** GPU vendor of sandbox running this session (nvidia, amd, intel, none) */
+  gpu_vendor?: string;
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
@@ -3564,6 +3571,8 @@ export interface TypesSessionMetadata {
    */
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
+  /** GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE) */
+  render_node?: string;
   session_rag_results?: TypesSessionRAGResult[];
   /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
@@ -3729,6 +3738,8 @@ export interface TypesSpecTask {
   implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
+  /** Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
   labels?: string[];
   /** When branch was last pushed */
   last_push_at?: string;
@@ -3771,8 +3782,6 @@ export interface TypesSpecTask {
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   workspace_config?: number[];
-  /** Skip human review, auto-approve specs */
-  yolo_mode?: boolean;
   /** Multi-session support */
   zed_instance_id?: string;
 }
@@ -3848,6 +3857,8 @@ export interface TypesSpecTaskDesignReviewComment {
   line_number?: number;
   /** For inline comments - store the context around the comment */
   quoted_text?: string;
+  /** Request ID used when sending to agent (for response linking) */
+  request_id?: string;
   /** "manual", "auto_text_removed", "agent_updated" */
   resolution_reason?: string;
   /** Status tracking */
@@ -3990,6 +4001,8 @@ export enum TypesSpecTaskPhase {
 
 export interface TypesSpecTaskProgressResponse {
   active_work_sessions?: TypesSpecTaskWorkSession[];
+  /** Progress from tasks.md */
+  checklist?: TypesChecklistProgress;
   /** Task index -> progress */
   implementation_progress?: Record<string, number>;
   /** 0.0 to 1.0 */
@@ -4001,11 +4014,11 @@ export interface TypesSpecTaskProgressResponse {
 
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
+  /** Pointer to allow explicit false */
+  just_do_it_mode?: boolean;
   name?: string;
   priority?: string;
   status?: string;
-  /** Pointer to allow explicit false */
-  yolo_mode?: boolean;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4558,8 +4571,12 @@ export interface TypesWolfHeartbeatRequest {
   container_usage?: TypesContainerDiskUsage[];
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
+  /** nvidia, amd, intel, none (from sandbox env) */
+  gpu_vendor?: string;
   /** true if HYDRA_PRIVILEGED_MODE_ENABLED=true */
   privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
+  render_node?: string;
   /** helix-sway image version (commit hash) */
   sway_version?: string;
 }
@@ -4578,11 +4595,15 @@ export interface TypesWolfInstanceResponse {
   disk_alert_level?: string;
   disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
+  /** nvidia, amd, intel, none (from sandbox heartbeat) */
+  gpu_vendor?: string;
   id?: string;
   last_heartbeat?: string;
   max_sandboxes?: number;
   name?: string;
   privileged_mode_enabled?: boolean;
+  /** /dev/dri/renderD128 or SOFTWARE */
+  render_node?: string;
   status?: string;
   sway_version?: string;
   updated_at?: string;
@@ -4969,24 +4990,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/agents/fleet`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get real-time progress of all agents working on SpecTasks
-     *
-     * @tags SpecTasks
-     * @name V1AgentsFleetLiveProgressList
-     * @summary Get live agent fleet progress
-     * @request GET:/api/v1/agents/fleet/live-progress
-     * @secure
-     */
-    v1AgentsFleetLiveProgressList: (params: RequestParams = {}) =>
-      this.request<ServerLiveAgentFleetProgressResponse, SystemHTTPError>({
-        path: `/api/v1/agents/fleet/live-progress`,
-        method: "GET",
-        secure: true,
-        format: "json",
         ...params,
       }),
 
@@ -9162,6 +9165,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current comment being processed and the queue of pending comments for a review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentQueueStatusDetail
+     * @summary Get comment queue status
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentQueueStatusDetail: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesCommentQueueStatusResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comment-queue-status`,
         method: "GET",
         secure: true,
         type: ContentType.Json,

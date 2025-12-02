@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
@@ -98,6 +99,11 @@ type HelixAPIServer struct {
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	// Comment queue per planning session - serializes comment responses
+	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
+	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
+	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
+	requestToCommenterMapping   map[string]string    // request_id -> commenter user_id (for design review streaming)
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
@@ -120,7 +126,6 @@ type HelixAPIServer struct {
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
-	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
 	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
 	adminAlerter                *notification.AdminAlerter
@@ -246,6 +251,9 @@ func NewServer(
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
 		contextMappings:            make(map[string]string),
+		sessionCommentQueue:        make(map[string][]string),
+		sessionCurrentComment:      make(map[string]string),
+		requestToCommenterMapping:  make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
@@ -346,6 +354,9 @@ func NewServer(
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
+	// Set the message sender callback for GitHTTPServer (for sending messages to agents via WebSocket)
+	apiServer.gitHTTPServer.SetMessageSender(apiServer.sendMessageToSpecTaskAgent)
+
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
 	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
@@ -355,12 +366,10 @@ func NewServer(
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
+	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
+	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 
 	// Initialize SpecTask Orchestrator components
-	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
-		"Helix System",
-		"system@helix.ml",
-	)
 	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
@@ -368,8 +377,7 @@ func NewServer(
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentPool,
-		apiServer.designDocsWorktreeManager,
-		apiServer.externalAgentExecutor, // NEW: Pass Wolf executor for external agent management
+		apiServer.externalAgentExecutor, // Wolf executor for external agent management
 	)
 
 	// Start orchestrator
@@ -973,6 +981,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status", apiServer.getDesignReviewCommentQueueStatus).Methods(http.MethodGet)
 
 	// Zed integration routes
 	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)
@@ -1015,7 +1024,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
 	// SpecTask orchestrator routes
-	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)

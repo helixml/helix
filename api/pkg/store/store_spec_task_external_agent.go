@@ -114,29 +114,8 @@ func (s *PostgresStore) UpsertExternalAgentActivity(ctx context.Context, activit
 	// Update last_interaction timestamp
 	activity.LastInteraction = time.Now()
 
-	// Use ON CONFLICT to update if exists, insert if not
-	result := s.gdb.WithContext(ctx).
-		Exec(`
-			INSERT INTO external_agent_activity (external_agent_id, spec_task_id, last_interaction, agent_type, wolf_app_id, workspace_dir, user_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (external_agent_id)
-			DO UPDATE SET
-				last_interaction = EXCLUDED.last_interaction,
-				spec_task_id = EXCLUDED.spec_task_id,
-				agent_type = EXCLUDED.agent_type,
-				wolf_app_id = EXCLUDED.wolf_app_id,
-				workspace_dir = EXCLUDED.workspace_dir,
-				user_id = EXCLUDED.user_id
-		`,
-			activity.ExternalAgentID,
-			activity.SpecTaskID,
-			activity.LastInteraction,
-			activity.AgentType,
-			activity.WolfAppID,
-			activity.WorkspaceDir,
-			activity.UserID,
-		)
-
+	// Use GORM's Save which does upsert based on primary key
+	result := s.gdb.WithContext(ctx).Save(activity)
 	if result.Error != nil {
 		return fmt.Errorf("failed to upsert external agent activity: %w", result.Error)
 	}

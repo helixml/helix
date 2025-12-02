@@ -135,10 +135,12 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   // Get the active session ID (single session used for entire workflow)
   const activeSessionId = displayTask?.planning_session_id
 
-  // Fetch session data to get sway_version for debug panel
+  // Fetch session data to get sway_version, gpu_vendor, and render_node for debug panel
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
   const sessionData = sessionResponse?.data
   const swayVersion = sessionData?.config?.sway_version
+  const gpuVendor = sessionData?.config?.gpu_vendor
+  const renderNode = sessionData?.config?.render_node
 
   // Debug logging
   useEffect(() => {
@@ -754,6 +756,16 @@ I'll give you feedback and we can iterate on any changes needed.`
                         >
                           {swayVersion}
                         </a>
+                      </Typography>
+                    )}
+                    {gpuVendor && (
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                        GPU Vendor: {gpuVendor}
+                      </Typography>
+                    )}
+                    {renderNode && (
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                        Render Node: {renderNode}
                       </Typography>
                     )}
                   </>

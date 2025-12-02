@@ -603,7 +603,7 @@ echo "🐉 Starting Hydra multi-Docker isolation daemon..."
 
 # Create required directories
 mkdir -p /var/run/hydra/active
-mkdir -p /filestore/hydra
+mkdir -p /hydra-data
 
 # Start Hydra daemon in background with auto-restart
 (
@@ -612,7 +612,7 @@ mkdir -p /filestore/hydra
         /usr/local/bin/hydra \
             --socket /var/run/hydra/hydra.sock \
             --socket-dir /var/run/hydra/active \
-            --data-dir /filestore/hydra \
+            --data-dir /hydra-data \
             --log-level info
         EXIT_CODE=$?
         echo "[$(date -Iseconds)] ⚠️  Hydra exited with code $EXIT_CODE, restarting in 2s..."

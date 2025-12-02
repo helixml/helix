@@ -438,7 +438,7 @@ const SpecTaskTable: React.FC<SpecTaskTableProps> = ({
   const getSummaryStats = () => {
     const total = tasks.length;
     const active = tasks.filter(t => ['active', 'implementing'].includes(t.status || '')).length;
-    const completed = tasks.filter(t => t.status === 'completed').length;
+    const completed = tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
     const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length;
 
     return { total, active, completed, pendingApproval };
