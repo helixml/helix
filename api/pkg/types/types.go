@@ -2853,6 +2853,7 @@ type ForkSimpleProjectRequest struct {
 	SampleProjectID string `json:"sample_project_id"`
 	ProjectName     string `json:"project_name"`
 	Description     string `json:"description,omitempty"`
+	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
 }
 
 // ForkSimpleProjectResponse represents the fork response
