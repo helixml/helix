@@ -1339,6 +1339,54 @@ if [ "$CODE" = true ]; then
     fi
 fi
 
+# Increase inotify limits for sandbox nodes (Zed IDE watches many files per instance)
+# Each Zed instance can use thousands of inotify watches; with multiple sandboxes running,
+# the default limits (65536 watches, 128 instances) are quickly exhausted
+if [ "$SANDBOX" = true ]; then
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        echo "Skipping inotify configuration on Windows Git Bash"
+    else
+        # Check current limits
+        CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+        CURRENT_INSTANCES=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo "0")
+
+        # Target values: 1M watches, 1024 instances (enough for many Zed instances)
+        TARGET_WATCHES=1048576
+        TARGET_INSTANCES=1024
+
+        NEEDS_UPDATE=false
+        if [ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ] || [ "$CURRENT_INSTANCES" -lt "$TARGET_INSTANCES" ]; then
+            NEEDS_UPDATE=true
+        fi
+
+        if [ "$NEEDS_UPDATE" = true ]; then
+            echo "Increasing inotify limits for Zed IDE file watching..."
+            echo "  Current: max_user_watches=$CURRENT_WATCHES, max_user_instances=$CURRENT_INSTANCES"
+            echo "  Target:  max_user_watches=$TARGET_WATCHES, max_user_instances=$TARGET_INSTANCES"
+
+            # Apply immediately
+            sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+            sudo sysctl -w fs.inotify.max_user_instances=$TARGET_INSTANCES >/dev/null 2>&1 || true
+
+            # Make permanent via sysctl.d
+            SYSCTL_CONF="/etc/sysctl.d/99-helix-inotify.conf"
+            if [ ! -f "$SYSCTL_CONF" ] || ! grep -q "fs.inotify.max_user_watches" "$SYSCTL_CONF"; then
+                cat << EOF | sudo tee "$SYSCTL_CONF" > /dev/null
+# Helix Code: Increase inotify limits for Zed IDE file watching
+# Each Zed instance can use thousands of watches; multiple sandboxes exhaust defaults
+fs.inotify.max_user_watches = $TARGET_WATCHES
+fs.inotify.max_user_instances = $TARGET_INSTANCES
+EOF
+                echo "✓ inotify limits increased and persisted to $SYSCTL_CONF"
+            else
+                echo "✓ inotify limits already configured in $SYSCTL_CONF"
+            fi
+        else
+            echo "✓ inotify limits already sufficient (watches=$CURRENT_WATCHES, instances=$CURRENT_INSTANCES)"
+        fi
+    fi
+fi
+
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
     mkdir -p "$INSTALL_DIR"
@@ -2371,8 +2419,9 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
     -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
-    -e HYDRA_ENABLED=false \
+    -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
+    -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
     -e HOST_APPS_STATE_FOLDER=/etc/wolf \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
@@ -2382,7 +2431,9 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e WOLF_MAX_DUMPS=6 \
     -e WOLF_MAX_DUMPS_GB=20 \
     -v sandbox-storage:/var/lib/docker \
+    -v sandbox-data:/data \
     -v sandbox-debug-dumps:/var/wolf-debug-dumps \
+    -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
     --device /dev/uinput \
     --device /dev/uhid \

@@ -36,6 +36,13 @@ func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, req 
 	if req != nil {
 		updates["privileged_mode_enabled"] = req.PrivilegedModeEnabled
 	}
+	// Update GPU info from sandbox heartbeat (for multi-sandbox GPU discovery)
+	if req != nil && req.GPUVendor != "" {
+		updates["gpu_vendor"] = req.GPUVendor
+	}
+	if req != nil && req.RenderNode != "" {
+		updates["render_node"] = req.RenderNode
+	}
 	// Store disk usage metrics and alert level
 	if req != nil && len(req.DiskUsage) > 0 {
 		diskJSON, err := json.Marshal(req.DiskUsage)

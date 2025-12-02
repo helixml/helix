@@ -1,4 +1,5 @@
-import React, { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Box,
   Button,
@@ -76,6 +77,21 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
+  // Query wolf instances to check for privileged mode availability
+  const { data: wolfInstances } = useQuery({
+    queryKey: ['wolf-instances'],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1WolfInstancesList();
+      return response.data;
+    },
+    staleTime: 60000, // Cache for 1 minute
+  });
+
+  // Check if any sandbox has privileged mode enabled
+  const hasPrivilegedSandbox = useMemo(() => {
+    return wolfInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
+  }, [wolfInstances]);
+
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
   useEffect(() => {
@@ -95,7 +111,7 @@ const SpecTasksPage: FC = () => {
   const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
-  const [yoloMode, setYoloMode] = useState(false); // YOLO mode: skip human review
+  const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
   const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
   // Repository configuration moved to project level - no task-level repo selection needed
 
@@ -291,7 +307,7 @@ const SpecTasksPage: FC = () => {
         priority: taskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
-        yolo_mode: yoloMode, // YOLO mode: skip human review
+        just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
         use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
         // Repositories inherited from parent project - no task-level repo configuration
       };
@@ -307,7 +323,7 @@ const SpecTasksPage: FC = () => {
         setTaskPrompt('');
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
-        setYoloMode(false); // Reset YOLO mode
+        setJustDoItMode(false); // Reset Just Do It mode
         setUseHostDocker(false); // Reset host Docker mode
 
         // Trigger immediate refresh of Kanban board
@@ -620,24 +636,24 @@ Examples:
                 </Typography>
               </FormControl>
 
-              {/* YOLO Mode Checkbox */}
+              {/* Just Do It Mode Checkbox */}
               <FormControl fullWidth>
-                <Tooltip title="When enabled, specs will be automatically approved without human review" placement="top">
+                <Tooltip title="Skip writing a spec and just get the agent to immediately start doing what you ask" placement="top">
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={yoloMode}
-                        onChange={(e) => setYoloMode(e.target.checked)}
+                        checked={justDoItMode}
+                        onChange={(e) => setJustDoItMode(e.target.checked)}
                         color="warning"
                       />
                     }
                     label={
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          YOLO Mode ⚡
+                          Just Do It
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Skip human review — agent goes straight from planning to implementation
+                          Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
                         </Typography>
                       </Box>
                     }
@@ -645,30 +661,32 @@ Examples:
                 </Tooltip>
               </FormControl>
 
-              {/* Use Host Docker Checkbox (for Helix-in-Helix development) */}
-              <FormControl fullWidth>
-                <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={useHostDocker}
-                        onChange={(e) => setUseHostDocker(e.target.checked)}
-                        color="info"
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          Use Host Docker 🐳
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          For Helix-in-Helix development — agent can build and run Helix containers
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                </Tooltip>
-              </FormControl>
+              {/* Use Host Docker Checkbox (for Helix-in-Helix development) - only show if a privileged sandbox is available */}
+              {hasPrivilegedSandbox && (
+                <FormControl fullWidth>
+                  <Tooltip title="Use the host's Docker socket instead of isolated Docker-in-Docker. Requires a sandbox with privileged mode enabled." placement="top">
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={useHostDocker}
+                          onChange={(e) => setUseHostDocker(e.target.checked)}
+                          color="info"
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Use Host Docker 🐳
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            For Helix-in-Helix development — agent can build and run Helix containers
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </Tooltip>
+                </FormControl>
+              )}
             </Stack>
           </Box>
 
@@ -679,7 +697,7 @@ Examples:
               setTaskPrompt('');
               setTaskPriority('medium');
               setSelectedHelixAgent('');
-              setYoloMode(false);
+              setJustDoItMode(false);
               setUseHostDocker(false);
             }}>
               Cancel

@@ -16,6 +16,7 @@ interface ScreenshotViewerProps {
   refreshInterval?: number; // in milliseconds
   enableStreaming?: boolean; // Enable streaming mode toggle
   showToolbar?: boolean; // Show refresh/fullscreen buttons
+  showTimestamp?: boolean; // Show last updated timestamp
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -31,6 +32,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   refreshInterval = 1000, // Default 1 second
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
+  showTimestamp = true, // Show timestamp by default
 }) => {
   // Dual-buffer system for smooth image transitions
   const [imageA, setImageA] = useState<string | null>(null);
@@ -328,7 +330,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       )}
 
       {/* Status Chip */}
-      {lastRefresh && (
+      {showTimestamp && lastRefresh && (
         <Typography
           variant="caption"
           sx={{

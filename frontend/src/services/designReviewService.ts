@@ -43,6 +43,7 @@ export interface DesignReviewComment {
   comment_text: string
   comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise' // Made optional
   // Agent integration fields
+  request_id?: string // For correlating streaming responses
   agent_response?: string
   agent_response_at?: string
   interaction_id?: string
@@ -87,7 +88,7 @@ export function useDesignReviews(specTaskId: string) {
   })
 }
 
-export function useDesignReview(specTaskId: string, reviewId: string) {
+export function useDesignReview(specTaskId: string, reviewId: string, options?: { refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -98,10 +99,13 @@ export function useDesignReview(specTaskId: string, reviewId: string) {
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
+    // Poll when refetchInterval is set - used when awaiting agent responses
+    // The backend updates the review content when agent pushes spec changes
+    refetchInterval: options?.refetchInterval,
   })
 }
 
-export function useDesignReviewComments(specTaskId: string, reviewId: string) {
+export function useDesignReviewComments(specTaskId: string, reviewId: string, options?: { refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -112,6 +116,32 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string) {
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
+    refetchInterval: options?.refetchInterval,
+  })
+}
+
+// Comment queue status for streaming responses
+export interface CommentQueueStatus {
+  current_comment_id?: string
+  queued_comment_ids: string[]
+  planning_session_id?: string
+}
+
+export function useCommentQueueStatus(specTaskId: string, reviewId: string, options?: { enabled?: boolean; refetchInterval?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: [...designReviewKeys.comments(specTaskId, reviewId), 'queue-status'],
+    queryFn: async (): Promise<CommentQueueStatus> => {
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentQueueStatusDetail(specTaskId, reviewId)
+      return response.data as CommentQueueStatus
+    },
+    enabled: options?.enabled !== false && !!specTaskId && !!reviewId,
+    // Poll every second when enabled to pick up current_comment_id and planning_session_id
+    // This is critical for WebSocket subscription to work - without polling,
+    // the subscription never gets the session ID needed to connect
+    refetchInterval: options?.refetchInterval ?? 1000,
   })
 }
 

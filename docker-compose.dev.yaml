@@ -93,17 +93,12 @@ services:
             - WOLF_MODE=${WOLF_MODE:-lobbies}  # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
             - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
-            # GPU configuration for Wolf video pipelines
-            # Values: "nvidia", "amd", "intel", "none" (software rendering)
-            - GPU_VENDOR=${GPU_VENDOR:-intel}
-            - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
             # API URL for sandbox containers to connect back (RevDial, etc.)
             - SANDBOX_API_URL=http://api:8080
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
             # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
-            # Disabled by default until we fix the docker0 bridge interference issue
-            - HYDRA_ENABLED=${HYDRA_ENABLED:-false}
+            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
             - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
             - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
@@ -272,13 +267,15 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # Sandbox data path for workspaces (must match volume mount)
+        - SANDBOX_DATA_PATH=/data
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
         - HELIX_API_URL=http://api:8080
         - HELIX_API_BASE_URL=http://api:8080
         - WOLF_INSTANCE_ID=local
         - RUNNER_TOKEN=oh-hallo-insecure-token
-        # Hydra multi-Docker isolation (disabled by default - docker0 bridge interference issue)
-        - HYDRA_ENABLED=${HYDRA_ENABLED:-false}
+        # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
         - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
@@ -309,6 +306,9 @@ services:
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
         - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
+        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+        - hydra-storage:/hydra-data
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -318,11 +318,15 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
-        # Hydra persistent storage (shares filestore with API for workspace access)
-        - ${FILESTORE_DATA:-helix-filestore}:/filestore
+        # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+        # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+        - sandbox-data:/data
         # Host Docker socket for privileged mode (Helix-in-Helix development)
         # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
         - /var/run/docker.sock:/var/run/host-docker.sock:rw
+        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+        - ./helix-sway.version:/opt/images/helix-sway.version:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -372,6 +376,8 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # Sandbox data path for workspaces (must match volume mount)
+        - SANDBOX_DATA_PATH=/data
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
         - HELIX_API_URL=http://api:8080
         - HELIX_API_BASE_URL=http://api:8080
@@ -406,6 +412,9 @@ services:
         - /tmp/sockets:/tmp/sockets:rw
         - wolf-docker-storage:/var/lib/docker
         - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
+        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+        - hydra-storage:/hydra-data
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
@@ -415,11 +424,15 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
-        # Hydra persistent storage (shares filestore with API for workspace access)
-        - ${FILESTORE_DATA:-helix-filestore}:/filestore
+        # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+        # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+        - sandbox-data:/data
         # Host Docker socket for privileged mode (Helix-in-Helix development)
         # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
         - /var/run/docker.sock:/var/run/host-docker.sock:rw
+        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+        - ./helix-sway.version:/opt/images/helix-sway.version:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -514,6 +527,9 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
+        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+        - ./helix-sway.version:/opt/images/helix-sway.version:ro
       # No device mounts for software rendering (no GPU)
       device_cgroup_rules:
         - 'c 13:* rmw'
@@ -692,6 +708,8 @@ volumes:
     wolf-socket:
     wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
     wolf-debug-dumps:  # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
+    sandbox-data:  # Workspace data for dev containers - mounted at /data in sandbox and dev containers
+    hydra-storage:  # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
     zed-work:
 
     go-pkg-mod: # Go module cache

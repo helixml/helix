@@ -116,6 +116,19 @@ RUN apt-get update \
     # Note: docker group is created at runtime by 16-add-docker-group.sh
     # with the correct GID matching the mounted socket from sandbox
 
+# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
+# These wrappers intercept docker/compose commands and resolve symlinks in volume
+# paths before passing to the real binaries, enabling bind mounts to work
+# correctly when using Hydra (nested dockerd per session).
+COPY wolf/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY wolf/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+RUN mv /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
+    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
+    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities

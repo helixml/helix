@@ -48,7 +48,7 @@ type SpecTask struct {
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
 	SpecRevisionCount int        `json:"spec_revision_count"`            // Number of spec revisions requested
-	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
+	JustDoItMode      bool       `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
 	UseHostDocker     bool       `json:"use_host_docker" gorm:"default:false"` // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
@@ -134,11 +134,11 @@ type SpecTaskFilters struct {
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
 type SpecTaskUpdateRequest struct {
-	Status      string `json:"status,omitempty"`
-	Priority    string `json:"priority,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	YoloMode    *bool  `json:"yolo_mode,omitempty"` // Pointer to allow explicit false
+	Status       string `json:"status,omitempty"`
+	Priority     string `json:"priority,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Description  string `json:"description,omitempty"`
+	JustDoItMode *bool  `json:"just_do_it_mode,omitempty"` // Pointer to allow explicit false
 }
 
 // Two-phase workflow status constants

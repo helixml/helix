@@ -378,6 +378,12 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		},
 	}
 
+	// Try to get checklist progress from tasks.md in helix-specs branch
+	checklistProgress := s.getChecklistProgress(ctx, task)
+	if checklistProgress != nil {
+		progress.Checklist = checklistProgress
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(progress)
 }
@@ -443,12 +449,19 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start spec generation
-	go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
-
-	// Return updated task (status will be updated asynchronously)
-	task.Status = types.TaskStatusSpecGeneration
-	task.UpdatedAt = time.Now()
+	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
+	if task.JustDoItMode {
+		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusImplementation
+		task.UpdatedAt = time.Now()
+	} else {
+		// Normal mode: Start spec generation
+		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusSpecGeneration
+		task.UpdatedAt = time.Now()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -517,8 +530,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
 	}
-	if updateReq.YoloMode != nil {
-		task.YoloMode = *updateReq.YoloMode
+	if updateReq.JustDoItMode != nil {
+		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 
 	// Update in store
@@ -739,12 +752,13 @@ type TaskSpecsResponse struct {
 }
 
 type TaskProgressResponse struct {
-	TaskID         string        `json:"task_id"`
-	Status         string        `json:"status"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
-	Specification  PhaseProgress `json:"specification"`
-	Implementation PhaseProgress `json:"implementation"`
+	TaskID         string                   `json:"task_id"`
+	Status         string                   `json:"status"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
+	Specification  PhaseProgress            `json:"specification"`
+	Implementation PhaseProgress            `json:"implementation"`
+	Checklist      *types.ChecklistProgress `json:"checklist,omitempty"` // Progress from tasks.md
 }
 
 type PhaseProgress struct {
@@ -754,4 +768,170 @@ type PhaseProgress struct {
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	RevisionCount int        `json:"revision_count,omitempty"`
+}
+
+// getChecklistProgress fetches task checklist progress from helix-specs branch
+func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.SpecTask) *types.ChecklistProgress {
+	// Get the project's default repository
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Debug().Err(err).Str("project_id", task.ProjectID).Msg("Could not get project for checklist progress")
+		return nil
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil
+	}
+
+	// Get repository path
+	repo, err := s.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Could not get repository for checklist progress")
+		return nil
+	}
+
+	// Parse task progress from tasks.md in helix-specs branch
+	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
+		return nil
+	}
+
+	// Convert to response type
+	checklist := &types.ChecklistProgress{
+		Tasks:          make([]types.ChecklistItem, len(taskProgress.Tasks)),
+		TotalTasks:     taskProgress.TotalTasks,
+		CompletedTasks: taskProgress.CompletedTasks,
+		ProgressPct:    taskProgress.ProgressPct,
+	}
+
+	for i, t := range taskProgress.Tasks {
+		checklist.Tasks[i] = types.ChecklistItem{
+			Index:       t.Index,
+			Description: t.Description,
+			Status:      string(t.Status),
+		}
+	}
+
+	if taskProgress.InProgressTask != nil {
+		checklist.InProgressTask = &types.ChecklistItem{
+			Index:       taskProgress.InProgressTask.Index,
+			Description: taskProgress.InProgressTask.Description,
+			Status:      string(taskProgress.InProgressTask.Status),
+		}
+	}
+
+	return checklist
+}
+
+// getBoardSettings godoc
+// @Summary Get board settings for spec tasks
+// @Description Get the Kanban board settings (WIP limits) for the default project
+// @Tags spec-driven-tasks
+// @Produce json
+// @Success 200 {object} types.BoardSettings
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/board-settings [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get default project
+	project, err := s.Store.GetProject(ctx, "default")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get default project")
+		http.Error(w, "failed to get board settings", http.StatusInternalServerError)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, project.ID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Return board settings or defaults
+	var boardSettings types.BoardSettings
+	if project.Metadata.BoardSettings != nil {
+		boardSettings = *project.Metadata.BoardSettings
+	} else {
+		// Return default settings if not found
+		boardSettings = types.BoardSettings{
+			WIPLimits: types.WIPLimits{
+				Planning:       3,
+				Review:         2,
+				Implementation: 5,
+			},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(boardSettings)
+}
+
+// updateBoardSettings godoc
+// @Summary Update board settings for spec tasks
+// @Description Update the Kanban board settings (WIP limits) for the default project
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param request body types.BoardSettings true "Board settings"
+// @Success 200 {object} types.BoardSettings
+// @Failure 400 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/board-settings [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to update board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, "default", types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var settings types.BoardSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		log.Error().Err(err).Msg("Failed to decode board settings")
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get default project
+	project, err := s.Store.GetProject(ctx, "default")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get default project")
+		http.Error(w, "failed to update board settings", http.StatusInternalServerError)
+		return
+	}
+
+	// Update board settings in metadata
+	project.Metadata.BoardSettings = &settings
+	project.UpdatedAt = time.Now()
+
+	err = s.Store.UpdateProject(ctx, project)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save project")
+		http.Error(w, "failed to save board settings", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Interface("wip_limits", settings.WIPLimits).
+		Msg("Updated board settings")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(settings)
 }
