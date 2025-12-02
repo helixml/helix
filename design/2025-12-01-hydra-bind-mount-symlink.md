@@ -72,7 +72,20 @@ Use Docker's symlink resolution behavior to make paths consistent.
 
 ## Code Changes
 
-### 1. wolf_executor.go - Mount at same path
+### 1. wolf_executor.go - Skip path translation
+
+**Before:** Translated `/filestore/...` to `/var/lib/docker/volumes/helix_helix-filestore/_data/...`
+
+**After:** Use `/filestore/...` paths directly - sandbox container has this mounted
+
+```go
+func (w *WolfExecutor) translateToHostPath(containerPath string) string {
+    // Use /filestore paths directly - sandbox container has /filestore mounted
+    return containerPath
+}
+```
+
+### 2. wolf_executor.go - Mount at same path
 
 **Before:**
 ```go
@@ -88,13 +101,13 @@ mounts := []string{
 }
 ```
 
-### 2. wolf_executor.go - Add WORKSPACE_DIR env var
+### 3. wolf_executor.go - Add WORKSPACE_DIR env var
 
 ```go
 env = append(env, fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir))
 ```
 
-### 3. startup-app.sh - Create symlink
+### 4. startup-app.sh - Create symlink
 
 ```bash
 # Create symlink for user-friendly path that also enables Hydra bind-mounts
