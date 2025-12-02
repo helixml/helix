@@ -50,6 +50,13 @@ function setup_runner_profile() {
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code' (NVIDIA) or 'code-amd' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
+  # Check if COMPOSE_PROFILES was set in environment BEFORE sourcing .env (even if empty)
+  # ${var+x} expands to "x" if var is set, nothing if unset
+  local env_was_set=""
+  if [[ -n "${COMPOSE_PROFILES+x}" ]]; then
+    env_was_set="true"
+  fi
+
   # Load existing .env if present
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
@@ -70,9 +77,15 @@ function setup_sandbox_profile() {
     docker rm -f helix-sandbox-software-1 helix-sandbox-amd-1 2>/dev/null || true
   fi
 
-  # If COMPOSE_PROFILES already contains 'code', don't override
-  if [[ "${COMPOSE_PROFILES:-}" == *"code"* ]]; then
-    echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
+  # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
+  if [[ "$env_was_set" == "true" ]]; then
+    echo "🎮 Using COMPOSE_PROFILES from environment: '${COMPOSE_PROFILES:-<empty>}'"
+    return
+  fi
+
+  # If COMPOSE_PROFILES is explicitly set in .env (even to empty), respect it
+  if [[ -f "$DIR/.env" ]] && grep -q "^COMPOSE_PROFILES=" "$DIR/.env"; then
+    echo "🎮 Using COMPOSE_PROFILES from .env: '${COMPOSE_PROFILES:-<empty>}'"
     return
   fi
 

@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
 	"github.com/helixml/helix/api/pkg/trigger/slack"
+	"github.com/helixml/helix/api/pkg/trigger/teams"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -26,6 +27,7 @@ type Manager struct {
 	controller  *controller.Controller
 	notifier    notification.Notifier
 	azureDevOps *azure.AzureDevOps
+	teams       *teams.Teams
 
 	wg sync.WaitGroup
 }
@@ -37,6 +39,7 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier not
 		controller:  controller,
 		notifier:    notifier,
 		azureDevOps: azure.New(cfg, store, controller),
+		teams:       teams.New(cfg, store, controller),
 	}
 }
 
@@ -71,6 +74,14 @@ func (t *Manager) Start(ctx context.Context) {
 		go func() {
 			defer t.wg.Done()
 			t.runCrisp(ctx)
+		}()
+	}
+
+	if t.cfg.Triggers.Teams.Enabled {
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.runTeams(ctx)
 		}()
 	}
 
@@ -157,4 +168,24 @@ func (t *Manager) runCrisp(ctx context.Context) {
 		case <-time.After(10 * time.Second):
 		}
 	}
+}
+
+func (t *Manager) runTeams(ctx context.Context) {
+	for {
+		err := t.teams.Start(ctx)
+		if err != nil {
+			log.Err(err).Msg("failed to start teams trigger, retrying in 10 seconds")
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+// GetTeamsBot returns a Teams bot by app ID (used by webhook handler)
+func (t *Manager) GetTeamsBot(appID string) *teams.TeamsBot {
+	return t.teams.GetBot(appID)
 }

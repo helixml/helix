@@ -35,7 +35,11 @@ export interface ICreateAgentParams {
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
   agentType?: string; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
-  // Models and providers
+
+  // Default model for basic chat mode (non-agent mode)
+  model?: string;
+
+  // Models and providers for agent mode
   reasoningModelProvider: string;
   reasoningModel: string;
   reasoningModelEffort: string;
@@ -112,8 +116,8 @@ export const useAppsContext = (): IAppsContext => {
 
   const createAgent = useCallback(async (params: ICreateAgentParams): Promise<IApp | undefined> => {
     try {
-      // Get the first available model
-      const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : '';
+      // Use the model from params, or fall back to generation_model if not provided
+      const effectiveModel = params.model || params.generationModel || '';
 
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
         organization_id: account.organizationTools.organization?.id || '',
@@ -142,7 +146,7 @@ export const useAppsContext = (): IAppsContext => {
               small_generation_model: params.smallGenerationModel,
               avatar: '',
               image: '',
-              model: defaultModel,
+              model: effectiveModel,
               type: SESSION_TYPE_TEXT,
               system_prompt: params.systemPrompt || '',
               apis: [],
@@ -178,7 +182,6 @@ export const useAppsContext = (): IAppsContext => {
   }, [
     api,
     loadApps,
-    account.models,
     account.organizationTools.organization,
   ])
 

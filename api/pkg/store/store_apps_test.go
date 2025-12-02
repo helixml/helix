@@ -1,8 +1,11 @@
 package store
 
 import (
+	"testing"
+
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func (suite *PostgresStoreTestSuite) TestCreateApp() {
@@ -186,4 +189,177 @@ func (suite *PostgresStoreTestSuite) TestDeleteApp() {
 	})
 	suite.NoError(err)
 	suite.Equal(0, len(tools))
+}
+
+func TestFilterOutEmptyTriggers(t *testing.T) {
+	tests := []struct {
+		name     string
+		triggers []types.Trigger
+		expected int
+	}{
+		{
+			name:     "empty slice",
+			triggers: []types.Trigger{},
+			expected: 0,
+		},
+		{
+			name:     "nil slice",
+			triggers: nil,
+			expected: 0,
+		},
+		{
+			name: "empty trigger is filtered out",
+			triggers: []types.Trigger{
+				{}, // Empty trigger
+			},
+			expected: 0,
+		},
+		{
+			name: "cron trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Cron: &types.CronTrigger{
+						Schedule: "0 * * * *",
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "slack trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "discord trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Discord: &types.DiscordTrigger{
+						ServerName: "test-server",
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "teams trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "teams trigger preserved even when disabled",
+			triggers: []types.Trigger{
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled:     false,
+						AppID:       "test-app-id",
+						AppPassword: "test-password",
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "azure devops trigger preserved",
+			triggers: []types.Trigger{
+				{
+					AzureDevOps: &types.AzureDevOpsTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "crisp trigger preserved",
+			triggers: []types.Trigger{
+				{
+					Crisp: &types.CrispTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "multiple triggers preserved",
+			triggers: []types.Trigger{
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+				{
+					Discord: &types.DiscordTrigger{
+						ServerName: "test-server",
+					},
+				},
+			},
+			expected: 3,
+		},
+		{
+			name: "empty triggers filtered, valid preserved",
+			triggers: []types.Trigger{
+				{}, // Empty
+				{
+					Teams: &types.TeamsTrigger{
+						Enabled: true,
+					},
+				},
+				{}, // Empty
+				{
+					Slack: &types.SlackTrigger{
+						Enabled: true,
+					},
+				},
+			},
+			expected: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterOutEmptyTriggers(tt.triggers)
+			assert.Equal(t, tt.expected, len(result))
+		})
+	}
+}
+
+func TestFilterOutEmptyTriggersPreservesTeamsConfig(t *testing.T) {
+	// Specific test to verify Teams trigger configuration is preserved
+	triggers := []types.Trigger{
+		{
+			Teams: &types.TeamsTrigger{
+				Enabled:     true,
+				AppID:       "my-app-id",
+				AppPassword: "my-secret",
+				TenantID:    "my-tenant",
+			},
+		},
+	}
+
+	result := filterOutEmptyTriggers(triggers)
+	assert.Equal(t, 1, len(result))
+	assert.NotNil(t, result[0].Teams)
+	assert.Equal(t, "my-app-id", result[0].Teams.AppID)
+	assert.Equal(t, "my-secret", result[0].Teams.AppPassword)
+	assert.Equal(t, "my-tenant", result[0].Teams.TenantID)
+	assert.True(t, result[0].Teams.Enabled)
 }

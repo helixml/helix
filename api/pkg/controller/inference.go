@@ -142,12 +142,22 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
 	}
 
-	if assistant.Model != "" {
-		req.Model = assistant.Model
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
 
 		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
 		if err != nil {
@@ -317,12 +327,22 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
-	if assistant.Provider != "" {
-		opts.Provider = assistant.Provider
+	// Determine which model to use: prefer assistant.Model, fall back to GenerationModel
+	effectiveModel := assistant.Model
+	effectiveProvider := assistant.Provider
+	if effectiveModel == "" && assistant.GenerationModel != "" {
+		effectiveModel = assistant.GenerationModel
+		if assistant.GenerationModelProvider != "" {
+			effectiveProvider = assistant.GenerationModelProvider
+		}
 	}
 
-	if assistant.Model != "" {
-		req.Model = assistant.Model
+	if effectiveProvider != "" {
+		opts.Provider = effectiveProvider
+	}
+
+	if effectiveModel != "" {
+		req.Model = effectiveModel
 
 		modelName, err := model.ProcessModelName(c.Options.Config.Inference.Provider, req.Model, types.SessionTypeText)
 		if err != nil {

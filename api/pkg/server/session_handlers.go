@@ -138,20 +138,27 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 		}
 
-		// If an AssistantID is specified, get the correct assistant from the app
-		if startReq.AssistantID != "" {
+		// Get the assistant from the app (use AssistantID if specified, otherwise default to first assistant)
+		{
 			var assistant *types.AssistantConfig
 			assistantID := startReq.AssistantID
 			if assistantID == "" {
-				assistantID = "0"
+				assistantID = "0" // Default to first assistant
 			}
 			assistant = data.GetAssistant(app, assistantID)
 
 			// Update the model if the assistant has one
-			if assistant.Model != "" {
+			// Prefer GenerationModel over Model (new field vs legacy field)
+			if assistant.GenerationModel != "" {
+				startReq.Model = assistant.GenerationModel
+				if assistant.GenerationModelProvider != "" {
+					startReq.Provider = types.Provider(assistant.GenerationModelProvider)
+				}
+			} else if assistant.Model != "" {
 				startReq.Model = assistant.Model
 			}
 
+			// Override provider if explicitly set on assistant
 			if assistant.Provider != "" {
 				startReq.Provider = types.Provider(assistant.Provider)
 			}
@@ -160,10 +167,20 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				messageContextLimit = assistant.ContextLimit
 			}
 
-			// If agent mode is enabled, used small generation model for session name generation
+			// Set model for session name generation based on agent type
 			if assistant.IsAgentMode() {
+				// For agent mode, use small generation model
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
+			} else {
+				// For basic mode, use generation model (or fall back to Model field)
+				if assistant.GenerationModel != "" {
+					generateSessionNameProvider = assistant.GenerationModelProvider
+					generateSessionNameModel = assistant.GenerationModel
+				} else if assistant.Model != "" {
+					generateSessionNameProvider = assistant.Provider
+					generateSessionNameModel = assistant.Model
+				}
 			}
 		}
 	}
