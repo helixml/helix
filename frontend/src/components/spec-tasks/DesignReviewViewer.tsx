@@ -230,16 +230,38 @@ export default function DesignReviewViewer({
     [activeDocComments]
   )
 
+  // Debug: log queue status changes
+  useEffect(() => {
+    console.log('[DesignReview] Queue status updated:', {
+      planning_session_id: queueStatus?.planning_session_id,
+      current_comment_id: queueStatus?.current_comment_id,
+      queued_comment_ids: queueStatus?.queued_comment_ids,
+    })
+  }, [queueStatus])
+
   // WebSocket subscription for real-time agent responses
   useEffect(() => {
-    if (!open || !queueStatus?.planning_session_id || !queueStatus?.current_comment_id || !account.token) {
+    if (!open) {
+      console.log('[DesignReview] WebSocket: skipping - dialog not open')
+      return
+    }
+    if (!queueStatus?.planning_session_id) {
+      console.log('[DesignReview] WebSocket: skipping - no planning_session_id')
+      return
+    }
+    if (!queueStatus?.current_comment_id) {
+      console.log('[DesignReview] WebSocket: skipping - no current_comment_id (no comment being processed)')
+      return
+    }
+    if (!account.token) {
+      console.log('[DesignReview] WebSocket: skipping - no account token')
       return
     }
 
     const sessionId = queueStatus.planning_session_id
     const currentCommentId = queueStatus.current_comment_id
 
-    console.log('[DesignReview] Subscribing to WebSocket for streaming response', {
+    console.log('[DesignReview] 🔌 Connecting WebSocket for streaming response', {
       sessionId,
       currentCommentId,
     })
@@ -249,18 +271,34 @@ export default function DesignReviewViewer({
     const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?session_id=${sessionId}`
     const rws = new ReconnectingWebSocket(url)
 
+    rws.addEventListener('open', () => {
+      console.log('[DesignReview] 🔌 WebSocket connected to', url)
+    })
+
+    rws.addEventListener('error', (e) => {
+      console.error('[DesignReview] 🔌 WebSocket error:', e)
+    })
+
     let accumulatedResponse = ''
 
     const messageHandler = (event: MessageEvent) => {
+      console.log('[DesignReview] 📨 WebSocket message received:', event.data.substring(0, 200))
       try {
         const parsedData = JSON.parse(event.data)
+        console.log('[DesignReview] 📨 Parsed message type:', parsedData.type)
 
         // Handle session_update events with interaction data
         if (parsedData.type === 'session_update' && parsedData.session?.interactions) {
           const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1]
+          console.log('[DesignReview] 📨 Last interaction:', {
+            id: lastInteraction?.id,
+            state: lastInteraction?.state,
+            response_length: lastInteraction?.response_message?.length,
+          })
 
           if (lastInteraction?.response_message) {
             accumulatedResponse = lastInteraction.response_message
+            console.log('[DesignReview] ✨ Setting streaming response for comment:', currentCommentId)
             setStreamingResponse({
               commentId: currentCommentId,
               content: accumulatedResponse,
@@ -268,7 +306,7 @@ export default function DesignReviewViewer({
 
             // If interaction is complete, refetch comments to get the persisted response
             if (lastInteraction.state === 'complete') {
-              console.log('[DesignReview] Interaction complete, refetching comments')
+              console.log('[DesignReview] ✅ Interaction complete, refetching comments')
               queryClient.invalidateQueries({ queryKey: designReviewKeys.comments(specTaskId, reviewId) })
               // Clear streaming state - the final response is now in the database
               setStreamingResponse(null)
@@ -283,7 +321,7 @@ export default function DesignReviewViewer({
     rws.addEventListener('message', messageHandler)
 
     return () => {
-      console.log('[DesignReview] Closing WebSocket connection')
+      console.log('[DesignReview] 🔌 Closing WebSocket connection')
       rws.removeEventListener('message', messageHandler)
       rws.close()
     }

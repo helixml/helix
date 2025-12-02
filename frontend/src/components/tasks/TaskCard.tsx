@@ -193,7 +193,7 @@ const TaskProgressDisplay: React.FC<{
       <Box sx={{ py: 0.5 }}>
         {visibleTasks.map((task, idx) => {
           const isActive = task.status === 'in_progress'
-          const isCompleted = task.status === 'completed'
+          const isCompleted = task.status === 'done' || task.status === 'completed'
           const opacity = task.fadeLevel === 2 ? 0.35 : task.fadeLevel === 1 ? 0.6 : 1
 
           return (

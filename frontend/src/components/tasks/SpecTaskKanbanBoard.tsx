@@ -394,7 +394,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       color: '#6b7280',
       backgroundColor: 'transparent',
       description: 'Completed',
-      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'completed'),
+      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
     },
   ], [tasks, theme, wipLimits]);
 
@@ -432,7 +432,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
-          } else if (task.status === 'completed') {
+          } else if (task.status === 'done' || task.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
           }
@@ -494,7 +494,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
-          } else if (task.status === 'completed') {
+          } else if (task.status === 'done' || task.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
           }
@@ -593,7 +593,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             } else if (task.status === 'implementing') {
               phase = 'implementation';
               planningStatus = 'completed';
-            } else if (task.status === 'completed') {
+            } else if (task.status === 'done' || task.status === 'completed') {
               phase = 'completed';
               planningStatus = 'completed';
             }
@@ -717,13 +717,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Update task status
   const updateTaskStatus = async (taskId: string, phase: SpecTaskPhase) => {
     try {
-      // Map phase to status
+      // Map phase to status (backend uses 'done' for completed tasks)
       const statusMap: Record<SpecTaskPhase, string> = {
         backlog: 'draft',
         planning: 'planning',
         review: 'pending_approval',
         implementation: 'implementing',
-        completed: 'completed',
+        completed: 'done',
       };
 
       await api.put(`/api/v1/spec-tasks/${taskId}`, {
@@ -844,14 +844,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         } else if (t.status === 'implementing') {
           phase = 'implementation';
           planningStatus = 'completed';
-        } else if (t.status === 'completed') {
+        } else if (t.status === 'done' || t.status === 'completed') {
           phase = 'completed';
           planningStatus = 'completed';
         }
 
         return {
           ...t,
-          hasSpecs: t.status === 'spec_approved' || t.status === 'implementing' || t.status === 'completed',
+          hasSpecs: t.status === 'spec_approved' || t.status === 'implementing' || t.status === 'done' || t.status === 'completed',
           planningStatus,
           phase,
           activeSessionsCount: 0,
@@ -909,7 +909,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (t.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
-          } else if (t.status === 'completed') {
+          } else if (t.status === 'done' || t.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
           }

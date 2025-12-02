@@ -35,6 +35,7 @@ type SpecDrivenTaskService struct {
 	controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
 	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
+	SendMessageToAgent       SpecTaskMessageSender        // Callback to send messages to agents via WebSocket
 	helixAgentID             string                       // ID of Helix agent for spec generation
 	zedAgentPool             []string                     // Pool of available Zed agents
 	testMode                 bool                         // If true, skip async operations for testing
@@ -698,40 +699,28 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to update task for revision: %w", err)
 		}
 
-		// Send revision instruction to existing agent session
-		sessionID := task.PlanningSessionID
-
-		if sessionID != "" && !s.testMode {
-			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store)
-
-			// Send revision instruction asynchronously (don't block the response)
-			go func() {
-				err := agentInstructionService.SendRevisionInstruction(
-					context.Background(),
-					sessionID,
-					task.CreatedBy,
-					task,
-					req.Comments,
-				)
+		// Send revision instruction to existing agent session via WebSocket
+		if s.SendMessageToAgent != nil && !s.testMode {
+			go func(t *types.SpecTask, comments string) {
+				message := BuildRevisionInstructionPrompt(t, comments)
+				_, err := s.SendMessageToAgent(context.Background(), t, message, "")
 				if err != nil {
 					log.Error().
 						Err(err).
-						Str("task_id", task.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to send revision instruction to agent")
+						Str("task_id", t.ID).
+						Str("planning_session_id", t.PlanningSessionID).
+						Msg("Failed to send revision instruction to agent via WebSocket")
+				} else {
+					log.Info().
+						Str("task_id", t.ID).
+						Str("comments", comments).
+						Msg("Specs require revision - sent revision instruction to agent via WebSocket")
 				}
-			}()
-
-			log.Info().
-				Str("task_id", task.ID).
-				Str("session_id", sessionID).
-				Str("comments", req.Comments).
-				Msg("Specs require revision - sent revision instruction to agent")
-		} else {
+			}(task, req.Comments)
+		} else if !s.testMode {
 			log.Warn().
 				Str("task_id", task.ID).
-				Msg("No planning session ID found - agent will not receive revision instruction")
+				Msg("No message sender configured - agent will not receive revision instruction")
 		}
 	}
 

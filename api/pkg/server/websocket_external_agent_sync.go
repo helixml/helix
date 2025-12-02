@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -305,6 +306,16 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		// Get the Helix session to find the initial interaction
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
 		if err == nil && helixSession != nil {
+			// CRITICAL: Rebuild contextMappings from persisted ZedThreadID if present
+			// This ensures message routing works after API server restarts
+			if helixSession.Metadata.ZedThreadID != "" {
+				apiServer.contextMappings[helixSession.Metadata.ZedThreadID] = helixSessionID
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+					Msg("🔧 [HELIX] Restored contextMappings from session metadata (ensures message routing after restart)")
+			}
+
 			// Find the waiting interaction
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 				SessionID:    helixSessionID,
@@ -576,11 +587,12 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 			helixSessionID = mappedSessionID // Use the mapped session
 
-			// Clean up the request mapping now that we have the thread mapping
+			// Clean up the request mappings now that we have the thread mapping
 			delete(apiServer.requestToSessionMapping, requestID)
+			delete(apiServer.requestToCommenterMapping, requestID)
 			log.Info().
 				Str("request_id", requestID).
-				Msg("🧹 [HELIX] Cleaned up request_id mapping")
+				Msg("🧹 [HELIX] Cleaned up request_id mappings")
 		}
 	}
 
@@ -844,7 +856,23 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	// Find the Helix session that corresponds to this Zed context
 	helixSessionID, exists := apiServer.contextMappings[contextID]
 	if !exists {
-		return fmt.Errorf("no Helix session found for context_id: %s", contextID)
+		// FALLBACK: contextMappings may be empty after API restart
+		// Try to find session by ZedThreadID in database
+		log.Info().
+			Str("context_id", contextID).
+			Msg("🔍 [HELIX] contextMappings miss, attempting database fallback lookup by ZedThreadID")
+
+		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), contextID)
+		if err != nil || foundSession == nil {
+			return fmt.Errorf("no Helix session found for context_id: %s (in-memory miss, database fallback failed)", contextID)
+		}
+		helixSessionID = foundSession.ID
+		// Restore the mapping for future messages
+		apiServer.contextMappings[contextID] = helixSessionID
+		log.Info().
+			Str("context_id", contextID).
+			Str("helix_session_id", helixSessionID).
+			Msg("✅ [HELIX] Found session via database fallback, restored contextMappings")
 	}
 
 	// Get the Helix session
@@ -1011,7 +1039,8 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						Msg("🔍 [DEBUG] About to publish session update")
 
 					// Publish session update to frontend so UI updates in real-time
-					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+					// Pass foundRequestID so we can also notify the commenter (for design review streaming)
+					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, foundRequestID)
 					if err != nil {
 						log.Error().Err(err).
 							Str("session_id", helixSessionID).
@@ -1088,12 +1117,28 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
+	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
+	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
+	var acpThreadID interface{} = nil
+	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+	if err == nil && session != nil && session.Metadata.ZedThreadID != "" {
+		acpThreadID = session.Metadata.ZedThreadID
+		log.Info().
+			Str("session_id", sessionID).
+			Str("zed_thread_id", session.Metadata.ZedThreadID).
+			Msg("🔗 [HELIX] Using existing ZedThreadID for chat message")
+	} else {
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("🆕 [HELIX] No ZedThreadID found, will create new thread")
+	}
+
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"message":       message,
 			"request_id":    requestID,
-			"acp_thread_id": nil, // nil = continue in existing thread
+			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
 			"session_id":    sessionID,
 		},
 	}
@@ -1473,8 +1518,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			}
 		}(foundRequestID)
 
-		// Clean up the request -> session mapping
+		// Clean up the request -> session and commenter mappings
 		delete(apiServer.requestToSessionMapping, foundRequestID)
+		delete(apiServer.requestToCommenterMapping, foundRequestID)
 
 		// Send completion signal to done channel for legacy handling
 		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
@@ -1521,6 +1567,32 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 	return nil
 }
 
+// findSessionByZedThreadID finds a session by its ZedThreadID metadata
+// This is a database fallback when contextMappings is empty (e.g., after API restart)
+func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, zedThreadID string) (*types.Session, error) {
+	// Query sessions with matching ZedThreadID in metadata
+	// The ZedThreadID is stored in session.Metadata.ZedThreadID
+	// For now, we iterate through recent sessions (this could be optimized with a DB index on metadata)
+	sessions, _, err := apiServer.Controller.Options.Store.ListSessions(ctx, store.ListSessionsQuery{
+		PerPage: 100,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	for _, session := range sessions {
+		if session.Metadata.ZedThreadID == zedThreadID {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("zed_thread_id", zedThreadID).
+				Msg("🔍 [HELIX] Found session by ZedThreadID in database")
+			return session, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no session found with ZedThreadID: %s", zedThreadID)
+}
+
 // validateExternalAgentToken validates the auth token for external agent
 func (apiServer *HelixAPIServer) validateExternalAgentToken(sessionID, token string) bool {
 	// TODO: Implement proper token validation
@@ -1549,7 +1621,8 @@ func (apiServer *HelixAPIServer) generateExternalAgentToken(sessionID string) (s
 }
 
 // publishSessionUpdateToFrontend publishes a session update to the frontend via pubsub
-func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.Session, interaction *types.Interaction) error {
+// If requestID is provided, it will also publish to the commenter's queue (for design review streaming)
+func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.Session, interaction *types.Interaction, requestID ...string) error {
 	// Create websocket event for frontend
 	event := &types.WebsocketEvent{
 		Type:          types.WebsocketEventSessionUpdate,
@@ -1565,7 +1638,7 @@ func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.S
 		return fmt.Errorf("failed to marshal websocket event: %w", err)
 	}
 
-	// Publish to user's session queue
+	// Publish to session owner's queue
 	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(session.Owner, session.ID), messageBytes)
 	if err != nil {
 		return fmt.Errorf("failed to publish to pubsub: %w", err)
@@ -1575,7 +1648,31 @@ func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.S
 		Str("session_id", session.ID).
 		Str("interaction_id", interaction.ID).
 		Str("owner", session.Owner).
-		Msg("📤 [HELIX] Published session update to frontend")
+		Msg("📤 [HELIX] Published session update to frontend (owner)")
+
+	// If requestID is provided, check if there's a commenter who should also receive the update
+	// This handles the case where the design review commenter is different from the session owner
+	if len(requestID) > 0 && requestID[0] != "" {
+		if apiServer.requestToCommenterMapping != nil {
+			if commenterID, exists := apiServer.requestToCommenterMapping[requestID[0]]; exists && commenterID != session.Owner {
+				// Publish to commenter's queue as well
+				err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(commenterID, session.ID), messageBytes)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("session_id", session.ID).
+						Str("commenter_id", commenterID).
+						Msg("Failed to publish session update to commenter")
+				} else {
+					log.Info().
+						Str("session_id", session.ID).
+						Str("interaction_id", interaction.ID).
+						Str("commenter_id", commenterID).
+						Msg("📤 [HELIX] Published session update to commenter")
+				}
+			}
+		}
+	}
 
 	return nil
 }
