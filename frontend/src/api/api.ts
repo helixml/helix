@@ -56,6 +56,22 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface KoditRepositoryStatusSummaryAttributes {
+  /** Message Error message if failed */
+  message?: string;
+  /** Status Overall indexing status */
+  status?: string;
+  /** UpdatedAt Most recent activity timestamp */
+  updated_at?: string;
+}
+
+export interface KoditRepositoryStatusSummaryData {
+  /** Attributes Attributes for repository status summary. */
+  attributes?: KoditRepositoryStatusSummaryAttributes;
+  id?: string;
+  type?: string;
+}
+
 export interface McpMeta {
   /**
    * AdditionalFields are any fields present in the Meta that are not
@@ -1034,6 +1050,11 @@ export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
 }
 
+export interface ServicesKoditIndexingStatus {
+  /** Data Data for repository status summary response. */
+  data?: KoditRepositoryStatusSummaryData;
+}
+
 export interface ServicesKoditSearchResult {
   content?: string;
   /** File path from DerivesFrom */
@@ -1219,6 +1240,10 @@ export interface TypesAdminCreateUserRequest {
   email?: string;
   full_name?: string;
   password?: string;
+}
+
+export interface TypesAdminResetPasswordRequest {
+  new_password?: string;
 }
 
 export interface TypesAgentDashboardSummary {
@@ -1716,7 +1741,7 @@ export interface TypesAzureDevOpsTrigger {
 }
 
 export interface TypesBoardSettings {
-  wip_limits?: Record<string, number>;
+  wip_limits?: TypesWIPLimits;
 }
 
 export interface TypesChatCompletionMessage {
@@ -2962,7 +2987,7 @@ export interface TypesProject {
   description?: string;
   github_repo_url?: string;
   id?: string;
-  metadata?: number[];
+  metadata?: TypesProjectMetadata;
   name?: string;
   organization_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
@@ -2985,12 +3010,17 @@ export interface TypesProjectCreateRequest {
   technologies?: string[];
 }
 
+export interface TypesProjectMetadata {
+  board_settings?: TypesBoardSettings;
+}
+
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  metadata?: TypesProjectMetadata;
   name?: string;
   startup_script?: string;
   status?: string;
@@ -3540,6 +3570,8 @@ export interface TypesSessionMetadata {
   /** Multi-session SpecTask context */
   spec_task_id?: string;
   stream?: boolean;
+  /** helix-sway image version (commit hash) running in this session */
+  sway_version?: string;
   system_prompt?: string;
   /** without any user input, this will default to true */
   text_finetune_enabled?: boolean;
@@ -4492,6 +4524,12 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesWIPLimits {
+  implementation?: number;
+  planning?: number;
+  review?: number;
+}
+
 export interface TypesWallet {
   balance?: number;
   created_at?: string;
@@ -4720,7 +4758,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4810,12 +4848,8 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title HelixML API reference
- * @version 0.1
- * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
- *
- * This is the HelixML API.
+ * @title No title
+ * @contact
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -4860,6 +4894,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Reset the password for any user. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersPasswordUpdate
+     * @summary Reset a user's password (Admin only)
+     * @request PUT:/api/v1/admin/users/{id}/password
+     * @secure
+     */
+    v1AdminUsersPasswordUpdate: (id: string, request: TypesAdminResetPasswordRequest, params: RequestParams = {}) =>
+      this.request<TypesUser, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}/password`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -6603,7 +6657,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, TypesAPIError>({
+      this.request<ServicesKoditIndexingStatus, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
@@ -9714,44 +9768,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsList
-     * @summary Get board settings for spec tasks
-     * @request GET:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the Kanban board settings (WIP limits) for the default project
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksBoardSettingsUpdate
-     * @summary Update board settings for spec tasks
-     * @request PUT:/api/v1/spec-tasks/board-settings
-     * @secure
-     */
-    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
-      this.request<TypesBoardSettings, TypesAPIError>({
-        path: `/api/v1/spec-tasks/board-settings`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),

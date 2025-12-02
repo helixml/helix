@@ -112,11 +112,9 @@ RUN apt-get update \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/* \
-    # Create docker group (docker-ce-cli doesn't create the group, only docker-ce does)
-    # Note: retro user is added to docker group at runtime via cont-init.d script
-    # because the user is created by GOW base-app at container startup
-    && groupadd -f docker
+    && rm -rf /var/lib/apt/lists/*
+    # Note: docker group is created at runtime by 16-add-docker-group.sh
+    # with the correct GID matching the mounted socket from sandbox
 
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
@@ -151,41 +149,11 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
-RUN mkdir -p /cfg/sway
-ADD wolf/sway-config/config /cfg/sway/custom-cfg
-
-# Copy and setup Zed startup script and helper scripts
-ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
-
-# Copy GOW startup script
-ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
-RUN chmod +x /opt/gow/startup-app.sh
-
-# Add retro user to docker group at runtime (after GOW creates the user)
-ADD wolf/sway-config/11-add-docker-group.sh /etc/cont-init.d/11-add-docker-group.sh
-RUN chmod 755 /etc/cont-init.d/11-add-docker-group.sh
-
-# Copy welcome README template for workspace initialization
-RUN mkdir -p /opt/helix
-ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
-
-# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
-COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
-
-# Copy Zed binary (built with ./stack build-zed before Docker build)
-# CRITICAL: Must be built with --features external_websocket_sync
-RUN mkdir -p /zed-build
-COPY zed-build/zed /zed-build/zed
-RUN chmod +x /zed-build/zed
-
 # ====================================================================
 # Install Node.js 20 (required for AI coding agents)
 # ====================================================================
+# CACHE OPTIMIZATION: Node.js and Qwen Code rarely change, so install early
+# to avoid re-building on every sway config or script change.
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -201,6 +169,9 @@ RUN apt-get update && \
 # SECURITY: We build from the GitHub source we've audited rather than trusting
 # the npm package, which could differ from the source or be compromised.
 # This ensures the code running matches our security audit.
+#
+# CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
+# early in the Dockerfile before frequently-changing sway configs and scripts.
 WORKDIR /tmp/qwen-code-build
 RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     # Pin to specific audited commit for reproducibility and audit trail
@@ -215,6 +186,43 @@ RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     # Clean up build artifacts
     cd / && rm -rf /tmp/qwen-code-build && \
     npm cache clean --force
+
+# ====================================================================
+# Frequently-changing files below (cache invalidation expected)
+# ====================================================================
+
+# Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
+RUN mkdir -p /cfg/sway
+ADD wolf/sway-config/config /cfg/sway/custom-cfg
+
+# Copy and setup Zed startup script and helper scripts
+ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+
+# Copy GOW startup script
+ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
+RUN chmod +x /opt/gow/startup-app.sh
+
+# Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
+# CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
+ADD wolf/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Copy welcome README template for workspace initialization
+RUN mkdir -p /opt/helix
+ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
+
+# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
+COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+# CRITICAL: Must be built with --features external_websocket_sync
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
 
 # Create Qwen Code configuration directory for retro user
 # IMPORTANT: This configuration DISABLES all telemetry and auto-updates

@@ -21,9 +21,7 @@ export {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useListSampleProjects,
-  useInstantiateSampleProject,
-  useGetBoardSettings,
-  useUpdateBoardSettings,
+  useInstantiateSampleProject,  
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
@@ -33,7 +31,6 @@ export {
   projectRepositoriesQueryKey,
   sampleProjectsListQueryKey,
   sampleProjectQueryKey,
-  boardSettingsQueryKey,
   projectExploratorySessionQueryKey,
 } from './projectService';
 
