@@ -189,6 +189,14 @@ if needs_processing "$@"; then
             done
         fi
 
+        # Preserve project directory for correct project naming
+        # Use the resolved path of the first compose file's directory
+        for orig in "${!file_map[@]}"; do
+            project_dir=$(dirname "$(readlink -f "$orig")")
+            new_args=("--project-directory" "$project_dir" "${new_args[@]}")
+            break
+        done
+
         exec "$COMPOSE_REAL" "$PLUGIN_NAME" "${new_args[@]}"
     fi
 fi
