@@ -137,6 +137,7 @@ EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
 MOONLIGHT_CREDENTIALS=""  # Moonlight Web credentials for sandbox nodes (default: helix)
+PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 
 # Enhanced environment detection
 detect_environment() {
@@ -251,6 +252,7 @@ Options:
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
   --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
   --moonlight-credentials <creds> Specify the Moonlight Web credentials for sandbox nodes (default: helix, must match control plane MOONLIGHT_CREDENTIALS)
+  --privileged-docker        Enable privileged Docker mode in sandbox (allows agents to access host Docker socket for Helix-in-Helix development)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
@@ -422,6 +424,10 @@ while [[ $# -gt 0 ]]; do
         --moonlight-credentials)
             MOONLIGHT_CREDENTIALS="$2"
             shift 2
+            ;;
+        --privileged-docker)
+            PRIVILEGED_DOCKER="true"
+            shift
             ;;
         --together-api-key=*)
             TOGETHER_API_KEY="${1#*=}"
@@ -1329,6 +1335,54 @@ if [ "$CODE" = true ]; then
             else
                 echo "Warning: Failed to load uhid module - Wolf may not work correctly"
             fi
+        fi
+    fi
+fi
+
+# Increase inotify limits for sandbox nodes (Zed IDE watches many files per instance)
+# Each Zed instance can use thousands of inotify watches; with multiple sandboxes running,
+# the default limits (65536 watches, 128 instances) are quickly exhausted
+if [ "$SANDBOX" = true ]; then
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        echo "Skipping inotify configuration on Windows Git Bash"
+    else
+        # Check current limits
+        CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+        CURRENT_INSTANCES=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo "0")
+
+        # Target values: 1M watches, 1024 instances (enough for many Zed instances)
+        TARGET_WATCHES=1048576
+        TARGET_INSTANCES=1024
+
+        NEEDS_UPDATE=false
+        if [ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ] || [ "$CURRENT_INSTANCES" -lt "$TARGET_INSTANCES" ]; then
+            NEEDS_UPDATE=true
+        fi
+
+        if [ "$NEEDS_UPDATE" = true ]; then
+            echo "Increasing inotify limits for Zed IDE file watching..."
+            echo "  Current: max_user_watches=$CURRENT_WATCHES, max_user_instances=$CURRENT_INSTANCES"
+            echo "  Target:  max_user_watches=$TARGET_WATCHES, max_user_instances=$TARGET_INSTANCES"
+
+            # Apply immediately
+            sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+            sudo sysctl -w fs.inotify.max_user_instances=$TARGET_INSTANCES >/dev/null 2>&1 || true
+
+            # Make permanent via sysctl.d
+            SYSCTL_CONF="/etc/sysctl.d/99-helix-inotify.conf"
+            if [ ! -f "$SYSCTL_CONF" ] || ! grep -q "fs.inotify.max_user_watches" "$SYSCTL_CONF"; then
+                cat << EOF | sudo tee "$SYSCTL_CONF" > /dev/null
+# Helix Code: Increase inotify limits for Zed IDE file watching
+# Each Zed instance can use thousands of watches; multiple sandboxes exhaust defaults
+fs.inotify.max_user_watches = $TARGET_WATCHES
+fs.inotify.max_user_instances = $TARGET_INSTANCES
+EOF
+                echo "✓ inotify limits increased and persisted to $SYSCTL_CONF"
+            else
+                echo "✓ inotify limits already configured in $SYSCTL_CONF"
+            fi
+        else
+            echo "✓ inotify limits already sufficient (watches=$CURRENT_WATCHES, instances=$CURRENT_INSTANCES)"
         fi
     fi
 fi
@@ -2289,6 +2343,7 @@ TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
 PAIRING_PIN="${PAIRING_PIN}"
+PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
 # Check if helix_default network exists, create it if it doesn't
 if ! docker network inspect helix_default >/dev/null 2>&1; then
@@ -2307,19 +2362,24 @@ fi
 
 # Build GPU-specific flags
 if [ "$GPU_VENDOR" = "nvidia" ]; then
-    GPU_FLAGS="--gpus all --runtime nvidia"
-    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
+    GPU_FLAGS="--gpus all --runtime nvidia --device /dev/dri"
+    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all -e GPU_VENDOR=nvidia"
 elif [ "$GPU_VENDOR" = "amd" ]; then
     # Note: --group-add not needed since container runs privileged with device access
     GPU_FLAGS="--device /dev/kfd --device /dev/dri"
-    GPU_ENV_FLAGS="-e GPU_TYPE=amd"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=amd"
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
-    GPU_ENV_FLAGS="-e GPU_TYPE=intel"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "none" ]; then
+    # Software rendering - no GPU device mounts needed
+    GPU_FLAGS=""
+    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e WOLF_RENDER_NODE=SOFTWARE -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5 -e WOLF_USE_ZERO_COPY=FALSE"
+    echo "Using software rendering (no GPU detected)"
 else
     GPU_FLAGS=""
     GPU_ENV_FLAGS=""
-    echo "Warning: No GPU support configured"
+    echo "Warning: Unknown GPU_VENDOR '$GPU_VENDOR' - no GPU support configured"
 fi
 
 echo "Starting Helix Sandbox container..."
@@ -2328,11 +2388,23 @@ echo "  Wolf Instance ID: $WOLF_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
 echo "  TURN Server: $TURN_PUBLIC_IP"
+echo "  Privileged Docker Mode: ${PRIVILEGED_DOCKER:-false}"
+
+# Build privileged Docker flags (mount host Docker socket for Helix-in-Helix development)
+if [ "$PRIVILEGED_DOCKER" = "true" ]; then
+    # Mount host Docker socket to a different path so it doesn't conflict with DinD's /var/run/docker.sock
+    PRIVILEGED_DOCKER_FLAGS="-v /var/run/docker.sock:/var/run/host-docker.sock:rw"
+    echo "  ⚠️  Privileged mode: mounting host Docker socket for Helix development"
+else
+    PRIVILEGED_DOCKER_FLAGS=""
+fi
 
 # Run the sandbox container
 # Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
+# GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel)
+# GPU_ENV_FLAGS contains GPU_VENDOR and software rendering env vars for none mode
 # shellcheck disable=SC2086
-docker run $GPU_FLAGS $GPU_ENV_FLAGS \
+docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     --privileged \
     --restart=always -d \
     --name helix-sandbox \
@@ -2347,20 +2419,22 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
     -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
+    -e HYDRA_ENABLED=true \
+    -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
+    -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
     -e HOST_APPS_STATE_FOLDER=/etc/wolf \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
     -e WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem \
     -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
-    -e WOLF_USE_ZERO_COPY=TRUE \
     -e GOP_SIZE=120 \
     -e WOLF_MAX_DUMPS=6 \
     -e WOLF_MAX_DUMPS_GB=20 \
     -v sandbox-storage:/var/lib/docker \
+    -v sandbox-data:/data \
     -v sandbox-debug-dumps:/var/wolf-debug-dumps \
-    -v /dev:/dev:rw \
+    -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
-    --device /dev/dri \
     --device /dev/uinput \
     --device /dev/uhid \
     --device-cgroup-rule='c 13:* rmw' \
@@ -2405,6 +2479,7 @@ EOF
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PAIRING_PIN}|${PAIRING_PIN}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         chmod +x $INSTALL_DIR/sandbox.sh

@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -24,14 +23,11 @@ type SpecTaskOrchestrator struct {
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
 	agentPool             *ExternalAgentPool
-	worktreeManager       *DesignDocsWorktreeManager
-	wolfExecutor          WolfExecutorInterface // NEW: Wolf executor for external agents
-	runningTasks          map[string]*OrchestratedTask
+	wolfExecutor          WolfExecutorInterface // Wolf executor for external agents
 	mutex                 sync.RWMutex
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
-	liveProgressHandlers  []LiveProgressHandler
 	testMode              bool
 }
 
@@ -41,33 +37,6 @@ type WolfExecutorInterface interface {
 	StopZedAgent(ctx context.Context, sessionID string) error
 }
 
-// OrchestratedTask represents a task being orchestrated
-type OrchestratedTask struct {
-	SpecTask         *types.SpecTask        `json:"spec_task"`
-	Agent            *ExternalAgentInstance `json:"agent"`
-	CurrentSessionID string                 `json:"current_session_id"`
-	DesignDocsPath   string                 `json:"design_docs_path"`
-	RepoPath         string                 `json:"repo_path"`
-	CurrentTaskIndex int                    `json:"current_task_index"`
-	TaskList         []TaskItem             `json:"task_list"`
-	LastUpdate       time.Time              `json:"last_update"`
-	Phase            string                 `json:"phase"`
-}
-
-// LiveProgressHandler handles live progress updates for dashboard
-type LiveProgressHandler func(progress *LiveAgentProgress)
-
-// LiveAgentProgress represents current agent progress for dashboard
-type LiveAgentProgress struct {
-	AgentID     string     `json:"agent_id"`
-	TaskID      string     `json:"task_id"`
-	TaskName    string     `json:"task_name"`
-	CurrentTask *TaskItem  `json:"current_task"`
-	TasksBefore []TaskItem `json:"tasks_before"`
-	TasksAfter  []TaskItem `json:"tasks_after"`
-	LastUpdate  time.Time  `json:"last_update"`
-	Phase       string     `json:"phase"`
-}
 
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
@@ -76,8 +45,7 @@ func NewSpecTaskOrchestrator(
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
 	agentPool *ExternalAgentPool,
-	worktreeManager *DesignDocsWorktreeManager,
-	wolfExecutor WolfExecutorInterface, // NEW: Wolf executor for external agents
+	wolfExecutor WolfExecutorInterface, // Wolf executor for external agents
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
 		store:                 store,
@@ -85,12 +53,9 @@ func NewSpecTaskOrchestrator(
 		gitService:            gitService,
 		specTaskService:       specTaskService,
 		agentPool:             agentPool,
-		worktreeManager:       worktreeManager,
-		wolfExecutor:          wolfExecutor, // NEW
-		runningTasks:          make(map[string]*OrchestratedTask),
+		wolfExecutor:          wolfExecutor,
 		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
-		liveProgressHandlers:  []LiveProgressHandler{},
 		testMode:              false,
 	}
 }
@@ -98,11 +63,6 @@ func NewSpecTaskOrchestrator(
 // SetTestMode enables/disables test mode
 func (o *SpecTaskOrchestrator) SetTestMode(enabled bool) {
 	o.testMode = enabled
-}
-
-// RegisterLiveProgressHandler registers a handler for live progress updates
-func (o *SpecTaskOrchestrator) RegisterLiveProgressHandler(handler LiveProgressHandler) {
-	o.liveProgressHandlers = append(o.liveProgressHandlers, handler)
 }
 
 // Start begins the orchestration loop
@@ -231,95 +191,40 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 
 	// Check WIP limits for planning column before auto-starting
 	// Get default project to load board settings
-	defaultProject, err := o.store.GetProject(ctx, "default")
-	if err == nil && len(defaultProject.Metadata) > 0 {
-		var metadata types.ProjectMetadata
-		if err := json.Unmarshal(defaultProject.Metadata, &metadata); err == nil {
-			if metadata.BoardSettings != nil && metadata.BoardSettings.WIPLimits != nil {
-				planningLimit, ok := metadata.BoardSettings.WIPLimits["planning"]
-				if ok && planningLimit > 0 {
-					// Count tasks currently in planning for THIS project
-					planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-						ProjectID: task.ProjectID,
-						Status:    types.TaskStatusSpecGeneration,
-					})
-					if err != nil {
-						log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
-					} else if len(planningTasks) >= planningLimit {
-						// Planning column is at WIP limit - don't auto-start
-						log.Info().
-							Str("task_id", task.ID).
-							Str("project_id", task.ProjectID).
-							Int("planning_count", len(planningTasks)).
-							Int("wip_limit", planningLimit).
-							Msg("Skipping backlog task - planning column at WIP limit")
-						return nil
-					}
-				}
-			}
-		}
+
+	var planningLimit int = 3
+
+	if project.Metadata.BoardSettings != nil &&
+		project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
+		planningLimit = project.Metadata.BoardSettings.WIPLimits.Planning
+	}
+
+	// Count tasks currently in planning for THIS project
+	planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: task.ProjectID,
+		Status:    types.TaskStatusSpecGeneration,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
+	} else if len(planningTasks) >= planningLimit {
+		// Planning column is at WIP limit - don't auto-start
+		log.Info().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Int("planning_count", len(planningTasks)).
+			Int("wip_limit", planningLimit).
+			Msg("Skipping backlog task - planning column at WIP limit")
+		return nil
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
 		Str("helix_app_id", task.HelixAppID).
-		Msg("Starting SpecTask planning phase with external agent")
+		Msg("Auto-starting SpecTask planning phase")
 
-	// Get Helix Agent configuration
-	app, err := o.store.GetApp(ctx, task.HelixAppID)
-	if err != nil {
-		return fmt.Errorf("failed to get Helix agent: %w", err)
-	}
-
-	// Create or get external agent for this SpecTask
-	externalAgent, err := o.getOrCreateExternalAgent(ctx, task)
-	if err != nil {
-		return fmt.Errorf("failed to get/create external agent: %w", err)
-	}
-
-	// Create planning Helix session
-	planningSession, err := o.createPlanningSession(ctx, task, app, externalAgent)
-	if err != nil {
-		return fmt.Errorf("failed to create planning session: %w", err)
-	}
-
-	// Update task with session reference
-	task.PlanningSessionID = planningSession.ID
-	task.Status = types.TaskStatusSpecGeneration
-	task.UpdatedAt = time.Now()
-
-	err = o.store.UpdateSpecTask(ctx, task)
-	if err != nil {
-		return fmt.Errorf("failed to update spec task: %w", err)
-	}
-
-	// Update external agent with new session
-	externalAgent.HelixSessionIDs = append(externalAgent.HelixSessionIDs, planningSession.ID)
-	externalAgent.LastActivity = time.Now()
-	err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update external agent with planning session")
-	}
-
-	// Update activity tracking
-	err = o.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
-		ExternalAgentID: externalAgent.ID,
-		SpecTaskID:      task.ID,
-		LastInteraction: time.Now(),
-		AgentType:       "spectask",
-		WolfAppID:       externalAgent.WolfAppID,
-		WorkspaceDir:    externalAgent.WorkspaceDir,
-		UserID:          task.CreatedBy,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update external agent activity")
-	}
-
-	log.Info().
-		Str("task_id", task.ID).
-		Str("session_id", planningSession.ID).
-		Str("external_agent_id", externalAgent.ID).
-		Msg("Planning phase started successfully")
+	// Delegate to the canonical StartSpecGeneration implementation
+	// This ensures both explicit start and auto-start use the same code path
+	o.specTaskService.StartSpecGeneration(ctx, task)
 
 	return nil
 }
@@ -377,112 +282,8 @@ func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, t
 	return o.store.UpdateSpecTask(ctx, task)
 }
 
-// createImplementationSession creates a Helix session for the implementation phase
-func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
-	// Build system prompt for implementation phase
-	systemPrompt := o.buildImplementationPrompt(task, app)
-
-	// Create session
-	// Extract organization ID from metadata if present
-	orgID := ""
-	if task.Metadata != nil {
-		if id, ok := task.Metadata["organization_id"].(string); ok {
-			orgID = id
-		}
-	}
-
-	session := &types.Session{
-		ID:             fmt.Sprintf("ses_impl_%s", task.ID),
-		Owner:          task.CreatedBy,
-		OwnerType:      types.OwnerTypeUser,
-		ParentApp:      app.ID,
-		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		ModelName:      app.Config.Helix.Assistants[0].Model,
-		OrganizationID: orgID,
-		Metadata: types.SessionMetadata{
-			SystemPrompt:    systemPrompt,
-			SpecTaskID:      task.ID,
-			ExternalAgentID: agent.ID,
-			Phase:           "implementation",
-		},
-	}
-
-	createdSession, err := o.store.CreateSession(ctx, *session)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create implementation session: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", createdSession.ID).
-		Str("spec_task_id", task.ID).
-		Msg("Created implementation session")
-
-	return createdSession, nil
-}
-
-// buildImplementationPrompt builds the system prompt for implementation phase with git workflow
-func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, app *types.App) string {
-	basePrompt := ""
-	if len(app.Config.Helix.Assistants) > 0 {
-		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
-	}
-
-	// Get repositories from parent project - repos are now managed at project level
-	projectRepos, err := o.store.ListGitRepositories(context.Background(), &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
-		projectRepos = nil
-	}
-
-	// Find primary repo path (use first repo as fallback)
-	primaryRepoPath := "backend" // Default fallback
-	if len(projectRepos) > 0 {
-		// Use LocalPath from first repo (or we could fetch project.DefaultRepoID to find the primary)
-		primaryRepoPath = projectRepos[0].LocalPath
-		if primaryRepoPath == "" {
-			primaryRepoPath = "backend" // Fallback if LocalPath not set
-		}
-	}
-
-	// Generate task directory name (same as planning phase)
-	dateStr := time.Now().Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
-
-	// Build implementation prompt
-	var promptBuilder strings.Builder
-	promptBuilder.WriteString(basePrompt)
-	promptBuilder.WriteString("\n\n## Task: Implement According to Specifications\n\n")
-	promptBuilder.WriteString("You are running in a full external agent session with Zed editor and git access.\n")
-	promptBuilder.WriteString("This is the SAME Zed instance from the planning phase - you can see the planning thread in Zed!\n\n")
-	promptBuilder.WriteString(fmt.Sprintf("**SpecTask**: %s\n", task.Name))
-	promptBuilder.WriteString(fmt.Sprintf("**Description**: %s\n\n", task.Description))
-	promptBuilder.WriteString("**Your job is to:**\n\n")
-	promptBuilder.WriteString(fmt.Sprintf("1. Fetch latest design documents from helix-specs branch\n"))
-	promptBuilder.WriteString(fmt.Sprintf("2. Read design docs from: ~/work/helix-specs/tasks/%s/\n", taskDirName))
-	promptBuilder.WriteString(fmt.Sprintf("3. Create feature branch: feature/%s\n", task.ID))
-	promptBuilder.WriteString("4. Implement according to tasks.md\n")
-	promptBuilder.WriteString("5. Mark tasks in progress [ ] -> [~] and complete [~] -> [x] in tasks.md\n")
-	promptBuilder.WriteString("6. Push progress updates to helix-specs branch\n")
-	promptBuilder.WriteString("7. Push feature branch when ready\n\n")
-	promptBuilder.WriteString("**Git Workflow**:\n")
-	promptBuilder.WriteString(fmt.Sprintf("- Work in: ~/work/%s\n", primaryRepoPath))
-	promptBuilder.WriteString("- Design docs: ~/work/helix-specs\n")
-	promptBuilder.WriteString("- Feature branch: feature/" + task.ID + "\n\n")
-	promptBuilder.WriteString("**Context from Planning Phase**:\n\n")
-	promptBuilder.WriteString(fmt.Sprintf("Requirements: %s\n\n", task.RequirementsSpec))
-	promptBuilder.WriteString(fmt.Sprintf("Design: %s\n\n", task.TechnicalDesign))
-	promptBuilder.WriteString(fmt.Sprintf("Implementation Plan: %s\n\n", task.ImplementationPlan))
-	promptBuilder.WriteString("Work methodically. All repositories and Zed state persist across sessions.")
-
-	return promptBuilder.String()
-}
+// NOTE: Implementation prompts are now handled by agent_instruction_service.go:SendApprovalInstruction
+// That function sends the actual implementation instructions when specs are approved.
 
 // handleImplementation handles tasks in implementation
 func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *types.SpecTask) error {
@@ -500,156 +301,12 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
-	// If no external agent or not running, check old orchestration pattern
-	o.mutex.RLock()
-	orchestratedTask, exists := o.runningTasks[task.ID]
-	o.mutex.RUnlock()
-
-	if !exists {
-		// Task not tracked in old orchestration system - this is OK for new reuse-agent pattern
-		log.Debug().
-			Str("task_id", task.ID).
-			Msg("Task in implementation but not in orchestrator tracking (using reused agent pattern)")
-		return nil
-	}
-
-	// Check current task progress via git commits
-	currentTask, err := o.worktreeManager.GetCurrentTask(orchestratedTask.DesignDocsPath)
-	if err != nil {
-		return fmt.Errorf("failed to get current task: %w", err)
-	}
-
-	// If no current task, start next one
-	if currentTask == nil {
-		err = o.startNextTask(ctx, task.ID)
-		if err != nil {
-			return fmt.Errorf("failed to start next task: %w", err)
-		}
-	}
-
-	// Broadcast live progress
-	o.broadcastLiveProgress(orchestratedTask)
-
-	// Check if all tasks complete
-	allComplete := true
-	for _, t := range orchestratedTask.TaskList {
-		if t.Status != TaskStatusCompleted {
-			allComplete = false
-			break
-		}
-	}
-
-	if allComplete {
-		log.Info().
-			Str("task_id", task.ID).
-			Msg("All implementation tasks complete")
-
-		task.Status = types.TaskStatusImplementationReview
-		task.UpdatedAt = time.Now()
-		task.CompletedAt = &task.UpdatedAt
-
-		// Clean up orchestrated task
-		o.mutex.Lock()
-		delete(o.runningTasks, task.ID)
-		o.mutex.Unlock()
-
-		return o.store.UpdateSpecTask(ctx, task)
-	}
-
+	// Task not tracked - this is OK for new reuse-agent pattern
+	// Implementation progress is tracked via shell scripts in the sandbox
+	log.Debug().
+		Str("task_id", task.ID).
+		Msg("Task in implementation (using reused agent pattern)")
 	return nil
-}
-
-// startNextTask starts the next pending task
-func (o *SpecTaskOrchestrator) startNextTask(ctx context.Context, taskID string) error {
-	o.mutex.RLock()
-	orchestratedTask, exists := o.runningTasks[taskID]
-	o.mutex.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("orchestrated task %s not found", taskID)
-	}
-
-	// Find next pending task
-	nextTask, err := o.worktreeManager.GetNextPendingTask(orchestratedTask.DesignDocsPath)
-	if err != nil {
-		return fmt.Errorf("failed to get next task: %w", err)
-	}
-
-	if nextTask == nil {
-		log.Info().
-			Str("task_id", taskID).
-			Msg("No more pending tasks")
-		return nil
-	}
-
-	// Mark task as in progress
-	err = o.worktreeManager.MarkTaskInProgress(ctx, orchestratedTask.DesignDocsPath, nextTask.Index)
-	if err != nil {
-		return fmt.Errorf("failed to mark task in progress: %w", err)
-	}
-
-	// Update orchestrated task
-	o.mutex.Lock()
-	orchestratedTask.CurrentTaskIndex = nextTask.Index
-	orchestratedTask.LastUpdate = time.Now()
-	o.mutex.Unlock()
-
-	// Broadcast update
-	o.broadcastLiveProgress(orchestratedTask)
-
-	log.Info().
-		Str("task_id", taskID).
-		Int("task_index", nextTask.Index).
-		Str("description", nextTask.Description).
-		Msg("Started next implementation task")
-
-	return nil
-}
-
-// setupTaskEnvironment sets up git repo and design docs for a task
-func (o *SpecTaskOrchestrator) setupTaskEnvironment(ctx context.Context, task *types.SpecTask) (repoPath, designDocsPath string, err error) {
-	// Get or create git repository for task
-	// This would use the GitRepositoryService to clone demo repo or setup project repo
-
-	// For now, assume repo exists at standard path
-	repoPath = fmt.Sprintf("/workspace/repos/%s/%s", task.CreatedBy, task.ProjectID)
-
-	// Setup design docs worktree
-	designDocsPath, err = o.worktreeManager.SetupWorktree(ctx, repoPath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to setup worktree: %w", err)
-	}
-
-	return repoPath, designDocsPath, nil
-}
-
-// broadcastLiveProgress broadcasts live progress to dashboard
-func (o *SpecTaskOrchestrator) broadcastLiveProgress(task *OrchestratedTask) {
-	// Get task context for dashboard
-	context, err := o.worktreeManager.GetTaskContext(task.DesignDocsPath, 2)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("task_id", task.SpecTask.ID).
-			Msg("Failed to get task context for broadcast")
-		return
-	}
-
-	progress := &LiveAgentProgress{
-		AgentID:     task.Agent.InstanceID,
-		TaskID:      task.SpecTask.ID,
-		TaskName:    task.SpecTask.Name,
-		CurrentTask: context.CurrentTask,
-		TasksBefore: context.TasksBefore,
-		TasksAfter:  context.TasksAfter,
-		LastUpdate:  time.Now(),
-		Phase:       task.Phase,
-	}
-
-	// Call all registered handlers
-	for _, handler := range o.liveProgressHandlers {
-		handler(progress)
-	}
 }
 
 // cleanupLoop periodically cleans up stale agents
@@ -688,7 +345,10 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 	// Create new external agent
 	agentID := fmt.Sprintf("zed-spectask-%s", task.ID)
-	workspaceDir := fmt.Sprintf("/opt/helix/filestore/workspaces/spectasks/%s", task.ID)
+	// CRITICAL: Use /filestore/ prefix (not /opt/helix/filestore/) so translateToHostPath works
+	// wolf_executor.go:translateToHostPath expects paths starting with /filestore/
+	// Also use "spec-tasks" (with hyphen) for consistency with wolf_executor.go
+	workspaceDir := fmt.Sprintf("/filestore/workspaces/spec-tasks/%s", task.ID)
 
 	log.Info().
 		Str("agent_id", agentID).
@@ -742,10 +402,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
-		ProjectPath:         "backend",     // Default primary repo path
-		RepositoryIDs:       repositoryIDs, // Repositories to clone
-		PrimaryRepositoryID: primaryRepoID, // Primary repository for design docs
-		SpecTaskID:          task.ID,       // Link to SpecTask
+		ProjectPath:         "backend",          // Default primary repo path
+		RepositoryIDs:       repositoryIDs,      // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID,      // Primary repository for design docs
+		SpecTaskID:          task.ID,            // Link to SpecTask
+		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
 		DisplayRefreshRate:  60,
@@ -861,11 +522,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	if len(projectRepos) > 0 {
 		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
 		for _, repo := range projectRepos {
-			repoPath := repo.Name
-			if repo.RepoType == "internal" {
-				repoPath = ".helix-project"
-			}
-			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repoPath)
+			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repo.Name)
 		}
 		repoInstructions += "\n"
 	}
@@ -985,36 +642,4 @@ func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID
 		Msg("✅ Created personal API key for agent access")
 
 	return createdKey.Key, nil
-}
-
-// GetLiveProgress returns current live progress for all running tasks
-func (o *SpecTaskOrchestrator) GetLiveProgress() []*LiveAgentProgress {
-	o.mutex.RLock()
-	defer o.mutex.RUnlock()
-
-	progress := []*LiveAgentProgress{}
-
-	for _, task := range o.runningTasks {
-		context, err := o.worktreeManager.GetTaskContext(task.DesignDocsPath, 2)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.SpecTask.ID).
-				Msg("Failed to get task context")
-			continue
-		}
-
-		progress = append(progress, &LiveAgentProgress{
-			AgentID:     task.Agent.InstanceID,
-			TaskID:      task.SpecTask.ID,
-			TaskName:    task.SpecTask.Name,
-			CurrentTask: context.CurrentTask,
-			TasksBefore: context.TasksBefore,
-			TasksAfter:  context.TasksAfter,
-			LastUpdate:  task.LastUpdate,
-			Phase:       task.Phase,
-		})
-	}
-
-	return progress
 }

@@ -67,6 +67,29 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  kodit.RepositoryStatusSummaryAttributes:
+    properties:
+      message:
+        description: Message Error message if failed
+        type: string
+      status:
+        description: Status Overall indexing status
+        type: string
+      updated_at:
+        description: UpdatedAt Most recent activity timestamp
+        type: string
+    type: object
+  kodit.RepositoryStatusSummaryData:
+    properties:
+      attributes:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryAttributes'
+        description: Attributes Attributes for repository status summary.
+      id:
+        type: string
+      type:
+        type: string
+    type: object
   mcp.Meta:
     properties:
       additionalFields:
@@ -711,29 +734,6 @@ definitions:
       severity:
         type: string
     type: object
-  server.AgentProgressItem:
-    properties:
-      agent_id:
-        type: string
-      current_task:
-        $ref: '#/definitions/server.TaskItemDTO'
-      last_update:
-        type: string
-      phase:
-        type: string
-      task_id:
-        type: string
-      task_name:
-        type: string
-      tasks_after:
-        items:
-          $ref: '#/definitions/server.TaskItemDTO'
-        type: array
-      tasks_before:
-        items:
-          $ref: '#/definitions/server.TaskItemDTO'
-        type: array
-    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       apps:
@@ -937,26 +937,6 @@ definitions:
       project_id:
         type: string
     type: object
-  server.ForkSimpleProjectRequest:
-    properties:
-      description:
-        type: string
-      project_name:
-        type: string
-      sample_project_id:
-        type: string
-    type: object
-  server.ForkSimpleProjectResponse:
-    properties:
-      github_repo_url:
-        type: string
-      message:
-        type: string
-      project_id:
-        type: string
-      tasks_created:
-        type: integer
-    type: object
   server.GPUStats:
     properties:
       available:
@@ -1030,15 +1010,6 @@ definitions:
   server.LicenseKeyRequest:
     properties:
       license_key:
-        type: string
-    type: object
-  server.LiveAgentFleetProgressResponse:
-    properties:
-      agents:
-        items:
-          $ref: '#/definitions/server.AgentProgressItem'
-        type: array
-      timestamp:
         type: string
     type: object
   server.LogsSummary:
@@ -1350,17 +1321,12 @@ definitions:
       workspace_dir:
         type: string
     type: object
-  server.TaskItemDTO:
-    properties:
-      description:
-        type: string
-      index:
-        type: integer
-      status:
-        type: string
-    type: object
   server.TaskProgressResponse:
     properties:
+      checklist:
+        allOf:
+        - $ref: '#/definitions/types.ChecklistProgress'
+        description: Progress from tasks.md
       created_at:
         type: string
       implementation:
@@ -1486,6 +1452,9 @@ definitions:
           width:
             type: integer
         type: object
+      idle_seconds:
+        description: Seconds since last ENET packet (for timeout monitoring)
+        type: integer
       lobby_id:
         description: Which lobby this session is connected to (lobbies mode)
         type: string
@@ -1576,6 +1545,9 @@ definitions:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
         type: string
+      just_do_it_mode:
+        description: 'Optional: Skip spec planning, go straight to implementation'
+        type: boolean
       priority:
         type: string
       project_id:
@@ -1584,11 +1556,11 @@ definitions:
         type: string
       type:
         type: string
+      use_host_docker:
+        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
+        type: boolean
       user_id:
         type: string
-      yolo_mode:
-        description: 'Optional: Skip human review and auto-approve specs'
-        type: boolean
     type: object
   services.DocumentHandoffConfig:
     properties:
@@ -1712,6 +1684,13 @@ definitions:
         items:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
+    type: object
+  services.KoditIndexingStatus:
+    properties:
+      data:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryData'
+        description: Data Data for repository status summary response.
     type: object
   services.KoditSearchResult:
     properties:
@@ -2016,6 +1995,13 @@ definitions:
     type: string
     x-enum-comments:
       ActionUseAction: For example "use app"
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - For example "use app"
     x-enum-varnames:
     - ActionGet
     - ActionList
@@ -2046,6 +2032,11 @@ definitions:
       full_name:
         type: string
       password:
+        type: string
+    type: object
+  types.AdminResetPasswordRequest:
+    properties:
+      new_password:
         type: string
     type: object
   types.AgentDashboardSummary:
@@ -2222,6 +2213,10 @@ definitions:
       AgentTypeHelixAgent: Standard Helix agent with skills
       AgentTypeHelixBasic: Basic Helix agent
       AgentTypeZedExternal: Zed-integrated agent
+    x-enum-descriptions:
+    - Basic Helix agent
+    - Standard Helix agent with skills
+    - Zed-integrated agent
     x-enum-varnames:
     - AgentTypeHelixBasic
     - AgentTypeHelixAgent
@@ -2500,6 +2495,7 @@ definitions:
         type: boolean
       runner_capacity:
         additionalProperties:
+          format: int64
           type: integer
         description: GPU index -> total memory
         type: object
@@ -2507,6 +2503,7 @@ definitions:
         type: string
       runner_memory_state:
         additionalProperties:
+          format: int64
           type: integer
         description: GPU index -> allocated memory
         type: object
@@ -2935,6 +2932,10 @@ definitions:
     type: string
     x-enum-comments:
       AuthProviderRegular: Embedded in Helix, no external dependencies
+    x-enum-descriptions:
+    - Embedded in Helix, no external dependencies
+    - ""
+    - ""
     x-enum-varnames:
     - AuthProviderRegular
     - AuthProviderKeycloak
@@ -2959,9 +2960,7 @@ definitions:
   types.BoardSettings:
     properties:
       wip_limits:
-        additionalProperties:
-          type: integer
-        type: object
+        $ref: '#/definitions/types.WIPLimits'
     type: object
   types.ChatCompletionMessage:
     properties:
@@ -3010,6 +3009,32 @@ definitions:
     x-enum-varnames:
     - ChatMessagePartTypeText
     - ChatMessagePartTypeImageURL
+  types.ChecklistItem:
+    properties:
+      description:
+        type: string
+      index:
+        type: integer
+      status:
+        description: pending, in_progress, completed
+        type: string
+    type: object
+  types.ChecklistProgress:
+    properties:
+      completed_tasks:
+        type: integer
+      in_progress_task:
+        $ref: '#/definitions/types.ChecklistItem'
+      progress_pct:
+        description: 0-100
+        type: integer
+      tasks:
+        items:
+          $ref: '#/definitions/types.ChecklistItem'
+        type: array
+      total_tasks:
+        type: integer
+    type: object
   types.Choice:
     properties:
       delta:
@@ -3032,6 +3057,20 @@ definitions:
         description: '"text" or "image"'
         type: string
     type: object
+  types.CommentQueueStatusResponse:
+    properties:
+      current_comment_id:
+        description: Comment currently being processed (response streaming)
+        type: string
+      planning_session_id:
+        description: Session ID for WebSocket subscription
+        type: string
+      queued_comment_ids:
+        description: Comments waiting in queue
+        items:
+          type: string
+        type: array
+    type: object
   types.Commit:
     properties:
       author:
@@ -3044,6 +3083,28 @@ definitions:
         type: string
       timestamp:
         type: string
+    type: object
+  types.ContainerDiskUsage:
+    properties:
+      container_id:
+        description: Docker container ID
+        type: string
+      container_name:
+        description: Container name (e.g., "wolf-app-abc123")
+        type: string
+      rw_size_bytes:
+        description: Size of read-write layer only
+        type: integer
+      size_bytes:
+        description: Total size of container's writable layer
+        type: integer
+    type: object
+  types.ContainerDiskUsageSummary:
+    properties:
+      container_name:
+        type: string
+      latest_size_mb:
+        type: integer
     type: object
   types.ContextMenuAction:
     properties:
@@ -3250,6 +3311,59 @@ definitions:
       server_name:
         type: string
     type: object
+  types.DiskUsageDataPoint:
+    properties:
+      alert_level:
+        type: string
+      avail_mb:
+        type: integer
+      mount_point:
+        type: string
+      timestamp:
+        type: string
+      total_mb:
+        type: integer
+      used_mb:
+        type: integer
+      used_percent:
+        type: number
+    type: object
+  types.DiskUsageHistoryResponse:
+    properties:
+      containers:
+        items:
+          $ref: '#/definitions/types.ContainerDiskUsageSummary'
+        type: array
+      history:
+        items:
+          $ref: '#/definitions/types.DiskUsageDataPoint'
+        type: array
+      wolf_instance_id:
+        type: string
+      wolf_name:
+        type: string
+    type: object
+  types.DiskUsageMetric:
+    properties:
+      alert_level:
+        description: '"ok", "warning", "critical"'
+        type: string
+      avail_bytes:
+        description: available disk space
+        type: integer
+      mount_point:
+        description: e.g., "/var"
+        type: string
+      total_bytes:
+        description: total disk space
+        type: integer
+      used_bytes:
+        description: used disk space
+        type: integer
+      used_percent:
+        description: percentage used (0-100)
+        type: number
+    type: object
   types.DynamicModelInfo:
     properties:
       created:
@@ -3403,6 +3517,26 @@ definitions:
           total_tokens:
             type: integer
         type: object
+    type: object
+  types.ForkSimpleProjectRequest:
+    properties:
+      description:
+        type: string
+      project_name:
+        type: string
+      sample_project_id:
+        type: string
+    type: object
+  types.ForkSimpleProjectResponse:
+    properties:
+      github_repo_url:
+        type: string
+      message:
+        type: string
+      project_id:
+        type: string
+      tasks_created:
+        type: integer
     type: object
   types.FrontendLicenseInfo:
     properties:
@@ -3734,6 +3868,9 @@ definitions:
     x-enum-comments:
       GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
       GitRepositoryTypeInternal: Internal project config repository
+    x-enum-descriptions:
+    - Internal project config repository
+    - Code repository (user projects, samples, external repos)
     x-enum-varnames:
     - GitRepositoryTypeInternal
     - GitRepositoryTypeCode
@@ -4845,6 +4982,9 @@ definitions:
       OrganizationRoleMember: Can see every member and team in the organization and
         can create new apps
       OrganizationRoleOwner: Has full administrative access to the entire organization.
+    x-enum-descriptions:
+    - Has full administrative access to the entire organization.
+    - Can see every member and team in the organization and can create new apps
     x-enum-varnames:
     - OrganizationRoleOwner
     - OrganizationRoleMember
@@ -4966,7 +5106,9 @@ definitions:
       default_branch:
         type: string
       default_repo_id:
-        description: Project-level repository management
+        description: |-
+          Project-level repository management
+          DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
         type: string
       deleted_at:
         allOf:
@@ -4978,22 +5120,15 @@ definitions:
         type: string
       id:
         type: string
-      internal_repo_path:
-        description: |-
-          Internal project Git repository (stores project config, tasks, design docs)
-          IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
-          It is NEVER stored in the database - Git is the single source of truth
-        type: string
       metadata:
-        items:
-          type: integer
-        type: array
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       organization_id:
         type: string
       startup_script:
-        description: Transient field - loaded from Git, never persisted to database
+        description: Transient field - loaded from primary code repo's .helix/startup.sh,
+          never persisted to database
         type: string
       status:
         description: '"active", "archived", "completed"'
@@ -5019,12 +5154,19 @@ definitions:
         type: string
       name:
         type: string
+      organization_id:
+        type: string
       startup_script:
         type: string
       technologies:
         items:
           type: string
         type: array
+    type: object
+  types.ProjectMetadata:
+    properties:
+      board_settings:
+        $ref: '#/definitions/types.BoardSettings'
     type: object
   types.ProjectUpdateRequest:
     properties:
@@ -5038,6 +5180,8 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      metadata:
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       startup_script:
@@ -5626,6 +5770,14 @@ definitions:
       SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
       SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
       SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
+    x-enum-descriptions:
+    - Added to queue
+    - Reused existing warm model instance
+    - Started new model instance
+    - Evicted stale slot to free memory
+    - Rejected (insufficient resources, etc.)
+    - Error during scheduling
+    - Cannot be scheduled (no warm slots available)
     x-enum-varnames:
     - SchedulingDecisionTypeQueued
     - SchedulingDecisionTypeReuseWarmSlot
@@ -5951,6 +6103,10 @@ definitions:
       external_agent_status:
         description: 'NEW: External agent status (running, stopped, terminated_idle)'
         type: string
+      gpu_vendor:
+        description: GPU vendor of sandbox running this session (nvidia, amd, intel,
+          none)
+        type: string
       helix_version:
         type: string
       implementation_task_index:
@@ -5979,6 +6135,9 @@ definitions:
         type: boolean
       rag_settings:
         $ref: '#/definitions/types.RAGSettings'
+      render_node:
+        description: GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+        type: string
       session_rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -5991,6 +6150,9 @@ definitions:
         type: string
       stream:
         type: boolean
+      sway_version:
+        description: helix-sway image version (commit hash) running in this session
+        type: string
       system_prompt:
         type: string
       text_finetune_enabled:
@@ -6025,6 +6187,11 @@ definitions:
     type: string
     x-enum-comments:
       SessionModeAction: Running tool actions (e.g. API, function calls)
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - Running tool actions (e.g. API, function calls)
     x-enum-varnames:
     - SessionModeNone
     - SessionModeInference
@@ -6256,6 +6423,9 @@ definitions:
       implementation_plan:
         description: Discrete tasks breakdown (markdown)
         type: string
+      just_do_it_mode:
+        description: Skip spec planning, go straight to implementation
+        type: boolean
       labels:
         items:
           type: string
@@ -6319,13 +6489,13 @@ definitions:
         type: string
       updated_at:
         type: string
+      use_host_docker:
+        description: Use host Docker socket (requires privileged sandbox)
+        type: boolean
       workspace_config:
         items:
           type: integer
         type: array
-      yolo_mode:
-        description: Skip human review, auto-approve specs
-        type: boolean
       zed_instance_id:
         description: Multi-session support
         type: string
@@ -6366,6 +6536,11 @@ definitions:
     - SpecTaskActivityZedConnected
     - SpecTaskActivityZedDisconnected
     - SpecTaskActivityPhaseTransition
+  types.SpecTaskArchiveRequest:
+    properties:
+      archived:
+        type: boolean
+    type: object
   types.SpecTaskDesignReview:
     properties:
       approved_at:
@@ -6442,6 +6617,9 @@ definitions:
       quoted_text:
         description: For inline comments - store the context around the comment
         type: string
+      request_id:
+        description: Request ID used when sending to agent (for response linking)
+        type: string
       resolution_reason:
         description: '"manual", "auto_text_removed", "agent_updated"'
         type: string
@@ -6515,6 +6693,12 @@ definitions:
       SpecTaskDesignReviewCommentTypePraise: Positive feedback
       SpecTaskDesignReviewCommentTypeQuestion: Question needing clarification
       SpecTaskDesignReviewCommentTypeSuggestion: Suggested improvement
+    x-enum-descriptions:
+    - General comment
+    - Question needing clarification
+    - Suggested improvement
+    - Critical issue must be fixed
+    - Positive feedback
     x-enum-varnames:
     - SpecTaskDesignReviewCommentTypeGeneral
     - SpecTaskDesignReviewCommentTypeQuestion
@@ -6555,6 +6739,12 @@ definitions:
       SpecTaskDesignReviewStatusInReview: Reviewer is actively reviewing
       SpecTaskDesignReviewStatusPending: Waiting for reviewer
       SpecTaskDesignReviewStatusSuperseded: Newer review exists (agent pushed updates)
+    x-enum-descriptions:
+    - Waiting for reviewer
+    - Reviewer is actively reviewing
+    - Reviewer requested changes
+    - Approved, ready for implementation
+    - Newer review exists (agent pushed updates)
     x-enum-varnames:
     - SpecTaskDesignReviewStatusPending
     - SpecTaskDesignReviewStatusInReview
@@ -6720,8 +6910,13 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskWorkSession'
         type: array
+      checklist:
+        allOf:
+        - $ref: '#/definitions/types.ChecklistProgress'
+        description: Progress from tasks.md
       implementation_progress:
         additionalProperties:
+          format: float64
           type: number
         description: Task index -> progress
         type: object
@@ -6730,6 +6925,7 @@ definitions:
         type: number
       phase_progress:
         additionalProperties:
+          format: float64
           type: number
         type: object
       recent_activity:
@@ -6743,15 +6939,15 @@ definitions:
     properties:
       description:
         type: string
+      just_do_it_mode:
+        description: Pointer to allow explicit false
+        type: boolean
       name:
         type: string
       priority:
         type: string
       status:
         type: string
-      yolo_mode:
-        description: Pointer to allow explicit false
-        type: boolean
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -7615,6 +7811,15 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  types.WIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
+    type: object
   types.Wallet:
     properties:
       balance:
@@ -7674,6 +7879,31 @@ definitions:
       user_agent:
         type: string
     type: object
+  types.WolfHeartbeatRequest:
+    properties:
+      container_usage:
+        description: per-container disk usage breakdown
+        items:
+          $ref: '#/definitions/types.ContainerDiskUsage'
+        type: array
+      disk_usage:
+        description: disk usage metrics for monitored partitions
+        items:
+          $ref: '#/definitions/types.DiskUsageMetric'
+        type: array
+      gpu_vendor:
+        description: nvidia, amd, intel, none (from sandbox env)
+        type: string
+      privileged_mode_enabled:
+        description: true if HYDRA_PRIVILEGED_MODE_ENABLED=true
+        type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
+        type: string
+      sway_version:
+        description: helix-sway image version (commit hash)
+        type: string
+    type: object
   types.WolfInstanceRequest:
     properties:
       address:
@@ -7693,7 +7923,16 @@ definitions:
         type: integer
       created_at:
         type: string
+      disk_alert_level:
+        type: string
+      disk_usage:
+        items:
+          $ref: '#/definitions/types.DiskUsageMetric'
+        type: array
       gpu_type:
+        type: string
+      gpu_vendor:
+        description: nvidia, amd, intel, none (from sandbox heartbeat)
         type: string
       id:
         type: string
@@ -7703,7 +7942,14 @@ definitions:
         type: integer
       name:
         type: string
+      privileged_mode_enabled:
+        type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE
+        type: string
       status:
+        type: string
+      sway_version:
         type: string
       updated_at:
         type: string
@@ -7783,6 +8029,21 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  wolf.KeyboardLayerState:
+    properties:
+      modifier_state:
+        $ref: '#/definitions/wolf.KeyboardModifierState'
+      pressed_key_names:
+        description: Human-readable names
+        items:
+          type: string
+        type: array
+      pressed_keys:
+        description: Key codes (VK for wolf/inputtino, KEY_* for evdev)
+        items:
+          type: integer
+        type: array
+    type: object
   wolf.KeyboardModifierState:
     properties:
       alt:
@@ -7818,6 +8079,22 @@ definitions:
     properties:
       device_name:
         type: string
+      device_node:
+        description: e.g., /dev/input/event15
+        type: string
+      evdev_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: Kernel's evdev state
+      has_mismatch:
+        description: Mismatch detection
+        type: boolean
+      inputtino_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: Inputtino's internal cur_press_keys
+      mismatch_description:
+        type: string
       modifier_state:
         $ref: '#/definitions/wolf.KeyboardModifierState'
       pressed_key_names:
@@ -7825,6 +8102,7 @@ definitions:
           type: string
         type: array
       pressed_keys:
+        description: Legacy fields for backwards compatibility
         items:
           type: integer
         type: array
@@ -7832,6 +8110,10 @@ definitions:
         type: string
       timestamp_ms:
         type: integer
+      wolf_state:
+        allOf:
+        - $ref: '#/definitions/wolf.KeyboardLayerState'
+        description: 'Three layers of keyboard state for debugging:'
     type: object
   wolf.SystemHealthResponse:
     properties:
@@ -7878,18 +8160,8 @@ definitions:
       tid:
         type: integer
     type: object
-host: app.helix.ml
 info:
-  contact:
-    email: info@helix.ml
-    name: Helix support
-    url: https://app.helix.ml/
-  description: This is the HelixML API.
-  title: HelixML API reference
-  version: "0.1"
-  x-logo:
-    altText: Helix logo
-    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
+  contact: {}
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -7948,6 +8220,47 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/users/{id}/password:
+    put:
+      consumes:
+      - application/json
+      description: Reset the password for any user. Only admins can use this endpoint.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AdminResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Not authorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Reset a user's password (Admin only)
+      tags:
+      - users
   /api/v1/admin/wolf/lobbies/{lobbyId}:
     delete:
       description: Stop a Wolf lobby (terminates container and releases GPU resources)
@@ -8030,25 +8343,6 @@ paths:
       summary: Get agent fleet data
       tags:
       - agents
-  /api/v1/agents/fleet/live-progress:
-    get:
-      description: Get real-time progress of all agents working on SpecTasks
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.LiveAgentFleetProgressResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get live agent fleet progress
-      tags:
-      - SpecTasks
   /api/v1/agents/help-requests:
     get:
       description: List help requests from agents needing human assistance
@@ -9863,12 +10157,20 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/services.KoditEnrichmentListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -9897,12 +10199,20 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/services.KoditEnrichmentData'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -9933,12 +10243,20 @@ paths:
               additionalProperties: true
               type: object
             type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -9961,14 +10279,21 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/services.KoditIndexingStatus'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -10134,6 +10459,10 @@ paths:
             $ref: '#/definitions/types.APIError'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "502":
+          description: Bad Gateway
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -11152,6 +11481,11 @@ paths:
       consumes:
       - application/json
       description: Get all projects for the current user
+      parameters:
+      - description: Organization ID
+        in: query
+        name: organization_id
+        type: string
       produces:
       - application/json
       responses:
@@ -12204,12 +12538,12 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.ForkSimpleProjectRequest'
+          $ref: '#/definitions/types.ForkSimpleProjectRequest'
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/server.ForkSimpleProjectResponse'
+            $ref: '#/definitions/types.ForkSimpleProjectResponse'
       security:
       - BearerAuth: []
       summary: Fork a simple sample project
@@ -13273,6 +13607,43 @@ paths:
       summary: Get design review details
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status:
+    get:
+      consumes:
+      - application/json
+      description: Get the current comment being processed and the queue of pending
+        comments for a review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CommentQueueStatusResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get comment queue status
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments:
     get:
       consumes:
@@ -13620,12 +13991,12 @@ paths:
         name: taskId
         required: true
         type: string
-      - description: Archive status (true to archive, false to unarchive)
+      - description: Archive request
         in: body
-        name: archived
+        name: request
         required: true
         schema:
-          type: boolean
+          $ref: '#/definitions/types.SpecTaskArchiveRequest'
       produces:
       - application/json
       responses:
@@ -14280,56 +14651,6 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
-  /api/v1/spec-tasks/board-settings:
-    get:
-      description: Get the Kanban board settings (WIP limits) for the default project
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get board settings for spec tasks
-      tags:
-      - spec-driven-tasks
-    put:
-      consumes:
-      - application/json
-      description: Update the Kanban board settings (WIP limits) for the default project
-      parameters:
-      - description: Board settings
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.BoardSettings'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Update board settings for spec tasks
-      tags:
-      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:
@@ -15027,9 +15348,58 @@ paths:
       summary: Deregister a Wolf instance
       tags:
       - wolf
+  /api/v1/wolf-instances/{id}/disk-history:
+    get:
+      description: Get time-series disk usage data for visualization (last 7 days)
+      parameters:
+      - description: Wolf instance ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Hours of history to return (default 24, max 168)
+        in: query
+        name: hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DiskUsageHistoryResponse'
+        "404":
+          description: Wolf instance not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get disk usage history for a Wolf instance
+      tags:
+      - wolf
   /api/v1/wolf-instances/{id}/heartbeat:
     post:
-      description: Update the last heartbeat timestamp for a Wolf instance
+      consumes:
+      - application/json
+      description: Update the last heartbeat timestamp and optional metadata for a
+        Wolf instance
+      parameters:
+      - description: Wolf instance ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Heartbeat metadata
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/types.WolfHeartbeatRequest'
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
@@ -15732,6 +16102,4 @@ paths:
             type: array
       security:
       - BearerAuth: []
-schemes:
-- https
 swagger: "2.0"

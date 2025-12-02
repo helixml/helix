@@ -20,10 +20,21 @@ func NewWolfScheduler(store Store) *WolfScheduler {
 	}
 }
 
+// WolfSelectionOptions contains options for Wolf instance selection
+type WolfSelectionOptions struct {
+	GPUType              string // Filter by GPU type (nvidia, amd, intel, none)
+	RequirePrivilegedMode bool   // If true, only select Wolfs with PrivilegedModeEnabled=true
+}
+
 // SelectWolfInstance picks the best available Wolf for a new sandbox
 // Algorithm: Least-loaded Wolf with matching GPU type (if specified)
 // Returns error if no Wolfs available or all at capacity
 func (s *WolfScheduler) SelectWolfInstance(ctx context.Context, gpuType string) (*types.WolfInstance, error) {
+	return s.SelectWolfInstanceWithOptions(ctx, WolfSelectionOptions{GPUType: gpuType})
+}
+
+// SelectWolfInstanceWithOptions picks the best available Wolf with advanced filtering
+func (s *WolfScheduler) SelectWolfInstanceWithOptions(ctx context.Context, opts WolfSelectionOptions) (*types.WolfInstance, error) {
 	instances, err := s.store.ListWolfInstances(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list Wolf instances: %w", err)
@@ -43,7 +54,12 @@ func (s *WolfScheduler) SelectWolfInstance(ctx context.Context, gpuType string) 
 		}
 
 		// Filter by GPU type if specified
-		if gpuType != "" && inst.GPUType != gpuType {
+		if opts.GPUType != "" && inst.GPUType != opts.GPUType {
+			continue
+		}
+
+		// Filter by privileged mode if required
+		if opts.RequirePrivilegedMode && !inst.PrivilegedModeEnabled {
 			continue
 		}
 
@@ -68,8 +84,11 @@ func (s *WolfScheduler) SelectWolfInstance(ctx context.Context, gpuType string) 
 	}
 
 	if bestWolf == nil {
-		if gpuType != "" {
-			return nil, fmt.Errorf("no available Wolf instances with GPU type '%s' (all offline or at capacity)", gpuType)
+		if opts.RequirePrivilegedMode {
+			return nil, fmt.Errorf("no available Wolf instances with privileged mode enabled (required for host Docker access)")
+		}
+		if opts.GPUType != "" {
+			return nil, fmt.Errorf("no available Wolf instances with GPU type '%s' (all offline or at capacity)", opts.GPUType)
 		}
 		return nil, fmt.Errorf("no available Wolf instances (all offline or at capacity)")
 	}

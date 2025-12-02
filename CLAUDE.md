@@ -148,6 +148,25 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **NEVER assume you can delete someone else's code.**
 
+## 🚨 CRITICAL: COMMIT BEFORE BUILDING SANDBOX IMAGE 🚨
+
+**ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
+
+`./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
+
+```bash
+# ❌ WRONG: Build without committing
+./stack build-sway                    # Image tag won't update!
+./stack build-sandbox                 # Image tag won't update!
+
+# ✅ CORRECT
+git add -A && git commit -m "changes" && git push
+./stack build-sway                    # New tag detected, new image runs
+./stack build-sandbox                 # New tag detected, new image runs
+```
+
+**Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
+
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
 **DEBUGGING HUNG PROCESSES IS ALWAYS MORE IMPORTANT THAN QUICK RECOVERY**
@@ -577,21 +596,30 @@ function getSidebarForRoute(routeName: string) {
 }
 ```
 
-## Docker Compose
+## 🚨 CRITICAL: Docker Compose restart Does NOT Update Env or Images 🚨
 
-**Always use:** `docker compose -f docker-compose.dev.yaml`
+**`docker compose restart` does NOT:**
+- Re-read `.env` file changes
+- Pull or use new images
+- Recreate containers
 
-**Restart vs Down+Up:**
+**It ONLY restarts the existing container with its original configuration.**
+
 ```bash
-# ✅ For config/image changes
-docker compose -f docker-compose.dev.yaml down wolf
-docker compose -f docker-compose.dev.yaml up -d wolf
+# ❌ WRONG: This does NOT pick up .env changes or new images
+docker compose -f docker-compose.dev.yaml restart api
+docker compose -f docker-compose.dev.yaml restart sandbox
 
-# ❌ Only restarts, doesn't recreate
-docker compose -f docker-compose.dev.yaml restart wolf
+# ✅ CORRECT: Must down+up to apply .env changes or new images
+docker compose -f docker-compose.dev.yaml down api sandbox
+docker compose -f docker-compose.dev.yaml up -d api sandbox
 ```
 
-Use `restart` only for bind-mounted file changes.
+**When to use each:**
+- `restart` - ONLY for bind-mounted file changes (code hot-reload handles this anyway)
+- `down` + `up` - For .env changes, image updates, or any config changes
+
+**Always use:** `docker compose -f docker-compose.dev.yaml`
 
 ## Database Migrations
 

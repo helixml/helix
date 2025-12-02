@@ -158,11 +158,23 @@ func (m *MockStoreForWolf) ListWolfInstances(ctx context.Context) ([]*types.Wolf
 func (m *MockStoreForWolf) RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error {
 	return nil
 }
-func (m *MockStoreForWolf) UpdateWolfHeartbeat(ctx context.Context, id string, swayVersion string) error {
+func (m *MockStoreForWolf) UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error {
 	return nil
 }
 func (m *MockStoreForWolf) UpdateWolfStatus(ctx context.Context, id string, status string) error {
 	return nil
+}
+func (m *MockStoreForWolf) ResetWolfInstanceOnReconnect(ctx context.Context, id string) error {
+	return nil
+}
+func (m *MockStoreForWolf) CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error {
+	return nil
+}
+func (m *MockStoreForWolf) GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error) {
+	return nil, nil
+}
+func (m *MockStoreForWolf) DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error) {
+	return 0, nil
 }
 func (m *MockStoreForWolf) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) {
 	return nil, nil
@@ -214,7 +226,7 @@ func (m *MockStoreForWolf) Includes(m2 map[string]bool, s string) bool { return 
 func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	return nil, nil
 }
-func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+func (m *MockStoreForWolf) ListProjects(ctx context.Context, query *store.ListProjectsQuery) ([]*types.Project, error) {
 	return nil, nil
 }
 func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {

@@ -14,9 +14,69 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
+# Patched wlroots build stage (Debian package rebuild)
+# ====================================================================
+# Rebuild libwlroots12 with our keyboard layout fix patch.
+# This fixes a bug where pressing modifier keys (Shift/Ctrl/Alt) would
+# reset the keyboard layout to US when running Sway as a nested compositor.
+#
+# We use Debian's packaging system (dpkg-buildpackage + quilt patches)
+# which is the cleanest way to maintain custom library patches.
+#
+# The patch adds WLR_IGNORE_PARENT_KEYBOARD_LAYOUT environment variable
+# that, when set to "1", preserves Sway's own keyboard layout instead of
+# syncing to the parent compositor's layout.
+#
+# Version suffix: -helix1 indicates our custom patch
+# ====================================================================
+FROM ubuntu:25.04 AS wlroots-build
+
+# Enable source repositories and install build dependencies
+RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
+    apt-get update && \
+    apt-get install -y dpkg-dev devscripts quilt && \
+    apt-get build-dep -y libwlroots12t64 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Get the source package
+WORKDIR /build
+RUN apt-get update && apt-get source libwlroots12t64
+
+# Copy our patch into the Debian patches directory
+COPY wolf/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
+RUN cd /build/wlroots-* && \
+    mkdir -p debian/patches && \
+    cp /build/0001-wayland-backend-ignore-parent-layout-group.patch debian/patches/ && \
+    echo "0001-wayland-backend-ignore-parent-layout-group.patch" >> debian/patches/series
+
+# Update the version to indicate our custom build
+RUN cd /build/wlroots-* && \
+    dch --local helix "Add WLR_IGNORE_PARENT_KEYBOARD_LAYOUT to fix nested compositor layout reset"
+
+# Build the package
+RUN cd /build/wlroots-* && \
+    dpkg-buildpackage -us -uc -b
+
+# ====================================================================
 # Sway Personal Dev Environment
 # ====================================================================
 FROM ghcr.io/games-on-whales/base-app:edge
+
+# ====================================================================
+# Install patched wlroots library
+# ====================================================================
+# Replace the stock wlroots with our patched version that fixes the
+# keyboard layout reset bug when running Sway as a nested compositor.
+# The patched library adds WLR_IGNORE_PARENT_KEYBOARD_LAYOUT support.
+#
+# We copy the .deb package from our build stage and install it, which
+# properly replaces the stock libwlroots12t64 package.
+COPY --from=wlroots-build /build/*.deb /tmp/wlroots/
+RUN dpkg -i /tmp/wlroots/libwlroots12*.deb && rm -rf /tmp/wlroots
+
+# Enable the keyboard layout fix - this tells wlroots to preserve Sway's
+# own keyboard layout instead of syncing to the parent compositor's layout.
+ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
 
 # Add passwordless sudo and basic tools
 RUN apt-get update && \
@@ -53,6 +113,21 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
+    # Note: docker group is created at runtime by 16-add-docker-group.sh
+    # with the correct GID matching the mounted socket from sandbox
+
+# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
+# These wrappers intercept docker/compose commands and resolve symlinks in volume
+# paths before passing to the real binaries, enabling bind mounts to work
+# correctly when using Hydra (nested dockerd per session).
+COPY wolf/sway-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY wolf/sway-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+RUN mv /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
+    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
+    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
@@ -87,37 +162,11 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
-RUN mkdir -p /cfg/sway
-ADD wolf/sway-config/config /cfg/sway/custom-cfg
-
-# Copy and setup Zed startup script and helper scripts
-ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
-
-# Copy GOW startup script
-ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
-RUN chmod +x /opt/gow/startup-app.sh
-
-# Copy welcome README template for workspace initialization
-RUN mkdir -p /opt/helix
-ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
-
-# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
-COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
-COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
-COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
-
-# Copy Zed binary (built with ./stack build-zed before Docker build)
-# CRITICAL: Must be built with --features external_websocket_sync
-RUN mkdir -p /zed-build
-COPY zed-build/zed /zed-build/zed
-RUN chmod +x /zed-build/zed
-
 # ====================================================================
 # Install Node.js 20 (required for AI coding agents)
 # ====================================================================
+# CACHE OPTIMIZATION: Node.js and Qwen Code rarely change, so install early
+# to avoid re-building on every sway config or script change.
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -133,6 +182,9 @@ RUN apt-get update && \
 # SECURITY: We build from the GitHub source we've audited rather than trusting
 # the npm package, which could differ from the source or be compromised.
 # This ensures the code running matches our security audit.
+#
+# CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
+# early in the Dockerfile before frequently-changing sway configs and scripts.
 WORKDIR /tmp/qwen-code-build
 RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     # Pin to specific audited commit for reproducibility and audit trail
@@ -147,6 +199,43 @@ RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     # Clean up build artifacts
     cd / && rm -rf /tmp/qwen-code-build && \
     npm cache clean --force
+
+# ====================================================================
+# Frequently-changing files below (cache invalidation expected)
+# ====================================================================
+
+# Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
+RUN mkdir -p /cfg/sway
+ADD wolf/sway-config/config /cfg/sway/custom-cfg
+
+# Copy and setup Zed startup script and helper scripts
+ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+
+# Copy GOW startup script
+ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh
+RUN chmod +x /opt/gow/startup-app.sh
+
+# Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
+# CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
+ADD wolf/sway-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Copy welcome README template for workspace initialization
+RUN mkdir -p /opt/helix
+ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
+
+# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
+COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+# CRITICAL: Must be built with --features external_websocket_sync
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
 
 # Create Qwen Code configuration directory for retro user
 # IMPORTANT: This configuration DISABLES all telemetry and auto-updates

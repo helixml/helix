@@ -47,20 +47,21 @@ type SpecTask struct {
 	// Approval tracking
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
-	SpecRevisionCount int        `json:"spec_revision_count"` // Number of spec revisions requested
-	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
+	SpecRevisionCount int        `json:"spec_revision_count"`            // Number of spec revisions requested
+	JustDoItMode      bool       `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
+	UseHostDocker     bool       `json:"use_host_docker" gorm:"default:false"` // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
 	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
 
 	// Git tracking
-	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`    // Last commit hash pushed to feature branch
-	LastPushAt         *time.Time `json:"last_push_at,omitempty"`             // When branch was last pushed
-	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`    // When design docs were pushed to helix-specs branch
+	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch
+	LastPushAt         *time.Time `json:"last_push_at,omitempty"`              // When branch was last pushed
+	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`     // When design docs were pushed to helix-specs branch
 	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
-	MergedAt           *time.Time `json:"merged_at,omitempty"`                // When merge happened
-	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`        // Merge commit hash
+	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
+	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
 	// Simple tracking
 	EstimatedHours int        `json:"estimated_hours,omitempty"`
@@ -133,11 +134,11 @@ type SpecTaskFilters struct {
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
 type SpecTaskUpdateRequest struct {
-	Status      string `json:"status,omitempty"`
-	Priority    string `json:"priority,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	YoloMode    *bool  `json:"yolo_mode,omitempty"` // Pointer to allow explicit false
+	Status       string `json:"status,omitempty"`
+	Priority     string `json:"priority,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Description  string `json:"description,omitempty"`
+	JustDoItMode *bool  `json:"just_do_it_mode,omitempty"` // Pointer to allow explicit false
 }
 
 // Two-phase workflow status constants
@@ -190,13 +191,13 @@ type SpecApprovalResponse struct {
 // SpecTaskExternalAgent represents the external agent (Wolf container) for a SpecTask
 // Single agent per SpecTask that spans multiple Helix sessions via Zed threads
 type SpecTaskExternalAgent struct {
-	ID              string    `json:"id" gorm:"primaryKey;size:255"`                  // zed-spectask-{spectask_id}
-	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`   // Parent SpecTask
-	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`                   // Wolf app managing this agent
-	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                 // /workspaces/spectasks/{id}/work/
+	ID              string    `json:"id" gorm:"primaryKey;size:255"`                       // zed-spectask-{spectask_id}
+	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`         // Parent SpecTask
+	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`                         // Wolf app managing this agent
+	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                       // /workspaces/spectasks/{id}/work/
 	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"type:jsonb;serializer:json"` // All sessions using this agent
 	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"type:jsonb;serializer:json"`    // Zed threads (1:1 with sessions)
-	Status          string    `json:"status" gorm:"size:50;default:creating;index"`  // creating, running, terminated
+	Status          string    `json:"status" gorm:"size:50;default:creating;index"`        // creating, running, terminated
 	Created         time.Time `json:"created" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	LastActivity    time.Time `json:"last_activity" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
@@ -207,10 +208,10 @@ type ExternalAgentActivity struct {
 	ExternalAgentID string    `json:"external_agent_id" gorm:"primaryKey;size:255"` // e.g., "zed-spectask-abc123"
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`  // Parent SpecTask
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
-	AgentType       string    `json:"agent_type" gorm:"size:50"`  // "spectask", "pde", "adhoc"
-	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"` // Wolf app ID for termination
+	AgentType       string    `json:"agent_type" gorm:"size:50"`     // "spectask", "pde", "adhoc"
+	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`   // Wolf app ID for termination
 	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"size:255"` // Wolf lobby ID for cleanup even after session deleted
-	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"` // Wolf lobby PIN for cleanup
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"`  // Wolf lobby PIN for cleanup
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 }
@@ -222,4 +223,8 @@ func (SpecTaskExternalAgent) TableName() string {
 
 func (ExternalAgentActivity) TableName() string {
 	return "external_agent_activity"
+}
+
+type SpecTaskArchiveRequest struct {
+	Archived bool `json:"archived"`
 }

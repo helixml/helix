@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,208 +15,39 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// ProjectInternalRepoService manages internal Git repositories for projects
-type ProjectInternalRepoService struct {
-	basePath           string // Base path for all project repos (e.g., /opt/helix/filestore/projects)
-	sampleCodeService  *SampleProjectCodeService
+// ProjectRepoService manages Git repositories for projects
+// Startup scripts are stored in the primary CODE repository at .helix/startup.sh
+type ProjectRepoService struct {
+	basePath          string // Base path for all project repos (e.g., /opt/helix/filestore/projects)
+	sampleCodeService *SampleProjectCodeService
 }
 
-// NewProjectInternalRepoService creates a new project internal repo service
-func NewProjectInternalRepoService(basePath string) *ProjectInternalRepoService {
-	return &ProjectInternalRepoService{
+// NewProjectRepoService creates a new project repo service
+func NewProjectRepoService(basePath string) *ProjectRepoService {
+	return &ProjectRepoService{
 		basePath:          basePath,
 		sampleCodeService: NewSampleProjectCodeService(),
 	}
 }
 
-// ProjectConfig represents the .helix/project.json configuration file
-type ProjectConfig struct {
-	ProjectID     string            `json:"project_id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Technologies  []string          `json:"technologies,omitempty"`
-	DefaultRepoID string            `json:"default_repo_id,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+// StartupScriptVersion represents a version of the startup script from git history
+type StartupScriptVersion struct {
+	CommitHash string    `json:"commit_hash"`
+	Content    string    `json:"content"`
+	Timestamp  time.Time `json:"timestamp"`
+	Author     string    `json:"author"`
+	Message    string    `json:"message"`
 }
 
-// InitializeProjectRepo creates a new internal Git repository for a project
-func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, project *types.Project) (string, error) {
-	// Create project directory
-	projectDir := filepath.Join(s.basePath, project.ID)
-	repoPath := filepath.Join(projectDir, "repo")
-
-	log.Info().
-		Str("project_id", project.ID).
-		Str("repo_path", repoPath).
-		Msg("Initializing internal project Git repository")
-
-	// Create directory for bare repo
-	if err := os.MkdirAll(repoPath, 0755); err != nil {
-		return "", fmt.Errorf("failed to create project directory: %w", err)
-	}
-
-	// Initialize bare Git repository (empty for now)
-	// All filestore repos are bare so agents can push to them
-	_, err := git.PlainInit(repoPath, true)
-	if err != nil {
-		return "", fmt.Errorf("failed to initialize bare git repository: %w", err)
-	}
-
-	// Create temp working repo to add initial files
-	// We can't clone the bare repo yet - it's empty!
-	tempClone, err := os.MkdirTemp("", "helix-repo-init-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tempClone)
-
-	// Initialize temp repo as non-bare
-	tempRepo, err := git.PlainInit(tempClone, false)
-	if err != nil {
-		return "", fmt.Errorf("failed to initialize temp repository: %w", err)
-	}
-
-	// Create .helix directory structure in temp clone
-	helixDir := filepath.Join(tempClone, ".helix")
-	if err := os.MkdirAll(helixDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create .helix directory: %w", err)
-	}
-
-	// Create tasks and design-docs directories
-	if err := os.MkdirAll(filepath.Join(helixDir, "tasks"), 0755); err != nil {
-		return "", fmt.Errorf("failed to create .helix/tasks directory: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Join(helixDir, "design-docs"), 0755); err != nil {
-		return "", fmt.Errorf("failed to create .helix/design-docs directory: %w", err)
-	}
-
-	// Create project.json
-	projectConfig := ProjectConfig{
-		ProjectID:    project.ID,
-		Name:         project.Name,
-		Description:  project.Description,
-		Technologies: project.Technologies,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	projectConfigData, err := json.MarshalIndent(projectConfig, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal project config: %w", err)
-	}
-
-	projectConfigPath := filepath.Join(helixDir, "project.json")
-	if err := os.WriteFile(projectConfigPath, projectConfigData, 0644); err != nil {
-		return "", fmt.Errorf("failed to write project.json: %w", err)
-	}
-
-	// Create startup.sh
-	startupScriptPath := filepath.Join(helixDir, "startup.sh")
-	startupScriptContent := project.StartupScript
-	if startupScriptContent == "" {
-		startupScriptContent = `#!/bin/bash
-set -euo pipefail
-
-# Project startup script
-# This runs when agents start working on this project
-
-echo "🚀 Starting project: ` + project.Name + `"
-
-# Add your setup commands here:
-# Example: sudo apt-get install -y package-name
-# Example: npm install
-# Example: pip install -r requirements.txt
-
-echo "✅ Project startup complete"
-`
-	}
-
-	if err := os.WriteFile(startupScriptPath, []byte(startupScriptContent), 0755); err != nil {
-		return "", fmt.Errorf("failed to write startup.sh: %w", err)
-	}
-
-	// Create README.md (generic - explains internal repo structure, not project-specific)
-	readmePath := filepath.Join(helixDir, "README.md")
-	readmeContent := `# Helix Internal Project Repository
-
-This is the internal configuration repository for a Helix project.
-It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent workspaces.
-
-## Structure
-
-- ` + "`project.json`" + ` - Project metadata (ID, name, description, technologies)
-- ` + "`startup.sh`" + ` - Startup script that runs when agents begin work
-
-## Notes
-
-- Tasks are stored in the database, not in files
-- Design documents are stored in the code repository's ` + "`helix-specs`" + ` branch
-- This repo is read-only in agent workspaces to prevent accidental modifications
-- Project settings are managed through the Helix web UI
-`
-
-	if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
-		return "", fmt.Errorf("failed to write README.md: %w", err)
-	}
-
-	// Add remote pointing to bare repo
-	_, err = tempRepo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{repoPath}, // Point to bare repo
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to create remote: %w", err)
-	}
-
-	// Commit initial structure in temp clone
-	worktree, err := tempRepo.Worktree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Add all files
-	if _, err := worktree.Add(".helix"); err != nil {
-		return "", fmt.Errorf("failed to add .helix to git: %w", err)
-	}
-
-	// Commit
-	commitMsg := fmt.Sprintf("Initialize Helix project: %s\n\nAuto-generated project structure with config, startup script, and templates.", project.Name)
-	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  "Helix System",
-			Email: "system@helix.ml",
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to commit initial structure: %w", err)
-	}
-
-	// Push to bare repo
-	err = tempRepo.Push(&git.PushOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to push to bare repo: %w", err)
-	}
-
-	log.Info().
-		Str("project_id", project.ID).
-		Str("repo_path", repoPath).
-		Msg("Successfully initialized project internal repository")
-
-	return repoPath, nil
-}
-
-// LoadStartupScript loads the startup script from the internal repo (bare)
-// Reads directly from git object database without needing a working tree
-func (s *ProjectInternalRepoService) LoadStartupScript(projectID string, internalRepoPath string) (string, error) {
-	if internalRepoPath == "" {
-		return "", fmt.Errorf("internal repo path not set for project")
+// LoadStartupScriptFromCodeRepo loads the startup script from a code repository
+// Startup script lives in the primary CODE repo at .helix/startup.sh
+func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) (string, error) {
+	if codeRepoPath == "" {
+		return "", fmt.Errorf("code repo path not set")
 	}
 
 	// Open bare repository
-	repo, err := git.PlainOpen(internalRepoPath)
+	repo, err := git.PlainOpen(codeRepoPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
@@ -225,7 +55,8 @@ func (s *ProjectInternalRepoService) LoadStartupScript(projectID string, interna
 	// Get HEAD reference
 	ref, err := repo.Head()
 	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD: %w", err)
+		// Empty repo or no commits yet - return empty script
+		return "", nil
 	}
 
 	// Get commit from HEAD
@@ -243,7 +74,8 @@ func (s *ProjectInternalRepoService) LoadStartupScript(projectID string, interna
 	// Get file from tree
 	file, err := tree.File(".helix/startup.sh")
 	if err != nil {
-		return "", fmt.Errorf("failed to get startup script from git tree: %w", err)
+		// File doesn't exist yet - return empty script
+		return "", nil
 	}
 
 	// Get file contents
@@ -255,31 +87,35 @@ func (s *ProjectInternalRepoService) LoadStartupScript(projectID string, interna
 	return content, nil
 }
 
-// SaveStartupScript saves the startup script to the internal repo and commits it
-func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, internalRepoPath string, script string) error {
-	if internalRepoPath == "" {
-		return fmt.Errorf("internal repo path not set for project")
+// SaveStartupScriptToCodeRepo saves the startup script to a code repository
+// Commits to the default branch (main/master)
+func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, script string) error {
+	if codeRepoPath == "" {
+		return fmt.Errorf("code repo path not set")
 	}
 
 	// Create temporary clone of bare repo
-	tempClone, err := os.MkdirTemp("", "helix-startup-script-*")
+	tempClone, err := os.MkdirTemp("", "helix-startup-script-code-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempClone) // Cleanup
 
 	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
-		URL: internalRepoPath, // Clone from bare repo
+		URL: codeRepoPath, // Clone from bare repo
 	})
 	if err != nil {
-		return fmt.Errorf("failed to clone internal repo: %w", err)
+		return fmt.Errorf("failed to clone code repo: %w", err)
+	}
+
+	// Ensure .helix directory exists
+	helixDir := filepath.Join(tempClone, ".helix")
+	if err := os.MkdirAll(helixDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .helix directory: %w", err)
 	}
 
 	// Write the script
-	scriptPath := filepath.Join(tempClone, ".helix", "startup.sh")
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0755); err != nil {
-		return fmt.Errorf("failed to create .helix directory: %w", err)
-	}
+	scriptPath := filepath.Join(helixDir, "startup.sh")
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return fmt.Errorf("failed to write startup script: %w", err)
 	}
@@ -303,9 +139,7 @@ func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, interna
 
 	if status.IsClean() {
 		// No changes - script is identical to what's already committed
-		log.Debug().
-			Str("project_id", projectID).
-			Msg("Startup script unchanged, skipping commit")
+		log.Debug().Msg("Startup script unchanged, skipping commit")
 		return nil
 	}
 
@@ -329,97 +163,117 @@ func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, interna
 	}
 
 	log.Info().
-		Str("project_id", projectID).
-		Msg("Startup script saved and pushed to bare internal repo")
+		Str("code_repo_path", codeRepoPath).
+		Msg("Startup script saved to code repo")
 
 	return nil
 }
 
-// UpdateProjectConfig updates the project.json file in the internal repo
-func (s *ProjectInternalRepoService) UpdateProjectConfig(project *types.Project) error {
-	if project.InternalRepoPath == "" {
-		return fmt.Errorf("internal repo path not set for project")
+// GetStartupScriptHistoryFromCodeRepo returns git commit history for the startup script in a code repo
+func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath string) ([]StartupScriptVersion, error) {
+	if codeRepoPath == "" {
+		return nil, fmt.Errorf("code repo path not set")
 	}
 
-	// Create temporary clone of bare repo
-	tempClone, err := os.MkdirTemp("", "helix-project-config-*")
+	repo, err := git.PlainOpen(codeRepoPath)
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
-	defer os.RemoveAll(tempClone) // Cleanup
 
-	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
-		URL: project.InternalRepoPath, // Clone from bare repo
+	// Get commit history for .helix/startup.sh
+	filePath := ".helix/startup.sh"
+	commitIter, err := repo.Log(&git.LogOptions{
+		FileName: &filePath,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to clone internal repo: %w", err)
+		return nil, fmt.Errorf("failed to get git log: %w", err)
 	}
 
-	// Prepare project config
-	projectConfig := ProjectConfig{
-		ProjectID:     project.ID,
-		Name:          project.Name,
-		Description:   project.Description,
-		Technologies:  project.Technologies,
-		DefaultRepoID: project.DefaultRepoID,
-		CreatedAt:     project.CreatedAt,
-		UpdatedAt:     time.Now(),
-	}
+	var versions []StartupScriptVersion
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// Get file content at this commit
+		tree, err := commit.Tree()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
+			return nil // Skip this commit
+		}
 
-	projectConfigData, err := json.MarshalIndent(projectConfig, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal project config: %w", err)
-	}
+		file, err := tree.File(".helix/startup.sh")
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
+			return nil // Skip this commit
+		}
 
-	// Write project.json
-	configPath := filepath.Join(tempClone, ".helix", "project.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return fmt.Errorf("failed to create .helix directory: %w", err)
-	}
-	if err := os.WriteFile(configPath, projectConfigData, 0644); err != nil {
-		return fmt.Errorf("failed to write project.json: %w", err)
-	}
+		content, err := file.Contents()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
+			return nil // Skip this commit
+		}
 
-	// Commit the change
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
+		versions = append(versions, StartupScriptVersion{
+			CommitHash: commit.Hash.String(),
+			Content:    content,
+			Timestamp:  commit.Author.When,
+			Author:     commit.Author.Name,
+			Message:    commit.Message,
+		})
 
-	// Add the file
-	if _, err := worktree.Add(".helix/project.json"); err != nil {
-		return fmt.Errorf("failed to add project.json to git: %w", err)
-	}
-
-	// Commit
-	commitMsg := fmt.Sprintf("Update project configuration\n\nModified via Helix UI at %s", time.Now().Format(time.RFC3339))
-	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  "Helix System",
-			Email: "system@helix.ml",
-			When:  time.Now(),
-		},
+		return nil
 	})
+
 	if err != nil {
-		return fmt.Errorf("failed to commit project config: %w", err)
+		return nil, fmt.Errorf("failed to iterate commits: %w", err)
 	}
 
-	// Push to bare repo
-	err = repo.Push(&git.PushOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to push to bare repo: %w", err)
-	}
-
-	log.Info().
-		Str("project_id", project.ID).
-		Msg("Project config updated and pushed to bare internal repo")
-
-	return nil
+	return versions, nil
 }
 
-// InitializeCodeRepoFromSample creates a separate code repository with sample code
+// InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in a code repo
+// This is used when a project is created and a primary repo is selected
+func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string) error {
+	if codeRepoPath == "" {
+		return fmt.Errorf("code repo path not set")
+	}
+
+	// Check if startup script already exists
+	existingScript, err := s.LoadStartupScriptFromCodeRepo(codeRepoPath)
+	if err != nil {
+		return fmt.Errorf("failed to check existing startup script: %w", err)
+	}
+
+	// If startup script already exists and is not empty, don't overwrite
+	if existingScript != "" {
+		log.Info().
+			Str("code_repo_path", codeRepoPath).
+			Msg("Startup script already exists in code repo, not overwriting")
+		return nil
+	}
+
+	// Use default startup script if none provided
+	if startupScript == "" {
+		startupScript = `#!/bin/bash
+set -euo pipefail
+
+# Project startup script
+# This runs when agents start working on this project
+
+echo "🚀 Starting project: ` + projectName + `"
+
+# Add your setup commands here:
+# Example: sudo apt-get install -y package-name
+# Example: npm install
+# Example: pip install -r requirements.txt
+
+echo "✅ Project startup complete"
+`
+	}
+
+	return s.SaveStartupScriptToCodeRepo(codeRepoPath, startupScript)
+}
+
+// InitializeCodeRepoFromSample creates a code repository with sample code
 // Returns the repo ID and path for the caller to create a store.GitRepository entry
-func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Context, project *types.Project, sampleID string) (repoID string, repoPath string, err error) {
+func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, project *types.Project, sampleID string) (repoID string, repoPath string, err error) {
 	// Get sample code
 	sampleCode, err := s.sampleCodeService.GetProjectCode(ctx, sampleID)
 	if err != nil {
@@ -632,17 +486,17 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 	return repoID, repoPath, nil
 }
 
-// CloneSampleProject clones a sample project repository into the project's internal repo
-// For helix-blog-posts, this clones the real HelixML/helix GitHub repo
-func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, project *types.Project, sampleRepoURL string) (string, error) {
-	projectDir := filepath.Join(s.basePath, project.ID)
-	repoPath := filepath.Join(projectDir, "repo")
+// CloneSampleProject clones a sample project repository (e.g., from GitHub)
+// Returns the path to the cloned bare repository
+func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *types.Project, sampleRepoURL string) (string, error) {
+	// Create code repo in /filestore/git-repositories/ (standard location)
+	repoPath := filepath.Join(s.basePath, "..", "git-repositories", fmt.Sprintf("%s-code", project.ID))
 
 	log.Info().
 		Str("project_id", project.ID).
 		Str("sample_url", sampleRepoURL).
 		Str("repo_path", repoPath).
-		Msg("Cloning sample project repository into internal repository")
+		Msg("Cloning sample project repository")
 
 	// Create directory for bare repo
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
@@ -675,29 +529,6 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 	helixDir := filepath.Join(tempClone, ".helix")
 	if err := os.MkdirAll(filepath.Join(helixDir, "tasks"), 0755); err != nil {
 		return "", fmt.Errorf("failed to create .helix/tasks directory: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Join(helixDir, "design-docs"), 0755); err != nil {
-		return "", fmt.Errorf("failed to create .helix/design-docs directory: %w", err)
-	}
-
-	// Create/update project.json
-	projectConfig := ProjectConfig{
-		ProjectID:    project.ID,
-		Name:         project.Name,
-		Description:  project.Description,
-		Technologies: project.Technologies,
-		CreatedAt:    project.CreatedAt,
-		UpdatedAt:    time.Now(),
-	}
-
-	projectConfigData, err := json.MarshalIndent(projectConfig, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal project config: %w", err)
-	}
-
-	projectConfigPath := filepath.Join(helixDir, "project.json")
-	if err := os.WriteFile(projectConfigPath, projectConfigData, 0644); err != nil {
-		return "", fmt.Errorf("failed to write project.json: %w", err)
 	}
 
 	// Change origin remote to point to our bare repo instead of GitHub
@@ -756,75 +587,13 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 	return repoPath, nil
 }
 
-// GetInternalRepoPath returns the expected path for a project's internal repo
-func (s *ProjectInternalRepoService) GetInternalRepoPath(projectID string) string {
-	return filepath.Join(s.basePath, projectID, "repo")
-}
+// Backward compatibility aliases - these will be removed in a future release
+// They are kept temporarily for any code that hasn't been updated yet
 
-// StartupScriptVersion represents a version of the startup script from git history
-type StartupScriptVersion struct {
-	CommitHash string    `json:"commit_hash"`
-	Content    string    `json:"content"`
-	Timestamp  time.Time `json:"timestamp"`
-	Author     string    `json:"author"`
-	Message    string    `json:"message"`
-}
+// ProjectInternalRepoService is an alias for ProjectRepoService (backward compatibility)
+type ProjectInternalRepoService = ProjectRepoService
 
-// GetStartupScriptHistory returns git commit history for the startup script
-func (s *ProjectInternalRepoService) GetStartupScriptHistory(internalRepoPath string) ([]StartupScriptVersion, error) {
-	if internalRepoPath == "" {
-		return nil, fmt.Errorf("internal repo path not set")
-	}
-
-	repo, err := git.PlainOpen(internalRepoPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open git repository: %w", err)
-	}
-
-	// Get commit history for .helix/startup.sh
-	filePath := ".helix/startup.sh"
-	commitIter, err := repo.Log(&git.LogOptions{
-		FileName: &filePath,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get git log: %w", err)
-	}
-
-	var versions []StartupScriptVersion
-	err = commitIter.ForEach(func(commit *object.Commit) error {
-		// Get file content at this commit
-		tree, err := commit.Tree()
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
-			return nil // Skip this commit
-		}
-
-		file, err := tree.File(".helix/startup.sh")
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
-			return nil // Skip this commit
-		}
-
-		content, err := file.Contents()
-		if err != nil {
-			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
-			return nil // Skip this commit
-		}
-
-		versions = append(versions, StartupScriptVersion{
-			CommitHash: commit.Hash.String(),
-			Content:    content,
-			Timestamp:  commit.Author.When,
-			Author:     commit.Author.Name,
-			Message:    commit.Message,
-		})
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate commits: %w", err)
-	}
-
-	return versions, nil
+// NewProjectInternalRepoService is an alias for NewProjectRepoService (backward compatibility)
+func NewProjectInternalRepoService(basePath string) *ProjectInternalRepoService {
+	return NewProjectRepoService(basePath)
 }

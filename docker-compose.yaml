@@ -50,10 +50,8 @@ services:
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
-      # GPU configuration for Wolf video pipelines
-      # Values: "nvidia", "amd", "intel", "none" (software rendering with llvmpipe)
-      - GPU_VENDOR=${GPU_VENDOR:-}
-      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       # Moonlight Web credentials (must match moonlight-web config.json)
       - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
       # TURN server configuration for WebRTC (Helix Code)
@@ -321,7 +319,7 @@ services:
       # Production mode (no dev bind-mounts)
       - HELIX_DEV_MODE=false
       - ZED_IMAGE=helix-sway:latest
-      - GPU_TYPE=amd
+      - GPU_VENDOR=amd
       # Wolf configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
       - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
@@ -379,6 +377,93 @@ services:
       - "8081:8080"
       - "40000-40100:40000-40100/udp"
     # No nvidia runtime for AMD
+    cap_add:
+      - SYS_PTRACE
+    restart: unless-stopped
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Software rendering sandbox (CPU-only, no GPU required)
+  # Use: docker compose --profile code-software up sandbox-software
+  # Note: This is a separate service because it needs different device mounts
+  # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
+  sandbox-software:
+    profiles: [code-software]
+    image: registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION:-latest}
+    privileged: true  # Required for Docker-in-Docker
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # Software rendering (CPU-only, no GPU)
+      - GPU_VENDOR=none
+      - WOLF_RENDER_NODE=SOFTWARE
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - MESA_GL_VERSION_OVERRIDE=4.5
+      # Production mode (no dev bind-mounts)
+      - HELIX_DEV_MODE=false
+      - ZED_IMAGE=helix-sway:latest
+      # Wolf configuration
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - WOLF_LOG_LEVEL=DEBUG
+      - GST_DEBUG=1
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      - WOLF_USE_ZERO_COPY=FALSE
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=info,moonlight_web=info
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # RevDial connection (empty = local mode)
+      - HELIX_API_URL=
+      - WOLF_ID=
+      - RUNNER_TOKEN=
+      # Wolf debug dumps: 6 dumps max, 20GB quota
+      - WOLF_MAX_DUMPS=6
+      - WOLF_MAX_DUMPS_GB=20
+    volumes:
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
+      - /tmp/sockets:/tmp/sockets:rw
+      - wolf-docker-storage:/var/lib/docker
+      - wolf-debug-dumps:/var/wolf-debug-dumps
+      - /run/udev:/run/udev:rw
+      - /var/run/wolf:/var/run/wolf:rw
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
+    # No /dev/dri mount for software rendering (no GPU)
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+    devices:
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports
+      - "47984:47984"
+      - "47989:47989"
+      - "48010:48010"
+      - "47415:47415/udp"
+      - "47999:47999/udp"
+      - "48100:48100/udp"
+      - "48200:48200/udp"
+      # Moonlight Web UI + WebRTC
+      - "8081:8080"
+      - "40000-40100:40000-40100/udp"
+    # No nvidia runtime for software rendering
     cap_add:
       - SYS_PTRACE
     restart: unless-stopped

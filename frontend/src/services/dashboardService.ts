@@ -148,3 +148,37 @@ export function useCreateUser() {
         },
     });
 }
+
+/**
+ * Hook to reset a user's password (Admin only)
+ * @returns React Query mutation for resetting a user's password
+ *
+ * @example
+ * const resetPassword = useAdminResetPassword();
+ *
+ * resetPassword.mutate({
+ *   userId: 'user-123',
+ *   newPassword: 'newSecurePassword'
+ * });
+ */
+export function useAdminResetPassword() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: {
+            userId: string;
+            newPassword: string;
+        }) => {
+            const response = await apiClient.v1AdminUsersPasswordUpdate(data.userId, {
+                new_password: data.newPassword,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            // Invalidate users list to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}

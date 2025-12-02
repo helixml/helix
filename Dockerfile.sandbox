@@ -8,17 +8,29 @@
 ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
 # ====================================================================
-# Stage 1: Build revdial-client (for Wolf, Moonlight Web, and sandbox connections)
+# Stage 1: Build Go binaries (revdial-client, hydra, sandbox-heartbeat)
 # ====================================================================
-FROM golang:1.24 AS revdial-builder
+FROM golang:1.24 AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY api/ ./api/
+# Build revdial-client
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /revdial-client ./api/cmd/revdial-client
+# Build hydra (multi-Docker isolation daemon)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
+# Build sandbox-heartbeat (disk monitoring)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+
+# Alias for backward compatibility
+FROM go-builder AS revdial-builder
 
 # ====================================================================
 # Stage 2: Build Moonlight Web
@@ -195,6 +207,7 @@ COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib
 # Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
 RUN mkdir -p /opt/wolf-defaults /etc/wolf/cfg
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
+COPY --from=wolf-upstream /opt/wolf-defaults/pulse-lowmem.conf /opt/wolf-defaults/pulse-lowmem.conf
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
@@ -238,13 +251,24 @@ DAEMON_JSON
 
 echo "Configured Wolf's dockerd with nvidia runtime support"
 
-# Start dockerd in background (redirect to stdout with prefix for unified logs)
-dockerd --config-file /etc/docker/daemon.json \
-    --host=unix:///var/run/docker.sock \
-    2>&1 | sed -u 's/^/[DOCKERD] /' &
+# Start dockerd with auto-restart supervisor loop in background
+# This ensures dockerd restarts if it crashes (which would break all sandboxes)
+(
+    while true; do
+        # Clean up stale PID files before each restart attempt
+        rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
 
-DOCKERD_PID=$!
-echo "Started dockerd with PID: $DOCKERD_PID"
+        echo "[$(date -Iseconds)] Starting dockerd..."
+        dockerd --config-file /etc/docker/daemon.json \
+            --host=unix:///var/run/docker.sock
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[DOCKERD] /' &
+
+DOCKERD_WRAPPER_PID=$!
+echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
 # Wait for dockerd to be ready
 TIMEOUT=30
@@ -253,7 +277,7 @@ until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
-        exit 1
+        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
     sleep 1
@@ -400,11 +424,13 @@ RUN mkdir -p /app && \
     ln -s /opt/moonlight-web/server /app/server
 
 # ====================================================================
-# Copy revdial-client
+# Copy revdial-client and hydra binaries
 # ====================================================================
 
-COPY --from=revdial-builder /revdial-client /usr/local/bin/revdial-client
-RUN chmod +x /usr/local/bin/revdial-client
+COPY --from=go-builder /revdial-client /usr/local/bin/revdial-client
+COPY --from=go-builder /hydra /usr/local/bin/hydra
+COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
+RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
 
 # ====================================================================
 # Create cont-init.d scripts for Moonlight Web and RevDial
@@ -531,14 +557,16 @@ RUN chmod +x /opt/moonlight-web/auto-pair.sh
 
 # 07: Start Wolf RevDial client (optional, only if HELIX_API_URL is set)
 # NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
 RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if no control plane configured (local dev mode)
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
     echo "ℹ️  No HELIX_API_URL set, skipping RevDial clients (local mode)"
-    exit 0
+    return 0
 fi
 
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
@@ -570,19 +598,21 @@ echo "ℹ️  Moonlight Web RevDial will start after Moonlight Web (in startup-a
 EOF
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
-# 08: Start Wolf instance heartbeat (sends periodic heartbeats to API with sway version)
+# 08: Start Wolf instance heartbeat daemon (Go binary with disk space monitoring)
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
 RUN cat > /etc/cont-init.d/08-start-wolf-heartbeat.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if no control plane configured (local dev mode)
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
     echo "ℹ️  No HELIX_API_URL set, skipping Wolf heartbeat (local mode)"
-    exit 0
+    return 0
 fi
 
 WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-echo "💓 Starting Wolf heartbeat service for instance: $WOLF_INSTANCE_ID"
+echo "💓 Starting Wolf heartbeat daemon for instance: $WOLF_INSTANCE_ID"
 
 # Read desktop versions from embedded metadata (set at build time)
 SWAY_VERSION=""
@@ -621,8 +651,23 @@ fi
     done
 ) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
 
+
+# Start the Go heartbeat daemon with auto-restart supervisor loop
+# It monitors disk space on /var and / and reports to API
+# The daemon can be safely killed (e.g., by transfer-sway-to-sandbox for version reload)
+# and will automatically restart within 2 seconds
+# (
+#     while true; do
+#         echo "[$(date -Iseconds)] Starting heartbeat daemon..."
+#         /usr/local/bin/sandbox-heartbeat
+#         EXIT_CODE=$?
+#         echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
+#         sleep 2
+#     done
+# ) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
+
 HEARTBEAT_PID=$!
-echo "✅ Wolf heartbeat service started (PID: $HEARTBEAT_PID)"
+echo "✅ Wolf heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
 EOF
 RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 
@@ -630,6 +675,72 @@ RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 # Fixed: Create /wolf/sway-config directory before writing update script
 COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-telemetry-firewall.sh
 RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
+
+# 10: Start Hydra multi-Docker isolation daemon (optional, only if HYDRA_ENABLED is set)
+# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
+# Using "exit" in a sourced script terminates the entire entrypoint process.
+RUN cat > /etc/cont-init.d/10-start-hydra.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Skip if Hydra is not enabled
+# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
+if [ "$HYDRA_ENABLED" != "true" ]; then
+    echo "ℹ️  Hydra not enabled (HYDRA_ENABLED != true), skipping multi-Docker isolation"
+    return 0
+fi
+
+echo "🐉 Starting Hydra multi-Docker isolation daemon..."
+
+# Create required directories
+mkdir -p /var/run/hydra/active
+mkdir -p /hydra-data
+
+# Start Hydra daemon in background with auto-restart
+(
+    while true; do
+        echo "[$(date -Iseconds)] Starting Hydra daemon..."
+        /usr/local/bin/hydra \
+            --socket /var/run/hydra/hydra.sock \
+            --socket-dir /var/run/hydra/active \
+            --data-dir /hydra-data \
+            --log-level info
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  Hydra exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[HYDRA] /' &
+
+HYDRA_PID=$!
+echo "✅ Hydra daemon started (PID: $HYDRA_PID)"
+
+# Wait for Hydra socket to be ready
+TIMEOUT=30
+ELAPSED=0
+until [ -S /var/run/hydra/hydra.sock ]; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "❌ ERROR: Hydra socket not ready within $TIMEOUT seconds"
+        return 1
+    fi
+    echo "Waiting for Hydra socket... ($ELAPSED/$TIMEOUT)"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+done
+
+echo "✅ Hydra socket ready at /var/run/hydra/hydra.sock"
+
+# Log privileged mode status
+if [ "$HYDRA_PRIVILEGED_MODE_ENABLED" = "true" ]; then
+    echo "⚠️  Hydra PRIVILEGED MODE ENABLED - host Docker access available for Helix development"
+else
+    echo "ℹ️  Hydra running in normal mode (isolated Docker instances per scope)"
+fi
+
+# Note: Hydra includes its own built-in RevDial client
+# It reads HELIX_API_URL, RUNNER_TOKEN, WOLF_INSTANCE_ID from environment
+echo "✅ Hydra daemon ready (RevDial client built-in)"
+EOF
+RUN chmod +x /etc/cont-init.d/10-start-hydra.sh
 
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)
@@ -662,9 +773,21 @@ export WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem
 export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
 
 # Set default values for environment variables
-export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
-export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
+# Auto-detect software rendering mode based on GPU_VENDOR
+if [ "$GPU_VENDOR" = "none" ] || [ -z "$GPU_VENDOR" ] && [ ! -e /dev/dri/renderD128 ]; then
+    echo "🖥️  Software rendering mode detected (GPU_VENDOR=$GPU_VENDOR)"
+    export WOLF_RENDER_NODE="SOFTWARE"
+    export WOLF_ENCODER_NODE="SOFTWARE"
+    export GST_GL_DRM_DEVICE=""
+    # Force Mesa to use llvmpipe for software rendering
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export MESA_GL_VERSION_OVERRIDE=4.5
+else
+    export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+    export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
+    export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
+fi
+echo "🎮 Wolf render configuration: WOLF_RENDER_NODE=$WOLF_RENDER_NODE"
 
 # Update fake-udev path
 export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
@@ -838,7 +961,9 @@ ENV HELIX_API_URL="" \
     TURN_PUBLIC_IP="" \
     TURN_PASSWORD="" \
     HELIX_HOSTNAME="" \
-    MOONLIGHT_CREDENTIALS="helix"
+    MOONLIGHT_CREDENTIALS="helix" \
+    HYDRA_ENABLED="true" \
+    HYDRA_PRIVILEGED_MODE_ENABLED="false"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/wolf/

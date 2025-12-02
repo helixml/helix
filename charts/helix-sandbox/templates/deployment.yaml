@@ -1,0 +1,329 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "helix-sandbox.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "helix-sandbox.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-sandbox.serviceAccountName" . }}
+      {{- if .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- end }}
+      {{- $gpuVendor := include "helix-sandbox.gpuVendor" . }}
+      {{- $runtimeClass := include "helix-sandbox.runtimeClassName" . }}
+      {{- if $runtimeClass }}
+      runtimeClassName: {{ $runtimeClass }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # Core Helix configuration
+            - name: HELIX_API_URL
+              value: {{ .Values.sandbox.apiUrl | quote }}
+            - name: RUNNER_TOKEN
+              {{- if .Values.sandbox.runnerTokenExistingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sandbox.runnerTokenExistingSecret }}
+                  key: {{ .Values.sandbox.runnerTokenExistingSecretKey | default "token" }}
+              {{- else }}
+              value: {{ .Values.sandbox.runnerToken | quote }}
+              {{- end }}
+            - name: WOLF_ID
+              {{- if .Values.sandbox.instanceId }}
+              value: {{ .Values.sandbox.instanceId | quote }}
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+              {{- end }}
+            - name: MAX_SANDBOXES
+              value: {{ .Values.sandbox.maxSandboxes | quote }}
+
+            # Moonlight credentials
+            - name: MOONLIGHT_CREDENTIALS
+              {{- if .Values.sandbox.moonlightCredentialsExistingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sandbox.moonlightCredentialsExistingSecret }}
+                  key: {{ .Values.sandbox.moonlightCredentialsExistingSecretKey | default "credentials" }}
+              {{- else }}
+              value: {{ .Values.sandbox.moonlightCredentials | quote }}
+              {{- end }}
+
+            # TURN server configuration
+            - name: TURN_PUBLIC_IP
+              {{- if .Values.sandbox.turn.publicIp }}
+              value: {{ .Values.sandbox.turn.publicIp | quote }}
+              {{- else }}
+              # Extract hostname from API URL if not specified
+              value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
+              {{- end }}
+            - name: TURN_PASSWORD
+              {{- if .Values.sandbox.turn.turnPasswordExistingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sandbox.turn.turnPasswordExistingSecret }}
+                  key: {{ .Values.sandbox.turn.turnPasswordExistingSecretKey | default "password" }}
+              {{- else }}
+              value: {{ .Values.sandbox.turn.password | quote }}
+              {{- end }}
+
+            # Helix hostname for Moonlight display
+            - name: HELIX_HOSTNAME
+              {{- if .Values.sandbox.helixHostname }}
+              value: {{ .Values.sandbox.helixHostname | quote }}
+              {{- else }}
+              value: {{ .Values.sandbox.apiUrl | trimPrefix "https://" | trimPrefix "http://" | regexFind "^[^:/]+" | quote }}
+              {{- end }}
+
+            # Wolf configuration
+            - name: XDG_RUNTIME_DIR
+              value: "/tmp/sockets"
+            - name: HOST_APPS_STATE_FOLDER
+              value: "/etc/wolf/cfg"
+            - name: WOLF_SOCKET_PATH
+              value: "/var/run/wolf/wolf.sock"
+            - name: WOLF_LOG_LEVEL
+              value: "DEBUG"
+            - name: GST_DEBUG
+              value: "1"
+            - name: WOLF_INTERNAL_MAC
+              value: "00:11:22:33:44:55"
+            - name: WOLF_INTERNAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: WOLF_PRIVATE_KEY_FILE
+              value: "/etc/wolf/cfg/key.pem"
+            - name: WOLF_PRIVATE_CERT_FILE
+              value: "/etc/wolf/cfg/cert.pem"
+            - name: GOP_SIZE
+              value: {{ .Values.sandbox.gopSize | quote }}
+            - name: WOLF_MAX_DUMPS
+              value: {{ .Values.sandbox.wolfMaxDumps | quote }}
+            - name: WOLF_MAX_DUMPS_GB
+              value: {{ .Values.sandbox.wolfMaxDumpsGB | quote }}
+
+            # GPU vendor configuration
+            - name: GPU_VENDOR
+              value: {{ $gpuVendor | quote }}
+            - name: WOLF_RENDER_NODE
+              value: {{ include "helix-sandbox.wolfRenderNode" . | quote }}
+
+            {{- if eq $gpuVendor "nvidia" }}
+            # NVIDIA-specific environment
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "all"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: WOLF_USE_ZERO_COPY
+              value: "TRUE"
+            {{- else if eq $gpuVendor "none" }}
+            # Software rendering environment (no GPU)
+            - name: LIBGL_ALWAYS_SOFTWARE
+              value: "1"
+            - name: MESA_GL_VERSION_OVERRIDE
+              value: "4.5"
+            - name: WOLF_USE_ZERO_COPY
+              value: "FALSE"
+            {{- else }}
+            # AMD/Intel use zero copy with hardware GPU
+            - name: WOLF_USE_ZERO_COPY
+              value: "TRUE"
+            {{- end }}
+
+            # Moonlight Web configuration
+            - name: RUST_LOG
+              value: "moonlight_common=info,moonlight_web=info"
+            - name: MOONLIGHT_INTERNAL_PAIRING_PIN
+              value: ""
+
+            # Production mode
+            - name: HELIX_DEV_MODE
+              value: "false"
+            - name: ZED_IMAGE
+              value: "registry.helixml.tech/helix/zed-agent:latest"
+
+          ports:
+            # Moonlight protocol ports
+            - name: https
+              containerPort: {{ .Values.service.moonlight.https }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ .Values.service.moonlight.http }}
+              protocol: TCP
+            - name: rtsp
+              containerPort: {{ .Values.service.moonlight.rtsp }}
+              protocol: TCP
+            - name: discovery
+              containerPort: {{ .Values.service.moonlightUdp.discovery }}
+              protocol: UDP
+            - name: control
+              containerPort: {{ .Values.service.moonlightUdp.control }}
+              protocol: UDP
+            - name: video
+              containerPort: {{ .Values.service.moonlightUdp.video }}
+              protocol: UDP
+            - name: audio
+              containerPort: {{ .Values.service.moonlightUdp.audio }}
+              protocol: UDP
+            # Moonlight Web UI
+            - name: web
+              containerPort: {{ .Values.service.web.port }}
+              protocol: TCP
+
+          volumeMounts:
+            - name: docker-storage
+              mountPath: /var/lib/docker
+            - name: debug-dumps
+              mountPath: /var/wolf-debug-dumps
+            - name: wolf-config
+              mountPath: /etc/wolf/cfg
+            - name: tmp-sockets
+              mountPath: /tmp/sockets
+            - name: wolf-socket
+              mountPath: /var/run/wolf
+            - name: udev
+              mountPath: /run/udev
+              readOnly: true
+            {{- if ne $gpuVendor "none" }}
+            # GPU modes need /dev mounted for DRI access
+            - name: dev
+              mountPath: /dev
+            {{- end }}
+            # moonlight-web config (if needed)
+            - name: moonlight-config
+              mountPath: /app/server
+
+          resources:
+            {{- $resources := dict }}
+            {{- if .Values.resources.limits }}
+            {{- $resources = merge $resources (dict "limits" .Values.resources.limits) }}
+            {{- end }}
+            {{- if .Values.resources.requests }}
+            {{- $resources = merge $resources (dict "requests" .Values.resources.requests) }}
+            {{- end }}
+            {{- /* Add GPU resources based on vendor */ -}}
+            {{- if eq $gpuVendor "nvidia" }}
+            {{- if .Values.gpu.nvidia.enabled }}
+            {{- $gpuLimit := dict "nvidia.com/gpu" (.Values.gpu.nvidia.count | default 1) }}
+            {{- if $resources.limits }}
+            {{- $resources = merge $resources (dict "limits" (merge $resources.limits $gpuLimit)) }}
+            {{- else }}
+            {{- $resources = merge $resources (dict "limits" $gpuLimit) }}
+            {{- end }}
+            {{- end }}
+            {{- else if eq $gpuVendor "amd" }}
+            {{- if and .Values.gpu.amd.enabled .Values.gpu.amd.resourceName }}
+            {{- $gpuLimit := dict .Values.gpu.amd.resourceName 1 }}
+            {{- if $resources.limits }}
+            {{- $resources = merge $resources (dict "limits" (merge $resources.limits $gpuLimit)) }}
+            {{- else }}
+            {{- $resources = merge $resources (dict "limits" $gpuLimit) }}
+            {{- end }}
+            {{- end }}
+            {{- else if eq $gpuVendor "intel" }}
+            {{- if and .Values.gpu.intel.enabled .Values.gpu.intel.resourceName }}
+            {{- $gpuLimit := dict .Values.gpu.intel.resourceName 1 }}
+            {{- if $resources.limits }}
+            {{- $resources = merge $resources (dict "limits" (merge $resources.limits $gpuLimit)) }}
+            {{- else }}
+            {{- $resources = merge $resources (dict "limits" $gpuLimit) }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- toYaml $resources | nindent 12 }}
+
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: docker-storage
+          {{- if .Values.persistence.dockerStorage.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "helix-sandbox.fullname" . }}-docker
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: debug-dumps
+          {{- if .Values.persistence.debugDumps.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "helix-sandbox.fullname" . }}-dumps
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: wolf-config
+          {{- if .Values.persistence.wolfConfig.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "helix-sandbox.fullname" . }}-config
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp-sockets
+          emptyDir: {}
+        - name: wolf-socket
+          emptyDir: {}
+        - name: moonlight-config
+          emptyDir: {}
+        - name: udev
+          hostPath:
+            path: /run/udev
+            type: Directory
+        {{- if ne $gpuVendor "none" }}
+        - name: dev
+          hostPath:
+            path: /dev
+            type: Directory
+        {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

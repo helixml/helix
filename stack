@@ -56,8 +56,23 @@ function setup_sandbox_profile() {
     source "$DIR/.env"
   fi
 
+  # Stop conflicting sandbox containers before starting
+  # All sandbox variants use the same static IP (172.19.0.50), so only one can run at a time
+  # Silently remove any sandbox containers that might conflict with the one we're about to start
+  local current_profile="${COMPOSE_PROFILES:-}"
+  if [[ "$current_profile" == *"code-software"* ]]; then
+    # Starting software sandbox - stop GPU sandboxes
+    docker rm -f helix-sandbox-1 helix-sandbox-amd-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-amd"* ]]; then
+    # Starting AMD sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-1 helix-sandbox-software-1 2>/dev/null || true
+  else
+    # Starting NVIDIA sandbox (default) - stop other sandboxes
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-1 2>/dev/null || true
+  fi
+
   # If COMPOSE_PROFILES already contains 'code', don't override
-  if [[ "$COMPOSE_PROFILES" == *"code"* ]]; then
+  if [[ "${COMPOSE_PROFILES:-}" == *"code"* ]]; then
     echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
     return
   fi
@@ -84,7 +99,7 @@ function setup_sandbox_profile() {
 
   # Add to COMPOSE_PROFILES if we detected a GPU
   if [[ -n "$gpu_profile" ]]; then
-    if [[ -n "$COMPOSE_PROFILES" ]]; then
+    if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
       export COMPOSE_PROFILES="${COMPOSE_PROFILES},${gpu_profile}"
     else
       export COMPOSE_PROFILES="$gpu_profile"
@@ -864,12 +879,14 @@ function build-sway() {
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sway-helix \
       -t helix-sway:latest \
+      -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sway-helix \
       -t helix-sway:latest \
+      -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       .
   fi
@@ -892,6 +909,18 @@ function build-sway() {
 
   echo "✅ Sway container build completed"
   echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
+
+  # Export tarball and version files (for bind-mounted dev workflow)
+  # These are bind-mounted into sandbox in docker-compose.dev.yaml
+  echo "📦 Exporting helix-sway tarball for bind-mount..."
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
+  docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
+  docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
+  echo "$IMAGE_HASH" > helix-sway.tar.hash
+  echo "${COMMIT_HASH}" > helix-sway.version
+  TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
+  echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
 
   # Transfer helix-sway image to sandbox's dockerd (Wolf runs inside sandbox container)
   # Only transfer if sandbox is already running (hot reload during development)
@@ -934,6 +963,44 @@ function transfer-sway-to-sandbox() {
     echo "   Image will be loaded from embedded tarball when sandbox is ready"
   fi
 }
+
+# # Get commit hash BEFORE transfer (needed for tagging)
+# local COMMIT_HASH=$(git rev-parse --short HEAD)
+# local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
+
+# # Check if versioned tag exists on host
+# local HAS_VERSIONED_TAG=""
+# if docker images "helix-sway:${COMMIT_HASH}" -q | grep -q .; then
+#   HAS_VERSIONED_TAG="true"
+# fi
+
+# # Transfer image(s) to sandbox's dockerd
+# local TRANSFER_SUCCESS=""
+# if [ -n "$HAS_VERSIONED_TAG" ]; then
+#   # Transfer BOTH tags: latest and versioned (Wolf uses helix-sway:${version})
+#   echo "📦 Transferring helix-sway:latest and helix-sway:${COMMIT_HASH} to sandbox's dockerd..."
+#   if docker save helix-sway:latest "helix-sway:${COMMIT_HASH}" | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+#     TRANSFER_SUCCESS="true"
+#     echo "✅ helix-sway images transferred to sandbox's dockerd"
+#   fi
+# else
+#   # Only :latest exists - transfer and tag inside sandbox
+#   echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
+#   if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+#     echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+#     # Tag it with the version inside sandbox
+#     echo "🏷️  Tagging helix-sway:latest as helix-sway:${COMMIT_HASH} inside sandbox..."
+#     docker exec helix-sandbox-1 docker tag helix-sway:latest "helix-sway:${COMMIT_HASH}"
+#     TRANSFER_SUCCESS="true"
+#   fi
+# fi
+
+# if [ -n "$TRANSFER_SUCCESS" ]; then
+#   # Version files are bind-mounted from host (updated by build-sway)
+#   # Just restart heartbeat to pick up the new version
+#   echo "🔄 Restarting heartbeat daemon to report new version..."
+#   docker exec helix-sandbox-1 pkill -f sandbox-heartbeat 2>/dev/null || true
+#   echo "✅ Image transferred and heartbeat restarted"
 
 function build-zorin() {
   echo "🖥️  Building custom Zorin container for Personal Dev Environments..."
@@ -1153,53 +1220,24 @@ function build-sandbox() {
   echo "📝 [2/4] Building helix-sway and exporting tarball..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  # Build helix-sway image (Sway + Zed desktop environment)
-  echo "🔨 Building helix-sway:latest..."
-
-  # Get image hash BEFORE build (if image exists)
-  HASH_BEFORE=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
-
+  # Build helix-sway image and export tarball (build-sway now handles tarball export)
   # Skip image transfer since we'll restart sandbox with new embedded tarball
   if ! SKIP_SWAY_TRANSFER=1 build-sway; then
     echo "❌ Failed to build helix-sway"
     return 1
   fi
 
-  # Get image hash AFTER build
-  HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
+  # Verify tarball was created (build-sway exports it)
+  if [ ! -f helix-sway.tar ]; then
+    echo "❌ helix-sway.tar not found after build-sway - this shouldn't happen"
+    return 1
+  fi
 
   # Remove old compressed tarball if it exists (migrating to uncompressed)
   [ -f helix-sway.tar.gz ] && rm -f helix-sway.tar.gz helix-sway.tar.gz.hash
 
-  # Compare hashes to detect if image actually changed
-  if [ "$HASH_BEFORE" != "$HASH_AFTER" ]; then
-    # Image changed - must export fresh tarball
-    echo "📦 Exporting fresh helix-sway tarball (image hash changed: ${HASH_BEFORE:-none} -> $HASH_AFTER)..."
-    # Tag with commit hash for versioning (in addition to :latest)
-    docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
-    # Save with both tags so DinD gets versioned tag after load
-    docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
-    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-    echo "$HASH_AFTER" > helix-sway.tar.hash
-    echo "${COMMIT_HASH}" > helix-sway.version
-    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
-  elif [ ! -f helix-sway.tar ]; then
-    # Image unchanged but no tarball - create one
-    echo "📦 Creating helix-sway tarball (image unchanged but tarball missing)..."
-    docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
-    docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
-    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-    echo "$HASH_AFTER" > helix-sway.tar.hash
-    echo "${COMMIT_HASH}" > helix-sway.version
-    echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
-  else
-    # Image unchanged AND tarball exists - fast path!
-    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-    # Update hash/version files if missing
-    [ ! -f helix-sway.tar.hash ] && echo "$HASH_AFTER" > helix-sway.tar.hash
-    [ ! -f helix-sway.version ] && echo "${COMMIT_HASH}" > helix-sway.version
-    echo "✅ Reusing existing tarball: helix-sway.tar ($TARBALL_SIZE) (image hash unchanged: $HASH_AFTER)"
-  fi
+  TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
+  echo "✅ Using helix-sway.tar ($TARBALL_SIZE) version=$(cat helix-sway.version)"
   echo ""
 
   # Step 3: Build unified sandbox container with embedded tarball

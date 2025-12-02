@@ -1,0 +1,53 @@
+{{- if .Values.persistence.dockerStorage.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-docker
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.dockerStorage.accessModes | nindent 4 }}
+  {{- if .Values.persistence.dockerStorage.storageClassName }}
+  storageClassName: {{ .Values.persistence.dockerStorage.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.dockerStorage.size }}
+{{- end }}
+---
+{{- if .Values.persistence.debugDumps.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-dumps
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.debugDumps.accessModes | nindent 4 }}
+  {{- if .Values.persistence.debugDumps.storageClassName }}
+  storageClassName: {{ .Values.persistence.debugDumps.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.debugDumps.size }}
+{{- end }}
+---
+{{- if .Values.persistence.wolfConfig.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-sandbox.fullname" . }}-config
+  labels:
+    {{- include "helix-sandbox.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.wolfConfig.accessModes | nindent 4 }}
+  {{- if .Values.persistence.wolfConfig.storageClassName }}
+  storageClassName: {{ .Values.persistence.wolfConfig.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.wolfConfig.size }}
+{{- end }}

@@ -39,16 +39,18 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Authorize user to create task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, req.ProjectID, types.ActionCreate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Set user ID from context
 	req.UserID = user.ID
 
 	// Validate request
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
-		return
-	}
-	if req.ProjectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -98,6 +100,18 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get task in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -120,8 +134,22 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	query := r.URL.Query()
 
+	projectID := query.Get("project_id")
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to list tasks in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, projectID, types.ActionList); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	filters := &types.SpecTaskFilters{
-		ProjectID:       query.Get("project_id"),
+		ProjectID:       projectID,
 		Status:          query.Get("status"),
 		UserID:          query.Get("user_id"),
 		Limit:           parseIntQuery(query.Get("limit"), 50),
@@ -175,6 +203,20 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return updated task
+	existingTask, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get updated task")
+		http.Error(w, "failed to get updated task", http.StatusInternalServerError)
+		return
+	}
+
+	// Authorize user to approve specs in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req types.SpecApprovalResponse
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode approval request")
@@ -188,7 +230,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	req.ApprovedAt = time.Now()
 
 	// Process approval
-	err := s.specDrivenTaskService.ApproveSpecs(ctx, &req)
+	err = s.specDrivenTaskService.ApproveSpecs(ctx, &req)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to process spec approval")
 		http.Error(w, fmt.Sprintf("failed to process approval: %v", err), http.StatusInternalServerError)
@@ -237,6 +279,18 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get task")
 		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get specs in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -289,6 +343,18 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get progress in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Build progress response
 	progress := TaskProgressResponse{
 		TaskID:    task.ID,
@@ -305,11 +371,17 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		},
 		Implementation: PhaseProgress{
 			Status:    getImplementationStatus(task.Status),
-			Agent:     "", // No separate agent - reuses planning agent
+			Agent:     "",                     // No separate agent - reuses planning agent
 			SessionID: task.PlanningSessionID, // Same session continues into implementation
 			StartedAt: task.SpecApprovedAt,
 			// CompletedAt will be set when implementation is done
 		},
+	}
+
+	// Try to get checklist progress from tasks.md in helix-specs branch
+	checklistProgress := s.getChecklistProgress(ctx, task)
+	if checklistProgress != nil {
+		progress.Checklist = checklistProgress
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -365,18 +437,31 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Authorize user to start planning in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Verify task is in backlog status
 	if task.Status != types.TaskStatusBacklog {
 		http.Error(w, fmt.Sprintf("task is not in backlog status (current: %s)", task.Status), http.StatusBadRequest)
 		return
 	}
 
-	// Start spec generation
-	go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
-
-	// Return updated task (status will be updated asynchronously)
-	task.Status = types.TaskStatusSpecGeneration
-	task.UpdatedAt = time.Now()
+	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
+	if task.JustDoItMode {
+		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusImplementation
+		task.UpdatedAt = time.Now()
+	} else {
+		// Normal mode: Start spec generation
+		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+		// Return updated task (status will be updated asynchronously)
+		task.Status = types.TaskStatusSpecGeneration
+		task.UpdatedAt = time.Now()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -420,6 +505,18 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to update task in the project
+	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Update fields if provided
 	if updateReq.Status != "" {
 		task.Status = updateReq.Status
@@ -433,8 +530,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
 	}
-	if updateReq.YoloMode != nil {
-		task.YoloMode = *updateReq.YoloMode
+	if updateReq.JustDoItMode != nil {
+		task.JustDoItMode = *updateReq.JustDoItMode
 	}
 
 	// Update in store
@@ -456,7 +553,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 // @Accept json
 // @Produce json
 // @Param taskId path string true "Task ID"
-// @Param archived body bool true "Archive status (true to archive, false to unarchive)"
+// @Param request body types.SpecTaskArchiveRequest true "Archive request"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -471,9 +568,8 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req struct {
-		Archived bool `json:"archived"`
-	}
+	var req types.SpecTaskArchiveRequest
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode archive request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -485,6 +581,18 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to archive task in the project
+	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -524,7 +632,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			} else {
 				// Update agent status
 				externalAgent.Status = "stopped"
-				s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
+				_ = s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
 
 				log.Info().
 					Str("task_id", taskID).
@@ -644,12 +752,13 @@ type TaskSpecsResponse struct {
 }
 
 type TaskProgressResponse struct {
-	TaskID         string        `json:"task_id"`
-	Status         string        `json:"status"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
-	Specification  PhaseProgress `json:"specification"`
-	Implementation PhaseProgress `json:"implementation"`
+	TaskID         string                   `json:"task_id"`
+	Status         string                   `json:"status"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
+	Specification  PhaseProgress            `json:"specification"`
+	Implementation PhaseProgress            `json:"implementation"`
+	Checklist      *types.ChecklistProgress `json:"checklist,omitempty"` // Progress from tasks.md
 }
 
 type PhaseProgress struct {
@@ -659,6 +768,60 @@ type PhaseProgress struct {
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	RevisionCount int        `json:"revision_count,omitempty"`
+}
+
+// getChecklistProgress fetches task checklist progress from helix-specs branch
+func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.SpecTask) *types.ChecklistProgress {
+	// Get the project's default repository
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Debug().Err(err).Str("project_id", task.ProjectID).Msg("Could not get project for checklist progress")
+		return nil
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil
+	}
+
+	// Get repository path
+	repo, err := s.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Debug().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Could not get repository for checklist progress")
+		return nil
+	}
+
+	// Parse task progress from tasks.md in helix-specs branch
+	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
+		return nil
+	}
+
+	// Convert to response type
+	checklist := &types.ChecklistProgress{
+		Tasks:          make([]types.ChecklistItem, len(taskProgress.Tasks)),
+		TotalTasks:     taskProgress.TotalTasks,
+		CompletedTasks: taskProgress.CompletedTasks,
+		ProgressPct:    taskProgress.ProgressPct,
+	}
+
+	for i, t := range taskProgress.Tasks {
+		checklist.Tasks[i] = types.ChecklistItem{
+			Index:       t.Index,
+			Description: t.Description,
+			Status:      string(t.Status),
+		}
+	}
+
+	if taskProgress.InProgressTask != nil {
+		checklist.InProgressTask = &types.ChecklistItem{
+			Index:       taskProgress.InProgressTask.Index,
+			Description: taskProgress.InProgressTask.Description,
+			Status:      string(taskProgress.InProgressTask.Status),
+		}
+	}
+
+	return checklist
 }
 
 // getBoardSettings godoc
@@ -681,27 +844,29 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Parse metadata to extract board settings
-	var metadata types.ProjectMetadata
-	if len(project.Metadata) > 0 {
-		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
-			log.Error().Err(err).Msg("Failed to parse project metadata")
-			http.Error(w, "failed to parse board settings", http.StatusInternalServerError)
-			return
-		}
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Authorize user to get board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, project.ID, types.ActionGet); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	// Return board settings or defaults
 	var boardSettings types.BoardSettings
-	if metadata.BoardSettings != nil {
-		boardSettings = *metadata.BoardSettings
+	if project.Metadata.BoardSettings != nil {
+		boardSettings = *project.Metadata.BoardSettings
 	} else {
 		// Return default settings if not found
 		boardSettings = types.BoardSettings{
-			WIPLimits: map[string]int{
-				"planning":       3,
-				"review":         2,
-				"implementation": 5,
+			WIPLimits: types.WIPLimits{
+				Planning:       3,
+				Review:         2,
+				Implementation: 5,
 			},
 		}
 	}
@@ -730,6 +895,12 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Authorize user to update board settings in the project
+	if err := s.authorizeUserToProjectByID(ctx, user, "default", types.ActionUpdate); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var settings types.BoardSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		log.Error().Err(err).Msg("Failed to decode board settings")
@@ -745,29 +916,8 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse existing metadata or create new
-	var metadata types.ProjectMetadata
-	if len(project.Metadata) > 0 {
-		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
-			log.Error().Err(err).Msg("Failed to parse project metadata")
-			http.Error(w, "failed to parse existing settings", http.StatusInternalServerError)
-			return
-		}
-	}
-
 	// Update board settings in metadata
-	metadata.BoardSettings = &settings
-
-	// Marshal back to JSON
-	newMetadata, err := json.Marshal(metadata)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal metadata")
-		http.Error(w, "failed to save settings", http.StatusInternalServerError)
-		return
-	}
-
-	// Update project
-	project.Metadata = newMetadata
+	project.Metadata.BoardSettings = &settings
 	project.UpdatedAt = time.Now()
 
 	err = s.Store.UpdateProject(ctx, project)

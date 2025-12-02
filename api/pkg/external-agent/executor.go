@@ -25,6 +25,9 @@ type Executor interface {
 
 	// Screenshot support
 	FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error)
+
+	GetWolfClientForSession(wolfInstanceID string) WolfClientInterface
+	FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error)
 }
 
 // Shared types used by all executor implementations
@@ -90,8 +93,8 @@ type ZedSession struct {
 	StartTime      time.Time `json:"start_time"`
 	LastAccess     time.Time `json:"last_access"`
 	ProjectPath    string    `json:"project_path,omitempty"`
-	WolfAppID     string `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
-	WolfSessionID int64  `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
-	WolfLobbyID   string `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
-	ContainerName string `json:"container_name,omitempty"`  // Container hostname for DNS lookup
+	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
+	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
+	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
+	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
 }
