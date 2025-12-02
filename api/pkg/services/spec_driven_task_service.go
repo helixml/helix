@@ -217,6 +217,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	planningPrompt := BuildPlanningPrompt(task)
 
+	// Get organization ID from the project
+	orgID := ""
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
@@ -235,7 +246,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
-		OrganizationID: "",
+		OrganizationID: orgID,
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
@@ -407,6 +418,18 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// Create Zed external agent session for implementation
 	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
+
+	// Get organization ID from the project
+	orgID := ""
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
@@ -425,7 +448,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
-		OrganizationID: "",
+		OrganizationID: orgID,
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
