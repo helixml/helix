@@ -1922,10 +1922,18 @@ func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRe
 
 // PullRepository pulls the latest changes from the remote repository
 // This is used to ensure we have the latest version before running startup scripts
+// Only pulls for external repos - internal repos have no remote to pull from
 func (s *GitRepositoryService) PullRepository(ctx context.Context, repoID string) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	// Skip pull for internal repos - they don't have a real remote
+	// Internal repos are the source of truth, external repos sync with upstream
+	if !gitRepo.IsExternal {
+		log.Debug().Str("repo_id", repoID).Msg("Skipping pull for internal repository")
+		return nil
 	}
 
 	if gitRepo.LocalPath == "" {
@@ -1942,7 +1950,7 @@ func (s *GitRepositoryService) PullRepository(ctx context.Context, repoID string
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// Pull changes
+	// Pull changes from external remote
 	err = s.pullChanges(repo, w, gitRepo)
 	if err != nil {
 		return fmt.Errorf("failed to pull changes: %w", err)

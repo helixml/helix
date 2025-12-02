@@ -106,10 +106,24 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "📦 Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
-        # If already cloned, skip (preserve agent's work)
+        # If already cloned, pull latest .helix/startup.sh (preserves agent's work)
         # This is important for SpecTask workflow: planning → implementation reuses same workspace
+        # But we always want the latest startup script when user clicks "Test Script"
         if [ -d "$CLONE_DIR/.git" ]; then
-            echo "  ✅ Already cloned at $CLONE_DIR (skipping)"
+            echo "  ✅ Already cloned at $CLONE_DIR"
+            # Fetch latest and update only the startup script (preserves local changes)
+            echo "  📥 Fetching latest startup script..."
+            if git -C "$CLONE_DIR" fetch origin 2>&1; then
+                # Get the default branch name
+                DEFAULT_BRANCH=$(git -C "$CLONE_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+                if git -C "$CLONE_DIR" checkout "origin/$DEFAULT_BRANCH" -- .helix/startup.sh 2>/dev/null; then
+                    echo "  ✅ Updated startup script from origin/$DEFAULT_BRANCH"
+                else
+                    echo "  ℹ️  No startup script changes to pull (or file doesn't exist yet)"
+                fi
+            else
+                echo "  ⚠️  Failed to fetch latest changes (continuing with cached version)"
+            fi
             continue
         fi
 
