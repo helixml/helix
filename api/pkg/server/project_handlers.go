@@ -985,19 +985,20 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	session := &types.Session{
-		ID:            system.GenerateSessionID(),
-		Name:          fmt.Sprintf("Explore: %s", project.Name),
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		ParentSession: "",
-		Mode:          types.SessionModeInference,
-		Type:          types.SessionTypeText,
-		Provider:      "anthropic",
-		ModelName:     "external_agent",
-		LoraDir:       "",
-		Owner:         user.ID,
-		OwnerType:     types.OwnerTypeUser,
-		Metadata:      sessionMetadata,
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("Explore: %s", project.Name),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		ParentSession:  "",
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "anthropic",
+		ModelName:      "external_agent",
+		LoraDir:        "",
+		Owner:          user.ID,
+		OrganizationID: project.OrganizationID, // Inherit org from project
+		OwnerType:      types.OwnerTypeUser,
+		Metadata:       sessionMetadata,
 	}
 
 	createdSession, err := s.Store.CreateSession(r.Context(), *session)
