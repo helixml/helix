@@ -47,10 +47,10 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
-		// Also allow the spec task creator to access their own design reviews
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -120,10 +120,10 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
-		// Also allow the spec task creator to access their own design reviews
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -191,10 +191,10 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
-		// Also allow the spec task creator to submit reviews for their own tasks
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -342,10 +342,10 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
-		// Also allow the spec task creator to comment on their own tasks
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -438,10 +438,10 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
-		// Also allow the spec task creator to list comments on their own tasks
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -495,10 +495,10 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
-		// Also allow the spec task creator to resolve comments on their own tasks
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
@@ -556,10 +556,10 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 		return
 	}
 
-	// Authorize user to the project (uses consistent logic from authz.go)
-	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
-		// Also allow the spec task creator to check queue status on their own tasks
-		if user.ID != specTask.CreatedBy {
+	// Task creator always has access
+	if user.ID != specTask.CreatedBy {
+		// Otherwise check project authorization
+		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
