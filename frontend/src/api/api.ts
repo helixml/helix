@@ -4193,6 +4193,16 @@ export interface TypesTeamMembership {
   user_id?: string;
 }
 
+export interface TypesTeamsTrigger {
+  /** Microsoft App ID */
+  app_id?: string;
+  /** Microsoft App Password */
+  app_password?: string;
+  enabled?: boolean;
+  /** Optional: restrict to specific tenant */
+  tenant_id?: string;
+}
+
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -4353,6 +4363,7 @@ export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
+  teams?: TypesTeamsTrigger;
 }
 
 export interface TypesTriggerConfiguration {
@@ -4413,6 +4424,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
@@ -10045,6 +10057,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Process incoming activities from Microsoft Teams Bot Framework
+     *
+     * @tags Teams
+     * @name V1TeamsWebhookCreate
+     * @summary Handle Teams webhook
+     * @request POST:/api/v1/teams/webhook/{appID}
+     */
+    v1TeamsWebhookCreate: (appId: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/teams/webhook/${appId}`,
+        method: "POST",
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

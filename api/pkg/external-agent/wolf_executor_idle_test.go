@@ -281,6 +281,15 @@ func (m *MockStoreForWolf) UpdateSpecTaskDesignReviewComment(ctx context.Context
 func (m *MockStoreForWolf) UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error {
 	return nil
 }
+func (m *MockStoreForWolf) CreateTeamsThread(ctx context.Context, thread *types.TeamsThread) (*types.TeamsThread, error) {
+	return nil, nil
+}
+func (m *MockStoreForWolf) GetTeamsThread(ctx context.Context, appID, conversationID string) (*types.TeamsThread, error) {
+	return nil, nil
+}
+func (m *MockStoreForWolf) DeleteTeamsThread(ctx context.Context, olderThan time.Time) error {
+	return nil
+}
 
 // Stub methods to satisfy store.Store interface (auto-generated from store_mocks.go)
 // These are not used in the cleanup tests, but needed to satisfy the interface
