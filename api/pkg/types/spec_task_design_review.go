@@ -67,6 +67,7 @@ type SpecTaskDesignReviewComment struct {
 	AgentResponse   string     `json:"agent_response,omitempty" gorm:"type:text"`       // Agent's response to comment
 	AgentResponseAt *time.Time `json:"agent_response_at,omitempty"`                     // When agent responded
 	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
+	RequestID       string     `json:"request_id,omitempty" gorm:"size:255;index"`     // Request ID used when sending to agent (for response linking)
 
 	// Status tracking
 	Resolved         bool       `json:"resolved" gorm:"default:false"`
@@ -206,6 +207,13 @@ type SpecTaskDesignReviewCommentListResponse struct {
 type SpecTaskGitPushEventListResponse struct {
 	Events []SpecTaskGitPushEvent `json:"events"`
 	Total  int                    `json:"total"`
+}
+
+// CommentQueueStatusResponse contains info about the current comment processing queue
+type CommentQueueStatusResponse struct {
+	CurrentCommentID  string   `json:"current_comment_id,omitempty"`  // Comment currently being processed (response streaming)
+	QueuedCommentIDs  []string `json:"queued_comment_ids"`            // Comments waiting in queue
+	PlanningSessionID string   `json:"planning_session_id,omitempty"` // Session ID for WebSocket subscription
 }
 
 // Implementation phase transition response

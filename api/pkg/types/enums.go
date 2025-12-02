@@ -95,10 +95,12 @@ const (
 type WebsocketEventType string
 
 const (
-	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
-	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
-	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
-	WebsocketEventProcessingStepInfo WebsocketEventType = "step_info" // Helix tool use, rag search, etc
+	WebsocketEventSessionUpdate        WebsocketEventType = "session_update"
+	WebsocketEventWorkerTaskResponse   WebsocketEventType = "worker_task_response"
+	WebsocketLLMInferenceResponse      WebsocketEventType = "llm_inference_response"
+	WebsocketEventProcessingStepInfo   WebsocketEventType = "step_info"            // Helix tool use, rag search, etc
+	WebsocketEventCommentResponseChunk WebsocketEventType = "comment_response_chunk" // Streaming agent response to design review comment
+	WebsocketEventCommentResponse      WebsocketEventType = "comment_response"       // Final agent response to design review comment
 )
 
 type WorkerTaskResponseType string

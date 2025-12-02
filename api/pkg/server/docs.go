@@ -8712,6 +8712,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current comment being processed and the queue of pending comments for a review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get comment queue status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CommentQueueStatusResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments": {
             "get": {
                 "security": [
@@ -16745,6 +16801,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CommentQueueStatusResponse": {
+            "type": "object",
+            "properties": {
+                "current_comment_id": {
+                    "description": "Comment currently being processed (response streaming)",
+                    "type": "string"
+                },
+                "planning_session_id": {
+                    "description": "Session ID for WebSocket subscription",
+                    "type": "string"
+                },
+                "queued_comment_ids": {
+                    "description": "Comments waiting in queue",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.Commit": {
             "type": "object",
             "properties": {
@@ -21796,6 +21872,10 @@ const docTemplate = `{
                     "description": "For inline comments - store the context around the comment",
                     "type": "string"
                 },
+                "request_id": {
+                    "description": "Request ID used when sending to agent (for response linking)",
+                    "type": "string"
+                },
                 "resolution_reason": {
                     "description": "\"manual\", \"auto_text_removed\", \"agent_updated\"",
                     "type": "string"
@@ -23222,18 +23302,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

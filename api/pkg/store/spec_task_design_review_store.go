@@ -259,6 +259,18 @@ func (s *PostgresStore) GetCommentByInteractionID(ctx context.Context, interacti
 	return &comment, nil
 }
 
+// Get comment by request ID (for linking agent responses via request_id)
+func (s *PostgresStore) GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error) {
+	var comment types.SpecTaskDesignReviewComment
+	err := s.gdb.WithContext(ctx).
+		Where("request_id = ?", requestID).
+		First(&comment).Error
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
 // Get all unresolved comments for a spec task (for auto-resolution)
 func (s *PostgresStore) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) {
 	var comments []types.SpecTaskDesignReviewComment

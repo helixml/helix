@@ -187,6 +187,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           refreshInterval={3000}
           enableStreaming={false}
           showToolbar={false}
+          showTimestamp={false}
           height={height}
         />
       </Box>

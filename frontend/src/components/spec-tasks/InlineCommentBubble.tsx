@@ -1,5 +1,5 @@
 import React from 'react'
-import { Paper, Box, Chip, IconButton, Typography } from '@mui/material'
+import { Paper, Box, Chip, IconButton, Typography, CircularProgress } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import { DesignReviewComment } from '../../services/designReviewService'
 
@@ -8,6 +8,7 @@ interface InlineCommentBubbleProps {
   yPos: number
   onResolve: (commentId: string) => void
   commentRef?: (el: HTMLDivElement | null) => void
+  streamingResponse?: string // Live streaming response content
 }
 
 export default function InlineCommentBubble({
@@ -15,7 +16,11 @@ export default function InlineCommentBubble({
   yPos,
   onResolve,
   commentRef,
+  streamingResponse,
 }: InlineCommentBubbleProps) {
+  // Use streaming response if available, otherwise fall back to persisted response
+  const displayResponse = streamingResponse || comment.agent_response
+  const isStreaming = !!streamingResponse && !comment.agent_response
   return (
     <Paper
       ref={commentRef}
@@ -65,7 +70,7 @@ export default function InlineCommentBubble({
       </Typography>
 
       {/* Show status when comment has been sent to agent but no response yet */}
-      {!comment.agent_response && !comment.resolved && (
+      {!displayResponse && !comment.resolved && (
         <Box
           sx={{
             mt: 2,
@@ -74,33 +79,44 @@ export default function InlineCommentBubble({
             borderRadius: 1,
             display: 'flex',
             alignItems: 'center',
-            gap: 0.5,
+            gap: 1,
           }}
         >
+          <CircularProgress size={12} />
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-            💬 Sent to agent • View session for response
+            Waiting for agent response...
           </Typography>
         </Box>
       )}
 
-      {comment.agent_response && (
+      {displayResponse && (
         <Box
           sx={{
             mt: 2,
             p: 1.5,
-            bgcolor: 'info.light',
+            bgcolor: isStreaming ? 'action.hover' : 'info.light',
             borderLeft: '3px solid',
-            borderColor: 'info.main',
+            borderColor: isStreaming ? 'warning.main' : 'info.main',
             borderRadius: 1,
           }}
         >
-          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={0.5}>
-            Agent:
-          </Typography>
+          <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+            <Typography variant="caption" color="primary" fontWeight="bold">
+              Agent:
+            </Typography>
+            {isStreaming && (
+              <Box display="flex" alignItems="center" gap={0.5}>
+                <CircularProgress size={10} />
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                  typing...
+                </Typography>
+              </Box>
+            )}
+          </Box>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
-            {comment.agent_response}
+            {displayResponse}
           </Typography>
-          {comment.agent_response_at && (
+          {comment.agent_response_at && !isStreaming && (
             <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
               {new Date(comment.agent_response_at).toLocaleString()}
             </Typography>

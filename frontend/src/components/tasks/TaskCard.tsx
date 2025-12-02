@@ -66,6 +66,7 @@ interface SpecTaskWithExtras {
   archived?: boolean
   metadata?: { error?: string }
   merged_to_main?: boolean
+  just_do_it_mode?: boolean
 }
 
 interface KanbanColumn {
@@ -277,10 +278,18 @@ const TaskProgressDisplay: React.FC<{
   )
 })
 
-const LiveAgentScreenshot: React.FC<{ sessionId: string; projectId?: string }> = React.memo(
-  ({ sessionId, projectId }) => {
+const LiveAgentScreenshot: React.FC<{
+  sessionId: string
+  projectId?: string
+  onClick?: () => void
+}> = React.memo(
+  ({ sessionId, projectId, onClick }) => {
     return (
       <Box
+        onClick={(e) => {
+          e.stopPropagation() // Prevent card click
+          if (onClick) onClick()
+        }}
         sx={{
           mt: 1.5,
           mb: 0.5,
@@ -290,6 +299,12 @@ const LiveAgentScreenshot: React.FC<{ sessionId: string; projectId?: string }> =
           border: '1px solid',
           borderColor: 'rgba(0, 0, 0, 0.08)',
           minHeight: 80,
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          '&:hover': {
+            borderColor: 'primary.main',
+            boxShadow: '0 0 0 1px rgba(33, 150, 243, 0.3)',
+          },
         }}
       >
         <Box sx={{ position: 'relative', height: 180 }}>
@@ -301,14 +316,15 @@ const LiveAgentScreenshot: React.FC<{ sessionId: string; projectId?: string }> =
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 60%, transparent 100%)',
             color: 'white',
-            p: 0.5,
+            py: 1,
             px: 1.5,
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-end',
             justifyContent: 'space-between',
             pointerEvents: 'none',
+            minHeight: 36,
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -317,6 +333,9 @@ const LiveAgentScreenshot: React.FC<{ sessionId: string; projectId?: string }> =
               Agent Running
             </Typography>
           </Box>
+          <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.65rem', opacity: 0.8 }}>
+            Click to view
+          </Typography>
         </Box>
       </Box>
     )
@@ -379,9 +398,20 @@ export default function TaskCard({
 
   const accentColor = getPhaseAccent(task.phase)
 
+  // Handle card click - open design docs if available, otherwise open session
+  const handleCardClick = () => {
+    if (task.design_docs_pushed_at && onReviewDocs) {
+      // Design docs exist - open the spec review with tasks tab
+      onReviewDocs(task)
+    } else if (onTaskClick) {
+      // No design docs - open the session viewer
+      onTaskClick(task)
+    }
+  }
+
   return (
     <Card
-      onClick={() => onTaskClick && onTaskClick(task)}
+      onClick={handleCardClick}
       sx={{
         mb: 1.5,
         backgroundColor: 'background.paper',
@@ -494,8 +524,14 @@ export default function TaskCard({
           />
         )}
 
-        {/* Live screenshot for active sessions */}
-        {task.planning_session_id && <LiveAgentScreenshot sessionId={task.planning_session_id} projectId={projectId} />}
+        {/* Live screenshot for active sessions - click opens desktop viewer */}
+        {task.planning_session_id && (
+          <LiveAgentScreenshot
+            sessionId={task.planning_session_id}
+            projectId={projectId}
+            onClick={() => onTaskClick?.(task)}
+          />
+        )}
 
         {/* Backlog phase */}
         {task.phase === 'backlog' && (
@@ -528,9 +564,11 @@ export default function TaskCard({
               {isStartingPlanning
                 ? 'Starting...'
                 : task.metadata?.error
-                ? 'Retry Planning'
+                ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
                 : isPlanningFull
                 ? 'Planning Full'
+                : task.just_do_it_mode
+                ? 'Just Do It'
                 : 'Start Planning'}
             </Button>
             {isPlanningFull && (

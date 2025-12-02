@@ -1757,6 +1757,15 @@ export interface TypesClipboardData {
   type?: string;
 }
 
+export interface TypesCommentQueueStatusResponse {
+  /** Comment currently being processed (response streaming) */
+  current_comment_id?: string;
+  /** Session ID for WebSocket subscription */
+  planning_session_id?: string;
+  /** Comments waiting in queue */
+  queued_comment_ids?: string[];
+}
+
 export interface TypesCommit {
   author?: string;
   email?: string;
@@ -3818,6 +3827,8 @@ export interface TypesSpecTaskDesignReviewComment {
   line_number?: number;
   /** For inline comments - store the context around the comment */
   quoted_text?: string;
+  /** Request ID used when sending to agent (for response linking) */
+  request_id?: string;
   /** "manual", "auto_text_removed", "agent_updated" */
   resolution_reason?: string;
   /** Status tracking */
@@ -4369,11 +4380,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -9102,6 +9113,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
       this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current comment being processed and the queue of pending comments for a review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentQueueStatusDetail
+     * @summary Get comment queue status
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comment-queue-status
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentQueueStatusDetail: (
+      specTaskId: string,
+      reviewId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesCommentQueueStatusResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comment-queue-status`,
         method: "GET",
         secure: true,
         type: ContentType.Json,

@@ -308,6 +308,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+  const [designReviewInitialTab, setDesignReviewInitialTab] = useState<'requirements' | 'technical_design' | 'implementation_plan'>('requirements');
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
@@ -963,9 +964,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   };
 
-  // Handle reviewing documents
-  const handleReviewDocs = async (task: SpecTaskWithExtras) => {
+  // Handle reviewing documents - optionally open to a specific tab
+  // Default to 'requirements' since that's the natural starting point for review
+  const handleReviewDocs = async (task: SpecTaskWithExtras, initialTab: 'requirements' | 'technical_design' | 'implementation_plan' = 'requirements') => {
     setReviewingTask(task);
+    setDesignReviewInitialTab(initialTab);
 
     // Fetch the latest design review for this task using generated client
     try {
@@ -1257,6 +1260,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           }}
           specTaskId={reviewingTask.id!}
           reviewId={activeReviewId}
+          initialTab={designReviewInitialTab}
         />
       )}
 

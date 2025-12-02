@@ -975,6 +975,17 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						Str("request_id", foundRequestID).
 						Msg("No HTTP response channel found (may not be an HTTP streaming request)")
 				}
+
+				// CRITICAL: Also link agent response to design review comment via request_id
+				// This is the primary mechanism for persisting comment responses to database
+				go func(reqID, responseContent string) {
+					if err := apiServer.linkAgentResponseToCommentByRequestID(context.Background(), reqID, responseContent); err != nil {
+						log.Debug().
+							Err(err).
+							Str("request_id", reqID).
+							Msg("No design review comment linked to this request (this is normal for non-comment requests)")
+					}
+				}(foundRequestID, content)
 			}
 
 			// Reload session with all interactions so WebSocket event has latest data
@@ -1240,6 +1251,16 @@ func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *t
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Done channel full")
 	}
 
+	// Try to link agent response to design review comment (if this request came from a comment)
+	go func() {
+		if err := apiServer.linkAgentResponseToCommentByRequestID(context.Background(), requestID, content); err != nil {
+			log.Debug().
+				Err(err).
+				Str("request_id", requestID).
+				Msg("No design review comment linked to this request (this is normal for non-comment requests)")
+		}
+	}()
+
 	return nil
 }
 
@@ -1423,16 +1444,46 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
-	// Also send completion signal to done channel for legacy handling
-	requestID, ok := syncMsg.Data["request_id"].(string)
-	if ok {
-		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, requestID)
+	// Find request_id for this session to finalize comment and send done signal
+	var foundRequestID string
+	if apiServer.requestToSessionMapping != nil {
+		for reqID, sessID := range apiServer.requestToSessionMapping {
+			if sessID == helixSessionID {
+				foundRequestID = reqID
+				break
+			}
+		}
+	}
+
+	// Also check if request_id was sent in the sync message (for some protocols)
+	if foundRequestID == "" {
+		if reqID, ok := syncMsg.Data["request_id"].(string); ok {
+			foundRequestID = reqID
+		}
+	}
+
+	if foundRequestID != "" {
+		// Finalize the comment response (clear request_id and trigger next in queue)
+		go func(reqID string) {
+			if err := apiServer.finalizeCommentResponse(context.Background(), reqID); err != nil {
+				log.Debug().
+					Err(err).
+					Str("request_id", reqID).
+					Msg("No design review comment linked to this request (this is normal for non-comment requests)")
+			}
+		}(foundRequestID)
+
+		// Clean up the request -> session mapping
+		delete(apiServer.requestToSessionMapping, foundRequestID)
+
+		// Send completion signal to done channel for legacy handling
+		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
 		if exists {
 			select {
 			case doneChan <- true:
-				log.Info().Str("request_id", requestID).Msg("✅ [HELIX] Sent done signal to channel")
+				log.Info().Str("request_id", foundRequestID).Msg("✅ [HELIX] Sent done signal to channel")
 			default:
-				log.Warn().Str("request_id", requestID).Msg("Done channel full")
+				log.Warn().Str("request_id", foundRequestID).Msg("Done channel full")
 			}
 		}
 	}
