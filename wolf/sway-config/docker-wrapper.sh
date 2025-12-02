@@ -1,6 +1,7 @@
 #!/bin/bash
 # Docker CLI wrapper that resolves symlinks in bind mount paths
 # This is needed for Hydra (nested dockerd) to work correctly.
+# See: https://github.com/helixml/helix/issues/1405
 #
 # Problem: When running docker inside a dev container with Hydra enabled,
 # the Docker CLI sends paths like /home/retro/work/foo to Hydra's dockerd.
