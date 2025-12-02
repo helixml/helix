@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,7 +52,10 @@ type ContainerDiskUsage struct {
 
 // HeartbeatRequest is the request body sent to the API
 type HeartbeatRequest struct {
-	SwayVersion           string               `json:"sway_version,omitempty"`
+	// Desktop image versions (content-addressable Docker image hashes)
+	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+	// Value: image hash (e.g., "a1b2c3d4e5f6...")
+	DesktopVersions       map[string]string    `json:"desktop_versions,omitempty"`
 	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
@@ -112,18 +117,16 @@ func main() {
 }
 
 func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEnabled bool) {
-	// Re-read sway version on each heartbeat (allows hot-reload after build-sway)
-	swayVersion := ""
-	if data, err := os.ReadFile("/opt/images/helix-sway.version"); err == nil {
-		swayVersion = string(bytes.TrimSpace(data))
-	}
+	// Discover all desktop versions dynamically
+	// Scans /opt/images/helix-*.version files
+	desktopVersions := discoverDesktopVersions()
 
 	// Collect disk usage metrics
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
 
 	// Read GPU configuration from environment (set by install.sh on the sandbox)
-	gpuVendor := os.Getenv("GPU_VENDOR")   // nvidia, amd, intel, none
+	gpuVendor := os.Getenv("GPU_VENDOR")        // nvidia, amd, intel, none
 	renderNode := os.Getenv("WOLF_RENDER_NODE") // /dev/dri/renderD128 or SOFTWARE
 	if renderNode == "" {
 		// Default render node if not explicitly set
@@ -132,7 +135,7 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 
 	// Build request
 	req := HeartbeatRequest{
-		SwayVersion:           swayVersion,
+		DesktopVersions:       desktopVersions,
 		DiskUsage:             diskUsage,
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
@@ -186,10 +189,49 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 	}
 
 	log.Debug().
-		Str("sway_version", swayVersion).
+		Interface("desktop_versions", desktopVersions).
 		Str("gpu_vendor", gpuVendor).
 		Str("render_node", renderNode).
 		Msg("Heartbeat sent successfully")
+}
+
+// discoverDesktopVersions scans for all desktop version files
+// and returns a map of desktop name -> image hash
+func discoverDesktopVersions() map[string]string {
+	versions := make(map[string]string)
+
+	// Scan for all version files matching pattern
+	files, err := filepath.Glob("/opt/images/helix-*.version")
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to scan for desktop version files")
+		return versions
+	}
+
+	for _, file := range files {
+		// Extract desktop name from filename
+		// e.g., "/opt/images/helix-sway.version" -> "sway"
+		base := filepath.Base(file)                 // "helix-sway.version"
+		name := strings.TrimPrefix(base, "helix-")  // "sway.version"
+		name = strings.TrimSuffix(name, ".version") // "sway"
+
+		// Read version (image hash)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			log.Warn().Err(err).Str("file", file).Msg("Failed to read version file")
+			continue
+		}
+
+		version := string(bytes.TrimSpace(data))
+		if version != "" {
+			versions[name] = version
+			log.Debug().
+				Str("desktop", name).
+				Str("version", version).
+				Msg("Discovered desktop version")
+		}
+	}
+
+	return versions
 }
 
 func collectDiskUsage() []DiskUsageMetric {

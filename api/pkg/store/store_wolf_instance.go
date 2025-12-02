@@ -28,9 +28,16 @@ func (s *PostgresStore) UpdateWolfHeartbeat(ctx context.Context, id string, req 
 		"updated_at":     now,
 		"status":         types.WolfInstanceStatusOnline,
 	}
-	// Only update sway_version if provided (allows sandboxes to report their version)
-	if req != nil && req.SwayVersion != "" {
-		updates["sway_version"] = req.SwayVersion
+	// Save desktop versions as JSON map
+	if req != nil && len(req.DesktopVersions) > 0 {
+		versionsJSON, err := json.Marshal(req.DesktopVersions)
+		if err == nil {
+			updates["desktop_versions_json"] = string(versionsJSON)
+		}
+		// Also update legacy sway_version field for backward compatibility
+		if swayVersion, ok := req.DesktopVersions["sway"]; ok {
+			updates["sway_version"] = swayVersion
+		}
 	}
 	// Update privileged mode status
 	if req != nil {
