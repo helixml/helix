@@ -2452,6 +2452,10 @@ type AdminCreateUserRequest struct {
 	Admin    bool   `json:"admin"`
 }
 
+type AdminResetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
 type UserResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`

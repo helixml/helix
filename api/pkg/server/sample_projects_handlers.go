@@ -10,7 +10,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/datatypes"
 )
 
 // SampleProject represents a sample project template
@@ -387,15 +386,15 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 		Status:         "active",
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
-		Metadata: func() datatypes.JSON {
-			metadataMap := map[string]interface{}{
-				"sample_project_id": req.SampleProjectID,
-				"original_repo":     sampleProject.GitHubRepo,
-				"forked_from":       "sample_project",
-			}
-			metadataBytes, _ := json.Marshal(metadataMap)
-			return datatypes.JSON(metadataBytes)
-		}(),
+		Metadata: types.ProjectMetadata{
+			BoardSettings: &types.BoardSettings{
+				WIPLimits: types.WIPLimits{
+					Planning:       3,
+					Review:         2,
+					Implementation: 5,
+				},
+			},
+		},
 	}
 
 	// Store project (assuming we have a projects store)

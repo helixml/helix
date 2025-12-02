@@ -856,27 +856,17 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Parse metadata to extract board settings
-	var metadata types.ProjectMetadata
-	if len(project.Metadata) > 0 {
-		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
-			log.Error().Err(err).Msg("Failed to parse project metadata")
-			http.Error(w, "failed to parse board settings", http.StatusInternalServerError)
-			return
-		}
-	}
-
 	// Return board settings or defaults
 	var boardSettings types.BoardSettings
-	if metadata.BoardSettings != nil {
-		boardSettings = *metadata.BoardSettings
+	if project.Metadata.BoardSettings != nil {
+		boardSettings = *project.Metadata.BoardSettings
 	} else {
 		// Return default settings if not found
 		boardSettings = types.BoardSettings{
-			WIPLimits: map[string]int{
-				"planning":       3,
-				"review":         2,
-				"implementation": 5,
+			WIPLimits: types.WIPLimits{
+				Planning:       3,
+				Review:         2,
+				Implementation: 5,
 			},
 		}
 	}
@@ -926,29 +916,8 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse existing metadata or create new
-	var metadata types.ProjectMetadata
-	if len(project.Metadata) > 0 {
-		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
-			log.Error().Err(err).Msg("Failed to parse project metadata")
-			http.Error(w, "failed to parse existing settings", http.StatusInternalServerError)
-			return
-		}
-	}
-
 	// Update board settings in metadata
-	metadata.BoardSettings = &settings
-
-	// Marshal back to JSON
-	newMetadata, err := json.Marshal(metadata)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal metadata")
-		http.Error(w, "failed to save settings", http.StatusInternalServerError)
-		return
-	}
-
-	// Update project
-	project.Metadata = newMetadata
+	project.Metadata.BoardSettings = &settings
 	project.UpdatedAt = time.Now()
 
 	err = s.Store.UpdateProject(ctx, project)

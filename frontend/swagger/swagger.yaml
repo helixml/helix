@@ -67,6 +67,29 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  kodit.RepositoryStatusSummaryAttributes:
+    properties:
+      message:
+        description: Message Error message if failed
+        type: string
+      status:
+        description: Status Overall indexing status
+        type: string
+      updated_at:
+        description: UpdatedAt Most recent activity timestamp
+        type: string
+    type: object
+  kodit.RepositoryStatusSummaryData:
+    properties:
+      attributes:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryAttributes'
+        description: Attributes Attributes for repository status summary.
+      id:
+        type: string
+      type:
+        type: string
+    type: object
   mcp.Meta:
     properties:
       additionalFields:
@@ -1662,6 +1685,13 @@ definitions:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
     type: object
+  services.KoditIndexingStatus:
+    properties:
+      data:
+        allOf:
+        - $ref: '#/definitions/kodit.RepositoryStatusSummaryData'
+        description: Data Data for repository status summary response.
+    type: object
   services.KoditSearchResult:
     properties:
       content:
@@ -1965,6 +1995,13 @@ definitions:
     type: string
     x-enum-comments:
       ActionUseAction: For example "use app"
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - For example "use app"
     x-enum-varnames:
     - ActionGet
     - ActionList
@@ -1995,6 +2032,11 @@ definitions:
       full_name:
         type: string
       password:
+        type: string
+    type: object
+  types.AdminResetPasswordRequest:
+    properties:
+      new_password:
         type: string
     type: object
   types.AgentDashboardSummary:
@@ -2171,6 +2213,10 @@ definitions:
       AgentTypeHelixAgent: Standard Helix agent with skills
       AgentTypeHelixBasic: Basic Helix agent
       AgentTypeZedExternal: Zed-integrated agent
+    x-enum-descriptions:
+    - Basic Helix agent
+    - Standard Helix agent with skills
+    - Zed-integrated agent
     x-enum-varnames:
     - AgentTypeHelixBasic
     - AgentTypeHelixAgent
@@ -2449,6 +2495,7 @@ definitions:
         type: boolean
       runner_capacity:
         additionalProperties:
+          format: int64
           type: integer
         description: GPU index -> total memory
         type: object
@@ -2456,6 +2503,7 @@ definitions:
         type: string
       runner_memory_state:
         additionalProperties:
+          format: int64
           type: integer
         description: GPU index -> allocated memory
         type: object
@@ -2884,6 +2932,10 @@ definitions:
     type: string
     x-enum-comments:
       AuthProviderRegular: Embedded in Helix, no external dependencies
+    x-enum-descriptions:
+    - Embedded in Helix, no external dependencies
+    - ""
+    - ""
     x-enum-varnames:
     - AuthProviderRegular
     - AuthProviderKeycloak
@@ -2908,9 +2960,7 @@ definitions:
   types.BoardSettings:
     properties:
       wip_limits:
-        additionalProperties:
-          type: integer
-        type: object
+        $ref: '#/definitions/types.WIPLimits'
     type: object
   types.ChatCompletionMessage:
     properties:
@@ -3818,6 +3868,9 @@ definitions:
     x-enum-comments:
       GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
       GitRepositoryTypeInternal: Internal project config repository
+    x-enum-descriptions:
+    - Internal project config repository
+    - Code repository (user projects, samples, external repos)
     x-enum-varnames:
     - GitRepositoryTypeInternal
     - GitRepositoryTypeCode
@@ -4929,6 +4982,9 @@ definitions:
       OrganizationRoleMember: Can see every member and team in the organization and
         can create new apps
       OrganizationRoleOwner: Has full administrative access to the entire organization.
+    x-enum-descriptions:
+    - Has full administrative access to the entire organization.
+    - Can see every member and team in the organization and can create new apps
     x-enum-varnames:
     - OrganizationRoleOwner
     - OrganizationRoleMember
@@ -5065,9 +5121,7 @@ definitions:
       id:
         type: string
       metadata:
-        items:
-          type: integer
-        type: array
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       organization_id:
@@ -5109,6 +5163,11 @@ definitions:
           type: string
         type: array
     type: object
+  types.ProjectMetadata:
+    properties:
+      board_settings:
+        $ref: '#/definitions/types.BoardSettings'
+    type: object
   types.ProjectUpdateRequest:
     properties:
       auto_start_backlog_tasks:
@@ -5121,6 +5180,8 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      metadata:
+        $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
       startup_script:
@@ -5709,6 +5770,14 @@ definitions:
       SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
       SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
       SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
+    x-enum-descriptions:
+    - Added to queue
+    - Reused existing warm model instance
+    - Started new model instance
+    - Evicted stale slot to free memory
+    - Rejected (insufficient resources, etc.)
+    - Error during scheduling
+    - Cannot be scheduled (no warm slots available)
     x-enum-varnames:
     - SchedulingDecisionTypeQueued
     - SchedulingDecisionTypeReuseWarmSlot
@@ -6118,6 +6187,11 @@ definitions:
     type: string
     x-enum-comments:
       SessionModeAction: Running tool actions (e.g. API, function calls)
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - Running tool actions (e.g. API, function calls)
     x-enum-varnames:
     - SessionModeNone
     - SessionModeInference
@@ -6619,6 +6693,12 @@ definitions:
       SpecTaskDesignReviewCommentTypePraise: Positive feedback
       SpecTaskDesignReviewCommentTypeQuestion: Question needing clarification
       SpecTaskDesignReviewCommentTypeSuggestion: Suggested improvement
+    x-enum-descriptions:
+    - General comment
+    - Question needing clarification
+    - Suggested improvement
+    - Critical issue must be fixed
+    - Positive feedback
     x-enum-varnames:
     - SpecTaskDesignReviewCommentTypeGeneral
     - SpecTaskDesignReviewCommentTypeQuestion
@@ -6659,6 +6739,12 @@ definitions:
       SpecTaskDesignReviewStatusInReview: Reviewer is actively reviewing
       SpecTaskDesignReviewStatusPending: Waiting for reviewer
       SpecTaskDesignReviewStatusSuperseded: Newer review exists (agent pushed updates)
+    x-enum-descriptions:
+    - Waiting for reviewer
+    - Reviewer is actively reviewing
+    - Reviewer requested changes
+    - Approved, ready for implementation
+    - Newer review exists (agent pushed updates)
     x-enum-varnames:
     - SpecTaskDesignReviewStatusPending
     - SpecTaskDesignReviewStatusInReview
@@ -6830,6 +6916,7 @@ definitions:
         description: Progress from tasks.md
       implementation_progress:
         additionalProperties:
+          format: float64
           type: number
         description: Task index -> progress
         type: object
@@ -6838,6 +6925,7 @@ definitions:
         type: number
       phase_progress:
         additionalProperties:
+          format: float64
           type: number
         type: object
       recent_activity:
@@ -7537,18 +7625,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -7722,6 +7810,15 @@ definitions:
         type: array
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.WIPLimits:
+    properties:
+      implementation:
+        type: integer
+      planning:
+        type: integer
+      review:
+        type: integer
     type: object
   types.Wallet:
     properties:
@@ -8063,18 +8160,8 @@ definitions:
       tid:
         type: integer
     type: object
-host: app.helix.ml
 info:
-  contact:
-    email: info@helix.ml
-    name: Helix support
-    url: https://app.helix.ml/
-  description: This is the HelixML API.
-  title: HelixML API reference
-  version: "0.1"
-  x-logo:
-    altText: Helix logo
-    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
+  contact: {}
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -8133,6 +8220,47 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/users/{id}/password:
+    put:
+      consumes:
+      - application/json
+      description: Reset the password for any user. Only admins can use this endpoint.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AdminResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Not authorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Reset a user's password (Admin only)
+      tags:
+      - users
   /api/v1/admin/wolf/lobbies/{lobbyId}:
     delete:
       description: Stop a Wolf lobby (terminates container and releases GPU resources)
@@ -10151,8 +10279,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/services.KoditIndexingStatus'
         "400":
           description: Bad Request
           schema:
@@ -14524,56 +14651,6 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
-  /api/v1/spec-tasks/board-settings:
-    get:
-      description: Get the Kanban board settings (WIP limits) for the default project
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get board settings for spec tasks
-      tags:
-      - spec-driven-tasks
-    put:
-      consumes:
-      - application/json
-      description: Update the Kanban board settings (WIP limits) for the default project
-      parameters:
-      - description: Board settings
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.BoardSettings'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.BoardSettings'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Update board settings for spec tasks
-      tags:
-      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:
@@ -16025,6 +16102,4 @@ paths:
             type: array
       security:
       - BearerAuth: []
-schemes:
-- https
 swagger: "2.0"

@@ -25,9 +25,11 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
+import LockResetIcon from "@mui/icons-material/LockReset";
 import { TypesUser, TypesPaginatedUsersList } from "../../api/api";
 import { useListUsers, UserListQuery } from "../../services/dashboardService";
 import CreateUserDialog from "./CreateUserDialog";
+import ResetPasswordDialog from "./ResetPasswordDialog";
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -94,6 +96,18 @@ const UsersTable: FC = () => {
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [searchType, setSearchType] = useState<"username" | "email">("username");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
+    const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<TypesUser | null>(null);
+
+    const handleResetPassword = (user: TypesUser) => {
+        setSelectedUser(user);
+        setResetPasswordDialogOpen(true);
+    };
+
+    const handleCloseResetPasswordDialog = () => {
+        setResetPasswordDialogOpen(false);
+        setSelectedUser(null);
+    };
 
     // Debounced search query
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -253,12 +267,13 @@ const UsersTable: FC = () => {
                             <TableCell>Full Name</TableCell>
                             <TableCell>Admin</TableCell>
                             <TableCell>Created At</TableCell>
+                            <TableCell align="right">Actions</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {users.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} align="center">
+                                <TableCell colSpan={6} align="center">
                                     <Typography variant="body2" color="text.secondary">
                                         {debouncedSearchQuery ? "No users found matching your search" : "No users found"}
                                     </Typography>
@@ -297,6 +312,17 @@ const UsersTable: FC = () => {
                                             </Typography>
                                         </Tooltip>
                                     </TableCell>
+                                    <TableCell align="right">
+                                        <Tooltip title="Reset Password">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleResetPassword(user)}
+                                                sx={{ color: 'text.secondary' }}
+                                            >
+                                                <LockResetIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                    </TableCell>
                                 </TableRow>
                             ))
                         )}
@@ -323,6 +349,11 @@ const UsersTable: FC = () => {
         <CreateUserDialog
             open={createDialogOpen}
             onClose={() => setCreateDialogOpen(false)}
+        />
+        <ResetPasswordDialog
+            open={resetPasswordDialogOpen}
+            onClose={handleCloseResetPasswordDialog}
+            user={selectedUser}
         />
         </>
     );

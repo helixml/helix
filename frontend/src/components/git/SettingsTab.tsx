@@ -39,7 +39,7 @@ interface SettingsTabProps {
   setEditDescription: (value: string) => void
   editDefaultBranch: string
   setEditDefaultBranch: (value: string) => void
-  editKoditIndexing: boolean
+  editKoditIndexing: boolean | undefined
   setEditKoditIndexing: (value: boolean) => void
   editExternalUrl: string
   setEditExternalUrl: (value: string) => void
@@ -139,7 +139,6 @@ const SettingsTab: FC<SettingsTabProps> = ({
           />
 
           <FormControlLabel
-            disabled={!(repository.is_external || repository.external_url)}
             control={
               <Switch
                 checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.kodit_indexing || false)}
@@ -155,9 +154,7 @@ const SettingsTab: FC<SettingsTabProps> = ({
                     Code Intelligence
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {repository.is_external || repository.external_url
-                      ? 'Index this repository with Kodit for AI-powered code understanding'
-                      : 'Code Intelligence is only available for external repositories'}
+                    Index this repository with Kodit for AI-powered code understanding
                   </Typography>
                 </Box>
               </Box>

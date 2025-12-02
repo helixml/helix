@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -53,6 +54,22 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 	if request.RepoType == "" {
 		request.RepoType = types.GitRepositoryTypeCode
+	}
+
+	// Pass API key for Kodit to clone local repos (non-external repos)
+	if request.KoditIndexing && request.ExternalURL == "" {
+		if user.TokenType == types.TokenTypeAPIKey {
+			// User authenticated with API key - use it directly
+			request.KoditAPIKey = user.Token
+		} else {
+			// User authenticated via session - look up or create an API key
+			apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to get/create API key for Kodit indexing")
+			} else {
+				request.KoditAPIKey = apiKey
+			}
+		}
 	}
 
 	// Create repository
@@ -1267,4 +1284,23 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
+}
+
+// getOrCreateUserAPIKey retrieves an existing personal API key for the user or creates a new one
+// This is used to provide Kodit with credentials to clone local repositories
+// Uses Controller.GetAPIKeys which auto-creates a key if none exists
+func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.User) (string, error) {
+	apiKeys, err := s.Controller.GetAPIKeys(ctx, user)
+	if err != nil {
+		return "", fmt.Errorf("failed to get API keys: %w", err)
+	}
+
+	// Filter for personal API keys (not app-scoped)
+	for _, key := range apiKeys {
+		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
+			return key.Key, nil
+		}
+	}
+
+	return "", fmt.Errorf("no personal API key found")
 }

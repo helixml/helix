@@ -75,6 +75,9 @@ type Kodit struct {
 	BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
 	APIKey  string `envconfig:"KODIT_API_KEY" default:"dev-key"`
 	Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
+	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
+	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
+	GitURL string `envconfig:"KODIT_GIT_URL" default:"http://api:8080"`
 }
 
 // Providers is used to configure the various AI providers that we use
