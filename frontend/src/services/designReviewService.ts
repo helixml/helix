@@ -101,7 +101,7 @@ export function useDesignReview(specTaskId: string, reviewId: string) {
   })
 }
 
-export function useDesignReviewComments(specTaskId: string, reviewId: string) {
+export function useDesignReviewComments(specTaskId: string, reviewId: string, options?: { refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
@@ -112,6 +112,7 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string) {
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
+    refetchInterval: options?.refetchInterval,
   })
 }
 

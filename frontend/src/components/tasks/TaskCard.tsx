@@ -578,20 +578,37 @@ export default function TaskCard({
             >
               View Agent Session
             </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<StopIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                stopAgentMutation.mutate()
-              }}
-              disabled={stopAgentMutation.isPending}
-              fullWidth
-            >
-              Stop Agent
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<ApproveIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  approveImplementationMutation.mutate()
+                }}
+                disabled={approveImplementationMutation.isPending}
+                sx={{ flex: 1 }}
+              >
+                Accept
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<CloseIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (onArchiveTask) {
+                    onArchiveTask(task, true)
+                  }
+                }}
+                sx={{ flex: 1 }}
+              >
+                Reject
+              </Button>
+            </Box>
           </Box>
         )}
 
