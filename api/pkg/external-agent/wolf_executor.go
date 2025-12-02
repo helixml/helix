@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,9 +92,6 @@ type WolfExecutor struct {
 
 	// Connection manager for RevDial connections to sandboxes and remote Wolf instances
 	connman connmanInterface
-
-	// Max concurrent lobbies (GPU streaming sessions) - configurable via EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES
-	maxConcurrentLobbies int
 
 	// Hydra multi-Docker isolation
 	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
@@ -391,15 +387,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 			Msg("FILESTORE_VOLUME_PATH not set, using default Docker volume path")
 	}
 
-	// Get max concurrent lobbies from environment variable (default: 10)
-	maxLobbies := 10
-	if maxLobbiesStr := os.Getenv("EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES"); maxLobbiesStr != "" {
-		if parsed, err := strconv.Atoi(maxLobbiesStr); err == nil && parsed > 0 {
-			maxLobbies = parsed
-		}
-	}
-	log.Info().Int("max_concurrent_lobbies", maxLobbies).Msg("Wolf executor lobby limit configured")
-
 	// Check if Hydra multi-Docker isolation is enabled
 	// When enabled, each scope (SpecTask/session/exploratory) gets its own dockerd
 	hydraEnabled := os.Getenv("HYDRA_ENABLED") == "true"
@@ -419,7 +406,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
 		wolfScheduler:                store.NewWolfScheduler(storeInst),
 		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
-		maxConcurrentLobbies:         maxLobbies,
 		hydraEnabled:                 hydraEnabled,
 	}
 
@@ -726,27 +712,66 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// No existing lobby - create a new one
 	log.Info().Str("session_id", agent.SessionID).Msg("No existing lobby found, creating new lobby")
 
-	// CRITICAL: Enforce hard limit of 5 concurrent lobbies to prevent GPU resource exhaustion
-	// Discovery: NVML fails at ~5-6 lobbies, GPU crashes at 6-7 lobbies
-	// See: design/2025-11-05-wolf-gpu-resource-limits-and-monitoring.md
-	lobbies, err := w.getWolfClient(wolfInstance.ID).ListLobbies(ctx)
+	// CRITICAL: Enforce per-Wolf-instance lobby limit to prevent GPU resource exhaustion
+	// Query GPU memory dynamically and calculate max lobbies based on available resources
+	// At 10 lobbies we observed ~4.6GB GPU memory usage (~460MB per lobby)
+	const memoryPerLobbyMB = 460
+	const memoryHeadroomMB = 2048 // Leave 2GB headroom for safety
+
+	wolfClient := w.getWolfClient(wolfInstance.ID)
+	lobbies, err := wolfClient.ListLobbies(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to check lobby count before creation")
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
 	}
 
-	if len(lobbies) >= w.maxConcurrentLobbies {
+	// Calculate dynamic max lobbies based on GPU memory
+	// Default: assume 8GB GPU = 12 lobbies (conservative for production)
+	const defaultMaxLobbies = 12
+	maxLobbies := defaultMaxLobbies
+
+	memory, err := wolfClient.GetSystemMemory(ctx)
+	if err != nil {
+		log.Warn().Err(err).Int("fallback_max_lobbies", defaultMaxLobbies).Msg("Failed to get GPU memory stats, assuming 8GB GPU")
+	} else if memory.GPUStats != nil && memory.GPUStats.MemoryTotalMB > 0 {
+		// Calculate max lobbies: (total GPU memory - headroom) / memory per lobby
+		usableMemory := memory.GPUStats.MemoryTotalMB - memoryHeadroomMB
+		if usableMemory > 0 {
+			maxLobbies = usableMemory / memoryPerLobbyMB
+			if maxLobbies < 1 {
+				maxLobbies = 1 // At least allow 1 lobby
+			}
+		}
+		log.Info().
+			Int("gpu_memory_total_mb", memory.GPUStats.MemoryTotalMB).
+			Int("gpu_memory_used_mb", memory.GPUStats.MemoryUsedMB).
+			Int("usable_memory_mb", usableMemory).
+			Int("calculated_max_lobbies", maxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("Calculated dynamic lobby limit from GPU memory")
+	} else {
+		// No GPU stats available (software rendering or GPU monitoring unavailable)
+		// Assume 8GB GPU as conservative default
+		log.Warn().
+			Int("fallback_max_lobbies", defaultMaxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
+			Msg("No GPU memory stats available, assuming 8GB GPU")
+	}
+
+	if len(lobbies) >= maxLobbies {
 		log.Error().
 			Int("active_lobbies", len(lobbies)).
-			Int("max_lobbies", w.maxConcurrentLobbies).
+			Int("max_lobbies", maxLobbies).
+			Str("wolf_instance_id", wolfInstance.ID).
 			Str("session_id", agent.SessionID).
-			Msg("GPU resource limit reached - cannot create new lobby")
-		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), w.maxConcurrentLobbies)
+			Msg("GPU resource limit reached on Wolf instance - cannot create new lobby")
+		return nil, fmt.Errorf("GPU resource limit reached on %s (%d/%d lobbies active). Please close an unused session and try again", wolfInstance.Name, len(lobbies), maxLobbies)
 	}
 
 	log.Info().
 		Int("active_lobbies", len(lobbies)).
-		Int("max_lobbies", w.maxConcurrentLobbies).
+		Int("max_lobbies", maxLobbies).
+		Str("wolf_instance_id", wolfInstance.ID).
 		Msg("GPU capacity check passed, proceeding with lobby creation")
 
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)

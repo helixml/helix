@@ -13,7 +13,7 @@ type WolfInstance struct {
 	Status                string    `gorm:"type:varchar(50);not null;default:'offline'" json:"status"` // online, offline, degraded
 	LastHeartbeat         time.Time `gorm:"index" json:"last_heartbeat"`
 	ConnectedSandboxes    int       `gorm:"default:0" json:"connected_sandboxes"`
-	MaxSandboxes          int       `gorm:"default:10" json:"max_sandboxes"`
+	MaxSandboxes          int       `gorm:"default:12" json:"max_sandboxes"` // ~460MB GPU memory per lobby; 12 = ~5.5GB, safe for 8GB GPU
 	GPUType               string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, intel, none (legacy, use GPUVendor)
 	GPUVendor             string    `gorm:"type:varchar(100)" json:"gpu_vendor"`        // nvidia, amd, intel, none (from sandbox heartbeat)
 	RenderNode            string    `gorm:"type:varchar(255)" json:"render_node"`       // /dev/dri/renderD128 or SOFTWARE (from sandbox heartbeat)
