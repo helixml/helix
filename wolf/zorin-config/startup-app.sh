@@ -43,6 +43,15 @@ echo "=== MINIMAL STARTUP BEGINS ==="
 echo "Starting Helix Zorin environment with MINIMAL custom configuration..."
 
 # ============================================================================
+# CRITICAL: Fix home directory ownership FIRST
+# ============================================================================
+# Wolf mounts /wolf-state/agent-xxx:/home/retro which is owned by ubuntu:ubuntu
+# We need write permission to /home/retro before creating any symlinks or files
+echo "Fixing /home/retro ownership..."
+sudo chown retro:retro /home/retro
+echo "✅ /home/retro ownership fixed"
+
+# ============================================================================
 # Workspace Directory Setup (Hydra Compatibility)
 # ============================================================================
 # CRITICAL: Create workspace symlink for Hydra bind-mount compatibility
