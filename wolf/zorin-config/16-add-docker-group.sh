@@ -3,7 +3,8 @@
 # The docker socket is mounted from sandbox container with a specific GID.
 # We need to add retro to THAT group (by GID), not a newly created docker group.
 #
-# CRITICAL: This script MUST succeed - docker access is required for agents
+# CRITICAL: This script is SOURCED by entrypoint.sh, not executed directly!
+# Therefore: NEVER use 'exit' - use 'return' instead, or it kills the entrypoint!
 
 set -e  # Exit on any error
 
@@ -11,13 +12,13 @@ set -e  # Exit on any error
 if ! id retro >/dev/null 2>&1; then
     echo "**** FATAL: retro user does not exist! ****"
     echo "**** This init script must run AFTER 10-setup_user.sh ****"
-    exit 1
+    return 1 2>/dev/null || exit 1  # return if sourced, exit if run directly
 fi
 
 # Get the GID of the docker socket (mounted from sandbox)
 if [ ! -S /var/run/docker.sock ]; then
     echo "**** WARNING: Docker socket not found, skipping docker group setup ****"
-    exit 0
+    return 0 2>/dev/null || exit 0  # return if sourced, exit if run directly
 fi
 
 SOCKET_GID=$(stat -c "%g" /var/run/docker.sock)
@@ -47,5 +48,5 @@ if id retro | grep -q "$SOCKET_GID"; then
 else
     echo "**** FATAL: usermod succeeded but retro is NOT in group $SOCKET_GID! ****"
     echo "**** retro groups: $(id retro) ****"
-    exit 1
+    return 1 2>/dev/null || exit 1  # return if sourced, exit if run directly
 fi
