@@ -1,7 +1,6 @@
 package revdial
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/function61/holepunch-server/pkg/wsconnadapter"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 )
@@ -95,84 +95,55 @@ func (c *Client) runLoop(ctx context.Context) {
 func (c *Client) runConnection(ctx context.Context) error {
 	serverURL := strings.TrimSuffix(c.config.ServerURL, "/") + "/api/v1/revdial"
 	host, useTLS := ExtractHostAndTLS(serverURL)
-	dialURL := fmt.Sprintf("%s?runnerid=%s", serverURL, c.config.RunnerID)
 
-	log.Debug().
-		Str("dial_url", dialURL).
-		Bool("tls", useTLS).
-		Msg("Connecting to RevDial server")
-
-	// Dial connection
-	var conn net.Conn
-	var err error
-	if useTLS {
-		hostOnly := host
-		if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
-			hostOnly = host[:colonIdx]
-		}
-		tlsConfig := &tls.Config{
-			ServerName:         hostOnly,
-			InsecureSkipVerify: true, // TODO: make configurable
-		}
-		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", host, tlsConfig)
-	} else {
-		conn, err = net.DialTimeout("tcp", host, 10*time.Second)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to dial server: %w", err)
-	}
-
-	// Send HTTP upgrade request
-	httpReq, err := http.NewRequest("GET", dialURL, nil)
-	if err != nil {
-		conn.Close()
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.config.RunnerToken)
-	httpReq.Header.Set("Connection", "Upgrade")
-
-	if err := httpReq.Write(conn); err != nil {
-		conn.Close()
-		return fmt.Errorf("failed to write request: %w", err)
-	}
-
-	// Read response
-	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, httpReq)
-	if err != nil {
-		conn.Close()
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		conn.Close()
-		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Info().Msg("✅ RevDial connection established")
-
-	// Create WebSocket dialer for DATA connections
-	wsDialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // TODO: make configurable
-		},
-	}
-
+	// Build WebSocket URL for control connection
 	wsScheme := "ws://"
 	if useTLS {
 		wsScheme = "wss://"
 	}
+	controlURL := fmt.Sprintf("%s%s/api/v1/revdial?runnerid=%s", wsScheme, host, c.config.RunnerID)
 
-	listener := NewListener(conn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
+	log.Debug().
+		Str("control_url", controlURL).
+		Bool("tls", useTLS).
+		Msg("Connecting to RevDial server via WebSocket")
+
+	// Create WebSocket dialer with TLS config
+	wsDialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // TODO: make configurable via c.config.InsecureSkipVerify
+		},
+	}
+
+	// Dial control connection as WebSocket
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+c.config.RunnerToken)
+
+	controlWS, resp, err := wsDialer.DialContext(ctx, controlURL, header)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return fmt.Errorf("failed to connect control WebSocket (status %d): %s: %w", resp.StatusCode, string(body), err)
+		}
+		return fmt.Errorf("failed to connect control WebSocket: %w", err)
+	}
+
+	// Wrap WebSocket as net.Conn for the Listener
+	controlConn := wsconnadapter.New(controlWS)
+
+	log.Info().Msg("✅ RevDial control connection established (WebSocket)")
+
+	// Create listener with the WebSocket-wrapped control connection
+	listener := NewListener(controlConn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
 		dataPath := strings.Replace(path, "/revdial", "/api/v1/revdial", 1)
 		dataURL := wsScheme + host + dataPath
-		header := http.Header{}
-		header.Set("Authorization", "Bearer "+c.config.RunnerToken)
+		dataHeader := http.Header{}
+		dataHeader.Set("Authorization", "Bearer "+c.config.RunnerToken)
 
 		log.Debug().Str("data_url", dataURL).Msg("DATA connection")
-		return wsDialer.DialContext(ctx, dataURL, header)
+		return wsDialer.DialContext(ctx, dataURL, dataHeader)
 	})
 	defer listener.Close()
 
