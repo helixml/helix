@@ -113,16 +113,8 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if repository.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if repository.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -168,16 +160,8 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if existing.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if existing.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -220,16 +204,8 @@ func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if existing.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if existing.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionDelete); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -819,16 +795,8 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		return
 	}
 
-	if existing.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if existing.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -926,16 +894,8 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if existing.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if existing.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -1010,16 +970,8 @@ func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http
 		return
 	}
 
-	if repository.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if repository.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -1093,16 +1045,8 @@ func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if repository.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if repository.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -1173,16 +1117,8 @@ func (s *HelixAPIServer) listGitRepositoryPullRequests(w http.ResponseWriter, r 
 		return
 	}
 
-	if repository.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if repository.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -1229,16 +1165,8 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return
 	}
 
-	if repository.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
-		if err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
-			return
-		}
-	}
-
-	if repository.OwnerID != user.ID {
-		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+	if err := s.authorizeUserToRepository(r.Context(), user, repository, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
