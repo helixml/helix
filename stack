@@ -68,10 +68,10 @@ function get_sandbox_names() {
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
-  # Check if COMPOSE_PROFILES was set in environment BEFORE sourcing .env (even if empty)
-  # ${var+x} expands to "x" if var is set, nothing if unset
+  # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
+  # (empty string triggers auto-detection, non-empty respects user's choice)
   local env_was_set=""
-  if [[ -n "${COMPOSE_PROFILES+x}" ]]; then
+  if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
     env_was_set="true"
   fi
 
