@@ -129,7 +129,7 @@ export class WebSocketStream {
     this.appId = appId
     this.settings = settings
     this.sessionId = sessionId
-    this.streamerSize = this.getStreamerSize(viewerScreenSize)
+    this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
     // Initialize input handler
     const streamInputConfig = defaultStreamInputConfig()
@@ -139,11 +139,42 @@ export class WebSocketStream {
     })
     this.input = new StreamInput(streamInputConfig)
 
+    // Patch StreamInput's send methods to use WebSocket transport instead of DataChannels
+    this.patchInputMethods()
+
     // Connect
     this.connect()
   }
 
-  private getStreamerSize(viewerScreenSize: [number, number]): [number, number] {
+  private patchInputMethods() {
+    const wsStream = this
+    // @ts-ignore - accessing private methods for patching
+    this.input.sendKey = (isDown: boolean, key: number, modifiers: number) => {
+      wsStream.sendKey(isDown, key, modifiers)
+    }
+    // @ts-ignore
+    this.input.sendMouseMove = (movementX: number, movementY: number) => {
+      wsStream.sendMouseMove(movementX, movementY)
+    }
+    // @ts-ignore
+    this.input.sendMousePosition = (x: number, y: number, refW: number, refH: number) => {
+      wsStream.sendMousePosition(x, y, refW, refH)
+    }
+    // @ts-ignore
+    this.input.sendMouseButton = (isDown: boolean, button: number) => {
+      wsStream.sendMouseButton(isDown, button)
+    }
+    // @ts-ignore
+    this.input.sendMouseWheelHighRes = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheelHighRes(deltaX, deltaY)
+    }
+    // @ts-ignore
+    this.input.sendMouseWheel = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheel(deltaX, deltaY)
+    }
+  }
+
+  private calculateStreamerSize(viewerScreenSize: [number, number]): [number, number] {
     let width: number, height: number
     if (this.settings.videoSize === "720p") {
       width = 1280
@@ -171,11 +202,17 @@ export class WebSocketStream {
   private connect() {
     this.dispatchInfoEvent({ type: "connecting" })
 
-    // Build WebSocket URL
+    // Reset stream state for fresh connection
+    this.resetStreamState()
+
+    // Build WebSocket URL - must be absolute with ws:// or wss:// protocol
     const queryParams = this.sessionId
       ? `?session_id=${encodeURIComponent(this.sessionId)}`
       : ""
-    const wsUrl = `${this.api.host_url}/api/ws/stream${queryParams}`
+
+    // Convert relative URL to absolute WebSocket URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}${this.api.host_url}/api/ws/stream${queryParams}`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
     this.ws = new WebSocket(wsUrl)
@@ -381,14 +418,40 @@ export class WebSocketStream {
       },
     })
 
-    this.videoDecoder.configure({
+    // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS)
+    // This tells WebCodecs to expect NAL start codes and in-band parameter sets
+    const config: VideoDecoderConfig = {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
       hardwareAcceleration: "prefer-hardware",
-    })
+    }
 
-    console.log("[WebSocketStream] Video decoder initialized")
+    // For H264, specify Annex B format to handle in-band SPS/PPS
+    if (codecString.startsWith("avc1")) {
+      // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+      config.avc = { format: "annexb" }
+    }
+    // For HEVC, similar configuration
+    if (codecString.startsWith("hvc1") || codecString.startsWith("hev1")) {
+      // @ts-ignore - hevc property for Annex B format
+      config.hevc = { format: "annexb" }
+    }
+
+    try {
+      this.videoDecoder.configure(config)
+      console.log("[WebSocketStream] Video decoder configured:", config)
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to configure video decoder:", e)
+      // Try without the format hint as fallback
+      this.videoDecoder.configure({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: "prefer-hardware",
+      })
+      console.log("[WebSocketStream] Video decoder configured (fallback mode)")
+    }
   }
 
   private renderVideoFrame(frame: VideoFrame) {
@@ -417,15 +480,19 @@ export class WebSocketStream {
     }
   }
 
+  // Track if we've received the first keyframe (needed for decoder to work)
+  private receivedFirstKeyframe = false
+
   private async handleVideoFrame(data: Uint8Array) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
+      // Queue frames or drop them if decoder isn't ready
       return
     }
 
     // Parse video frame header
     // Format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
     if (data.length < 15) {
-      console.error("[WebSocketStream] Video frame too short")
+      console.error("[WebSocketStream] Video frame too short:", data.length)
       return
     }
 
@@ -437,6 +504,17 @@ export class WebSocketStream {
 
     const frameData = data.slice(15)
 
+    // Skip delta frames until we receive the first keyframe
+    // (keyframe should contain SPS/PPS needed for decoding)
+    if (!this.receivedFirstKeyframe) {
+      if (!isKeyframe) {
+        console.log("[WebSocketStream] Waiting for first keyframe, skipping delta frame")
+        return
+      }
+      console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
+      this.receivedFirstKeyframe = true
+    }
+
     try {
       const chunk = new EncodedVideoChunk({
         type: isKeyframe ? "key" : "delta",
@@ -446,7 +524,11 @@ export class WebSocketStream {
 
       this.videoDecoder.decode(chunk)
     } catch (e) {
-      console.error("[WebSocketStream] Failed to decode video chunk:", e)
+      console.error("[WebSocketStream] Failed to decode video chunk:", e, "isKeyframe:", isKeyframe)
+      // If decoding fails, reset and wait for next keyframe
+      if (isKeyframe) {
+        console.warn("[WebSocketStream] Keyframe decode failed, may need reconfiguration")
+      }
     }
   }
 
@@ -490,6 +572,11 @@ export class WebSocketStream {
     console.log("[WebSocketStream] Audio decoder initialized")
   }
 
+  // Audio scheduling state
+  private audioStartTime = 0 // AudioContext.currentTime when first audio was played
+  private audioPtsBase = 0 // PTS of first audio frame (microseconds)
+  private audioInitialized = false
+
   private playAudioData(data: AudioData) {
     if (!this.audioContext) {
       data.close()
@@ -510,11 +597,39 @@ export class WebSocketStream {
       buffer.copyToChannel(channelData, i)
     }
 
-    // Play audio
+    // Schedule audio based on PTS timestamp
+    // data.timestamp is in microseconds
+    const ptsUs = data.timestamp
+
+    if (!this.audioInitialized) {
+      // First audio frame - establish timing baseline
+      this.audioStartTime = this.audioContext.currentTime
+      this.audioPtsBase = ptsUs
+      this.audioInitialized = true
+      console.log(`[WebSocketStream] Audio initialized: baseTime=${this.audioStartTime}, basePTS=${ptsUs}`)
+    }
+
+    // Calculate when this frame should play
+    // scheduledTime = audioStartTime + (framePTS - basePTS) / 1000000
+    const ptsDelta = (ptsUs - this.audioPtsBase) / 1_000_000 // Convert to seconds
+    const scheduledTime = this.audioStartTime + ptsDelta
+
+    // If we're too far behind, skip or catch up
+    const now = this.audioContext.currentTime
+    if (scheduledTime < now - 0.1) {
+      // Frame is more than 100ms in the past, skip it
+      data.close()
+      return
+    }
+
+    // Play audio at scheduled time
     const source = this.audioContext.createBufferSource()
     source.buffer = buffer
     source.connect(this.audioContext.destination)
-    source.start()
+
+    // Schedule for the correct time (or now if it should have already played)
+    const playTime = Math.max(scheduledTime, now)
+    source.start(playTime)
 
     data.close()
   }
@@ -550,7 +665,7 @@ export class WebSocketStream {
   }
 
   // ============================================================================
-  // Input Handling
+  // Input Handling - WebSocket transport
   // ============================================================================
 
   private sendInputMessage(type: number, payload: Uint8Array) {
@@ -562,6 +677,63 @@ export class WebSocketStream {
     message[0] = type
     message.set(payload, 1)
     this.ws.send(message.buffer)
+  }
+
+  // WebSocket-specific input methods that mirror StreamInput API
+  // These construct the same binary format as the RTCDataChannel version
+
+  private inputBuffer = new Uint8Array(64)
+  private inputView = new DataView(this.inputBuffer.buffer)
+
+  sendKey(isDown: boolean, key: number, modifiers: number) {
+    // Format: subType(1) + isDown(1) + modifiers(1) + keyCode(2)
+    this.inputBuffer[0] = 0 // sub-type for key
+    this.inputBuffer[1] = isDown ? 1 : 0
+    this.inputBuffer[2] = modifiers
+    this.inputView.setUint16(3, key, false) // big-endian
+    this.sendInputMessage(WsMessageType.KeyboardInput, this.inputBuffer.subarray(0, 5))
+  }
+
+  sendMouseMove(movementX: number, movementY: number) {
+    // Format: subType(1) + dx(2) + dy(2)
+    this.inputBuffer[0] = 0 // sub-type for relative
+    this.inputView.setInt16(1, Math.round(movementX), false)
+    this.inputView.setInt16(3, Math.round(movementY), false)
+    this.sendInputMessage(WsMessageType.MouseRelative, this.inputBuffer.subarray(0, 5))
+  }
+
+  sendMousePosition(x: number, y: number, refWidth: number, refHeight: number) {
+    // Format: subType(1) + x(2) + y(2) + refWidth(2) + refHeight(2)
+    this.inputBuffer[0] = 1 // sub-type for absolute
+    this.inputView.setInt16(1, Math.round(x), false)
+    this.inputView.setInt16(3, Math.round(y), false)
+    this.inputView.setInt16(5, Math.round(refWidth), false)
+    this.inputView.setInt16(7, Math.round(refHeight), false)
+    this.sendInputMessage(WsMessageType.MouseAbsolute, this.inputBuffer.subarray(0, 9))
+  }
+
+  sendMouseButton(isDown: boolean, button: number) {
+    // Format: subType(1) + isDown(1) + button(1)
+    this.inputBuffer[0] = 2 // sub-type for button
+    this.inputBuffer[1] = isDown ? 1 : 0
+    this.inputBuffer[2] = button
+    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
+  }
+
+  sendMouseWheelHighRes(deltaX: number, deltaY: number) {
+    // Format: subType(1) + deltaX(2) + deltaY(2)
+    this.inputBuffer[0] = 3 // sub-type for high-res wheel
+    this.inputView.setInt16(1, Math.round(deltaX), false)
+    this.inputView.setInt16(3, Math.round(deltaY), false)
+    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 5))
+  }
+
+  sendMouseWheel(deltaX: number, deltaY: number) {
+    // Format: subType(1) + deltaX(1) + deltaY(1)
+    this.inputBuffer[0] = 4 // sub-type for normal wheel
+    this.inputBuffer[1] = Math.round(deltaX) & 0xFF
+    this.inputBuffer[2] = Math.round(deltaY) & 0xFF
+    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 3))
   }
 
   // ============================================================================
@@ -581,17 +753,40 @@ export class WebSocketStream {
   }
 
   getInput(): StreamInput {
-    // Patch input to send via WebSocket instead of DataChannel
-    const originalInput = this.input
-    const stream = this
+    // Return the underlying StreamInput that's been configured
+    // The caller will use onKeyDown, onMouseMove, etc. which internally
+    // call sendKey, sendMouseMove, etc.
+    // We need to patch the send methods to use our WebSocket transport
+    const wsStream = this
+    const patchedInput = this.input
 
-    // Override the send methods to use WebSocket
-    const wsInput = Object.create(originalInput)
-    wsInput.sendRaw = (type: number, data: Uint8Array) => {
-      stream.sendInputMessage(type, data)
+    // Override the send methods on the StreamInput instance
+    // @ts-ignore - accessing private methods for patching
+    patchedInput.sendKey = (isDown: boolean, key: number, modifiers: number) => {
+      wsStream.sendKey(isDown, key, modifiers)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseMove = (movementX: number, movementY: number) => {
+      wsStream.sendMouseMove(movementX, movementY)
+    }
+    // @ts-ignore
+    patchedInput.sendMousePosition = (x: number, y: number, refW: number, refH: number) => {
+      wsStream.sendMousePosition(x, y, refW, refH)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseButton = (isDown: boolean, button: number) => {
+      wsStream.sendMouseButton(isDown, button)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseWheelHighRes = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheelHighRes(deltaX, deltaY)
+    }
+    // @ts-ignore
+    patchedInput.sendMouseWheel = (deltaX: number, deltaY: number) => {
+      wsStream.sendMouseWheel(deltaX, deltaY)
     }
 
-    return wsInput
+    return patchedInput
   }
 
   addInfoListener(listener: WsStreamInfoEventListener) {
@@ -607,8 +802,20 @@ export class WebSocketStream {
     this.eventTarget.dispatchEvent(event)
   }
 
+  private resetStreamState() {
+    // Reset video state
+    this.receivedFirstKeyframe = false
+
+    // Reset audio state
+    this.audioInitialized = false
+    this.audioStartTime = 0
+    this.audioPtsBase = 0
+  }
+
   close() {
     console.log("[WebSocketStream] Closing")
+
+    this.resetStreamState()
 
     if (this.videoDecoder) {
       try {
