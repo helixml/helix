@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -104,8 +105,17 @@ func main() {
 	log.Printf("Qwen Model: %s", qwenModel)
 	log.Printf("Settings path: %s", SettingsPath)
 
+	// Create HTTP client with insecure TLS (TODO: make configurable)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+
 	daemon := &SettingsDaemon{
-		httpClient:  http.DefaultClient,
+		httpClient:  httpClient,
 		apiURL:      helixURL,
 		apiToken:    helixToken,
 		sessionID:   sessionID,
