@@ -1,742 +1,749 @@
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
-    restart: always
-    entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
-    env_file:
-        - .env
-    environment:
-        # Explicitly set Go cache paths for clarity
-        - GOMODCACHE=/go/pkg/mod
-        - GOCACHE=/root/.cache/go-build
-        # Prevent automatic toolchain downloads
-        - GOTOOLCHAIN=local
-    volumes:
-        - .:/workspace/helix
-        - ~/.cache/huggingface:/root/.cache/huggingface
-        # Go caches for faster development
-        - go-pkg-mod:/go/pkg/mod
-        - go-build-cache:/root/.cache/go-build
-        - go-sdk-cache:/root/.cache/go
-        # comment these out if you don't have appropriate repos checked out
-        # - ../axolotl:/workspace/axolotl
+  restart: always
+  entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
+  env_file:
+    - .env
+  environment:
+    # Explicitly set Go cache paths for clarity
+    - GOMODCACHE=/go/pkg/mod
+    - GOCACHE=/root/.cache/go-build
+    # Prevent automatic toolchain downloads
+    - GOTOOLCHAIN=local
+  volumes:
+    - .:/workspace/helix
+    - ~/.cache/huggingface:/root/.cache/huggingface
+    # Go caches for faster development
+    - go-pkg-mod:/go/pkg/mod
+    - go-build-cache:/root/.cache/go-build
+    - go-sdk-cache:/root/.cache/go
+    # comment these out if you don't have appropriate repos checked out
+    # - ../axolotl:/workspace/axolotl
 
 services:
-    api:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            target: api-dev-env
-        networks:
-            default:
-                ipv4_address: 172.19.0.20
-        ports:
-            - ${API_PORT:-8080}:8080
-            - "3478:3478/udp"  # TURN server for WebRTC NAT traversal
-            - "3478:3478/tcp"  # TURN server TCP transport (firewall fallback)
-        restart: always
-        env_file:
-            - .env
-        environment:
-            - SERVER_PORT=8080
-            - LOG_LEVEL=${LOG_LEVEL:-debug}
-            - POSTGRES_HOST=postgres
-            - POSTGRES_DATABASE=postgres
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-            - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-            - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-            - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
-            - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
-            - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-            - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
-            - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-            - HF_TOKEN=${HF_TOKEN:-}
-            - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
-            - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
-            - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
-            - FRONTEND_URL=http://frontend:8081
-            # lock down dashboard in production
-            - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
-            - EVAL_USER_ID=${EVAL_USER_ID:-}
-            - FILESTORE_LOCALFS_PATH=/filestore
-            - SENTRY_DSN_API=${SENTRY_DSN_API:-}
-            - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
-            - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
-            # Tools configuration
-            - TOOLS_ENABLED=true
-            - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
-            - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
-            # Email notifications
-            - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
-            - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
-            # SMTP
-            - EMAIL_SMTP_HOST=${EMAIL_SMTP_HOST:-}
-            - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
-            - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
-            - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
-            # Discord integration
-            - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
-            - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
-            # AI Providers management - enable/disable user-facing AI provider API keys management
-            - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-true}
-            # Socket configuration for haystack communication
-            - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-            - RAG_HAYSTACK_ENABLED=true
-            - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-haystack}
-            # URL in the compose stack (rather than localhost in the pod which is default for k8s)
-            - RAG_HAYSTACK_URL=http://haystack:8000
-            - RAG_PGVECTOR_PROVIDER=helix
-            # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
-            - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
-            # Wolf integration for external agents
-            - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-            - WOLF_MODE=${WOLF_MODE:-lobbies}  # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
-            - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
-            - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
-            # API URL for sandbox containers to connect back (RevDial, etc.)
-            - SANDBOX_API_URL=http://api:8080
-            - HELIX_HOST_HOME=${HELIX_HOST_HOME}
-            - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
-            # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
-            - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-            # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
-            - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
-            - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-            # TURN server configuration for WebRTC
-            - TURN_ENABLED=true
-            - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api}  # Use 'api' hostname for local relay (auto-detects public IP)
-            - TURN_PORT=3478
-            - TURN_REALM=helix.ai
-            - TURN_USERNAME=helix
-            - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-        volumes:
-            - ./go.mod:/app/go.mod
-            - ./go.sum:/app/go.sum
-            - ./api:/app/api
-            - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
-            - ${FILESTORE_DATA:-helix-filestore}:/filestore
-            - helix-socket:/socket
-            # Wolf socket removed - API uses RevDial to communicate with Wolf
-            # (Wolf runs in separate sandbox container, socket not accessible)
-        depends_on:
-            - postgres
-            - postgres-mcp
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
-    postgres:
-        image: postgres:12.13-alpine
-        restart: always
-        # ports:
-        #  - 5432:5432
-        volumes:
-            - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
-        environment:
-            - POSTGRES_DB=postgres
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-    # Example/test MCP server
-    postgres-mcp:
-        image: crystaldba/postgres-mcp:latest
-        restart: always
-        command: ["--access-mode=unrestricted", "--transport=sse"]
-        environment:
-            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
-        ports:
-        - 8000:8000
-    # postgres 15 with pgvector installed
-    # why run this as a different server?
-    # because we want the quick path to something working without having to create a hard dependency on pgvector
-    # being installed in our main database
-    # also - we would need to migrate our existing postgres 12 DB -> 17, which is a bit of a pain
-    # TODO: figure out how to ship the pgvector extension with our main database
-    # so we don't need to run what is essentially 2 versions of postgres
-    pgvector:
-        image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
-        restart: always
-        # ports:
-        #  - 5433:5432
-        volumes:
-            - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
-        environment:
-            - POSTGRES_DB=postgres
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-dev-env
+    networks:
+      default:
+        ipv4_address: 172.19.0.20
+    ports:
+      - ${API_PORT:-8080}:8080
+      - "3478:3478/udp" # TURN server for WebRTC NAT traversal
+      - "3478:3478/tcp" # TURN server TCP transport (firewall fallback)
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - SERVER_PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - SERVER_URL=${SERVER_URL:-http://localhost:8080}
+      - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
+      - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
+      - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
+      - FRONTEND_URL=http://frontend:8081
+      # lock down dashboard in production
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
+      - FILESTORE_LOCALFS_PATH=/filestore
+      - SENTRY_DSN_API=${SENTRY_DSN_API:-}
+      - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
+      - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
+      # Tools configuration
+      - TOOLS_ENABLED=true
+      - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
+      - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
+      # Email notifications
+      - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
+      - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
+      # SMTP
+      - EMAIL_SMTP_HOST=${EMAIL_SMTP_HOST:-}
+      - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
+      - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
+      - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
+      # Discord integration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
+      # AI Providers management - enable/disable user-facing AI provider API keys management
+      - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-true}
+      # Socket configuration for haystack communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      - RAG_HAYSTACK_ENABLED=true
+      - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-haystack}
+      # URL in the compose stack (rather than localhost in the pod which is default for k8s)
+      - RAG_HAYSTACK_URL=http://haystack:8000
+      - RAG_PGVECTOR_PROVIDER=helix
+      # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
+      - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+      # Wolf integration for external agents
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - WOLF_MODE=${WOLF_MODE:-lobbies} # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
+      - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
+      - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
+      # API URL for sandbox containers to connect back (RevDial, etc.)
+      - SANDBOX_API_URL=http://api:8080
+      - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+      - HELIX_DEV_MODE=true # Enable dev file bind-mounts for hot-reloading
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
+      - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+      # TURN server configuration for WebRTC
+      - TURN_ENABLED=true
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api} # Use 'api' hostname for local relay (auto-detects public IP)
+      - TURN_PORT=3478
+      - TURN_REALM=helix.ai
+      - TURN_USERNAME=helix
+      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+    volumes:
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./api:/app/api
+      - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
+      - ${FILESTORE_DATA:-helix-filestore}:/filestore
+      - helix-socket:/socket
+      # Wolf socket removed - API uses RevDial to communicate with Wolf
+      # (Wolf runs in separate sandbox container, socket not accessible)
+    depends_on:
+      - postgres
+      - postgres-mcp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  postgres:
+    image: postgres:12.13-alpine
+    restart: always
+    # ports:
+    #  - 5432:5432
+    volumes:
+      - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  # Example/test MCP server
+  postgres-mcp:
+    image: crystaldba/postgres-mcp:latest
+    restart: always
+    command: ["--access-mode=unrestricted", "--transport=sse"]
+    environment:
+      - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
+    ports:
+      - 8000:8000
+  # postgres 15 with pgvector installed
+  # why run this as a different server?
+  # because we want the quick path to something working without having to create a hard dependency on pgvector
+  # being installed in our main database
+  # also - we would need to migrate our existing postgres 12 DB -> 17, which is a bit of a pain
+  # TODO: figure out how to ship the pgvector extension with our main database
+  # so we don't need to run what is essentially 2 versions of postgres
+  pgvector:
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
+    restart: always
+    # ports:
+    #  - 5433:5432
+    volumes:
+      - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
 
-    # Kodit code indexing service
-    kodit:
-        profiles: [kodit]
-        image: registry.helixml.tech/helix/kodit:latest
-        # ports:
-        #   - 8632:8632
-        command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
-        restart: always
-        depends_on:
-            - vectorchord-kodit
-            - api
-        environment:
-            - DATA_DIR=/data
-            - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
-            - DEFAULT_SEARCH_PROVIDER=vectorchord
-            # External enrichment provider (TogetherAI direct)
-            # TODO: Switch to Helix proxy once we figure out litellm model name format
-            # Should be: ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1 with runner token
-            # Currently fails with "model not found" - need to investigate Helix model routing
-            - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
-            - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
-            - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
-            - ENRICHMENT_ENDPOINT_TIMEOUT=120
-            # Sync configuration
-            - SYNC_PERIODIC_ENABLED=true
-            - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
-            - SYNC_PERIODIC_RETRY_ATTEMPTS=3
-            - LOG_LEVEL=INFO
-            - LOG_FORMAT=json
-            - API_KEYS=${KODIT_API_KEYS:-dev-key}
-        volumes:
-            - helix-socket:/socket
-            - ${KODIT_DATA:-helix-kodit-data}:/data
+  # Kodit code indexing service
+  kodit:
+    profiles: [kodit]
+    image: registry.helixml.tech/helix/kodit:latest
+    # ports:
+    #   - 8632:8632
+    command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
+    restart: always
+    depends_on:
+      - vectorchord-kodit
+      - api
+    environment:
+      - DATA_DIR=/data
+      - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+      - DEFAULT_SEARCH_PROVIDER=vectorchord
+      # External enrichment provider (TogetherAI direct)
+      # TODO: Switch to Helix proxy once we figure out litellm model name format
+      # Should be: ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1 with runner token
+      # Currently fails with "model not found" - need to investigate Helix model routing
+      - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
+      - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_TIMEOUT=120
+      # Sync configuration
+      - SYNC_PERIODIC_ENABLED=true
+      - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
+      - SYNC_PERIODIC_RETRY_ATTEMPTS=3
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - API_KEYS=${KODIT_API_KEYS:-dev-key}
+    volumes:
+      - helix-socket:/socket
+      - ${KODIT_DATA:-helix-kodit-data}:/data
 
-    # Kodit PostgreSQL database with pgvector
-    vectorchord-kodit:
-        profiles: [kodit]
-        image: tensorchord/vchord-suite:pg17-20250601
-        restart: always
-        environment:
-            - POSTGRES_DB=kodit
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=postgres
-        volumes:
-            - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
-        # ports:
-        #   - 5434:5432
-    webhook_relay_stripe:
-        image: webhookrelay/webhookrelayd
-        environment:
-            - KEY=${WEBHOOK_RELAY_KEY:-}
-            - SECRET=${WEBHOOK_RELAY_SECRET:-}
-            - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
-    tika:
-        image: apache/tika:2.9.2.1
-        # ports:
-        #   - 9998:9998
-    searxng:
-        image: searxng/searxng:latest
-        # ports:
-        #   - 8112:8080
-        volumes:
-            - ./searxng/settings.yml:/etc/searxng/settings.yml
-            - ./searxng/limiter.toml:/etc/searxng/limiter.toml
-        environment:
-            - BASE_URL=http://searxng:8080
-            - INSTANCE_NAME=helix-instance
-            - UWSGI_WORKERS=4
-            - UWSGI_THREADS=4
-    typesense:
-        build:
-            context: .
-            dockerfile: Dockerfile.typesense
-        command: ["--data-dir", "/data", "--api-key", "typesense"]
-        # ports:
-        #   - 8108:8108
-        volumes:
-            - ${TYPESENSE_DATA:-helix-typesense-db}:/data
-    chrome:
-        image: ghcr.io/go-rod/rod:v0.115.0
-        restart: always
-        volumes:
-            - ./integration-test/data/smoke:/integration-test/data/smoke
-        # ports:
-        #   - 7317:7317
+  # Kodit PostgreSQL database with pgvector
+  vectorchord-kodit:
+    profiles: [kodit]
+    image: tensorchord/vchord-suite:pg17-20250601
+    restart: always
+    environment:
+      - POSTGRES_DB=kodit
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+    # ports:
+    #   - 5434:5432
+  webhook_relay_stripe:
+    image: webhookrelay/webhookrelayd
+    environment:
+      - KEY=${WEBHOOK_RELAY_KEY:-}
+      - SECRET=${WEBHOOK_RELAY_SECRET:-}
+      - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
+  tika:
+    image: apache/tika:2.9.2.1
+    # ports:
+    #   - 9998:9998
+  searxng:
+    image: searxng/searxng:latest
+    # ports:
+    #   - 8112:8080
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml
+    environment:
+      - BASE_URL=http://searxng:8080
+      - INSTANCE_NAME=helix-instance
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
+  typesense:
+    build:
+      context: .
+      dockerfile: Dockerfile.typesense
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    # ports:
+    #   - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  chrome:
+    image: ghcr.io/go-rod/rod:v0.115.0
+    restart: always
+    volumes:
+      - ./integration-test/data/smoke:/integration-test/data/smoke
+    # ports:
+    #   - 7317:7317
 
-    # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
-    # Replaces separate wolf and moonlight-web services with a single unified container
-    # Built with: ./stack build-sandbox
-    # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
-    sandbox-nvidia:
-      profiles: [code-nvidia]  # NVIDIA GPU sandbox
-      image: helix-sandbox:latest
-      networks:
-        default:
-          ipv4_address: 172.19.0.50
-      environment:
-        # GPU configuration
-        - NVIDIA_DRIVER_CAPABILITIES=all
-        - NVIDIA_VISIBLE_DEVICES=all
-        - GPU_VENDOR=${GPU_VENDOR:-nvidia}
-        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-        # Helix dev mode (enables bind-mounts for hot reload)
-        - HELIX_DEV_MODE=true
-        - ZED_IMAGE=helix-sway:latest
-        # Sandbox data path for workspaces (must match volume mount)
-        - SANDBOX_DATA_PATH=/data
-        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-        - HELIX_API_URL=http://api:8080
-        - HELIX_API_BASE_URL=http://api:8080
-        - WOLF_INSTANCE_ID=local
-        - RUNNER_TOKEN=oh-hallo-insecure-token
-        # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
-        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-        - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-        # Wolf configuration (legacy env vars for compatibility)
-        - XDG_RUNTIME_DIR=/tmp/sockets
-        - HOST_APPS_STATE_FOLDER=/etc/wolf
-        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-        - WOLF_LOG_LEVEL=DEBUG
-        - GST_DEBUG=3
-        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-        - WOLF_INTERNAL_IP=172.19.0.50
-        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-        - WOLF_USE_ZERO_COPY=TRUE
-        - GOP_SIZE=${GOP_SIZE:-120}
-        # Moonlight Web configuration
-        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # Wolf debug dumps: 6 dumps max, 20GB quota
-        - WOLF_MAX_DUMPS=6
-        - WOLF_MAX_DUMPS_GB=20
-      privileged: true  # Required for Docker-in-Docker
-      volumes:
-        # Wolf configuration and state
-        - ./wolf/:/etc/wolf/cfg/:rw
-        # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
-        - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
-        - /tmp/sockets:/tmp/sockets:rw
-        - wolf-docker-storage:/var/lib/docker
-        - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
-        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-        - hydra-storage:/hydra-data
-        - /dev/:/dev/:rw
-        - /run/udev:/run/udev:rw
-        - /var/run/wolf:/var/run/wolf:rw
-        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
-        - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        # Moonlight Web configuration
-        - ./moonlight-web-config:/app/server:rw
-        # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
-        # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-        - sandbox-data:/data
-        # Host Docker socket for privileged mode (Helix-in-Helix development)
-        # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
-        - /var/run/docker.sock:/var/run/host-docker.sock:rw
-        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-      device_cgroup_rules:
-        - 'c 13:* rmw'
-      devices:
-        - /dev/dri
-        - /dev/uinput
-        - /dev/uhid
-      ports:
-        # Moonlight protocol ports (Wolf)
-        - "47984:47984"     # HTTPS
-        - "47989:47989"     # HTTP (pairing, serverinfo)
-        - "48010:48010"     # RTSP
-        - "47415:47415/udp" # Discovery
-        - "47999:47999/udp" # Control
-        - "48100:48100/udp" # Video RTP
-        - "48200:48200/udp" # Audio RTP
-        # Moonlight Web UI + WebRTC
-        - "8081:8080"                      # Web interface
-        - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
-      runtime: nvidia
-      deploy:
-        resources:
-          reservations:
-            devices:
-              - capabilities: [gpu]
-      cap_add:
-        - SYS_PTRACE  # Thread diagnostics
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
-        interval: 30s
-        timeout: 5s
-        retries: 3
-        start_period: 10s
+  # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+  # Replaces separate wolf and moonlight-web services with a single unified container
+  # Built with: ./stack build-sandbox
+  # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
+  sandbox-nvidia:
+    profiles: [code-nvidia] # NVIDIA GPU sandbox
+    image: helix-sandbox:latest
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # GPU configuration
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      - GPU_VENDOR=${GPU_VENDOR:-nvidia}
+      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+      # Helix dev mode (enables bind-mounts for hot reload)
+      - HELIX_DEV_MODE=true
+      - ZED_IMAGE=helix-sway:latest
+      # Sandbox data path for workspaces (must match volume mount)
+      - SANDBOX_DATA_PATH=/data
+      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      - HELIX_API_URL=http://api:8080
+      - HELIX_API_BASE_URL=http://api:8080
+      - WOLF_INSTANCE_ID=local
+      - RUNNER_TOKEN=oh-hallo-insecure-token
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      # Wolf configuration (legacy env vars for compatibility)
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - WOLF_LOG_LEVEL=DEBUG
+      - GST_DEBUG=3
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      - WOLF_USE_ZERO_COPY=TRUE
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # Wolf debug dumps: 6 dumps max, 20GB quota
+      - WOLF_MAX_DUMPS=6
+      - WOLF_MAX_DUMPS_GB=20
+    privileged: true # Required for Docker-in-Docker
+    volumes:
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
+      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
+      - /tmp/sockets:/tmp/sockets:rw
+      - wolf-docker-storage:/var/lib/docker
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+      - hydra-storage:/hydra-data
+      - /dev/:/dev/:rw
+      - /run/udev:/run/udev:rw
+      - /var/run/wolf:/var/run/wolf:rw
+      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      # Dev bind-mounts for hot reload (Zed + Sway config)
+      - ./zed-build:/helix-dev/zed-build:ro
+      - ./wolf/sway-config:/helix-dev/sway-config:ro
+      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
+      # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+      # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+      - sandbox-data:/data
+      # Host Docker socket for privileged mode (Helix-in-Helix development)
+      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      - /var/run/docker.sock:/var/run/host-docker.sock:rw
+      # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+      - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+      - ./helix-sway.version:/opt/images/helix-sway.version:ro
+    device_cgroup_rules:
+      - "c 13:* rmw"
+    devices:
+      - /dev/dri
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports (Wolf)
+      - "47984:47984" # HTTPS
+      - "47989:47989" # HTTP (pairing, serverinfo)
+      - "48010:48010" # RTSP
+      - "47415:47415/udp" # Discovery
+      - "47999:47999/udp" # Control
+      - "48100:48100/udp" # Video RTP
+      - "48200:48200/udp" # Audio RTP
+      # Moonlight Web UI + WebRTC
+      - "8081:8080" # Web interface
+      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    cap_add:
+      - SYS_PTRACE # Thread diagnostics
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
-    # Unified Helix Sandbox for AMD/Intel GPUs - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
-    # Uses device pass-through instead of nvidia runtime
-    sandbox-amd-intel:
-      profiles: [code-amd-intel]
-      image: helix-sandbox:latest
-      networks:
-        default:
-          ipv4_address: 172.19.0.50
-      environment:
-        # AMD/Intel GPU configuration (no NVIDIA variables)
-        - GPU_VENDOR=${GPU_VENDOR:-intel}
-        - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-        # Helix dev mode (enables bind-mounts for hot reload)
-        - HELIX_DEV_MODE=true
-        - ZED_IMAGE=helix-sway:latest
-        # Sandbox data path for workspaces (must match volume mount)
-        - SANDBOX_DATA_PATH=/data
-        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-        - HELIX_API_URL=http://api:8080
-        - HELIX_API_BASE_URL=http://api:8080
-        - WOLF_INSTANCE_ID=local
-        - RUNNER_TOKEN=oh-hallo-insecure-token
-        # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
-        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-        - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-        # Wolf configuration (legacy env vars for compatibility)
-        - XDG_RUNTIME_DIR=/tmp/sockets
-        - HOST_APPS_STATE_FOLDER=/etc/wolf
-        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-        - WOLF_LOG_LEVEL=DEBUG
-        - GST_DEBUG=3
-        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-        - WOLF_INTERNAL_IP=172.19.0.50
-        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-        - WOLF_USE_ZERO_COPY=TRUE
-        - GOP_SIZE=${GOP_SIZE:-120}
-        # Moonlight Web configuration
-        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # Wolf debug dumps: 6 dumps max, 20GB quota
-        - WOLF_MAX_DUMPS=6
-        - WOLF_MAX_DUMPS_GB=20
-      privileged: true  # Required for Docker-in-Docker
-      volumes:
-        # Wolf configuration and state
-        - ./wolf/:/etc/wolf/cfg/:rw
-        # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
-        - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
-        - /tmp/sockets:/tmp/sockets:rw
-        - wolf-docker-storage:/var/lib/docker
-        - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
-        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-        - hydra-storage:/hydra-data
-        - /dev/:/dev/:rw
-        - /run/udev:/run/udev:rw
-        - /var/run/wolf:/var/run/wolf:rw
-        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
-        - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        # Moonlight Web configuration
-        - ./moonlight-web-config:/app/server:rw
-        # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
-        # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-        - sandbox-data:/data
-        # Host Docker socket for privileged mode (Helix-in-Helix development)
-        # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
-        - /var/run/docker.sock:/var/run/host-docker.sock:rw
-        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-      device_cgroup_rules:
-        - 'c 13:* rmw'
-      devices:
-        - /dev/dri
-        - /dev/uinput
-        - /dev/uhid
-      ports:
-        # Moonlight protocol ports (Wolf)
-        - "47984:47984"     # HTTPS
-        - "47989:47989"     # HTTP (pairing, serverinfo)
-        - "48010:48010"     # RTSP
-        - "47415:47415/udp" # Discovery
-        - "47999:47999/udp" # Control
-        - "48100:48100/udp" # Video RTP
-        - "48200:48200/udp" # Audio RTP
-        # Moonlight Web UI + WebRTC
-        - "8081:8080"                      # Web interface
-        - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
-      # No nvidia runtime for AMD - uses device pass-through instead
-      cap_add:
-        - SYS_PTRACE  # Thread diagnostics
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
-        interval: 30s
-        timeout: 5s
-        retries: 3
-        start_period: 10s
+  # Unified Helix Sandbox for AMD/Intel GPUs - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+  # Uses device pass-through instead of nvidia runtime
+  sandbox-amd-intel:
+    profiles: [code-amd-intel]
+    image: helix-sandbox:latest
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # AMD/Intel GPU configuration (no NVIDIA variables)
+      - GPU_VENDOR=${GPU_VENDOR:-intel}
+      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+      # Helix dev mode (enables bind-mounts for hot reload)
+      - HELIX_DEV_MODE=true
+      - ZED_IMAGE=helix-sway:latest
+      # Sandbox data path for workspaces (must match volume mount)
+      - SANDBOX_DATA_PATH=/data
+      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      - HELIX_API_URL=http://api:8080
+      - HELIX_API_BASE_URL=http://api:8080
+      - WOLF_INSTANCE_ID=local
+      - RUNNER_TOKEN=oh-hallo-insecure-token
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      # Wolf configuration (legacy env vars for compatibility)
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - WOLF_LOG_LEVEL=DEBUG
+      - GST_DEBUG=3
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      - WOLF_USE_ZERO_COPY=TRUE
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # Wolf debug dumps: 6 dumps max, 20GB quota
+      - WOLF_MAX_DUMPS=6
+      - WOLF_MAX_DUMPS_GB=20
+    privileged: true # Required for Docker-in-Docker
+    volumes:
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
+      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
+      - /tmp/sockets:/tmp/sockets:rw
+      - wolf-docker-storage:/var/lib/docker
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+      - hydra-storage:/hydra-data
+      - /dev/:/dev/:rw
+      - /run/udev:/run/udev:rw
+      - /var/run/wolf:/var/run/wolf:rw
+      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      # Dev bind-mounts for hot reload (Zed + Sway config)
+      - ./zed-build:/helix-dev/zed-build:ro
+      - ./wolf/sway-config:/helix-dev/sway-config:ro
+      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
+      # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+      # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+      - sandbox-data:/data
+      # Host Docker socket for privileged mode (Helix-in-Helix development)
+      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      - /var/run/docker.sock:/var/run/host-docker.sock:rw
+      # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+      - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+      - ./helix-sway.version:/opt/images/helix-sway.version:ro
+    device_cgroup_rules:
+      - "c 13:* rmw"
+    devices:
+      - /dev/dri
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports (Wolf)
+      - "47984:47984" # HTTPS
+      - "47989:47989" # HTTP (pairing, serverinfo)
+      - "48010:48010" # RTSP
+      - "47415:47415/udp" # Discovery
+      - "47999:47999/udp" # Control
+      - "48100:48100/udp" # Video RTP
+      - "48200:48200/udp" # Audio RTP
+      # Moonlight Web UI + WebRTC
+      - "8081:8080" # Web interface
+      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
+    # No nvidia runtime for AMD - uses device pass-through instead
+    cap_add:
+      - SYS_PTRACE # Thread diagnostics
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
-    # Software rendering sandbox (CPU-only, no GPU required)
-    # Use: docker compose --profile code-software up sandbox-software
-    # Note: This is a separate service because it needs different device mounts
-    # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
-    sandbox-software:
-      profiles: [code-software]
-      image: helix-sandbox:latest
-      networks:
-        default:
-          ipv4_address: 172.19.0.50
-      environment:
-        # Software rendering (CPU-only, no GPU)
-        - GPU_VENDOR=none
-        - WOLF_RENDER_NODE=SOFTWARE
-        - LIBGL_ALWAYS_SOFTWARE=1
-        - MESA_GL_VERSION_OVERRIDE=4.5
-        # Helix dev mode (enables bind-mounts for hot reload)
-        - HELIX_DEV_MODE=true
-        - ZED_IMAGE=helix-sway:latest
-        # Sandbox data path for workspaces (must match volume mount)
-        - SANDBOX_DATA_PATH=/data
-        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-        - HELIX_API_URL=http://api:8080
-        - HELIX_API_BASE_URL=http://api:8080
-        - WOLF_INSTANCE_ID=local
-        - RUNNER_TOKEN=oh-hallo-insecure-token
-        # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
-        - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-        - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-        # Wolf configuration (legacy env vars for compatibility)
-        - XDG_RUNTIME_DIR=/tmp/sockets
-        - HOST_APPS_STATE_FOLDER=/etc/wolf
-        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-        - WOLF_LOG_LEVEL=DEBUG
-        - GST_DEBUG=3
-        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-        - WOLF_INTERNAL_IP=172.19.0.50
-        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-        - WOLF_USE_ZERO_COPY=FALSE
-        - GOP_SIZE=${GOP_SIZE:-120}
-        # Moonlight Web configuration
-        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # Wolf debug dumps: 6 dumps max, 20GB quota
-        - WOLF_MAX_DUMPS=6
-        - WOLF_MAX_DUMPS_GB=20
-      privileged: true  # Required for Docker-in-Docker
-      volumes:
-        # Wolf configuration and state
-        - ./wolf/:/etc/wolf/cfg/:rw
-        - /tmp/sockets:/tmp/sockets:rw
-        - wolf-docker-storage:/var/lib/docker
-        - wolf-debug-dumps:/var/wolf-debug-dumps  # Wolf hourly debug dumps
-        # Hydra nested dockerd storage - MUST be a real volume (not overlay)
-        # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
-        - hydra-storage:/hydra-data
-        - /run/udev:/run/udev:rw
-        - /var/run/wolf:/var/run/wolf:rw
-        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
-        - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        # Moonlight Web configuration
-        - ./moonlight-web-config:/app/server:rw
-        # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
-        # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
-        - sandbox-data:/data
-        # Host Docker socket for privileged mode (Helix-in-Helix development)
-        # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
-        - /var/run/docker.sock:/var/run/host-docker.sock:rw
-        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-      # No device mounts for software rendering (no GPU)
-      device_cgroup_rules:
-        - 'c 13:* rmw'
-      devices:
-        - /dev/uinput
-        - /dev/uhid
-      ports:
-        # Moonlight protocol ports (Wolf)
-        - "47984:47984"     # HTTPS
-        - "47989:47989"     # HTTP (pairing, serverinfo)
-        - "48010:48010"     # RTSP
-        - "47415:47415/udp" # Discovery
-        - "47999:47999/udp" # Control
-        - "48100:48100/udp" # Video RTP
-        - "48200:48200/udp" # Audio RTP
-        # Moonlight Web UI + WebRTC
-        - "8081:8080"                      # Web interface
-        - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
-      # No nvidia runtime for software rendering
-      cap_add:
-        - SYS_PTRACE  # Thread diagnostics
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
-        interval: 30s
-        timeout: 5s
-        retries: 3
-        start_period: 10s
+  # Software rendering sandbox (CPU-only, no GPU required)
+  # Use: docker compose --profile code-software up sandbox-software
+  # Note: This is a separate service because it needs different device mounts
+  # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
+  sandbox-software:
+    profiles: [code-software]
+    image: helix-sandbox:latest
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # Software rendering (CPU-only, no GPU)
+      - GPU_VENDOR=none
+      - WOLF_RENDER_NODE=SOFTWARE
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - MESA_GL_VERSION_OVERRIDE=4.5
+      # Helix dev mode (enables bind-mounts for hot reload)
+      - HELIX_DEV_MODE=true
+      - ZED_IMAGE=helix-sway:latest
+      # Sandbox data path for workspaces (must match volume mount)
+      - SANDBOX_DATA_PATH=/data
+      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      - HELIX_API_URL=http://api:8080
+      - HELIX_API_BASE_URL=http://api:8080
+      - WOLF_INSTANCE_ID=local
+      - RUNNER_TOKEN=oh-hallo-insecure-token
+      # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
+      - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
+      - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
+      # Wolf configuration (legacy env vars for compatibility)
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - WOLF_LOG_LEVEL=DEBUG
+      - GST_DEBUG=3
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      - WOLF_USE_ZERO_COPY=FALSE
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # Wolf debug dumps: 6 dumps max, 20GB quota
+      - WOLF_MAX_DUMPS=6
+      - WOLF_MAX_DUMPS_GB=20
+    privileged: true # Required for Docker-in-Docker
+    volumes:
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
+      - /tmp/sockets:/tmp/sockets:rw
+      - wolf-docker-storage:/var/lib/docker
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      # Hydra nested dockerd storage - MUST be a real volume (not overlay)
+      # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
+      - hydra-storage:/hydra-data
+      - /run/udev:/run/udev:rw
+      - /var/run/wolf:/var/run/wolf:rw
+      - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+      # Dev bind-mounts for hot reload (Zed + Sway config)
+      - ./zed-build:/helix-dev/zed-build:ro
+      - ./wolf/sway-config:/helix-dev/sway-config:ro
+      - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
+      # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
+      # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
+      - sandbox-data:/data
+      # Host Docker socket for privileged mode (Helix-in-Helix development)
+      # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
+      - /var/run/docker.sock:/var/run/host-docker.sock:rw
+      # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
+      - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
+      - ./helix-sway.version:/opt/images/helix-sway.version:ro
+    # No device mounts for software rendering (no GPU)
+    device_cgroup_rules:
+      - "c 13:* rmw"
+    devices:
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports (Wolf)
+      - "47984:47984" # HTTPS
+      - "47989:47989" # HTTP (pairing, serverinfo)
+      - "48010:48010" # RTSP
+      - "47415:47415/udp" # Discovery
+      - "47999:47999/udp" # Control
+      - "48100:48100/udp" # Video RTP
+      - "48200:48200/udp" # Audio RTP
+      # Moonlight Web UI + WebRTC
+      - "8081:8080" # Web interface
+      - "40000-40100:40000-40100/udp" # WebRTC UDP ports
+    # No nvidia runtime for software rendering
+    cap_add:
+      - SYS_PTRACE # Thread diagnostics
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
-    # GPU-enabled runner (for LLM inference)
-    runner_gpu:
-        <<: *runner-config
-        profiles: ["runner_gpu"]
-        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
-        build:
-            context: .
-            dockerfile: Dockerfile.runner
-            args:
-                TAG: 2025-08-13c-large
-        environment:
-            # Runner configuration
-            - API_HOST=http://172.17.0.1:8080
-            - API_TOKEN=oh-hallo-insecure-token
-            - RUNNER_ID=dev-gpu-runner
-            - LOG_LEVEL=debug
-            - HELIX_COMMAND=runner
-            # Prevent toolchain downloads
-            - GOTOOLCHAIN=local
-        deploy:
-            resources:
-                reservations:
-                    devices:
-                        - driver: nvidia
-                          count: all
-                          capabilities: [gpu]
+  # GPU-enabled runner (for LLM inference)
+  runner_gpu:
+    <<: *runner-config
+    profiles: ["runner_gpu"]
+    entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        TAG: 2025-08-13c-large
+    environment:
+      # Runner configuration
+      - API_HOST=http://172.17.0.1:8080
+      - API_TOKEN=oh-hallo-insecure-token
+      - RUNNER_ID=dev-gpu-runner
+      - LOG_LEVEL=debug
+      - HELIX_COMMAND=runner
+      # Prevent toolchain downloads
+      - GOTOOLCHAIN=local
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
-    # AMD GPU runner (for LLM inference with ROCm)
-    runner_gpu_amd:
-        <<: *runner-config
-        profiles: ["runner_gpu_amd"]
-        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
-        build:
-            context: .
-            dockerfile: Dockerfile.runner
-            args:
-                TAG: 2025-08-13c-large
-        environment:
-            # Runner configuration
-            - API_HOST=http://172.17.0.1:8080
-            - API_TOKEN=oh-hallo-insecure-token
-            - RUNNER_ID=dev-gpu-runner-amd
-            - LOG_LEVEL=debug
-            - HELIX_COMMAND=runner
-            # Prevent toolchain downloads
-            - GOTOOLCHAIN=local
-            # ROCm configuration
-            - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
-        devices:
-            - /dev/kfd
-            - /dev/dri
-        group_add:
-            - video
-            - render
+  # AMD GPU runner (for LLM inference with ROCm)
+  runner_gpu_amd:
+    <<: *runner-config
+    profiles: ["runner_gpu_amd"]
+    entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        TAG: 2025-08-13c-large
+    environment:
+      # Runner configuration
+      - API_HOST=http://172.17.0.1:8080
+      - API_TOKEN=oh-hallo-insecure-token
+      - RUNNER_ID=dev-gpu-runner-amd
+      - LOG_LEVEL=debug
+      - HELIX_COMMAND=runner
+      # Prevent toolchain downloads
+      - GOTOOLCHAIN=local
+      # ROCm configuration
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
 
-    demos:
-        profiles: ["demos"]
-        build:
-            context: .
-            dockerfile: Dockerfile.demos
-        ports:
-            - ${DEMOS_PORT:-8085}:8085
-        restart: always
-        env_file:
-            - .env
-        environment:
-            - PORT=8085
-        entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
-        volumes:
-            - ./go.mod:/app/go.mod
-            - ./go.sum:/app/go.sum
-            - ./demos:/app/demos
+  demos:
+    profiles: ["demos"]
+    build:
+      context: .
+      dockerfile: Dockerfile.demos
+    ports:
+      - ${DEMOS_PORT:-8085}:8085
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PORT=8085
+    entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
+    volumes:
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./demos:/app/demos
 
-    frontend:
-        # ports:
-        #   - 8081:${FRONTEND_INTERNAL_PORT:-8081}
-        build:
-            context: .
-            dockerfile: Dockerfile
-            target: ui-dev-env
-        restart: always
-        volumes:
-            # Mount source code for hot reload, but preserve container's node_modules
-            - ./frontend/src:/app/src
-            - ./frontend/assets:/app/assets
-            - ./frontend/index.html:/app/index.html
-            - ./frontend/tsconfig.json:/app/tsconfig.json
-            - ./frontend/vite.config.ts:/app/vite.config.ts
-            - ./frontend/package.json:/app/package.json
-            - ./frontend/yarn.lock:/app/yarn.lock
-            # Preserve node_modules from image build (don't mount from host)
-            - /app/node_modules
+  frontend:
+    # ports:
+    #   - 8081:${FRONTEND_INTERNAL_PORT:-8081}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ui-dev-env
+    restart: always
+    volumes:
+      # Mount source code for hot reload, but preserve container's node_modules
+      - ./frontend/src:/app/src
+      - ./frontend/assets:/app/assets
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/package.json:/app/package.json
+      - ./frontend/yarn.lock:/app/yarn.lock
+      # Preserve node_modules from image build (don't mount from host)
+      - /app/node_modules
 
-    haystack:
-        build:
-            context: ./haystack_service
-        # ports:
-        #   - 8001:8000
-        restart: always
-        environment:
-            - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
-            - LOG_LEVEL=INFO
-            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
-            - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
-            - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
-            - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
-            - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
-            - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-500}
-            - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
-            # Socket configuration for api communication
-            - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-            - RAG_VISION_EMBEDDINGS_SOCKET=/socket/embeddings.sock
-            # Vision RAG Settings
-            - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-true}
-            - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
-            - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
-            - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
-            - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
-            - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
-        volumes:
-            - ./haystack_service/app:/app/app
-            - ./haystack_service/main.py:/app/main.py
-            - helix-socket:/socket
-        command:
-            [
-                "uvicorn",
-                "main:app",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8000",
-            ]
-        depends_on:
-            - pgvector
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
+  haystack:
+    build:
+      context: ./haystack_service
+    # ports:
+    #   - 8001:8000
+    restart: always
+    environment:
+      - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
+      - LOG_LEVEL=INFO
+      - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
+      - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
+      - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+      - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
+      - RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS=${RAG_HAYSTACK_EMBEDDINGS_MAX_TOKENS:-32768}
+      - RAG_HAYSTACK_CHUNK_SIZE=${RAG_HAYSTACK_CHUNK_SIZE:-500}
+      - RAG_HAYSTACK_CHUNK_OVERLAP=${RAG_HAYSTACK_CHUNK_OVERLAP:-50}
+      # Socket configuration for api communication
+      - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      - RAG_VISION_EMBEDDINGS_SOCKET=/socket/embeddings.sock
+      # Vision RAG Settings
+      - RAG_VISION_ENABLED=${RAG_VISION_ENABLED:-true}
+      - RAG_VISION_BASE_URL=${RAG_VISION_BASE_URL:-}
+      - RAG_VISION_API_KEY=${RAG_VISION_API_KEY:-}
+      - RAG_VISION_EMBEDDINGS_MODEL=${RAG_VISION_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
+      - RAG_VISION_EMBEDDINGS_DIM=${RAG_VISION_EMBEDDINGS_DIM:-1536}
+      - RAG_VISION_PGVECTOR_TABLE=${RAG_VISION_PGVECTOR_TABLE:-haystack_documents_vision}
+    volumes:
+      - ./haystack_service/app:/app/app
+      - ./haystack_service/main.py:/app/main.py
+      - helix-socket:/socket
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - pgvector
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
-    helix-keycloak-db:
-    helix-postgres-db:
-    helix-pgvector-db:
-    helix-vectorchord-kodit:
-    helix-kodit-data:
-    helix-filestore:
-    helix-typesense-db:
-    helix-socket:
-    wolf-socket:
-    wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
-    wolf-debug-dumps:  # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
-    sandbox-data:  # Workspace data for dev containers - mounted at /data in sandbox and dev containers
-    hydra-storage:  # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
-    zed-work:
+  helix-keycloak-db:
+  helix-postgres-db:
+  helix-pgvector-db:
+  helix-vectorchord-kodit:
+  helix-kodit-data:
+  helix-filestore:
+  helix-typesense-db:
+  helix-socket:
+  wolf-socket:
+  wolf-docker-storage: # Wolf's isolated dockerd storage (sandboxes + devcontainers)
+  wolf-debug-dumps: # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
+  sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
+  hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
+  zed-work:
 
-    go-pkg-mod: # Go module cache
-    go-build-cache: # Go build cache
-    go-sdk-cache: # Go toolchain/SDK cache
-    # No persistent volumes for zed workspaces - using tmpfs for clean sessions
+  go-pkg-mod: # Go module cache
+  go-build-cache: # Go build cache
+  go-sdk-cache: # Go toolchain/SDK cache
+  # No persistent volumes for zed workspaces - using tmpfs for clean sessions
 
 networks:
-    default:
-        name: helix_default
-        ipam:
-            config:
-                - subnet: 172.19.0.0/16
+  default:
+    name: helix_default
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16
