@@ -623,9 +623,10 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError404("repository not found")
 	}
 
-	// Check if user owns the repository
-	if repo.OwnerID != user.ID {
+	// Check if user has access to the repository
+	if err := s.authorizeUserToRepository(r.Context(), user, repo, types.ActionGet); err != nil {
 		log.Warn().
+			Err(err).
 			Str("user_id", user.ID).
 			Str("repo_id", repoID).
 			Str("repo_owner_id", repo.OwnerID).
