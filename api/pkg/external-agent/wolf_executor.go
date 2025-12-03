@@ -1603,6 +1603,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
 		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
 	}
+
 	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
 	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
 	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
