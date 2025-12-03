@@ -121,46 +121,19 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "📝 [4/6] Building helix-ubuntu and exporting tarball..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 build-desktop ubuntu
-if [ ! -f helix-ubuntu.tar ]; then
-    echo "❌ helix-ubuntu.tar not found after build-ubuntu - this shouldn't happen"
-    rm -f helix-sway.tar helix-zorin.tar helix-ubuntu.tar
+if [ ! -f sandbox-images/helix-ubuntu.tar ]; then
+    echo "❌ sandbox-images/helix-ubuntu.tar not found after build-ubuntu - this shouldn't happen"
+    rm -f sandbox-images/helix-sway.tar sandbox-images/helix-zorin.tar sandbox-images/helix-ubuntu.tar
     exit 1
 fi
-echo "✅ Using helix-ubuntu.tar ($(du -h helix-ubuntu.tar | cut -f1)) version=$(cat helix-ubuntu.version)"
+echo "✅ Using sandbox-images/helix-ubuntu.tar ($(du -h sandbox-images/helix-ubuntu.tar | cut -f1)) version=$(cat sandbox-images/helix-ubuntu.version)"
 ```
 
 Also update the step numbers (from `/5` to `/6`) and update the intro message to include Ubuntu.
 
-### Step 4: Update Dockerfile.sandbox
+**Note:** The `build-desktop` function automatically outputs tarballs to `sandbox-images/`. No need to update `Dockerfile.sandbox` or `docker-compose.dev.yaml` - the folder-level copy/mount handles new desktops automatically.
 
-Add the Ubuntu tarball copy in `Dockerfile.sandbox`:
-
-```dockerfile
-# Find the section that copies desktop tarballs
-# Add these lines:
-
-# Copy Ubuntu desktop image tarball
-COPY helix-ubuntu.tar* /opt/images/
-COPY helix-ubuntu.version* /opt/images/
-```
-
-The `*` glob pattern ensures the build doesn't fail if the file doesn't exist (for backward compatibility).
-
-### Step 5: Add Bind Mount for Development
-
-In `docker-compose.dev.yaml`, add the bind mount for hot-reload in development:
-
-```yaml
-services:
-  sandbox:
-    volumes:
-      # ... existing mounts ...
-      - ./helix-ubuntu.version:/opt/images/helix-ubuntu.version:ro
-```
-
-This allows version updates without rebuilding the entire sandbox container.
-
-### Step 6: Add Desktop Type Constant
+### Step 4: Add Desktop Type Constant
 
 In `api/pkg/external-agent/wolf_executor.go`, add the constant:
 
@@ -187,7 +160,7 @@ const (
 ### 2. Verify Version File
 
 ```bash
-cat helix-ubuntu.version
+cat sandbox-images/helix-ubuntu.version
 # Should output a 12-character Docker image hash like: a1b2c3d4e5f6
 ```
 
@@ -227,7 +200,7 @@ docker images helix-ubuntu:latest --format '{{.ID}}'
 # Output: sha256:a1b2c3d4e5f6...
 
 # This hash is stored in the .version file (first 12 chars)
-echo "a1b2c3d4e5f6" > helix-ubuntu.version
+echo "a1b2c3d4e5f6" > sandbox-images/helix-ubuntu.version
 ```
 
 This approach ensures:
@@ -275,7 +248,7 @@ ubuntuVersion := wolfInstance.GetDesktopVersion("ubuntu")
 Docker created an empty directory when bind mount source didn't exist:
 
 ```bash
-sudo rm -rf helix-ubuntu.tar helix-ubuntu.version
+sudo rm -rf sandbox-images/helix-ubuntu.tar sandbox-images/helix-ubuntu.version
 ./stack build-sandbox
 ```
 
@@ -312,8 +285,10 @@ Adding a new desktop requires:
 | `Dockerfile.<name>-helix` | Build the desktop image |
 | `wolf/<name>-config/` | Desktop-specific scripts |
 | `stack` (build-sandbox) | Add build step |
-| `Dockerfile.sandbox` | Copy tarball and version |
-| `docker-compose.dev.yaml` | Bind mount for dev |
 | `wolf_executor.go` | Add type constant |
+
+**No changes needed:**
+- `Dockerfile.sandbox` - folder copy (`COPY sandbox-images/ /opt/images/`) handles all desktops automatically
+- `docker-compose.dev.yaml` - folder mount (`./sandbox-images:/opt/images:ro`) handles all desktops automatically
 
 The heartbeat system automatically discovers new desktops - no additional API changes required.
