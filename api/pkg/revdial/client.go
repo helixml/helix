@@ -17,12 +17,13 @@ import (
 
 // ClientConfig contains configuration for a RevDial client
 type ClientConfig struct {
-	ServerURL        string        // API URL (e.g., http://api:8080)
-	RunnerID         string        // Unique runner ID
-	RunnerToken      string        // Authentication token
-	LocalAddr        string        // Local address to proxy (TCP or unix:// socket)
-	ReconnectDelay   time.Duration // Delay between reconnection attempts
-	ConnectionLogger func(msg string, args ...interface{}) // Optional logger for connection events
+	ServerURL          string        // API URL (e.g., http://api:8080)
+	RunnerID           string        // Unique runner ID
+	RunnerToken        string        // Authentication token
+	LocalAddr          string        // Local address to proxy (TCP or unix:// socket)
+	ReconnectDelay     time.Duration // Delay between reconnection attempts
+	InsecureSkipVerify bool          // Skip TLS certificate verification (for self-signed certs)
+	ConnectionLogger   func(msg string, args ...interface{}) // Optional logger for connection events
 }
 
 // Client is a reusable RevDial client that can be embedded in other services
@@ -110,7 +111,8 @@ func (c *Client) runConnection(ctx context.Context) error {
 			hostOnly = host[:colonIdx]
 		}
 		tlsConfig := &tls.Config{
-			ServerName: hostOnly,
+			ServerName:         hostOnly,
+			InsecureSkipVerify: true, // TODO: make configurable
 		}
 		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", host, tlsConfig)
 	} else {
@@ -153,6 +155,9 @@ func (c *Client) runConnection(ctx context.Context) error {
 	// Create WebSocket dialer for DATA connections
 	wsDialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // TODO: make configurable
+		},
 	}
 
 	wsScheme := "ws://"
