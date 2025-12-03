@@ -85,97 +85,72 @@ else
     echo "helix_default network already exists"
 fi
 
-# Load helix-sway image into sandbox's dockerd (with version-based management)
-if [ -f /opt/images/helix-sway.tar ]; then
+# Function to load a desktop image into sandbox's dockerd
+# Usage: load_desktop_image <name> <required>
+#   name: desktop name (sway, zorin, ubuntu)
+#   required: "true" if missing tarball is a warning, "false" for info
+load_desktop_image() {
+    local NAME="$1"
+    local REQUIRED="${2:-false}"
+    local IMAGE_NAME="helix-${NAME}"
+    local TARBALL="/opt/images/${IMAGE_NAME}.tar"
+    local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
+    local HASH_FILE="/opt/images/${IMAGE_NAME}.tar.hash"
+    local LOG_FILE="/tmp/docker-load-${NAME}.log"
+
+    if [ ! -f "$TARBALL" ]; then
+        if [ "$REQUIRED" = "true" ]; then
+            echo "⚠️  ${IMAGE_NAME} tarball not found (sandboxes may fail to start)"
+        else
+            echo "ℹ️  ${IMAGE_NAME} tarball not found (${NAME^} desktop not available)"
+        fi
+        return 0
+    fi
+
     # Read expected version from embedded metadata
-    SWAY_VERSION="latest"
-    if [ -f /opt/images/helix-sway.version ]; then
-        SWAY_VERSION=$(cat /opt/images/helix-sway.version)
-        echo "📦 helix-sway version: ${SWAY_VERSION}"
+    local VERSION="latest"
+    if [ -f "$VERSION_FILE" ]; then
+        VERSION=$(cat "$VERSION_FILE")
+        echo "📦 ${IMAGE_NAME} version: ${VERSION}"
     fi
 
     # Check if versioned image already loaded (optimization to skip expensive docker load)
-    SHOULD_LOAD=true
-    EXPECTED_HASH=""
-    if [ -f /opt/images/helix-sway.tar.hash ]; then
-        EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.hash)
+    local SHOULD_LOAD=true
+    local EXPECTED_HASH=""
+    if [ -f "$HASH_FILE" ]; then
+        EXPECTED_HASH=$(cat "$HASH_FILE")
     fi
 
     # Check for versioned tag first (more reliable than :latest)
-    CURRENT_HASH=$(docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
+    local CURRENT_HASH=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
 
     if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
-        echo "✅ helix-sway:${SWAY_VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
+        echo "✅ ${IMAGE_NAME}:${VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
         SHOULD_LOAD=false
     else
-        echo "📦 Loading helix-sway:${SWAY_VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
+        echo "📦 Loading ${IMAGE_NAME}:${VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
     fi
 
     if [ "$SHOULD_LOAD" = true ]; then
-        if docker load -i /opt/images/helix-sway.tar 2>&1 | tee /tmp/docker-load.log; then
-            # Verify both tags exist after load
-            if docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' | grep -q .; then
-                echo "✅ helix-sway:${SWAY_VERSION} loaded successfully"
+        if docker load -i "$TARBALL" 2>&1 | tee "$LOG_FILE"; then
+            # Verify versioned tag exists after load
+            if docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' | grep -q .; then
+                echo "✅ ${IMAGE_NAME}:${VERSION} loaded successfully"
             else
                 # Tarball may be from before versioning - tag it now
-                echo "🏷️  Tagging helix-sway:latest as helix-sway:${SWAY_VERSION}"
-                docker tag helix-sway:latest "helix-sway:${SWAY_VERSION}" 2>/dev/null || true
+                echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${VERSION}"
+                docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
             fi
         else
-            echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
-            echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
+            echo "⚠️  Failed to load ${IMAGE_NAME} tarball (may be corrupted or out of memory)"
+            echo "   Container will continue startup - transfer fresh image with './stack build-${NAME}'"
         fi
     fi
 
-    # Note: Wolf executor reads /opt/images/helix-sway.version directly
-    echo "✅ helix-sway:${SWAY_VERSION} ready for Wolf executor"
-else
-    echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
-fi
+    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Wolf executor"
+}
 
-# Load helix-zorin image into sandbox's dockerd (optional - with version-based management)
-if [ -f /opt/images/helix-zorin.tar ]; then
-    # Read expected version from embedded metadata
-    ZORIN_VERSION="latest"
-    if [ -f /opt/images/helix-zorin.version ]; then
-        ZORIN_VERSION=$(cat /opt/images/helix-zorin.version)
-        echo "📦 helix-zorin version: ${ZORIN_VERSION}"
-    fi
-
-    # Check if versioned image already loaded (optimization to skip expensive docker load)
-    SHOULD_LOAD=true
-    EXPECTED_HASH=""
-    if [ -f /opt/images/helix-zorin.tar.hash ]; then
-        EXPECTED_HASH=$(cat /opt/images/helix-zorin.tar.hash)
-    fi
-
-    # Check for versioned tag first (more reliable than :latest)
-    CURRENT_HASH=$(docker images "helix-zorin:${ZORIN_VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
-
-    if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
-        echo "✅ helix-zorin:${ZORIN_VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
-        SHOULD_LOAD=false
-    else
-        echo "📦 Loading helix-zorin:${ZORIN_VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
-    fi
-
-    if [ "$SHOULD_LOAD" = true ]; then
-        if docker load -i /opt/images/helix-zorin.tar 2>&1 | tee /tmp/docker-load-zorin.log; then
-            # Verify both tags exist after load
-            if docker images "helix-zorin:${ZORIN_VERSION}" --format '{{.ID}}' | grep -q .; then
-                echo "✅ helix-zorin:${ZORIN_VERSION} loaded successfully"
-            else
-                # Tarball may be from before versioning - tag it now
-                echo "🏷️  Tagging helix-zorin:latest as helix-zorin:${ZORIN_VERSION}"
-                docker tag helix-zorin:latest "helix-zorin:${ZORIN_VERSION}" 2>/dev/null || true
-            fi
-        else
-            echo "⚠️  Failed to load helix-zorin tarball (may be corrupted or out of memory)"
-            echo "   Container will continue startup - transfer fresh image with './stack build-zorin'"
-        fi
-    fi
-
-    echo "✅ helix-zorin:${ZORIN_VERSION} ready for Wolf executor"
-else
-    echo "ℹ️  helix-zorin tarball not found (Zorin desktop not available)"
-fi
+# Load desktop images (sway is required, others are optional)
+load_desktop_image "sway" "true"
+load_desktop_image "zorin" "false"
+load_desktop_image "ubuntu" "false"

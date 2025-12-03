@@ -18,6 +18,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ====================================================================
 FROM ghcr.io/mollomm1/gow-zorin-18:latest
 
+# CRITICAL FIX: Override RUN_SWAY from base image - Zorin uses GNOME, not Sway
+# The GOW Zorin base incorrectly inherits RUN_SWAY=1 which causes the container to fail
+ENV RUN_SWAY=""
+
 # CRITICAL FIX: Zorin base image init script expects XDG_RUNTIME_DIR but doesn't set it
 # This causes "chown: cannot access '': No such file or directory" and container exits
 ENV XDG_RUNTIME_DIR=/run/user/1000

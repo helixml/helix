@@ -315,9 +315,11 @@ services:
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
+        # Dev bind-mounts for hot reload (Zed + desktop configs)
         - ./zed-build:/helix-dev/zed-build:ro
         - ./wolf/sway-config:/helix-dev/sway-config:ro
+        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -424,9 +426,11 @@ services:
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
+        # Dev bind-mounts for hot reload (Zed + desktop configs)
         - ./zed-build:/helix-dev/zed-build:ro
         - ./wolf/sway-config:/helix-dev/sway-config:ro
+        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -531,9 +535,11 @@ services:
         - /run/udev:/run/udev:rw
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
-        # Dev bind-mounts for hot reload (Zed + Sway config)
+        # Dev bind-mounts for hot reload (Zed + desktop configs)
         - ./zed-build:/helix-dev/zed-build:ro
         - ./wolf/sway-config:/helix-dev/sway-config:ro
+        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
