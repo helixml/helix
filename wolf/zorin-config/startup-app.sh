@@ -98,15 +98,16 @@ mkdir -p $ZED_STATE_DIR/local-share
 mkdir -p $ZED_STATE_DIR/cache
 
 # Create symlinks BEFORE desktop starts
-rm -rf ~/.config/zed
+# Use sudo for removal since base image may have root-owned directories
+sudo rm -rf ~/.config/zed
 mkdir -p ~/.config
 ln -sf $ZED_STATE_DIR/config ~/.config/zed
 
-rm -rf ~/.local/share/zed
+sudo rm -rf ~/.local/share/zed
 mkdir -p ~/.local/share
 ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
 
-rm -rf ~/.cache/zed
+sudo rm -rf ~/.cache/zed
 mkdir -p ~/.cache
 ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
