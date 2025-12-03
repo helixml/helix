@@ -97,17 +97,20 @@ mkdir -p $ZED_STATE_DIR/config
 mkdir -p $ZED_STATE_DIR/local-share
 mkdir -p $ZED_STATE_DIR/cache
 
+# Fix ownership of common home subdirectories (Zorin base image has root-owned dirs)
+# The GOW init only chowns $HOME, not its subdirectories
+sudo chown -R retro:retro ~/.config ~/.cache ~/.local 2>/dev/null || true
+
 # Create symlinks BEFORE desktop starts
-# Use sudo for removal since base image may have root-owned directories
-sudo rm -rf ~/.config/zed
+rm -rf ~/.config/zed
 mkdir -p ~/.config
 ln -sf $ZED_STATE_DIR/config ~/.config/zed
 
-sudo rm -rf ~/.local/share/zed
+rm -rf ~/.local/share/zed
 mkdir -p ~/.local/share
 ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
 
-sudo rm -rf ~/.cache/zed
+rm -rf ~/.cache/zed
 mkdir -p ~/.cache
 ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
