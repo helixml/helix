@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -50,6 +51,15 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 			log.Error().Err(err).Msg("failed to initialize billing logger")
 		} else {
 			p.billingLogger = billingLogger
+		}
+	}
+
+	// Configure TLS skip verify if enabled
+	if cfg.Tools.TLSSkipVerify {
+		p.anthropicReverseProxy.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 		}
 	}
 
