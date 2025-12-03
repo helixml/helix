@@ -400,7 +400,12 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	}
 
 	// Generate feature branch name (same logic as spec approval flow)
-	branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+	// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
+	taskIDSuffix := task.ID
+	if len(taskIDSuffix) > 16 {
+		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
+	}
+	branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
 	branchName = sanitizeBranchName(branchName)
 
 	// Update task status directly to implementation (skip all spec phases)
@@ -660,7 +665,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		// Generate feature branch name
-		branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
+		taskIDSuffix := task.ID
+		if len(taskIDSuffix) > 16 {
+			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
+		}
+		branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
 		// Sanitize branch name (replace spaces with hyphens, remove special chars)
 		branchName = sanitizeBranchName(branchName)
 

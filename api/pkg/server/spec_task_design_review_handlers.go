@@ -239,7 +239,12 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Generate feature branch name
-		branchName := fmt.Sprintf("feature/%s-%s", specTask.Name, specTask.ID[:8])
+		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
+		taskIDSuffix := specTask.ID
+		if len(taskIDSuffix) > 16 {
+			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
+		}
+		branchName := fmt.Sprintf("feature/%s-%s", specTask.Name, taskIDSuffix)
 		branchName = sanitizeBranchName(branchName)
 
 		// Move to implementation status
