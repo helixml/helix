@@ -26,7 +26,7 @@ start_virtual_compositor = false
     [profiles.apps.video]
     # SMPTE color bars = "waiting room" before joining lobby (retro TV vibes)
     # videotestsrc patterns: black, white, red, green, blue, smpte, ball, gradient
-    source = '''videotestsrc pattern=smpte is-live=true !
+    source = '''videotestsrc pattern=ball is-live=true !
 video/x-raw, framerate={fps}/1'''
 
     [profiles.apps.audio]
@@ -91,7 +91,7 @@ colorimetry={color_space}, pixel-aspect-ratio=1/1'''
     # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
     # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
     # msdkvpp uses force-aspect-ratio=true by default (no add-borders property)
-    video_params_zero_copy = '''msdkvpp !
+    video_params_zero_copy = '''msdkvpp
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
     #
     # --- FALLBACK: vapostproc (has R/B color swap bug on Intel, but known working) ---
