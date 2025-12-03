@@ -972,16 +972,16 @@ function build-desktop() {
   echo "🔍 Image cache check:"
   echo "   Before: ${IMAGE_HASH_BEFORE:-<not captured>}"
   echo "   After:  ${IMAGE_HASH_AFTER:-<not captured>}"
-  if [ -f "${IMAGE_NAME}.tar" ]; then
-    echo "   Tarball: exists ($(du -h ${IMAGE_NAME}.tar | cut -f1))"
+  if [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
+    echo "   Tarball: exists ($(du -h sandbox-images/${IMAGE_NAME}.tar | cut -f1))"
   else
     echo "   Tarball: missing"
   fi
 
   # Skip export if: image unchanged AND tarball exists
-  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "${IMAGE_NAME}.tar" ]; then
-    TARBALL_SIZE=$(du -h "${IMAGE_NAME}.tar" | cut -f1)
-    echo "✅ Image unchanged, tarball up-to-date: ${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
+    TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
+    echo "✅ Image unchanged, tarball up-to-date: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
     # Still transfer to sandbox if running (in case sandbox was restarted)
     if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
       transfer-desktop-to-sandbox "$DESKTOP_NAME"
@@ -991,11 +991,11 @@ function build-desktop() {
 
   # Export tarball for embedding in sandbox
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
-  docker save "${IMAGE_NAME}:latest" > "${IMAGE_NAME}.tar"
-  echo "${IMAGE_HASH}" > "${IMAGE_NAME}.version"
+  docker save "${IMAGE_NAME}:latest" > "sandbox-images/${IMAGE_NAME}.tar"
+  echo "${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.version"
 
-  local TARBALL_SIZE=$(du -h "${IMAGE_NAME}.tar" | cut -f1)
-  echo "✅ Tarball created: ${IMAGE_NAME}.tar ($TARBALL_SIZE) hash=${IMAGE_HASH}"
+  local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
+  echo "✅ Tarball created: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) hash=${IMAGE_HASH}"
 
   # Transfer to running sandbox (hot-reload in development)
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
@@ -1067,8 +1067,8 @@ function transfer-desktop-to-sandbox() {
 
   if [ -n "$TRANSFER_SUCCESS" ]; then
     # Version files are bind-mounted from host (updated by build-desktop)
-    if [ -f "${IMAGE_NAME}.version" ]; then
-      echo "✅ Version file ${IMAGE_NAME}.version contains: $(cat ${IMAGE_NAME}.version)"
+    if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+      echo "✅ Version file sandbox-images/${IMAGE_NAME}.version contains: $(cat sandbox-images/${IMAGE_NAME}.version)"
     fi
     # Restart heartbeat to pick up the new version immediately
     echo "🔄 Restarting heartbeat daemon to report new version..."
@@ -1230,16 +1230,16 @@ function build-sandbox() {
   fi
 
   # Verify tarball was created (build-desktop exports it)
-  if [ ! -f helix-sway.tar ]; then
-    echo "❌ helix-sway.tar not found after build-sway - this shouldn't happen"
+  if [ ! -f sandbox-images/helix-sway.tar ]; then
+    echo "❌ sandbox-images/helix-sway.tar not found after build-sway - this shouldn't happen"
     return 1
   fi
 
   # Remove old compressed tarball if it exists (migrating to uncompressed)
-  [ -f helix-sway.tar.gz ] && rm -f helix-sway.tar.gz helix-sway.tar.gz.hash
+  [ -f sandbox-images/helix-sway.tar.gz ] && rm -f sandbox-images/helix-sway.tar.gz sandbox-images/helix-sway.tar.gz.hash
 
-  TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-  echo "✅ Using helix-sway.tar ($TARBALL_SIZE) version=$(cat helix-sway.version)"
+  TARBALL_SIZE=$(du -h sandbox-images/helix-sway.tar | cut -f1)
+  echo "✅ Using sandbox-images/helix-sway.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-sway.version)"
   echo ""
 
   # Step 3: Build helix-zorin and export as tarball
@@ -1255,13 +1255,13 @@ function build-sandbox() {
   fi
 
   # Verify tarball was created (build-desktop exports it)
-  if [ ! -f helix-zorin.tar ]; then
-    echo "❌ helix-zorin.tar not found after build-zorin - this shouldn't happen"
+  if [ ! -f sandbox-images/helix-zorin.tar ]; then
+    echo "❌ sandbox-images/helix-zorin.tar not found after build-zorin - this shouldn't happen"
     return 1
   fi
 
-  TARBALL_SIZE=$(du -h helix-zorin.tar | cut -f1)
-  echo "✅ Using helix-zorin.tar ($TARBALL_SIZE) version=$(cat helix-zorin.version)"
+  TARBALL_SIZE=$(du -h sandbox-images/helix-zorin.tar | cut -f1)
+  echo "✅ Using sandbox-images/helix-zorin.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-zorin.version)"
   echo ""
 
   # Step 4: Build helix-ubuntu and export as tarball
@@ -1277,13 +1277,13 @@ function build-sandbox() {
   fi
 
   # Verify tarball was created (build-desktop exports it)
-  if [ ! -f helix-ubuntu.tar ]; then
-    echo "❌ helix-ubuntu.tar not found after build-ubuntu - this shouldn't happen"
+  if [ ! -f sandbox-images/helix-ubuntu.tar ]; then
+    echo "❌ sandbox-images/helix-ubuntu.tar not found after build-ubuntu - this shouldn't happen"
     return 1
   fi
 
-  TARBALL_SIZE=$(du -h helix-ubuntu.tar | cut -f1)
-  echo "✅ Using helix-ubuntu.tar ($TARBALL_SIZE) version=$(cat helix-ubuntu.version)"
+  TARBALL_SIZE=$(du -h sandbox-images/helix-ubuntu.tar | cut -f1)
+  echo "✅ Using sandbox-images/helix-ubuntu.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-ubuntu.version)"
   echo ""
 
   # Step 5: Build unified sandbox container with embedded tarballs
@@ -1308,7 +1308,7 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f helix-sway.tar helix-zorin.tar helix-ubuntu.tar
+    rm -f sandbox-images/helix-sway.tar sandbox-images/helix-zorin.tar sandbox-images/helix-ubuntu.tar
     return 1
   fi
 

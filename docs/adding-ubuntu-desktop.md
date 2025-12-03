@@ -145,14 +145,16 @@ FROM ghcr.io/games-on-whales/xfce:edge   # Or custom base image
 
 **Location:** `stack`
 
-Add build command:
+Add build command wrapper and update `build-sandbox` to include the new desktop. The `build-desktop` function handles tarball export to `sandbox-images/` automatically.
+
 ```bash
-build-ubuntu)
-    # Similar to build-sway and build-zorin
-    docker build -f Dockerfile.ubuntu-helix -t helix-ubuntu:latest .
-    # Export tarball, transfer to sandbox dockerd, etc.
-    ;;
+# Add wrapper function for convenience
+function build-ubuntu() {
+    build-desktop ubuntu
+}
 ```
+
+**Note:** No changes needed to `Dockerfile.sandbox` or `docker-compose.dev.yaml` - the folder-level copy/mount handles new desktops automatically.
 
 ### 4. wolf_executor.go Updates
 

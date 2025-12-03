@@ -110,7 +110,7 @@ services:
             - TURN_USERNAME=helix
             - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
             # which desktop shall we ask Wolf to run for code agents?
-            - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
+            - HELIX_DESKTOP=${HELIX_DESKTOP:-zorin}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
@@ -327,12 +327,8 @@ services:
         # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
         - /var/run/docker.sock:/var/run/host-docker.sock:rw
         # Desktop image tarballs and versions (bind-mounted for hot-reload)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-        - ./helix-zorin.tar:/opt/images/helix-zorin.tar:ro
-        - ./helix-zorin.version:/opt/images/helix-zorin.version:ro
-        - ./helix-ubuntu.tar:/opt/images/helix-ubuntu.tar:ro
-        - ./helix-ubuntu.version:/opt/images/helix-ubuntu.version:ro
+        # Adding new desktops requires no changes here - just add to sandbox-images/
+        - ./sandbox-images:/opt/images:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -440,12 +436,8 @@ services:
         # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
         - /var/run/docker.sock:/var/run/host-docker.sock:rw
         # Desktop image tarballs and versions (bind-mounted for hot-reload)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-        - ./helix-zorin.tar:/opt/images/helix-zorin.tar:ro
-        - ./helix-zorin.version:/opt/images/helix-zorin.version:ro
-        - ./helix-ubuntu.tar:/opt/images/helix-ubuntu.tar:ro
-        - ./helix-ubuntu.version:/opt/images/helix-ubuntu.version:ro
+        # Adding new desktops requires no changes here - just add to sandbox-images/
+        - ./sandbox-images:/opt/images:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -550,13 +542,9 @@ services:
         # Host Docker socket for privileged mode (Helix-in-Helix development)
         # Only used when HYDRA_PRIVILEGED_MODE_ENABLED=true and agent requests UseHostDocker
         - /var/run/docker.sock:/var/run/host-docker.sock:rw
-        # helix-sway image tarball and version (bind-mounted so build-sway updates are picked up on restart)
-        - ./helix-sway.tar:/opt/images/helix-sway.tar:ro
-        - ./helix-sway.version:/opt/images/helix-sway.version:ro
-        - ./helix-zorin.tar:/opt/images/helix-zorin.tar:ro
-        - ./helix-zorin.version:/opt/images/helix-zorin.version:ro
-        - ./helix-ubuntu.tar:/opt/images/helix-ubuntu.tar:ro
-        - ./helix-ubuntu.version:/opt/images/helix-ubuntu.version:ro
+        # Desktop image tarballs and versions (bind-mounted for hot-reload)
+        # Adding new desktops requires no changes here - just add to sandbox-images/
+        - ./sandbox-images:/opt/images:ro
       # No device mounts for software rendering (no GPU)
       device_cgroup_rules:
         - 'c 13:* rmw'

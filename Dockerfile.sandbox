@@ -176,22 +176,9 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
 # This maximizes cache hits - changes to scripts/binaries below won't
 # invalidate these large layers, making pushes much faster
 # ====================================================================
-RUN mkdir -p /opt/images
-
-# Sway desktop tarball (required)
-COPY helix-sway.tar /opt/images/helix-sway.tar
-COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
-COPY helix-sway.version /opt/images/helix-sway.version
-
-# Zorin desktop tarball and version (optional - may not exist during initial builds)
-# Use COPY with wildcard pattern to make it optional
-COPY helix-zorin.tar* /opt/images/
-COPY helix-zorin.version* /opt/images/
-
-# Ubuntu desktop tarball and version (optional - may not exist during initial builds)
-# Use COPY with wildcard pattern to make it optional
-COPY helix-ubuntu.tar* /opt/images/
-COPY helix-ubuntu.version* /opt/images/
+# Copy entire sandbox-images/ folder to /opt/images/
+# Adding new desktops requires no changes here - just add to sandbox-images/
+COPY sandbox-images/ /opt/images/
 
 # ====================================================================
 # Copy Wolf binaries and setup
