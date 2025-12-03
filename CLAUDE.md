@@ -28,7 +28,7 @@ bash -c "./stack start"                # OR THIS
 - `./stack build` - Build containers
 - `./stack build-zed` - Build Zed binary
 - `./stack build-sway` - Build Sway container
-- `./stack rebuild-wolf` - Rebuild Wolf
+- `./stack build-wolf` - Build Wolf
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
 
@@ -403,7 +403,7 @@ mockgen -source api/pkg/external-agent/wolf_client_interface.go \
 ## Wolf Development
 
 ```bash
-./stack rebuild-wolf  # Rebuild Wolf (~30s)
+./stack build-wolf   # Build Wolf (~30s)
 ./stack start        # Auto-builds Wolf if missing
 ```
 

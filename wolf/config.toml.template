@@ -87,8 +87,8 @@ video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=N
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
     # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
     # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
-    # msdkvpp is Intel Media SDK VPP - works correctly and stays on GPU
-    video_params_zero_copy = '''msdkvpp add-borders=true !
+    # msdkvpp uses force-aspect-ratio=true by default (no add-borders property)
+    video_params_zero_copy = '''msdkvpp !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [gstreamer.video.defaults.va]
