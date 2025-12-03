@@ -362,7 +362,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		startupMountPath := getDesktopMountPath(config.DesktopType)
 		mounts = append(mounts,
 			"/helix-dev/zed-build:/zed-build:ro",
-			fmt.Sprintf("/helix-dev/%s/startup-app.sh:%s:ro", configDir, startupMountPath),
+			// Note: startup script mounted rw because GOW entrypoint does chmod +x on it
+			fmt.Sprintf("/helix-dev/%s/startup-app.sh:%s", configDir, startupMountPath),
 			fmt.Sprintf("/helix-dev/%s/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", configDir),
 		)
 
