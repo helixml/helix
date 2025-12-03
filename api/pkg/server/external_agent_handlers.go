@@ -1183,16 +1183,19 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
 
-	// Find Wolf UI app
+	// Find placeholder app - prefer "Blank" (new), fall back to "Wolf UI" (legacy)
 	var wolfUIAppID string
 	for _, app := range apps {
-		if app.Title == "Wolf UI" {
+		if app.Title == "Blank" {
 			wolfUIAppID = app.ID
 			break
 		}
+		if app.Title == "Wolf UI" && wolfUIAppID == "" {
+			wolfUIAppID = app.ID
+		}
 	}
 	if wolfUIAppID == "" {
-		return fmt.Errorf("Wolf UI app not found in apps list")
+		return fmt.Errorf("placeholder app (Blank or Wolf UI) not found in apps list")
 	}
 
 	log.Info().

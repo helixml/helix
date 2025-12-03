@@ -462,18 +462,29 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Find "Wolf UI" app by name
+	// Find placeholder app by name - prefer "Blank" (new), fall back to "Wolf UI" (legacy)
+	var foundAppID string
 	for _, app := range apps {
-		if app.Title == "Wolf UI" {
-			rw.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(rw).Encode(map[string]string{
-				"wolf_ui_app_id": app.ID,
-			})
-			return
+		if app.Title == "Blank" {
+			// Prefer "Blank" app (new placeholder app for WebRTC clients)
+			foundAppID = app.ID
+			break
+		}
+		if app.Title == "Wolf UI" && foundAppID == "" {
+			// Fall back to "Wolf UI" for backward compatibility
+			foundAppID = app.ID
 		}
 	}
 
-	http.Error(rw, "Wolf UI app not found in apps list", http.StatusNotFound)
+	if foundAppID != "" {
+		rw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(rw).Encode(map[string]string{
+			"wolf_ui_app_id": foundAppID,
+		})
+		return
+	}
+
+	http.Error(rw, "Placeholder app (Blank or Wolf UI) not found in apps list", http.StatusNotFound)
 }
 
 // fetchWolfSessions retrieves all streaming sessions from Wolf via WolfClientInterface
