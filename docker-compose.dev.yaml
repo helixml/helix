@@ -533,7 +533,9 @@ services:
     privileged: true # Required for Docker-in-Docker
     volumes:
       # Wolf configuration and state
-      - ./wolf/:/etc/wolf/cfg/:rw
+      - ./wolf:/etc/wolf/cfg/:rw
+      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker
       - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
