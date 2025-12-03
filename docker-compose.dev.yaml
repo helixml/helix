@@ -316,10 +316,11 @@ services:
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
         # Dev bind-mounts for hot reload (Zed + desktop configs)
+        # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
         - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
-        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:rw
+        - ./wolf/zorin-config:/helix-dev/zorin-config:rw
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -427,10 +428,11 @@ services:
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
         # Dev bind-mounts for hot reload (Zed + desktop configs)
+        # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
         - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
-        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:rw
+        - ./wolf/zorin-config:/helix-dev/zorin-config:rw
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -536,10 +538,11 @@ services:
         - /var/run/wolf:/var/run/wolf:rw
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
         # Dev bind-mounts for hot reload (Zed + desktop configs)
+        # Note: Config dirs are :rw because GOW entrypoint does chmod +x on startup.sh
         - ./zed-build:/helix-dev/zed-build:ro
-        - ./wolf/sway-config:/helix-dev/sway-config:ro
-        - ./wolf/zorin-config:/helix-dev/zorin-config:ro
-        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:rw
+        - ./wolf/zorin-config:/helix-dev/zorin-config:rw
+        - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
