@@ -882,6 +882,9 @@ function build-sway() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
+  # Capture image hash BEFORE build to detect if it actually changed
+  local IMAGE_HASH_BEFORE=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
+
   echo "🔨 Building helix-sway:latest container with Zed..."
 
   if [ -n "$GIT_TAG" ]; then
@@ -899,6 +902,9 @@ function build-sway() {
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       .
   fi
+
+  # Capture image hash AFTER build
+  local IMAGE_HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
 
   if [ $? -eq 0 ]; then
     echo "✅ Sway container built successfully"
@@ -921,12 +927,28 @@ function build-sway() {
 
   # Export tarball and version files (for bind-mounted dev workflow)
   # These are bind-mounted into sandbox in docker-compose.dev.yaml
-  echo "📦 Exporting helix-sway tarball for bind-mount..."
+  # Pass before/after hashes to detect if image actually changed
+  export-sway-tarball "$IMAGE_HASH_BEFORE" "$IMAGE_HASH_AFTER"
+}
+
+# Export helix-sway tarball only if needed (image changed or tarball missing)
+# Args: $1 = image hash before build, $2 = image hash after build
+function export-sway-tarball() {
+  local IMAGE_HASH_BEFORE="${1:-}"
+  local IMAGE_HASH_AFTER="${2:-}"
   local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
+
+  # Skip export if: image unchanged AND tarball exists
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f helix-sway.tar ]; then
+    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
+    echo "✅ Image unchanged, tarball up-to-date: helix-sway.tar ($TARBALL_SIZE) - skipping export"
+    return 0
+  fi
+
+  echo "📦 Exporting helix-sway tarball for bind-mount..."
   docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
   docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
-  echo "$IMAGE_HASH" > helix-sway.tar.hash
+  echo "$IMAGE_HASH_AFTER" > helix-sway.tar.hash
   echo "${COMMIT_HASH}" > helix-sway.version
   TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
   echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
