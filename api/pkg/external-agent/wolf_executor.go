@@ -70,6 +70,7 @@ type WolfExecutor struct {
 	// Qwen Code configuration (passed to sway containers)
 	qwenBaseURL string
 	qwenModel   string
+	qwenAPIKey  string
 
 	// Workspace path configuration
 	// NOTE: API and sandbox do NOT share filesystems. The API just generates path strings
@@ -349,13 +350,13 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 
 // NewWolfExecutor creates a Wolf executor using lobbies mode
 // Lobbies persist naturally across Wolf restarts, no keepalive needed
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, store store.Store, connmanInst connmanInterface) Executor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, qwenAPIKey string, store store.Store, connmanInst connmanInterface) Executor {
 	log.Info().Msg("Initializing Wolf executor (lobbies mode)")
-	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, store, connmanInst)
+	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, qwenAPIKey, store, connmanInst)
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
-func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
+func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, qwenAPIKey string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
 	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
 	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
 	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
@@ -406,6 +407,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, 
 		helixAPIToken:                helixAPIToken,
 		qwenBaseURL:                  qwenBaseURL,
 		qwenModel:                    qwenModel,
+		qwenAPIKey:                   qwenAPIKey,
 		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
@@ -607,6 +609,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 	if w.qwenModel != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_MODEL=%s", w.qwenModel))
+	}
+	if w.qwenAPIKey != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_API_KEY=%s", w.qwenAPIKey))
 	}
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)

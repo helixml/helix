@@ -92,8 +92,11 @@ func main() {
 		qwenModel = "qwen-oss:120b"
 	}
 
-	// User's API token (per-session, set by Helix)
-	userAPIKey := os.Getenv("USER_API_TOKEN")
+	// API key: use QWEN_API_KEY if set (for external providers), else USER_API_TOKEN
+	userAPIKey := os.Getenv("QWEN_API_KEY")
+	if userAPIKey == "" {
+		userAPIKey = os.Getenv("USER_API_TOKEN")
+	}
 
 	if sessionID == "" {
 		log.Fatal("HELIX_SESSION_ID environment variable is required")
