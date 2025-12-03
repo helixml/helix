@@ -55,7 +55,7 @@ func (suite *ExtractorSuite) SetupTest() {
 
 	var err error
 
-	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b)
+	suite.reconciler, err = New(suite.cfg, suite.store, suite.filestore, suite.extractor, suite.rag, b, nil)
 	suite.Require().NoError(err)
 	suite.reconciler.newRagClient = func(_ *types.RAGSettings) rag.RAG {
 		return suite.rag
@@ -146,4 +146,94 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractEnabled
 	suite.Equal(1, len(data))
 	suite.Equal("https://example.com", data[0].Source)
 	suite.Contains(string(data[0].Data), "Hello, world!")
+}
+
+// TestIsMicrosoftOAuthProvider tests the isMicrosoftOAuthProvider helper function
+// which detects Microsoft-compatible OAuth providers (both explicit Microsoft type
+// and Custom providers with Microsoft OAuth URLs)
+func TestIsMicrosoftOAuthProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider types.OAuthProvider
+		expected bool
+	}{
+		{
+			name: "explicit Microsoft provider type",
+			provider: types.OAuthProvider{
+				Type: types.OAuthProviderTypeMicrosoft,
+			},
+			expected: true,
+		},
+		{
+			name: "custom provider with Microsoft auth URL",
+			provider: types.OAuthProvider{
+				Type:    types.OAuthProviderTypeCustom,
+				AuthURL: "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/authorize",
+			},
+			expected: true,
+		},
+		{
+			name: "custom provider with Microsoft token URL",
+			provider: types.OAuthProvider{
+				Type:     types.OAuthProviderTypeCustom,
+				TokenURL: "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token",
+			},
+			expected: true,
+		},
+		{
+			name: "custom provider with both Microsoft URLs",
+			provider: types.OAuthProvider{
+				Type:     types.OAuthProviderTypeCustom,
+				AuthURL:  "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/authorize",
+				TokenURL: "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token",
+			},
+			expected: true,
+		},
+		{
+			name: "custom provider with non-Microsoft URLs",
+			provider: types.OAuthProvider{
+				Type:     types.OAuthProviderTypeCustom,
+				AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+				TokenURL: "https://oauth2.googleapis.com/token",
+			},
+			expected: false,
+		},
+		{
+			name: "Google provider type",
+			provider: types.OAuthProvider{
+				Type: types.OAuthProviderTypeGoogle,
+			},
+			expected: false,
+		},
+		{
+			name: "GitHub provider type",
+			provider: types.OAuthProvider{
+				Type: types.OAuthProviderTypeGitHub,
+			},
+			expected: false,
+		},
+		{
+			name: "empty provider",
+			provider: types.OAuthProvider{},
+			expected: false,
+		},
+		{
+			name: "custom provider with empty URLs",
+			provider: types.OAuthProvider{
+				Type:     types.OAuthProviderTypeCustom,
+				AuthURL:  "",
+				TokenURL: "",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isMicrosoftOAuthProvider(tt.provider)
+			if result != tt.expected {
+				t.Errorf("isMicrosoftOAuthProvider() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
 }
