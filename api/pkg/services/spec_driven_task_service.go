@@ -492,6 +492,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 1. Create and checkout the feature branch: `+"`git checkout -b %s`"+`
 2. Make your changes
 3. Commit and push when done: `+"`git push origin %s`"+`
+
+**Persistent installations:** If you need to install any software or dependencies, add the installation commands to `+"`.helix/startup.sh`"+` so they persist across session restarts. This script should be idempotent (safe to run multiple times). You can test it by running `+"`bash .helix/startup.sh`"+`.
 `, task.OriginalPrompt, branchName, branchName)
 
 	interaction := &types.Interaction{
