@@ -1,9 +1,33 @@
 # WebSocket-Only Streaming: Replacing WebRTC/TURN
 
 **Date:** 2025-12-03
-**Status:** In Progress
+**Status:** Implementation Complete - Needs Testing
 **Author:** Claude + Luke
-**Branch:** `feature/websocket-only-streaming`
+**Branch:** `feature/websocket-only-streaming` (helix + moonlight-web-stream)
+
+## Implementation Summary
+
+### Completed Components
+
+**moonlight-web-stream (Rust):**
+- `common/src/ws_protocol.rs` - Binary message protocol (VideoFrame, AudioFrame, StreamInit, input types)
+- `common/src/ipc.rs` - New IPC messages for video/audio frames with base64 encoding
+- `streamer/src/video.rs` - `WebSocketVideoDecoder` sends raw NAL units via IPC
+- `streamer/src/audio.rs` - `WebSocketAudioDecoder` sends Opus frames via IPC
+- `web-server/src/api/stream.rs` - `/api/ws/stream` endpoint for WebSocket-only mode
+
+**helix (TypeScript):**
+- `frontend/src/lib/moonlight-web-ts/stream/websocket-stream.ts` - Complete WebSocket stream client
+  - WebCodecs VideoDecoder for hardware-accelerated decoding
+  - WebCodecs AudioDecoder for Opus
+  - Canvas rendering with desynchronized mode
+  - Auto-reconnect with exponential backoff
+  - Binary protocol matching Rust implementation
+
+### Remaining Work
+- [ ] Complete input forwarding in streamer (WebSocket → Moonlight)
+- [ ] Integration testing with actual Wolf/Moonlight setup
+- [ ] Performance benchmarking vs WebRTC
 
 ## Design Decisions
 
