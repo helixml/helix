@@ -188,6 +188,11 @@ COPY helix-sway.version /opt/images/helix-sway.version
 COPY helix-zorin.tar* /opt/images/
 COPY helix-zorin.version* /opt/images/
 
+# Ubuntu desktop tarball and version (optional - may not exist during initial builds)
+# Use COPY with wildcard pattern to make it optional
+COPY helix-ubuntu.tar* /opt/images/
+COPY helix-ubuntu.version* /opt/images/
+
 # ====================================================================
 # Copy Wolf binaries and setup
 # ====================================================================
