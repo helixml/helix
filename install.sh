@@ -1558,20 +1558,14 @@ EOF
     fi
 
     # Build comma-separated list of Docker Compose profiles
+    # Note: Sandbox profiles (code-nvidia, code-amd-intel) are NOT set here because
+    # production sandboxes are managed by sandbox.sh, not docker-compose
     COMPOSE_PROFILES=""
     if [[ -n "$HAYSTACK" ]]; then
         COMPOSE_PROFILES="haystack"
     fi
     if [[ -n "$KODIT" ]]; then
         COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
-    fi
-    if [[ -n "$CODE" ]]; then
-        # Use code-amd profile for AMD GPUs, code profile for NVIDIA/Intel
-        if [[ "$GPU_VENDOR" == "amd" ]]; then
-            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code-amd"
-        else
-            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
-        fi
     fi
 
     # Set RAG provider
