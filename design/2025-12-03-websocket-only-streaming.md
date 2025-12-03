@@ -1,9 +1,9 @@
 # WebSocket-Only Streaming: Replacing WebRTC/TURN
 
 **Date:** 2025-12-03
-**Status:** Implementation Complete - Needs Testing
+**Status:** Implementation Complete - Ready for Testing
 **Author:** Claude + Luke
-**Branch:** `feature/websocket-only-streaming` (helix + moonlight-web-stream)
+**Branch:** `fix/revdial-websocket-control` (helix) + separate branch for moonlight-web-stream
 
 ## Implementation Summary
 
@@ -11,38 +11,49 @@
 
 **moonlight-web-stream (Rust):**
 - `common/src/ws_protocol.rs` - Binary message protocol (VideoFrame, AudioFrame, StreamInit, input types)
-- `common/src/ipc.rs` - New IPC messages for video/audio frames with base64 encoding
+- `common/src/ipc.rs` - New IPC messages for video/audio frames with base64 encoding, InputIpcMessage for input forwarding
 - `streamer/src/video.rs` - `WebSocketVideoDecoder` sends raw NAL units via IPC
-- `streamer/src/audio.rs` - `WebSocketAudioDecoder` sends Opus frames via IPC
+- `streamer/src/audio.rs` - `WebSocketAudioDecoder` sends Opus frames via IPC with PTS
+- `streamer/src/main.rs` - `run_websocket_only_mode()` function with input handling using correct MoonlightStream API
 - `web-server/src/api/stream.rs` - `/api/ws/stream` endpoint for WebSocket-only mode
 
 **helix (TypeScript):**
 - `frontend/src/lib/moonlight-web-ts/stream/websocket-stream.ts` - Complete WebSocket stream client
-  - WebCodecs VideoDecoder for hardware-accelerated decoding
-  - WebCodecs AudioDecoder for Opus
+  - WebCodecs VideoDecoder with Annex B format for in-band SPS/PPS
+  - WebCodecs AudioDecoder for Opus with PTS-based scheduling
   - Canvas rendering with desynchronized mode
+  - WebSocket-based input methods (keyboard, mouse, wheel)
   - Auto-reconnect with exponential backoff
   - Binary protocol matching Rust implementation
+- `frontend/src/lib/moonlight-web-ts/component/settings_menu.ts` - Added `StreamingMode` type and `streamingMode` setting (default: 'websocket')
+- `frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - Updated to support both modes:
+  - Added streaming mode toggle button in toolbar (WiFi icon = WebSocket, Signal icon = WebRTC)
+  - Conditional stream creation: `WebSocketStream` for websocket mode, `Stream` for webrtc mode
+  - Canvas element for WebSocket mode (WebCodecs renders to canvas), video element for WebRTC mode
+  - Stats overlay shows transport mode
+  - Default: WebSocket-only mode
 
-### Remaining Work (Critical - Will Prevent First Run)
+### Issues Fixed (Previously in "Remaining Work")
 
-1. **H264 SPS/PPS handling** - WebCodecs requires SPS/PPS NAL units to configure decoder. Currently we send raw frames without codec description. First frame will fail to decode.
-   - Fix: Extract SPS/PPS from first keyframe, use in decoder config `description` parameter
+1. ✅ **H264 SPS/PPS handling** - Configured WebCodecs with `avc: { format: "annexb" }` to handle in-band SPS/PPS.
+   Added keyframe detection to skip delta frames until first keyframe is received.
 
-2. **Audio scheduling** - All audio plays immediately instead of using PTS timestamps. Audio will be garbled.
-   - Fix: Schedule audio playback using `AudioContext.currentTime + (pts / 1000000)`
+2. ✅ **Audio scheduling** - Implemented PTS-based audio scheduling using `AudioContext.currentTime`.
+   Audio frames are now scheduled relative to the first frame's PTS, with stale frame dropping.
 
-3. **Input byte format** - Rust parser assumes specific format that may not match frontend's `ByteBuffer` encoding
-   - Fix: Verify binary format matches between TypeScript `input.ts` and Rust parsing
+3. ✅ **Input byte format** - Fixed Rust parsing to correctly handle sub-type bytes in each message.
+   TypeScript WebSocket input methods now properly construct binary messages matching the expected format.
 
-4. **MoonlightStream API** - Methods like `send_keyboard_input()` may have different signatures
-   - Fix: Check moonlight-common crate for actual API
+4. ✅ **MoonlightStream API** - Fixed to use correct API methods:
+   - `send_keyboard_event(code, KeyAction, KeyModifiers)` instead of `send_keyboard_input`
+   - `send_mouse_button(MouseButtonAction, MouseButton)` with proper enums
+   - `send_high_res_scroll()` and `send_horizontal_scroll()` for wheel events
 
 ### Integration Testing Needed
 - [ ] Compile both repos and verify no errors
 - [ ] Test with actual Wolf/Moonlight setup
-- [ ] Verify video decodes correctly
-- [ ] Verify audio plays correctly
+- [ ] Verify video decodes correctly (H264 with in-band SPS/PPS)
+- [ ] Verify audio plays correctly (with proper timing)
 - [ ] Verify keyboard/mouse input works
 - [ ] Performance benchmarking vs WebRTC
 
