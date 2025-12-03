@@ -173,6 +173,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		return nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
 	}
 
+	log.Info().
+		Str("app_id", appID).
+		Int("knowledge_count", len(knowledges)).
+		Msg("Listed knowledges for app")
+
 	knowledgeMemory := agent.NewMemoryBlock()
 
 	// Only get from the last message the filter. If users want to filter by specific document they just
@@ -185,9 +190,9 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	for _, knowledge := range knowledges {
 		switch {
-		// Filestore and Web are presented to the agents as a tool that
+		// Filestore, Web, and SharePoint are presented to the agents as a tool that
 		// can be used to search for knowledge
-		case knowledge.Source.Filestore != nil, knowledge.Source.Web != nil:
+		case knowledge.Source.Filestore != nil, knowledge.Source.Web != nil, knowledge.Source.SharePoint != nil:
 			ragClient, err := c.GetRagClient(ctx, knowledge)
 			if err != nil {
 				log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
