@@ -1,0 +1,120 @@
+# ====================================================================
+# Go build stage for settings-sync-daemon, screenshot-server, revdial-client
+# ====================================================================
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+WORKDIR /app/api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+
+# ====================================================================
+# Ubuntu/XFCE Personal Dev Environment
+# ====================================================================
+# Using XFCE base image from GOW - already has X11/Xwayland infrastructure
+# XFCE is simpler than GNOME and doesn't require systemd workarounds
+FROM ghcr.io/games-on-whales/xfce:edge
+
+# CRITICAL FIX: GOW images may not set XDG_RUNTIME_DIR
+# This is required for many applications and D-Bus
+ENV XDG_RUNTIME_DIR=/run/user/1000
+RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
+
+# Add passwordless sudo (needed for Zed startup script to create symlinks)
+RUN apt-get update && \
+    apt-get install -y sudo && \
+    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install screenshot tools: scrot for X11
+RUN apt-get update && \
+    apt-get install -y scrot && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Firefox browser from Mozilla repository
+RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
+    echo "Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000" > /etc/apt/preferences.d/mozilla-firefox && \
+    apt-get update && \
+    apt-get install -y firefox && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI only (daemon on host via socket mount)
+# Using 'noble' for Ubuntu 24.04 LTS compatibility (XFCE edge is based on Ubuntu 25.04/plucky)
+# Fallback to noble as it has the most compatible packages
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
+# These wrappers intercept docker/compose commands and resolve symlinks in volume
+# paths before passing to the real binaries, enabling bind mounts to work
+# correctly when using Hydra (nested dockerd per session).
+COPY wolf/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY wolf/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+RUN mv /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
+    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
+    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+
+# Install clipboard tools for X11 clipboard sync
+RUN apt-get update && apt-get install -y \
+    xclip xsel \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install git for repository cloning
+RUN apt-get update && apt-get install -y \
+    git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install XFCE terminal (for startup script)
+RUN apt-get update && apt-get install -y \
+    xfce4-terminal \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy settings-sync-daemon, screenshot-server, and revdial-client binaries from Go build stage
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+# CRITICAL: Must be built with --features external_websocket_sync
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Copy Zed startup script and helper scripts
+ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+
+# Copy GOW startup script (creates autostart entries and state symlinks)
+ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh
+RUN chmod +x /opt/gow/startup.sh
+
+# Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
+# CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
+ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Copy Helix background image for desktop wallpaper
+RUN mkdir -p /usr/share/backgrounds
+COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png

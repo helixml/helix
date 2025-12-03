@@ -314,6 +314,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		configDir := "sway-config"
 		if config.DesktopType == DesktopZorin {
 			configDir = "zorin-config"
+		} else if config.DesktopType == DesktopUbuntu {
+			configDir = "ubuntu-config"
 		}
 
 		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
