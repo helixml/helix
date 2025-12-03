@@ -54,7 +54,7 @@ const Apps: FC = () => {
   const onNewSecret = () => {
     if(!checkLoginStatus()) return
 
-    navigate('secrets')
+    account.orgNavigate('secrets')
   }
 
   const onDeleteApp = useCallback(async () => {

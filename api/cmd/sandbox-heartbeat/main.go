@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -175,7 +176,15 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 	httpReq.Header.Set("Authorization", "Bearer "+runnerToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Create HTTP client with insecure TLS (TODO: make configurable)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to send heartbeat (API may not be ready)")

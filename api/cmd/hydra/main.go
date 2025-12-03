@@ -115,11 +115,12 @@ func run(cmd *cobra.Command, args []string) {
 	var revDialClient *revdial.Client
 	if revDialAPIURL != "" && revDialToken != "" {
 		revDialClient = revdial.NewClient(&revdial.ClientConfig{
-			ServerURL:      revDialAPIURL,
-			RunnerID:       "hydra-" + revDialWolfID,
-			RunnerToken:    revDialToken,
-			LocalAddr:      "unix://" + socketPath,
-			ReconnectDelay: 5 * time.Second,
+			ServerURL:          revDialAPIURL,
+			RunnerID:           "hydra-" + revDialWolfID,
+			RunnerToken:        revDialToken,
+			LocalAddr:          "unix://" + socketPath,
+			ReconnectDelay:     5 * time.Second,
+			InsecureSkipVerify: true, // TODO: make configurable
 		})
 		revDialClient.Start(ctx)
 		log.Info().

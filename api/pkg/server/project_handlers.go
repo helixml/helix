@@ -191,6 +191,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Attach the primary repository to the project
+	// This sets the project_id on the repository so it shows up in the project's repo list
+	if err := s.Store.AttachRepositoryToProject(r.Context(), created.ID, req.DefaultRepoID); err != nil {
+		log.Warn().
+			Err(err).
+			Str("project_id", created.ID).
+			Str("repo_id", req.DefaultRepoID).
+			Msg("failed to attach primary repository to project (continuing)")
+	}
+
 	// Initialize startup script in the primary code repo
 	// Startup script lives at .helix/startup.sh in the primary repository
 	primaryRepo, err := s.Store.GetGitRepository(r.Context(), req.DefaultRepoID)
@@ -613,9 +623,10 @@ func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError404("repository not found")
 	}
 
-	// Check if user owns the repository
-	if repo.OwnerID != user.ID {
+	// Check if user has access to the repository
+	if err := s.authorizeUserToRepository(r.Context(), user, repo, types.ActionGet); err != nil {
 		log.Warn().
+			Err(err).
 			Str("user_id", user.ID).
 			Str("repo_id", repoID).
 			Str("repo_owner_id", repo.OwnerID).
@@ -975,19 +986,20 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	session := &types.Session{
-		ID:            system.GenerateSessionID(),
-		Name:          fmt.Sprintf("Explore: %s", project.Name),
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		ParentSession: "",
-		Mode:          types.SessionModeInference,
-		Type:          types.SessionTypeText,
-		Provider:      "anthropic",
-		ModelName:     "external_agent",
-		LoraDir:       "",
-		Owner:         user.ID,
-		OwnerType:     types.OwnerTypeUser,
-		Metadata:      sessionMetadata,
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("Explore: %s", project.Name),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		ParentSession:  "",
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "anthropic",
+		ModelName:      "external_agent",
+		LoraDir:        "",
+		Owner:          user.ID,
+		OrganizationID: project.OrganizationID, // Inherit org from project
+		OwnerType:      types.OwnerTypeUser,
+		Metadata:       sessionMetadata,
 	}
 
 	createdSession, err := s.Store.CreateSession(r.Context(), *session)

@@ -183,7 +183,7 @@ func (m *SpecTaskGitMonitor) checkSpecTaskRepository(ctx context.Context, specTa
 	}
 
 	// Process the event immediately
-	if err := m.processGitPushEvent(ctx, pushEvent, specTask); err != nil {
+	if err := m.processGitPushEvent(ctx, pushEvent, specTask, repo.LocalPath); err != nil {
 		// Mark as failed
 		pushEvent.ProcessingError = err.Error()
 		if updateErr := m.store.UpdateSpecTaskGitPushEvent(ctx, pushEvent); updateErr != nil {
@@ -281,8 +281,51 @@ func (m *SpecTaskGitMonitor) containsDesignDocs(files []string) bool {
 	return false
 }
 
+// readSpecDocsFromGit reads the spec documents from helix-specs branch
+// Returns requirements, design, and implementation plan content
+// Falls back to empty strings if files cannot be read (caller should handle gracefully)
+func (m *SpecTaskGitMonitor) readSpecDocsFromGit(repoPath string, specTaskID string) (requirementsSpec, technicalDesign, implementationPlan string) {
+	// Find task directory in helix-specs branch
+	taskDir, err := findTaskDirectory(repoPath, specTaskID)
+	if err != nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[GitMonitor] Could not find task directory in helix-specs")
+		return "", "", ""
+	}
+
+	// Read each spec document from git
+	docMap := map[string]*string{
+		"requirements.md": &requirementsSpec,
+		"design.md":       &technicalDesign,
+		"tasks.md":        &implementationPlan,
+	}
+
+	for filename, contentPtr := range docMap {
+		filePath := fmt.Sprintf("%s/%s", taskDir, filename)
+		content, err := readFileFromBranch(repoPath, "helix-specs", filePath)
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("filename", filename).
+				Str("path", filePath).
+				Msg("[GitMonitor] Could not read spec doc from helix-specs")
+			continue
+		}
+		*contentPtr = content
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("task_dir", taskDir).
+		Int("requirements_len", len(requirementsSpec)).
+		Int("design_len", len(technicalDesign)).
+		Int("plan_len", len(implementationPlan)).
+		Msg("[GitMonitor] Read spec docs from helix-specs branch")
+
+	return requirementsSpec, technicalDesign, implementationPlan
+}
+
 // processGitPushEvent processes a Git push event and creates a design review
-func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent, specTask *types.SpecTask) error {
+func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent, specTask *types.SpecTask, repoPath string) error {
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("commit", event.CommitHash).
@@ -304,16 +347,19 @@ func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *typ
 		}
 	}
 
-	// Create new design review
+	// Read spec content from helix-specs branch (fresh from git, not stale database fields)
+	requirementsSpec, technicalDesign, implementationPlan := m.readSpecDocsFromGit(repoPath, specTask.ID)
+
+	// Create new design review with content from git
 	review := &types.SpecTaskDesignReview{
 		SpecTaskID:         specTask.ID,
 		Status:             types.SpecTaskDesignReviewStatusPending,
 		GitCommitHash:      event.CommitHash,
 		GitBranch:          event.Branch,
 		GitPushedAt:        event.PushedAt,
-		RequirementsSpec:   specTask.RequirementsSpec,
-		TechnicalDesign:    specTask.TechnicalDesign,
-		ImplementationPlan: specTask.ImplementationPlan,
+		RequirementsSpec:   requirementsSpec,
+		TechnicalDesign:    technicalDesign,
+		ImplementationPlan: implementationPlan,
 	}
 
 	if err := m.store.CreateSpecTaskDesignReview(ctx, review); err != nil {

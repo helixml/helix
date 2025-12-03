@@ -44,14 +44,19 @@ const GitRepos: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
 
-  // Get current org ID - use org ID for org repos, user ID for personal repos
+  // Get current org context for repo filtering
   const currentOrg = account.organizationTools.organization
-  const ownerId = currentOrg?.id || account.user?.id || ''
+  const ownerId = account.user?.id || ''
 
   // Get owner slug for GitHub-style URLs (org name or user slug)
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
 
-  const { data: repositories, isLoading, error } = useGitRepositories(ownerId)
+  // List repos by organization_id when in org context, or by owner_id for personal workspace
+  const { data: repositories, isLoading, error } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
   const { data: sampleTypes, loading: sampleTypesLoading, createSampleRepository } = useSampleTypes()
 
   // Dialog states
@@ -103,7 +108,7 @@ const GitRepos: FC = () => {
       })
 
       // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       setDemoRepoDialogOpen(false)
       setSelectedSampleType('')
@@ -133,7 +138,7 @@ const GitRepos: FC = () => {
       })
 
       // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       setCreateDialogOpen(false)
       setCreateError('')
@@ -174,7 +179,7 @@ const GitRepos: FC = () => {
       })
 
       // Invalidate and refetch git repositories query
-      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       setLinkRepoDialogOpen(false)
       setExternalRepoName('')
@@ -292,7 +297,7 @@ const GitRepos: FC = () => {
                   },
                   cursor: 'pointer'
                 }}
-                onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
+                onClick={() => account.orgNavigate('git-repo-detail', { repoId: repo.id })}
               >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box sx={{ flex: 1 }}>

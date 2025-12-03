@@ -206,6 +206,35 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 	return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
 }
 
+func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error {
+	// If the organization ID is not set, only the owner can access
+	if repository.OrganizationID == "" {
+		if user.ID == repository.OwnerID {
+			return nil
+		}
+		return fmt.Errorf("user is not the owner of the repository")
+	}
+
+	// If organization ID is set, authorize the user against the organization
+	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, repository.OrganizationID)
+	if err != nil {
+		return err
+	}
+
+	// Repository owner can always access the repository (they still have to have
+	// org membership)
+	if user.ID == repository.OwnerID {
+		return nil
+	}
+
+	// Org owner can always access the repository
+	if orgMembership.Role == types.OrganizationRoleOwner {
+		return nil
+	}
+
+	return apiServer.authorizeUserToResource(ctx, user, repository.OrganizationID, repository.ID, types.ResourceGitRepository, action)
+}
+
 // authorizeUserToResource loads RBAC configuration for the
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
 	// Load all authz configs for the user (teams, direct to user grants)

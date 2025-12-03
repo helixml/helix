@@ -226,11 +226,19 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
+	// Default QWEN_BASE_URL to SERVER_URL/v1 if not set
+	qwenBaseURL := cfg.ExternalAgents.QwenBaseURL
+	if qwenBaseURL == "" {
+		qwenBaseURL = cfg.WebServer.URL + "/v1"
+	}
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
+		qwenBaseURL,
+		cfg.ExternalAgents.QwenModel,
 		store,
 		connectionManager,
 	)
@@ -489,6 +497,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
+
+	// Teams Bot Framework webhook - auth handled by Bot Framework JWT validation
+	insecureRouter.HandleFunc("/teams/webhook/{appID}", apiServer.teamsWebhookHandler).Methods(http.MethodPost)
 
 	insecureRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,

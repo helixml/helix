@@ -2066,6 +2066,8 @@ export interface TypesFlexibleEmbeddingResponse {
 
 export interface TypesForkSimpleProjectRequest {
   description?: string;
+  /** Optional: if empty, project is personal */
+  organization_id?: string;
   project_name?: string;
   sample_project_id?: string;
 }
@@ -4191,6 +4193,16 @@ export interface TypesTeamMembership {
   user_id?: string;
 }
 
+export interface TypesTeamsTrigger {
+  /** Microsoft App ID */
+  app_id?: string;
+  /** Microsoft App Password */
+  app_password?: string;
+  enabled?: boolean;
+  /** Optional: restrict to specific tenant */
+  tenant_id?: string;
+}
+
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -4351,6 +4363,7 @@ export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
+  teams?: TypesTeamsTrigger;
 }
 
 export interface TypesTriggerConfiguration {
@@ -4411,6 +4424,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
@@ -4767,7 +4781,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -4857,8 +4871,12 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title No title
- * @contact
+ * @title HelixML API reference
+ * @version 0.1
+ * @baseUrl https://app.helix.ml
+ * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
+ *
+ * This is the HelixML API.
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -9787,6 +9805,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a new SpecTask with a demo repository
      *
      * @tags SpecTasks
@@ -10001,6 +10057,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Process incoming activities from Microsoft Teams Bot Framework
+     *
+     * @tags Teams
+     * @name V1TeamsWebhookCreate
+     * @summary Handle Teams webhook
+     * @request POST:/api/v1/teams/webhook/{appID}
+     */
+    v1TeamsWebhookCreate: (appId: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/teams/webhook/${appId}`,
+        method: "POST",
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

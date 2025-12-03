@@ -44,8 +44,13 @@ func (s *HelixAPIServer) startImplementation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check authorization
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+	// Check authorization using project-level auth (handles personal + org projects)
+	if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		log.Warn().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", specTask.ProjectID).
+			Msg("User not authorized to start implementation")
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
@@ -179,9 +184,11 @@ func generateFeatureBranchName(task *types.SpecTask) string {
 	}
 
 	// Add task ID suffix for uniqueness
+	// Use last 16 chars of task ID to get more of the random ULID portion
+	// (ULID = 10 char timestamp + 16 char random, we want the random part)
 	taskIDSuffix := task.ID
-	if len(taskIDSuffix) > 8 {
-		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-8:]
+	if len(taskIDSuffix) > 16 {
+		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
 	}
 
 	return fmt.Sprintf("feature/%s-%s", name, taskIDSuffix)

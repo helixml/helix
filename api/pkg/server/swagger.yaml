@@ -1995,13 +1995,6 @@ definitions:
     type: string
     x-enum-comments:
       ActionUseAction: For example "use app"
-    x-enum-descriptions:
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - For example "use app"
     x-enum-varnames:
     - ActionGet
     - ActionList
@@ -2213,10 +2206,6 @@ definitions:
       AgentTypeHelixAgent: Standard Helix agent with skills
       AgentTypeHelixBasic: Basic Helix agent
       AgentTypeZedExternal: Zed-integrated agent
-    x-enum-descriptions:
-    - Basic Helix agent
-    - Standard Helix agent with skills
-    - Zed-integrated agent
     x-enum-varnames:
     - AgentTypeHelixBasic
     - AgentTypeHelixAgent
@@ -2495,7 +2484,6 @@ definitions:
         type: boolean
       runner_capacity:
         additionalProperties:
-          format: int64
           type: integer
         description: GPU index -> total memory
         type: object
@@ -2503,7 +2491,6 @@ definitions:
         type: string
       runner_memory_state:
         additionalProperties:
-          format: int64
           type: integer
         description: GPU index -> allocated memory
         type: object
@@ -2932,10 +2919,6 @@ definitions:
     type: string
     x-enum-comments:
       AuthProviderRegular: Embedded in Helix, no external dependencies
-    x-enum-descriptions:
-    - Embedded in Helix, no external dependencies
-    - ""
-    - ""
     x-enum-varnames:
     - AuthProviderRegular
     - AuthProviderKeycloak
@@ -3522,6 +3505,9 @@ definitions:
     properties:
       description:
         type: string
+      organization_id:
+        description: 'Optional: if empty, project is personal'
+        type: string
       project_name:
         type: string
       sample_project_id:
@@ -3868,9 +3854,6 @@ definitions:
     x-enum-comments:
       GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
       GitRepositoryTypeInternal: Internal project config repository
-    x-enum-descriptions:
-    - Internal project config repository
-    - Code repository (user projects, samples, external repos)
     x-enum-varnames:
     - GitRepositoryTypeInternal
     - GitRepositoryTypeCode
@@ -4982,9 +4965,6 @@ definitions:
       OrganizationRoleMember: Can see every member and team in the organization and
         can create new apps
       OrganizationRoleOwner: Has full administrative access to the entire organization.
-    x-enum-descriptions:
-    - Has full administrative access to the entire organization.
-    - Can see every member and team in the organization and can create new apps
     x-enum-varnames:
     - OrganizationRoleOwner
     - OrganizationRoleMember
@@ -5770,14 +5750,6 @@ definitions:
       SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
       SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
       SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
-    x-enum-descriptions:
-    - Added to queue
-    - Reused existing warm model instance
-    - Started new model instance
-    - Evicted stale slot to free memory
-    - Rejected (insufficient resources, etc.)
-    - Error during scheduling
-    - Cannot be scheduled (no warm slots available)
     x-enum-varnames:
     - SchedulingDecisionTypeQueued
     - SchedulingDecisionTypeReuseWarmSlot
@@ -6187,11 +6159,6 @@ definitions:
     type: string
     x-enum-comments:
       SessionModeAction: Running tool actions (e.g. API, function calls)
-    x-enum-descriptions:
-    - ""
-    - ""
-    - ""
-    - Running tool actions (e.g. API, function calls)
     x-enum-varnames:
     - SessionModeNone
     - SessionModeInference
@@ -6693,12 +6660,6 @@ definitions:
       SpecTaskDesignReviewCommentTypePraise: Positive feedback
       SpecTaskDesignReviewCommentTypeQuestion: Question needing clarification
       SpecTaskDesignReviewCommentTypeSuggestion: Suggested improvement
-    x-enum-descriptions:
-    - General comment
-    - Question needing clarification
-    - Suggested improvement
-    - Critical issue must be fixed
-    - Positive feedback
     x-enum-varnames:
     - SpecTaskDesignReviewCommentTypeGeneral
     - SpecTaskDesignReviewCommentTypeQuestion
@@ -6739,12 +6700,6 @@ definitions:
       SpecTaskDesignReviewStatusInReview: Reviewer is actively reviewing
       SpecTaskDesignReviewStatusPending: Waiting for reviewer
       SpecTaskDesignReviewStatusSuperseded: Newer review exists (agent pushed updates)
-    x-enum-descriptions:
-    - Waiting for reviewer
-    - Reviewer is actively reviewing
-    - Reviewer requested changes
-    - Approved, ready for implementation
-    - Newer review exists (agent pushed updates)
     x-enum-varnames:
     - SpecTaskDesignReviewStatusPending
     - SpecTaskDesignReviewStatusInReview
@@ -6916,7 +6871,6 @@ definitions:
         description: Progress from tasks.md
       implementation_progress:
         additionalProperties:
-          format: float64
           type: number
         description: Task index -> progress
         type: object
@@ -6925,7 +6879,6 @@ definitions:
         type: number
       phase_progress:
         additionalProperties:
-          format: float64
           type: number
         type: object
       recent_activity:
@@ -7260,6 +7213,20 @@ definitions:
         description: composite key
         type: string
     type: object
+  types.TeamsTrigger:
+    properties:
+      app_id:
+        description: Microsoft App ID
+        type: string
+      app_password:
+        description: Microsoft App Password
+        type: string
+      enabled:
+        type: boolean
+      tenant_id:
+        description: 'Optional: restrict to specific tenant'
+        type: string
+    type: object
   types.TestStep:
     properties:
       expected_output:
@@ -7528,6 +7495,8 @@ definitions:
         $ref: '#/definitions/types.DiscordTrigger'
       slack:
         $ref: '#/definitions/types.SlackTrigger'
+      teams:
+        $ref: '#/definitions/types.TeamsTrigger'
     type: object
   types.TriggerConfiguration:
     properties:
@@ -7626,6 +7595,7 @@ definitions:
   types.TriggerType:
     enum:
     - slack
+    - teams
     - crisp
     - azure_devops
     - cron
@@ -7633,6 +7603,7 @@ definitions:
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
+    - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
@@ -8160,8 +8131,18 @@ definitions:
       tid:
         type: integer
     type: object
+host: app.helix.ml
 info:
-  contact: {}
+  contact:
+    email: info@helix.ml
+    name: Helix support
+    url: https://app.helix.ml/
+  description: This is the HelixML API.
+  title: HelixML API reference
+  version: "0.1"
+  x-logo:
+    altText: Helix logo
+    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -14651,6 +14632,56 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
+  /api/v1/spec-tasks/board-settings:
+    get:
+      description: Get the Kanban board settings (WIP limits) for the default project
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.BoardSettings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get board settings for spec tasks
+      tags:
+      - spec-driven-tasks
+    put:
+      consumes:
+      - application/json
+      description: Update the Kanban board settings (WIP limits) for the default project
+      parameters:
+      - description: Board settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.BoardSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.BoardSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update board settings for spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:
@@ -14949,6 +14980,35 @@ paths:
       summary: Update system settings
       tags:
       - system
+  /api/v1/teams/webhook/{appID}:
+    post:
+      consumes:
+      - application/json
+      description: Process incoming activities from Microsoft Teams Bot Framework
+      parameters:
+      - description: Helix App ID
+        in: path
+        name: appID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Bot not found
+          schema:
+            type: string
+        "503":
+          description: Bot not ready
+          schema:
+            type: string
+      summary: Handle Teams webhook
+      tags:
+      - Teams
   /api/v1/top-ups/new:
     post:
       description: Create a top up with specified amount
@@ -16102,4 +16162,6 @@ paths:
             type: array
       security:
       - BearerAuth: []
+schemes:
+- https
 swagger: "2.0"
