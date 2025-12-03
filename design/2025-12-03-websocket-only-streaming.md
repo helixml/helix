@@ -24,9 +24,26 @@
   - Auto-reconnect with exponential backoff
   - Binary protocol matching Rust implementation
 
-### Remaining Work
-- [ ] Complete input forwarding in streamer (WebSocket → Moonlight)
-- [ ] Integration testing with actual Wolf/Moonlight setup
+### Remaining Work (Critical - Will Prevent First Run)
+
+1. **H264 SPS/PPS handling** - WebCodecs requires SPS/PPS NAL units to configure decoder. Currently we send raw frames without codec description. First frame will fail to decode.
+   - Fix: Extract SPS/PPS from first keyframe, use in decoder config `description` parameter
+
+2. **Audio scheduling** - All audio plays immediately instead of using PTS timestamps. Audio will be garbled.
+   - Fix: Schedule audio playback using `AudioContext.currentTime + (pts / 1000000)`
+
+3. **Input byte format** - Rust parser assumes specific format that may not match frontend's `ByteBuffer` encoding
+   - Fix: Verify binary format matches between TypeScript `input.ts` and Rust parsing
+
+4. **MoonlightStream API** - Methods like `send_keyboard_input()` may have different signatures
+   - Fix: Check moonlight-common crate for actual API
+
+### Integration Testing Needed
+- [ ] Compile both repos and verify no errors
+- [ ] Test with actual Wolf/Moonlight setup
+- [ ] Verify video decodes correctly
+- [ ] Verify audio plays correctly
+- [ ] Verify keyboard/mouse input works
 - [ ] Performance benchmarking vs WebRTC
 
 ## Design Decisions
