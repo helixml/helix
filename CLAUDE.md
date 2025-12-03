@@ -80,6 +80,42 @@ When encountering `.git/index.lock`:
 
 **NEVER automate git lock removal or process killing.**
 
+## 🚨 CRITICAL: NEVER PUSH TO MAIN WITHOUT PERMISSION 🚨
+
+**NEVER push directly to main branch - use feature/fix branches and get user approval**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN
+git push origin main                   # NEVER DO THIS
+git push origin main --force           # DEFINITELY NEVER THIS
+
+# ✅ CORRECT: Use feature or fix branches
+git checkout -b fix/descriptive-name
+git commit -m "fix: description"
+git push origin fix/descriptive-name
+# Then ASK USER to review and merge
+```
+
+**Why this is forbidden:**
+- Main branch has protection rules requiring pull requests
+- Direct pushes bypass code review and CI checks
+- User needs to approve changes before they go to main
+- Mistakes on main affect all developers immediately
+
+**Branch naming conventions:**
+- `fix/short-description` - Bug fixes
+- `feature/short-description` - New features
+- `refactor/short-description` - Code refactoring
+
+**Correct workflow:**
+1. Create a `fix/` or `feature/` branch for your changes
+2. Commit changes to your branch
+3. Push the branch to origin
+4. **ASK USER** to review and merge (or create PR)
+5. User decides when/how to merge to main
+
+**Exception:** User may explicitly grant permission to push to main for urgent fixes. Always confirm first.
+
 ## 🚨 CRITICAL: NEVER RENAME CURRENT WORKING DIRECTORY 🚨
 
 **NEVER rename or move your present working directory - it breaks your shell session**
