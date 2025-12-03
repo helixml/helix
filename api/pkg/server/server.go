@@ -226,11 +226,19 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
+	// Default QWEN_BASE_URL to SERVER_URL/v1 if not set
+	qwenBaseURL := cfg.ExternalAgents.QwenBaseURL
+	if qwenBaseURL == "" {
+		qwenBaseURL = cfg.WebServer.URL + "/v1"
+	}
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
+		qwenBaseURL,
+		cfg.ExternalAgents.QwenModel,
 		store,
 		connectionManager,
 	)

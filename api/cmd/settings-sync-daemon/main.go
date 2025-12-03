@@ -28,9 +28,44 @@ type SettingsDaemon struct {
 	watcher      *fsnotify.Watcher
 	lastModified time.Time
 
+	// Qwen Code configuration (from environment)
+	qwenBaseURL string
+	qwenModel   string
+	userAPIKey  string
+
 	// Current state
 	helixSettings map[string]interface{}
 	userOverrides map[string]interface{}
+}
+
+// generateQwenAgentConfig creates the agent_servers configuration for Qwen Code
+func (d *SettingsDaemon) generateQwenAgentConfig() map[string]interface{} {
+	env := map[string]interface{}{
+		"GEMINI_TELEMETRY_ENABLED": "false",
+		"OPENAI_BASE_URL":          d.qwenBaseURL,
+	}
+
+	// Add API key if available (user's Helix API token)
+	if d.userAPIKey != "" {
+		env["OPENAI_API_KEY"] = d.userAPIKey
+	}
+
+	// Add model configuration if set
+	if d.qwenModel != "" {
+		env["OPENAI_MODEL"] = d.qwenModel
+	}
+
+	return map[string]interface{}{
+		"qwen": map[string]interface{}{
+			"type":    "custom",
+			"command": "qwen",
+			"args": []string{
+				"--experimental-acp",
+				"--no-telemetry",
+			},
+			"env": env,
+		},
+	}
 }
 
 func main() {
@@ -46,19 +81,37 @@ func main() {
 		port = "9877"
 	}
 
+	// Qwen Code configuration (installer-configurable)
+	qwenBaseURL := os.Getenv("QWEN_BASE_URL")
+	if qwenBaseURL == "" {
+		qwenBaseURL = helixURL + "/v1"
+	}
+	qwenModel := os.Getenv("QWEN_MODEL")
+	if qwenModel == "" {
+		qwenModel = "qwen-oss:120b"
+	}
+
+	// User's API token (per-session, set by Helix)
+	userAPIKey := os.Getenv("USER_API_TOKEN")
+
 	if sessionID == "" {
 		log.Fatal("HELIX_SESSION_ID environment variable is required")
 	}
 
 	log.Printf("Starting settings sync daemon for session %s", sessionID)
 	log.Printf("Helix API URL: %s", helixURL)
+	log.Printf("Qwen Base URL: %s", qwenBaseURL)
+	log.Printf("Qwen Model: %s", qwenModel)
 	log.Printf("Settings path: %s", SettingsPath)
 
 	daemon := &SettingsDaemon{
-		httpClient: http.DefaultClient,
-		apiURL:     helixURL,
-		apiToken:   helixToken,
-		sessionID:  sessionID,
+		httpClient:  http.DefaultClient,
+		apiURL:      helixURL,
+		apiToken:    helixToken,
+		sessionID:   sessionID,
+		qwenBaseURL: qwenBaseURL,
+		qwenModel:   qwenModel,
+		userAPIKey:  userAPIKey,
 	}
 
 	// Initial sync from Helix → local
@@ -140,83 +193,74 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["theme"] = config.Theme
 	}
 
-	// Don't load existing settings as user overrides on startup
-	// This prevents old/stale settings from being treated as user preferences
-	// User overrides are only tracked from changes made AFTER Helix config is written
 	d.userOverrides = make(map[string]interface{})
 
-	// SECURITY: Load existing settings to preserve protected fields before merge
-	existingSettings := make(map[string]interface{})
+	// Preserve telemetry settings from existing config
 	if existingData, err := os.ReadFile(SettingsPath); err == nil {
+		var existingSettings map[string]interface{}
 		if err := json.Unmarshal(existingData, &existingSettings); err == nil {
-			// Preserve security-protected fields from existing config
-			for field := range SECURITY_PROTECTED_FIELDS {
-				if value, exists := existingSettings[field]; exists {
-					d.helixSettings[field] = value
-					log.Printf("SECURITY: Preserved protected field '%s' from existing config on startup", field)
-				}
+			if value, exists := existingSettings["telemetry"]; exists {
+				d.helixSettings["telemetry"] = value
 			}
 		}
 	}
 
-	// Write Helix settings (now including preserved protected fields)
+	// Inject Qwen Code agent configuration
+	d.helixSettings["agent_servers"] = d.generateQwenAgentConfig()
+	d.helixSettings["default_agent"] = "qwen"
+	log.Printf("Injected Qwen Code agent config (base_url=%s, model=%s)", d.qwenBaseURL, d.qwenModel)
+
 	return d.writeSettings(d.helixSettings)
 }
 
-// SECURITY_PROTECTED_FIELDS are settings that MUST NOT be overwritten by Helix sync
-// These are privacy and security-critical settings configured at the OS/Docker level
-// for compliance, air-gapped operation, and telemetry disabling.
+// SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
 var SECURITY_PROTECTED_FIELDS = map[string]bool{
-	"telemetry":      true, // Zed telemetry settings (diagnostics, metrics)
-	"agent_servers":  true, // Qwen Code ACP configuration (with --no-telemetry)
-	"default_agent":  true, // Default agent selection (qwen)
+	"telemetry":      true,
+	"agent_servers":  true,
+	"default_agent":  true,
 }
 
-// mergeSettings applies three-way merge: Helix base + User overrides + SECURITY PROTECTION
-func mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
+// mergeSettings combines Helix settings with user overrides, then injects Qwen config
+func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
 
-	// Copy Helix settings as base
 	for k, v := range helix {
-		// Skip security-protected fields from Helix (use local/user values only)
 		if SECURITY_PROTECTED_FIELDS[k] {
 			continue
 		}
 		merged[k] = v
 	}
 
-	// Apply user overrides (deep merge for context_servers)
+	// Deep merge context_servers
 	if userServers, ok := user["context_servers"].(map[string]interface{}); ok {
 		if helixServers, ok := merged["context_servers"].(map[string]interface{}); ok {
-			// Deep merge context_servers
 			for name, config := range userServers {
-				helixServers[name] = config // User override/addition wins
+				helixServers[name] = config
 			}
 		} else {
 			merged["context_servers"] = userServers
 		}
 	}
 
-	// Apply other user settings (non-context_servers)
 	for k, v := range user {
 		if k != "context_servers" {
 			merged[k] = v
 		}
 	}
 
-	// SECURITY: Load and preserve protected fields from on-disk settings
-	// This ensures telemetry, agent_servers, and default_agent are never overwritten by Helix sync
+	// Preserve telemetry from on-disk config
 	if existingData, err := os.ReadFile(SettingsPath); err == nil {
 		var existing map[string]interface{}
 		if err := json.Unmarshal(existingData, &existing); err == nil {
-			for field := range SECURITY_PROTECTED_FIELDS {
-				if value, exists := existing[field]; exists {
-					merged[field] = value
-					log.Printf("SECURITY: Preserved protected field '%s' from local config", field)
-				}
+			if value, exists := existing["telemetry"]; exists {
+				merged["telemetry"] = value
 			}
 		}
 	}
+
+	// Inject Qwen Code agent configuration
+	merged["agent_servers"] = d.generateQwenAgentConfig()
+	merged["default_agent"] = "qwen"
 
 	return merged
 }
@@ -225,17 +269,15 @@ func mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 func extractUserOverrides(current, helix map[string]interface{}) map[string]interface{} {
 	overrides := make(map[string]interface{})
 
-	// Extract user-added context_servers (not in helix namespace)
 	if currentServers, ok := current["context_servers"].(map[string]interface{}); ok {
 		helixServers, _ := helix["context_servers"].(map[string]interface{})
 		userServers := make(map[string]interface{})
 
 		for name, config := range currentServers {
-			// If not in Helix config, or user modified it
 			if helixConfig, inHelix := helixServers[name]; !inHelix {
-				userServers[name] = config // User addition
+				userServers[name] = config
 			} else if !deepEqual(config, helixConfig) {
-				userServers[name] = config // User modification
+				userServers[name] = config
 			}
 		}
 
@@ -244,16 +286,8 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 		}
 	}
 
-	// Extract other user settings (theme, vim_mode, etc.)
-	// SECURITY: Do NOT extract protected fields as user overrides
-	// These should never be synced to Helix API
 	for k, v := range current {
-		if k == "context_servers" {
-			continue
-		}
-		// Skip security-protected fields from being sent to Helix
-		if SECURITY_PROTECTED_FIELDS[k] {
-			log.Printf("SECURITY: Skipping protected field '%s' from Helix sync", k)
+		if k == "context_servers" || SECURITY_PROTECTED_FIELDS[k] {
 			continue
 		}
 		if helixVal, inHelix := helix[k]; !inHelix || !deepEqual(v, helixVal) {
@@ -451,7 +485,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		d.helixSettings = newHelixSettings
 
 		// Merge with user overrides and write
-		merged := mergeSettings(d.helixSettings, d.userOverrides)
+		merged := d.mergeSettings(d.helixSettings, d.userOverrides)
 		if err := d.writeSettings(merged); err != nil {
 			return err
 		}
@@ -496,7 +530,7 @@ func (d *SettingsDaemon) healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *SettingsDaemon) getSettings(w http.ResponseWriter, r *http.Request) {
-	merged := mergeSettings(d.helixSettings, d.userOverrides)
+	merged := d.mergeSettings(d.helixSettings, d.userOverrides)
 	json.NewEncoder(w).Encode(merged)
 }
 
