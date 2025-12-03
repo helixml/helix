@@ -8,7 +8,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -717,14 +716,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		description = sampleProject.Description
 	}
 
-	// Get user's organization
-	orgID := ""
-	memberships, err := s.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
-		UserID: user.ID,
-	})
-	if err == nil && len(memberships) > 0 {
-		orgID = memberships[0].OrganizationID
-	}
+	// Use organization from request (if provided), otherwise it's a personal project
+	// Don't auto-assign user's first org - respect their workspace context
+	orgID := req.OrganizationID
 
 	log.Info().
 		Str("user_id", user.ID).
@@ -743,7 +737,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 	// Create actual Project in database
 	project := &types.Project{
-		ID:             system.GenerateUUID(),
+		ID:             system.GenerateProjectID(),
 		Name:           projectName,
 		Description:    description,
 		UserID:         user.ID,

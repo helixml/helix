@@ -210,6 +210,7 @@ const Layout: FC<{
         return <AdminPanelSidebar />
 
       case 'projects':
+      case 'org_projects':
         return <ProjectsSidebar />
 
       case 'app':

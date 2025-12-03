@@ -48,9 +48,33 @@ function setup_runner_profile() {
   fi
 }
 
+# Helper function to determine sandbox service and container names based on COMPOSE_PROFILES
+# Sets SANDBOX_SERVICE (docker-compose service name) and SANDBOX_CONTAINER (docker container name)
+function get_sandbox_names() {
+  local profile="${COMPOSE_PROFILES:-}"
+  if [[ "$profile" == *"code-software"* ]]; then
+    export SANDBOX_SERVICE="sandbox-software"
+    export SANDBOX_CONTAINER="helix-sandbox-software-1"
+  elif [[ "$profile" == *"code-amd-intel"* ]]; then
+    export SANDBOX_SERVICE="sandbox-amd-intel"
+    export SANDBOX_CONTAINER="helix-sandbox-amd-intel-1"
+  else
+    # Default to NVIDIA (code-nvidia profile)
+    export SANDBOX_SERVICE="sandbox-nvidia"
+    export SANDBOX_CONTAINER="helix-sandbox-nvidia-1"
+  fi
+}
+
 # Helper function to detect GPU type and set appropriate sandbox profile
-# Sets COMPOSE_PROFILES to include 'code' (NVIDIA) or 'code-amd' (AMD/Intel) if not already set
+# Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
+  # Check if COMPOSE_PROFILES was set in environment BEFORE sourcing .env (even if empty)
+  # ${var+x} expands to "x" if var is set, nothing if unset
+  local env_was_set=""
+  if [[ -n "${COMPOSE_PROFILES+x}" ]]; then
+    env_was_set="true"
+  fi
+
   # Load existing .env if present
   if [[ -f "$DIR/.env" ]]; then
     source "$DIR/.env"
@@ -62,18 +86,26 @@ function setup_sandbox_profile() {
   local current_profile="${COMPOSE_PROFILES:-}"
   if [[ "$current_profile" == *"code-software"* ]]; then
     # Starting software sandbox - stop GPU sandboxes
-    docker rm -f helix-sandbox-1 helix-sandbox-amd-1 2>/dev/null || true
-  elif [[ "$current_profile" == *"code-amd"* ]]; then
-    # Starting AMD sandbox - stop other sandboxes
-    docker rm -f helix-sandbox-1 helix-sandbox-software-1 2>/dev/null || true
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-amd-intel-1 2>/dev/null || true
+  elif [[ "$current_profile" == *"code-amd-intel"* ]]; then
+    # Starting AMD/Intel sandbox - stop other sandboxes
+    docker rm -f helix-sandbox-nvidia-1 helix-sandbox-software-1 2>/dev/null || true
   else
     # Starting NVIDIA sandbox (default) - stop other sandboxes
-    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-1 2>/dev/null || true
+    docker rm -f helix-sandbox-software-1 helix-sandbox-amd-intel-1 2>/dev/null || true
   fi
 
-  # If COMPOSE_PROFILES already contains 'code', don't override
-  if [[ "${COMPOSE_PROFILES:-}" == *"code"* ]]; then
-    echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
+  # If COMPOSE_PROFILES was set in environment before .env (even to empty), respect it
+  if [[ "$env_was_set" == "true" ]]; then
+    echo "🎮 Using COMPOSE_PROFILES from environment: '${COMPOSE_PROFILES:-<empty>}'"
+    get_sandbox_names
+    return
+  fi
+
+  # If COMPOSE_PROFILES is explicitly set in .env (even to empty), respect it
+  if [[ -f "$DIR/.env" ]] && grep -q "^COMPOSE_PROFILES=" "$DIR/.env"; then
+    echo "🎮 Using COMPOSE_PROFILES from .env: '${COMPOSE_PROFILES:-<empty>}'"
+    get_sandbox_names
     return
   fi
 
@@ -82,18 +114,19 @@ function setup_sandbox_profile() {
 
   # Check for NVIDIA GPU first
   if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-    gpu_profile="code"
-    echo "🎮 NVIDIA GPU detected, using 'code' sandbox profile"
+    gpu_profile="code-nvidia"
+    echo "🎮 NVIDIA GPU detected, using 'code-nvidia' sandbox profile"
   # Check for AMD GPU (ROCm)
   elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
-    gpu_profile="code-amd"
-    echo "🎮 AMD GPU detected (ROCm), using 'code-amd' sandbox profile"
+    gpu_profile="code-amd-intel"
+    echo "🎮 AMD GPU detected (ROCm), using 'code-amd-intel' sandbox profile"
   # Check for Intel GPU (or generic /dev/dri)
   elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
-    gpu_profile="code-amd"  # Intel uses same profile as AMD (no nvidia runtime)
-    echo "🎮 Intel/Generic GPU detected, using 'code-amd' sandbox profile"
+    gpu_profile="code-amd-intel"  # Intel uses same profile as AMD (no nvidia runtime)
+    echo "🎮 Intel/Generic GPU detected, using 'code-amd-intel' sandbox profile"
   else
     echo "⚠️  No GPU detected, sandbox features may not work"
+    get_sandbox_names
     return
   fi
 
@@ -106,6 +139,9 @@ function setup_sandbox_profile() {
     fi
     echo "📋 COMPOSE_PROFILES set to: $COMPOSE_PROFILES"
   fi
+
+  # Set sandbox service/container names based on profile
+  get_sandbox_names
 }
 
 function mock-runner() {
@@ -400,17 +436,6 @@ function start() {
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  # Clean Wolf and Moonlight Web pairing state for fresh startup
-  echo "🧹 Cleaning Wolf and Moonlight Web pairing state..."
-
-  # Stop sandbox if running (Wolf + Moonlight Web are unified in sandbox now)
-  docker compose -f docker-compose.dev.yaml stop sandbox 2>/dev/null || true
-
-  # Remove state files to force fresh pairing on startup
-  # These are bind-mounted into the sandbox container
-  rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
-  echo "✅ Pairing state cleaned (will auto-pair on startup)"
-
   echo "🐳 Starting docker compose"
 
   # Setup runner profiles first
@@ -418,6 +443,17 @@ function start() {
 
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
+
+  # Clean Wolf and Moonlight Web pairing state for fresh startup
+  echo "🧹 Cleaning Wolf and Moonlight Web pairing state..."
+
+  # Stop sandbox if running (Wolf + Moonlight Web are unified in sandbox now)
+  docker compose -f docker-compose.dev.yaml stop "$SANDBOX_SERVICE" 2>/dev/null || true
+
+  # Remove state files to force fresh pairing on startup
+  # These are bind-mounted into the sandbox container
+  rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
+  echo "✅ Pairing state cleaned (will auto-pair on startup)"
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -500,7 +536,7 @@ function start() {
   if [[ -n "$WITH_RUNNER" ]]; then
     # WITH_RUNNER mode: Sandbox logs in pane 3
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
+    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
     tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
@@ -511,7 +547,7 @@ function start() {
   else
     # WITHOUT_RUNNER mode: Unified sandbox logs (Wolf + Moonlight Web in one container)
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
+    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
     tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
     tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
@@ -663,7 +699,7 @@ function up() {
   setup_sandbox_profile
 
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
-  # Profile 'code' = NVIDIA GPU, 'code-amd' = AMD/Intel GPU
+  # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
 
   docker compose -f docker-compose.dev.yaml up -d $@
 }
@@ -885,20 +921,73 @@ function build-desktop() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
+  # Capture image hash BEFORE build to detect if it actually changed
+  local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git tag --points-at HEAD 2>/dev/null | head -1)
+
   # Build the desktop image
+  # Use --provenance=false to get stable image IDs when layers are cached
+  # (BuildKit attestation manifests change each build, causing ID changes)
   echo "🔨 Building ${IMAGE_NAME}:latest..."
-  docker build -f "$DOCKERFILE" -t "${IMAGE_NAME}:latest" .
+
+  # Registry tagging only for sway (primary production image)
+  if [ "$DESKTOP_NAME" = "sway" ] && [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build --provenance=false -f "$DOCKERFILE" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
+      .
+  elif [ "$DESKTOP_NAME" = "sway" ]; then
+    docker build --provenance=false -f "$DOCKERFILE" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      .
+  else
+    # Non-sway desktops: just latest and commit hash tags
+    docker build --provenance=false -f "$DOCKERFILE" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
+      .
+  fi
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build ${DESKTOP_NAME} container"
     exit 1
   fi
 
+  # Capture image hash AFTER build
+  local IMAGE_HASH_AFTER=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}')
+
   # Get Docker image hash (content-addressable, survives save/load)
-  local IMAGE_HASH=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  local IMAGE_HASH=$(echo "$IMAGE_HASH_AFTER" | sed 's/sha256://')
 
   echo "✅ ${DESKTOP_NAME} container built successfully"
   echo "📦 Image hash: ${IMAGE_HASH}"
+
+  # Log image hash comparison for debugging cache behavior
+  echo "🔍 Image cache check:"
+  echo "   Before: ${IMAGE_HASH_BEFORE:-<not captured>}"
+  echo "   After:  ${IMAGE_HASH_AFTER:-<not captured>}"
+  if [ -f "${IMAGE_NAME}.tar" ]; then
+    echo "   Tarball: exists ($(du -h ${IMAGE_NAME}.tar | cut -f1))"
+  else
+    echo "   Tarball: missing"
+  fi
+
+  # Skip export if: image unchanged AND tarball exists
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "${IMAGE_NAME}.tar" ]; then
+    TARBALL_SIZE=$(du -h "${IMAGE_NAME}.tar" | cut -f1)
+    echo "✅ Image unchanged, tarball up-to-date: ${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
+    # Still transfer to sandbox if running (in case sandbox was restarted)
+    if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+      transfer-desktop-to-sandbox "$DESKTOP_NAME"
+    fi
+    return 0
+  fi
 
   # Export tarball for embedding in sandbox
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
@@ -925,9 +1014,15 @@ function transfer-desktop-to-sandbox() {
     return 1
   fi
 
+  # Determine correct sandbox service/container based on GPU profile
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+  get_sandbox_names
+
   # Check if sandbox container is running
-  if ! docker compose -f docker-compose.dev.yaml ps sandbox | grep -q "Up"; then
-    echo "ℹ️  Sandbox container not running, skipping image transfer"
+  if ! docker compose -f docker-compose.dev.yaml ps "$SANDBOX_SERVICE" | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
     return 0
   fi
 
@@ -937,19 +1032,48 @@ function transfer-desktop-to-sandbox() {
     return 0
   fi
 
-  # Get image hash
+  # Get image hash and commit hash for versioned tags
   local IMAGE_HASH=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
 
-  echo "📦 Transferring ${IMAGE_NAME}:latest to sandbox's dockerd..."
-  if docker save "${IMAGE_NAME}:latest" | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
-    echo "✅ ${IMAGE_NAME}:latest transferred to sandbox's dockerd"
-    echo "📦 Image hash: ${IMAGE_HASH} (preserved through transfer)"
+  # Check if versioned tag exists locally
+  local HAS_VERSIONED_TAG=""
+  if docker images "${IMAGE_NAME}:${COMMIT_HASH}" -q | grep -q .; then
+    HAS_VERSIONED_TAG="true"
+  fi
 
-    # Version file is bind-mounted in dev mode, so it's already updated
-    # Just log confirmation
+  # Transfer image(s) to sandbox's dockerd
+  local TRANSFER_SUCCESS=""
+  if [ -n "$HAS_VERSIONED_TAG" ]; then
+    # Transfer BOTH tags: latest and versioned (Wolf uses helix-${desktop}:${version})
+    echo "📦 Transferring ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${COMMIT_HASH} to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+      TRANSFER_SUCCESS="true"
+      echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
+      echo "📦 Image hash: ${IMAGE_HASH} (preserved through transfer)"
+    fi
+  else
+    # Only :latest exists - transfer and tag inside sandbox
+    echo "📦 Transferring ${IMAGE_NAME}:latest to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+      echo "✅ ${IMAGE_NAME}:latest transferred to sandbox's dockerd"
+      # Tag it with the version inside sandbox
+      echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${COMMIT_HASH} inside sandbox..."
+      docker exec "$SANDBOX_CONTAINER" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}"
+      TRANSFER_SUCCESS="true"
+      echo "📦 Image hash: ${IMAGE_HASH} (preserved through transfer)"
+    fi
+  fi
+
+  if [ -n "$TRANSFER_SUCCESS" ]; then
+    # Version files are bind-mounted from host (updated by build-desktop)
     if [ -f "${IMAGE_NAME}.version" ]; then
       echo "✅ Version file ${IMAGE_NAME}.version contains: $(cat ${IMAGE_NAME}.version)"
     fi
+    # Restart heartbeat to pick up the new version immediately
+    echo "🔄 Restarting heartbeat daemon to report new version..."
+    docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
+    echo "✅ Image transferred and heartbeat restarted"
   else
     echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
   fi
@@ -1218,9 +1342,14 @@ function build-sandbox() {
 
   # Restart sandbox in dev mode
   if [ -z "${SKIP_DEV_RESTART:-}" ]; then
-    echo "🔄 Restarting sandbox container with updated image..."
-    docker compose -f docker-compose.dev.yaml rm -f sandbox
-    docker compose -f docker-compose.dev.yaml up -d sandbox
+    # Determine correct sandbox service based on GPU profile
+    if [[ -f "$DIR/.env" ]]; then
+      source "$DIR/.env"
+    fi
+    get_sandbox_names
+    echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
+    docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
     echo "✅ Sandbox container rebuilt and restarted successfully"
   fi

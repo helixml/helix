@@ -195,6 +195,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
 
     try {
+      // DEBUG: Check org state when creating project
+      console.log('[CreateProjectDialog] Creating project with:', {
+        orgID: account.organizationTools.orgID,
+        organization: account.organizationTools.organization,
+        organizationId: account.organizationTools.organization?.id,
+      })
+
       const result = await createProjectMutation.mutateAsync({
         name,
         description,

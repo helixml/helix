@@ -344,6 +344,10 @@ type Store interface {
 	GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error)
 	DeleteCrispThread(ctx context.Context, olderThan time.Time) error
 
+	CreateTeamsThread(ctx context.Context, thread *types.TeamsThread) (*types.TeamsThread, error)
+	GetTeamsThread(ctx context.Context, appID, conversationID string) (*types.TeamsThread, error)
+	DeleteTeamsThread(ctx context.Context, olderThan time.Time) error
+
 	// wallet methods
 	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
 	GetWallet(ctx context.Context, id string) (*types.Wallet, error)

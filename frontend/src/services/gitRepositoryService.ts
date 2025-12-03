@@ -27,14 +27,16 @@ export const QUERY_KEYS = {
 
 // Custom hooks for git repository operations
 
-export function useGitRepositories(ownerId?: string, repoType?: string) {
+export function useGitRepositories(options?: { ownerId?: string; organizationId?: string; repoType?: string }) {
   const api = useApi();
+  const { ownerId, organizationId, repoType } = options || {};
 
   return useQuery({
-    queryKey: [...QUERY_KEYS.gitRepositories, ownerId, repoType],
+    queryKey: [...QUERY_KEYS.gitRepositories, ownerId, organizationId, repoType],
     queryFn: async () => {
       const response = await api.getApiClient().v1GitRepositoriesList({
         owner_id: ownerId,
+        organization_id: organizationId,
         repo_type: repoType,
       });
       // Sort repositories by created_at descending (newest first)

@@ -8223,6 +8223,86 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/board-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get board settings for spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update board settings for spec tasks",
+                "parameters": [
+                    {
+                        "description": "Board settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/from-demo": {
             "post": {
                 "security": [
@@ -10663,6 +10743,50 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/teams/webhook/{appID}": {
+            "post": {
+                "description": "Process incoming activities from Microsoft Teams Bot Framework",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Teams"
+                ],
+                "summary": "Handle Teams webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Helix App ID",
+                        "name": "appID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Bot not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Bot not ready",
                         "schema": {
                             "type": "string"
                         }
@@ -15345,14 +15469,6 @@ const docTemplate = `{
             "x-enum-comments": {
                 "ActionUseAction": "For example \"use app\""
             },
-            "x-enum-descriptions": [
-                "",
-                "",
-                "",
-                "",
-                "",
-                "For example \"use app\""
-            ],
             "x-enum-varnames": [
                 "ActionGet",
                 "ActionList",
@@ -15665,11 +15781,6 @@ const docTemplate = `{
                 "AgentTypeHelixBasic": "Basic Helix agent",
                 "AgentTypeZedExternal": "Zed-integrated agent"
             },
-            "x-enum-descriptions": [
-                "Basic Helix agent",
-                "Standard Helix agent with skills",
-                "Zed-integrated agent"
-            ],
             "x-enum-varnames": [
                 "AgentTypeHelixBasic",
                 "AgentTypeHelixAgent",
@@ -16080,8 +16191,7 @@ const docTemplate = `{
                     "description": "GPU index -\u003e total memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer",
-                        "format": "int64"
+                        "type": "integer"
                     }
                 },
                 "runner_id": {
@@ -16091,8 +16201,7 @@ const docTemplate = `{
                     "description": "GPU index -\u003e allocated memory",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer",
-                        "format": "int64"
+                        "type": "integer"
                     }
                 },
                 "runtime": {
@@ -16673,11 +16782,6 @@ const docTemplate = `{
             "x-enum-comments": {
                 "AuthProviderRegular": "Embedded in Helix, no external dependencies"
             },
-            "x-enum-descriptions": [
-                "Embedded in Helix, no external dependencies",
-                "",
-                ""
-            ],
             "x-enum-varnames": [
                 "AuthProviderRegular",
                 "AuthProviderKeycloak",
@@ -17551,6 +17655,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Optional: if empty, project is personal",
+                    "type": "string"
+                },
                 "project_name": {
                     "type": "string"
                 },
@@ -18058,10 +18166,6 @@ const docTemplate = `{
                 "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
                 "GitRepositoryTypeInternal": "Internal project config repository"
             },
-            "x-enum-descriptions": [
-                "Internal project config repository",
-                "Code repository (user projects, samples, external repos)"
-            ],
             "x-enum-varnames": [
                 "GitRepositoryTypeInternal",
                 "GitRepositoryTypeCode"
@@ -19652,10 +19756,6 @@ const docTemplate = `{
                 "OrganizationRoleMember": "Can see every member and team in the organization and can create new apps",
                 "OrganizationRoleOwner": "Has full administrative access to the entire organization."
             },
-            "x-enum-descriptions": [
-                "Has full administrative access to the entire organization.",
-                "Can see every member and team in the organization and can create new apps"
-            ],
             "x-enum-varnames": [
                 "OrganizationRoleOwner",
                 "OrganizationRoleMember"
@@ -20786,15 +20886,6 @@ const docTemplate = `{
                 "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
                 "SchedulingDecisionTypeUnschedulable": "Cannot be scheduled (no warm slots available)"
             },
-            "x-enum-descriptions": [
-                "Added to queue",
-                "Reused existing warm model instance",
-                "Started new model instance",
-                "Evicted stale slot to free memory",
-                "Rejected (insufficient resources, etc.)",
-                "Error during scheduling",
-                "Cannot be scheduled (no warm slots available)"
-            ],
             "x-enum-varnames": [
                 "SchedulingDecisionTypeQueued",
                 "SchedulingDecisionTypeReuseWarmSlot",
@@ -21355,12 +21446,6 @@ const docTemplate = `{
             "x-enum-comments": {
                 "SessionModeAction": "Running tool actions (e.g. API, function calls)"
             },
-            "x-enum-descriptions": [
-                "",
-                "",
-                "",
-                "Running tool actions (e.g. API, function calls)"
-            ],
             "x-enum-varnames": [
                 "SessionModeNone",
                 "SessionModeInference",
@@ -22066,13 +22151,6 @@ const docTemplate = `{
                 "SpecTaskDesignReviewCommentTypeQuestion": "Question needing clarification",
                 "SpecTaskDesignReviewCommentTypeSuggestion": "Suggested improvement"
             },
-            "x-enum-descriptions": [
-                "General comment",
-                "Question needing clarification",
-                "Suggested improvement",
-                "Critical issue must be fixed",
-                "Positive feedback"
-            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewCommentTypeGeneral",
                 "SpecTaskDesignReviewCommentTypeQuestion",
@@ -22128,13 +22206,6 @@ const docTemplate = `{
                 "SpecTaskDesignReviewStatusPending": "Waiting for reviewer",
                 "SpecTaskDesignReviewStatusSuperseded": "Newer review exists (agent pushed updates)"
             },
-            "x-enum-descriptions": [
-                "Waiting for reviewer",
-                "Reviewer is actively reviewing",
-                "Reviewer requested changes",
-                "Approved, ready for implementation",
-                "Newer review exists (agent pushed updates)"
-            ],
             "x-enum-varnames": [
                 "SpecTaskDesignReviewStatusPending",
                 "SpecTaskDesignReviewStatusInReview",
@@ -22390,8 +22461,7 @@ const docTemplate = `{
                     "description": "Task index -\u003e progress",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
+                        "type": "number"
                     }
                 },
                 "overall_progress": {
@@ -22401,8 +22471,7 @@ const docTemplate = `{
                 "phase_progress": {
                     "type": "object",
                     "additionalProperties": {
-                        "type": "number",
-                        "format": "float64"
+                        "type": "number"
                     }
                 },
                 "recent_activity": {
@@ -22891,6 +22960,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.TeamsTrigger": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "Microsoft App ID",
+                    "type": "string"
+                },
+                "app_password": {
+                    "description": "Microsoft App Password",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "tenant_id": {
+                    "description": "Optional: restrict to specific tenant",
+                    "type": "string"
+                }
+            }
+        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -23264,6 +23353,9 @@ const docTemplate = `{
                 },
                 "slack": {
                     "$ref": "#/definitions/types.SlackTrigger"
+                },
+                "teams": {
+                    "$ref": "#/definitions/types.TeamsTrigger"
                 }
             }
         },
@@ -23407,6 +23499,7 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "slack",
+                "teams",
                 "crisp",
                 "azure_devops",
                 "cron",
@@ -23414,6 +23507,7 @@ const docTemplate = `{
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
+                "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron",
@@ -24212,12 +24306,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "",
-	Host:             "",
+	Version:          "0.1",
+	Host:             "app.helix.ml",
 	BasePath:         "",
-	Schemes:          []string{},
-	Title:            "",
-	Description:      "",
+	Schemes:          []string{"https"},
+	Title:            "HelixML API reference",
+	Description:      "This is the HelixML API.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

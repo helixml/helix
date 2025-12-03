@@ -217,6 +217,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	planningPrompt := BuildPlanningPrompt(task)
 
+	// Get organization ID from the project
+	orgID := ""
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
@@ -235,7 +246,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
-		OrganizationID: "",
+		OrganizationID: orgID,
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
@@ -389,7 +400,12 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	}
 
 	// Generate feature branch name (same logic as spec approval flow)
-	branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+	// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
+	taskIDSuffix := task.ID
+	if len(taskIDSuffix) > 16 {
+		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
+	}
+	branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
 	branchName = sanitizeBranchName(branchName)
 
 	// Update task status directly to implementation (skip all spec phases)
@@ -407,6 +423,18 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// Create Zed external agent session for implementation
 	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
+
+	// Get organization ID from the project
+	orgID := ""
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
+		} else if project != nil {
+			orgID = project.OrganizationID
+		}
+	}
+
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
@@ -425,7 +453,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      task.HelixAppID, // Use the Helix agent for workflow
-		OrganizationID: "",
+		OrganizationID: orgID,
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
 	}
@@ -469,6 +497,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 1. Create and checkout the feature branch: `+"`git checkout -b %s`"+`
 2. Make your changes
 3. Commit and push when done: `+"`git push origin %s`"+`
+
+**Persistent installations:** If you need to install any software or dependencies, add the installation commands to `+"`.helix/startup.sh`"+` so they persist across session restarts. This script should be idempotent (safe to run multiple times). You can test it by running `+"`bash .helix/startup.sh`"+`.
 `, task.OriginalPrompt, branchName, branchName)
 
 	interaction := &types.Interaction{
@@ -635,7 +665,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		// Generate feature branch name
-		branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
+		taskIDSuffix := task.ID
+		if len(taskIDSuffix) > 16 {
+			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
+		}
+		branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
 		// Sanitize branch name (replace spaces with hyphens, remove special chars)
 		branchName = sanitizeBranchName(branchName)
 

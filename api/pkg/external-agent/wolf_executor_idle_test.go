@@ -128,6 +128,13 @@ func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agen
 }
 
 // Additional methods added to satisfy store.Store interface evolution
+func (m *MockStoreForWolf) GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error) {
+	args := m.Called(ctx, requestID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.SpecTaskDesignReviewComment), args.Error(1)
+}
 func (m *MockStoreForWolf) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error {
 	return nil
 }
@@ -272,6 +279,15 @@ func (m *MockStoreForWolf) UpdateSpecTaskDesignReviewComment(ctx context.Context
 	return nil
 }
 func (m *MockStoreForWolf) UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error {
+	return nil
+}
+func (m *MockStoreForWolf) CreateTeamsThread(ctx context.Context, thread *types.TeamsThread) (*types.TeamsThread, error) {
+	return nil, nil
+}
+func (m *MockStoreForWolf) GetTeamsThread(ctx context.Context, appID, conversationID string) (*types.TeamsThread, error) {
+	return nil, nil
+}
+func (m *MockStoreForWolf) DeleteTeamsThread(ctx context.Context, olderThan time.Time) error {
 	return nil
 }
 

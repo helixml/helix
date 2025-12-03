@@ -256,55 +256,6 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
-	service.SetTestMode(true)
-
-	task := &types.SpecTask{
-		ProjectID: "test-project",
-		Type:      "feature",
-		Priority:  "high",
-	}
-
-	// Execute
-	prompt := service.buildSpecGenerationPrompt(task)
-
-	// Assert - check for new worktree-based format
-	assert.Contains(t, prompt, "software specification expert")
-	assert.Contains(t, prompt, "test-project")
-	assert.Contains(t, prompt, "feature")
-	assert.Contains(t, prompt, "high")
-	assert.Contains(t, prompt, "helix-specs")     // New worktree-based format
-	assert.Contains(t, prompt, "requirements.md") // New format files
-	assert.Contains(t, prompt, "design.md")
-	assert.Contains(t, prompt, "tasks.md")
-}
-
-func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
-	service.SetTestMode(true)
-
-	task := &types.SpecTask{
-		Name:               "User Authentication System",
-		OriginalPrompt:     "Create a user authentication system",
-		RequirementsSpec:   "Generated requirements",
-		TechnicalDesign:    "Generated design",
-		ImplementationPlan: "Generated plan",
-	}
-
-	// Execute
-	prompt := service.buildImplementationPrompt(task)
-
-	// Assert - check for new worktree-based format
-	assert.Contains(t, prompt, "senior software engineer")
-	assert.Contains(t, prompt, "User Authentication System")
-	assert.Contains(t, prompt, "Create a user authentication system")
-	assert.Contains(t, prompt, "helix-specs")     // New worktree-based format
-	assert.Contains(t, prompt, "requirements.md") // Design docs are in files now
-	assert.Contains(t, prompt, "design.md")
-	assert.Contains(t, prompt, "tasks.md")
-}
-
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
 	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil)
