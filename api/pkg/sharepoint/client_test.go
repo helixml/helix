@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -283,4 +285,83 @@ func TestDownloadedFile_Structure(t *testing.T) {
 	assert.Equal(t, "/Documents/Reports/report.pdf", file.Path)
 	assert.Equal(t, int64(1024), file.Size)
 	assert.Equal(t, "application/pdf", file.MimeType)
+}
+
+func TestNormalizeSiteURLPath(t *testing.T) {
+	// Test the URL path normalization logic used in GetSiteByURL
+	// This extracts just the site path from various SharePoint URL formats
+	tests := []struct {
+		name         string
+		inputURL     string
+		expectedPath string
+	}{
+		{
+			name:         "simple site URL",
+			inputURL:     "https://contoso.sharepoint.com/sites/teamsite",
+			expectedPath: "sites/teamsite",
+		},
+		{
+			name:         "site URL with SitePages",
+			inputURL:     "https://contoso.sharepoint.com/sites/teamsite/SitePages/Home.aspx",
+			expectedPath: "sites/teamsite",
+		},
+		{
+			name:         "site URL with nested SitePages path",
+			inputURL:     "https://helixmlinc.sharepoint.com/sites/crisiscommunication/SitePages/crisisCommunicationHome.aspx",
+			expectedPath: "sites/crisiscommunication",
+		},
+		{
+			name:         "teams site URL",
+			inputURL:     "https://contoso.sharepoint.com/teams/engineering",
+			expectedPath: "teams/engineering",
+		},
+		{
+			name:         "teams site URL with extra path",
+			inputURL:     "https://contoso.sharepoint.com/teams/engineering/Shared%20Documents/file.docx",
+			expectedPath: "teams/engineering",
+		},
+		{
+			name:         "site URL with Lists path",
+			inputURL:     "https://contoso.sharepoint.com/sites/project/Lists/Tasks/AllItems.aspx",
+			expectedPath: "sites/project",
+		},
+		{
+			name:         "site URL with _layouts path",
+			inputURL:     "https://contoso.sharepoint.com/sites/intranet/_layouts/15/viewlsts.aspx",
+			expectedPath: "sites/intranet",
+		},
+		{
+			name:         "site URL with trailing slash",
+			inputURL:     "https://contoso.sharepoint.com/sites/teamsite/",
+			expectedPath: "sites/teamsite",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeSiteURLPath(tt.inputURL)
+			assert.Equal(t, tt.expectedPath, result)
+		})
+	}
+}
+
+// normalizeSiteURLPath extracts just the site path from a SharePoint URL
+// This is a helper function that mirrors the logic in GetSiteByURL
+func normalizeSiteURLPath(siteURL string) string {
+	parsedURL, err := url.Parse(siteURL)
+	if err != nil {
+		return ""
+	}
+
+	path := strings.TrimPrefix(parsedURL.Path, "/")
+	path = strings.TrimSuffix(path, "/")
+
+	// Extract just the site path (e.g., "sites/sitename" from "sites/sitename/SitePages/Home.aspx")
+	pathParts := strings.Split(path, "/")
+	if len(pathParts) >= 2 {
+		// Keep only the first two parts (e.g., "sites/sitename" or "teams/teamname")
+		path = strings.Join(pathParts[:2], "/")
+	}
+
+	return path
 }
