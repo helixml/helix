@@ -13,22 +13,47 @@ type CitationInfo struct {
 	Snippet string
 }
 
+// LinkFormat specifies the format for generating links in chat platforms
+type LinkFormat string
+
+const (
+	// LinkFormatMarkdown generates [text](url) style links (for Teams)
+	LinkFormatMarkdown LinkFormat = "markdown"
+	// LinkFormatSlack generates <url|text> style links (for Slack)
+	LinkFormatSlack LinkFormat = "slack"
+)
+
 // ProcessCitationsForChat processes LLM responses to make citations readable in chat platforms.
 // It converts [DOC_ID:xxx] markers to numbered citations, extracts source info from XML excerpts,
 // and appends a references section at the end.
 // This is used for chat integrations (Teams, Slack) that can't render internal document links.
 func ProcessCitationsForChat(text string) string {
+	return ProcessCitationsForChatWithLinks(text, nil, LinkFormatMarkdown)
+}
+
+// ProcessCitationsForChatWithLinks processes citations with clickable links when document URLs are available.
+// documentIDs maps filenames/URLs to document IDs (reversed from session.Metadata.DocumentIDs)
+// linkFormat specifies the chat platform's link format
+func ProcessCitationsForChatWithLinks(text string, documentIDs map[string]string, linkFormat LinkFormat) string {
 	// Extract citation info from excerpts before removing them
-	citations := extractCitationsFromExcerpts(text)
+	excerptSnippets := extractCitationsFromExcerpts(text)
 
 	// Remove XML excerpt blocks
 	text = removeExcerptBlocks(text)
 
+	// Build reverse map: docID -> URL/filename
+	docIDToURL := make(map[string]string)
+	if documentIDs != nil {
+		for urlOrFilename, docID := range documentIDs {
+			docIDToURL[docID] = urlOrFilename
+		}
+	}
+
 	// Convert [DOC_ID:xxx] markers to numbered citations and get the mapping
 	text, citationMap := convertDocIDsToNumberedCitationsWithMap(text)
 
-	// Build references section if we have citations
-	references := buildReferencesSection(citations, citationMap)
+	// Build references section with links if we have citations
+	references := buildReferencesSectionWithLinks(excerptSnippets, citationMap, docIDToURL, linkFormat)
 	if references != "" {
 		text = strings.TrimSpace(text) + "\n\n" + references
 	}
@@ -117,8 +142,8 @@ func convertDocIDsToNumberedCitationsWithMap(text string) (string, map[string]in
 	return result, citationMap
 }
 
-// buildReferencesSection creates a references section from citation info
-func buildReferencesSection(excerptSnippets map[string]string, citationMap map[string]int) string {
+// buildReferencesSectionWithLinks creates a references section with clickable links when URLs are available
+func buildReferencesSectionWithLinks(excerptSnippets map[string]string, citationMap map[string]int, docIDToURL map[string]string, linkFormat LinkFormat) string {
 	if len(citationMap) == 0 {
 		return ""
 	}
@@ -127,6 +152,7 @@ func buildReferencesSection(excerptSnippets map[string]string, citationMap map[s
 	type ref struct {
 		num     int
 		snippet string
+		url     string
 	}
 	refs := make([]ref, len(citationMap))
 
@@ -141,17 +167,49 @@ func buildReferencesSection(excerptSnippets map[string]string, citationMap map[s
 		}
 		// Clean up snippet - remove newlines and extra spaces
 		snippet = strings.Join(strings.Fields(snippet), " ")
-		refs[num-1] = ref{num: num, snippet: snippet}
+
+		// Get URL if available
+		url := docIDToURL[docID]
+
+		refs[num-1] = ref{num: num, snippet: snippet, url: url}
 	}
 
 	// Build the references section
 	var sb strings.Builder
 	sb.WriteString("---\n**Sources:**\n")
 	for _, r := range refs {
-		sb.WriteString(fmt.Sprintf("[%d] %s\n", r.num, r.snippet))
+		if r.url != "" && isClickableURL(r.url) {
+			// Format link based on platform
+			link := formatLink(r.url, fmt.Sprintf("[%d]", r.num), linkFormat)
+			sb.WriteString(fmt.Sprintf("%s %s\n", link, r.snippet))
+		} else {
+			sb.WriteString(fmt.Sprintf("[%d] %s\n", r.num, r.snippet))
+		}
 	}
 
 	return sb.String()
+}
+
+// isClickableURL checks if a string is an external URL that can be linked
+func isClickableURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// formatLink formats a URL as a clickable link for the specified platform
+func formatLink(url, text string, format LinkFormat) string {
+	switch format {
+	case LinkFormatSlack:
+		return fmt.Sprintf("<%s|%s>", url, text)
+	case LinkFormatMarkdown:
+		fallthrough
+	default:
+		return fmt.Sprintf("[%s](%s)", text, url)
+	}
+}
+
+// buildReferencesSection creates a references section from citation info (legacy, no links)
+func buildReferencesSection(excerptSnippets map[string]string, citationMap map[string]int) string {
+	return buildReferencesSectionWithLinks(excerptSnippets, citationMap, nil, LinkFormatMarkdown)
 }
 
 // convertDocIDsToNumberedCitations converts [DOC_ID:xxx] markers to numbered citations [1], [2], etc.
