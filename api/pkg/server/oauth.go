@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/sharepoint"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -32,6 +33,9 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
 	r.HandleFunc("/oauth/flow/start/{provider_id}", system.DefaultWrapper(s.handleStartOAuthFlow)).Methods("GET")
+
+	// SharePoint helper routes
+	r.HandleFunc("/oauth/sharepoint/resolve-site", system.DefaultWrapper(s.handleResolveSharePointSite)).Methods("POST")
 }
 
 // handleListOAuthProviders returns the list of available OAuth providers
@@ -658,4 +662,80 @@ func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *htt
 			Message: "Connection is valid but testing is not implemented for this provider type",
 		}, nil
 	}
+}
+
+// SharePointSiteResolveRequest is the request body for resolving a SharePoint site URL
+type SharePointSiteResolveRequest struct {
+	SiteURL    string `json:"site_url"`
+	ProviderID string `json:"provider_id"`
+}
+
+// SharePointSiteResolveResponse is the response for resolving a SharePoint site URL
+type SharePointSiteResolveResponse struct {
+	SiteID      string `json:"site_id"`
+	DisplayName string `json:"display_name"`
+	WebURL      string `json:"web_url"`
+}
+
+// handleResolveSharePointSite resolves a SharePoint site URL to a site ID
+// resolveSharePointSite godoc
+// @Summary Resolve SharePoint site URL to site ID
+// @Description Resolve a SharePoint site URL to its site ID using Microsoft Graph API
+// @Tags    oauth
+// @Accept  json
+// @Produce json
+// @Param   request body SharePointSiteResolveRequest true "Request body with site URL and provider ID"
+// @Success 200 {object} SharePointSiteResolveResponse
+// @Router /api/v1/oauth/sharepoint/resolve-site [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) handleResolveSharePointSite(_ http.ResponseWriter, r *http.Request) (*SharePointSiteResolveResponse, error) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+
+	// Parse request body
+	var req SharePointSiteResolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, fmt.Errorf("invalid request body: %w", err)
+	}
+
+	// Validate request
+	if req.SiteURL == "" {
+		return nil, fmt.Errorf("site_url is required")
+	}
+	if req.ProviderID == "" {
+		return nil, fmt.Errorf("provider_id is required")
+	}
+
+	// Validate URL format
+	if !strings.Contains(req.SiteURL, "sharepoint.com") {
+		return nil, fmt.Errorf("invalid SharePoint URL: must be a sharepoint.com URL (e.g., https://contoso.sharepoint.com/sites/MySite)")
+	}
+
+	// Get the OAuth connection for the user and provider
+	connection, err := s.oauthManager.GetConnection(ctx, user.ID, req.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth connection: %w (have you connected to this OAuth provider?)", err)
+	}
+
+	// Create SharePoint client with the access token
+	spClient := sharepoint.NewClient(connection.AccessToken)
+
+	// Resolve the site URL to a site object
+	site, err := spClient.GetSiteByURL(ctx, req.SiteURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve SharePoint site: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("site_url", req.SiteURL).
+		Str("site_id", site.ID).
+		Str("site_name", site.DisplayName).
+		Msg("Resolved SharePoint site URL to site ID")
+
+	return &SharePointSiteResolveResponse{
+		SiteID:      site.ID,
+		DisplayName: site.DisplayName,
+		WebURL:      site.WebURL,
+	}, nil
 }
