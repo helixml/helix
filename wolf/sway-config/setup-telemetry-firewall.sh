@@ -37,61 +37,61 @@ iptables -A TELEMETRY_BLOCK -j REJECT --reject-with icmp-port-unreachable
 # ====================================================================
 # Block Qwen Code Telemetry Endpoints
 # ====================================================================
-echo "Blocking Qwen Code telemetry..." | tee -a "$LOGFILE"
+# echo "Blocking Qwen Code telemetry..." | tee -a "$LOGFILE"
 
-# Alibaba Cloud RUM (QwenLogger)
-iptables -I OUTPUT -d gb4w8c3ygj-default-sea.rum.aliyuncs.com -m comment --comment "QWEN_CODE:ALIBABA_RUM" -j TELEMETRY_BLOCK
+# # Alibaba Cloud RUM (QwenLogger)
+# iptables -I OUTPUT -d gb4w8c3ygj-default-sea.rum.aliyuncs.com -m comment --comment "QWEN_CODE:ALIBABA_RUM" -j TELEMETRY_BLOCK
 
-# Google Clearcut (ClearcutLogger)
-iptables -I OUTPUT -d play.googleapis.com -p tcp --dport 443 -m comment --comment "QWEN_CODE:GOOGLE_CLEARCUT" -j TELEMETRY_BLOCK
+# # Google Clearcut (ClearcutLogger)
+# iptables -I OUTPUT -d play.googleapis.com -p tcp --dport 443 -m comment --comment "QWEN_CODE:GOOGLE_CLEARCUT" -j TELEMETRY_BLOCK
 
-# Broader Alibaba Cloud RUM blocking (in case they rotate endpoints)
-iptables -I OUTPUT -m string --string "rum.aliyuncs.com" --algo bm -m comment --comment "QWEN_CODE:ALIBABA_RUM_WILDCARD" -j TELEMETRY_BLOCK
+# # Broader Alibaba Cloud RUM blocking (in case they rotate endpoints)
+# iptables -I OUTPUT -m string --string "rum.aliyuncs.com" --algo bm -m comment --comment "QWEN_CODE:ALIBABA_RUM_WILDCARD" -j TELEMETRY_BLOCK
 
-# ====================================================================
-# Block Gemini CLI Telemetry Endpoints (same as Qwen Code)
-# ====================================================================
-echo "Blocking Gemini CLI telemetry..." | tee -a "$LOGFILE"
-# Covered by same rules as Qwen Code (it's the upstream project)
+# # ====================================================================
+# # Block Gemini CLI Telemetry Endpoints (same as Qwen Code)
+# # ====================================================================
+# echo "Blocking Gemini CLI telemetry..." | tee -a "$LOGFILE"
+# # Covered by same rules as Qwen Code (it's the upstream project)
 
-# ====================================================================
-# Block Claude Code Telemetry Endpoints
-# ====================================================================
-echo "Blocking Claude Code telemetry..." | tee -a "$LOGFILE"
+# # ====================================================================
+# # Block Claude Code Telemetry Endpoints
+# # ====================================================================
+# echo "Blocking Claude Code telemetry..." | tee -a "$LOGFILE"
 
-# Anthropic Statsig telemetry
-iptables -I OUTPUT -m string --string "statsig" --algo bm -m comment --comment "CLAUDE_CODE:STATSIG" -j TELEMETRY_BLOCK
+# # Anthropic Statsig telemetry
+# iptables -I OUTPUT -m string --string "statsig" --algo bm -m comment --comment "CLAUDE_CODE:STATSIG" -j TELEMETRY_BLOCK
 
-# Anthropic API telemetry endpoints
-iptables -I OUTPUT -m string --string "telemetry.anthropic.com" --algo bm -m comment --comment "CLAUDE_CODE:ANTHROPIC_TELEMETRY" -j TELEMETRY_BLOCK
+# # Anthropic API telemetry endpoints
+# iptables -I OUTPUT -m string --string "telemetry.anthropic.com" --algo bm -m comment --comment "CLAUDE_CODE:ANTHROPIC_TELEMETRY" -j TELEMETRY_BLOCK
 
-# ====================================================================
-# Block Zed Editor Telemetry Endpoints
-# ====================================================================
-echo "Blocking Zed editor telemetry..." | tee -a "$LOGFILE"
+# # ====================================================================
+# # Block Zed Editor Telemetry Endpoints
+# # ====================================================================
+# echo "Blocking Zed editor telemetry..." | tee -a "$LOGFILE"
 
-# Zed telemetry endpoint
-iptables -I OUTPUT -m string --string "telemetry.zed.dev" --algo bm -m comment --comment "ZED:TELEMETRY" -j TELEMETRY_BLOCK
-iptables -I OUTPUT -m string --string "zed.dev/api" --algo bm -m comment --comment "ZED:API" -j TELEMETRY_BLOCK
+# # Zed telemetry endpoint
+# iptables -I OUTPUT -m string --string "telemetry.zed.dev" --algo bm -m comment --comment "ZED:TELEMETRY" -j TELEMETRY_BLOCK
+# iptables -I OUTPUT -m string --string "zed.dev/api" --algo bm -m comment --comment "ZED:API" -j TELEMETRY_BLOCK
 
-# ====================================================================
-# Block Common Analytics/Tracking Services
-# ====================================================================
-echo "Blocking common analytics services..." | tee -a "$LOGFILE"
+# # ====================================================================
+# # Block Common Analytics/Tracking Services
+# # ====================================================================
+# echo "Blocking common analytics services..." | tee -a "$LOGFILE"
 
-# Google Analytics
-iptables -I OUTPUT -m string --string "google-analytics.com" --algo bm -m comment --comment "ANALYTICS:GOOGLE" -j TELEMETRY_BLOCK
-iptables -I OUTPUT -m string --string "analytics.google.com" --algo bm -m comment --comment "ANALYTICS:GOOGLE_V2" -j TELEMETRY_BLOCK
+# # Google Analytics
+# iptables -I OUTPUT -m string --string "google-analytics.com" --algo bm -m comment --comment "ANALYTICS:GOOGLE" -j TELEMETRY_BLOCK
+# iptables -I OUTPUT -m string --string "analytics.google.com" --algo bm -m comment --comment "ANALYTICS:GOOGLE_V2" -j TELEMETRY_BLOCK
 
-# Mixpanel
-iptables -I OUTPUT -m string --string "mixpanel.com" --algo bm -m comment --comment "ANALYTICS:MIXPANEL" -j TELEMETRY_BLOCK
+# # Mixpanel
+# iptables -I OUTPUT -m string --string "mixpanel.com" --algo bm -m comment --comment "ANALYTICS:MIXPANEL" -j TELEMETRY_BLOCK
 
-# Segment
-iptables -I OUTPUT -m string --string "segment.io" --algo bm -m comment --comment "ANALYTICS:SEGMENT" -j TELEMETRY_BLOCK
-iptables -I OUTPUT -m string --string "segment.com" --algo bm -m comment --comment "ANALYTICS:SEGMENT_V2" -j TELEMETRY_BLOCK
+# # Segment
+# iptables -I OUTPUT -m string --string "segment.io" --algo bm -m comment --comment "ANALYTICS:SEGMENT" -j TELEMETRY_BLOCK
+# iptables -I OUTPUT -m string --string "segment.com" --algo bm -m comment --comment "ANALYTICS:SEGMENT_V2" -j TELEMETRY_BLOCK
 
-# Sentry (error tracking)
-iptables -I OUTPUT -m string --string "sentry.io" --algo bm -m comment --comment "ANALYTICS:SENTRY" -j TELEMETRY_BLOCK
+# # Sentry (error tracking)
+# iptables -I OUTPUT -m string --string "sentry.io" --algo bm -m comment --comment "ANALYTICS:SENTRY" -j TELEMETRY_BLOCK
 
 # ====================================================================
 # Export counters for dashboard monitoring
