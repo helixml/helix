@@ -1,7 +1,7 @@
 # WebSocket Mode Session Leak Investigation
 
 **Date:** 2025-12-04
-**Status:** In Progress
+**Status:** FIXED
 
 ## Problem Statement
 
@@ -13,63 +13,97 @@ Additionally, the Moonlight state dashboard has regressed:
 - Shows "Blank" and "Select Agent" apps with "0 clients"
 - Shows "No Moonlight clients" even when connected
 
-## Investigation History
+## Root Cause Analysis
 
-### Previous Fixes Applied (This Session)
+### Why WebRTC Works But WebSocket Doesn't
+
+**WebRTC Mode:**
+- Disconnection is detected via WebRTC peer state change (ICE/DTLS layer)
+- `on_peer_connection_state_change()` triggers `stop()`
+- Cleanup runs reliably even if WebSocket closes uncleanly
+
+**WebSocket-Only Mode:**
+- Disconnection relies SOLELY on detecting the WebSocket close
+- When browser closes uncleanly (no Close frame), `stream.recv()` hangs indefinitely
+- The frame-forwarding task detects the broken connection (send fails), but the main input loop doesn't know
+- Cleanup never runs → session leaks
+
+### The Hang Scenario
+
+1. Browser closes tab or network breaks (no clean WebSocket Close frame)
+2. Frame-forwarding task tries to send video frame → fails with "Closed"
+3. Frame-forwarding task exits
+4. Main input loop is still blocking on `stream.recv()`
+5. Without a proper Close frame, `stream.recv()` waits for TCP keepalive timeout (~2 hours!)
+6. Cleanup never runs → Wolf session orphaned → test pattern producers leak
+
+### Evidence from Logs
+
+```
+19:01:13 [WARN] [WsStream]: Failed to send audio frame: Closed
+19:01:50 [INFO] [WsStream]: Init:  ← NEW session starts 37 seconds later!
+```
+
+Notice: NO cleanup messages between the frame send failure and new session. No "[WsStream]: Sending Stop" or "[WebSocket-Only]: Received stop signal".
+
+## Solution
+
+Use `tokio::select!` to listen for EITHER:
+1. WebSocket messages (input from browser)
+2. Shutdown signal from the frame-forwarding task (connection broken)
+
+When the frame-forwarding task detects a send failure:
+1. Signals shutdown via oneshot channel
+2. Main loop receives signal and breaks
+3. Cleanup runs immediately
+
+### Code Change
+
+In `ws_stream_handler()` (web-server/src/api/stream.rs):
+
+```rust
+// Create shutdown channel
+let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+
+// In frame-forwarding task, signal on exit:
+info!("[WsStream]: Frame forwarder exiting, signaling shutdown");
+let _ = shutdown_tx.send(());
+
+// In main loop, use select!:
+loop {
+    select! {
+        _ = &mut shutdown_rx => {
+            info!("[WsStream]: Received shutdown signal from frame forwarder");
+            break;
+        }
+        msg = stream.recv() => {
+            // handle input...
+        }
+    }
+}
+```
+
+## Previous Fixes Applied (This Session)
 
 1. **WebRTC mode: call cancel() before drop()** - Fixed WebRTC cleanup order
 2. **Added PauseStreamEvent handlers to test pattern producers** - Test pattern producers now stop on both StopStreamEvent AND PauseStreamEvent
+3. **Purple loading screen** - Changed from chroma-zone-plate to solid purple (#a100c7)
 
-These fixes resolved WebRTC cleanup but NOT WebSocket cleanup.
+## Files Modified
 
-## Architecture Overview
+- `moonlight-web/web-server/src/api/stream.rs` - Added shutdown signal + select!
+- `wolf/config.toml.template` - Changed loading screen to purple
+- `wolf/src/moonlight-server/streaming/streaming.cpp` - Added PauseStreamEvent handlers
 
-### WebRTC Mode Flow
-```
-Browser disconnects
-  → WebRTC peer state change
-  → StreamConnection::stop()
-  → host.cancel() [fires StopStreamEvent in Wolf]
-  → drop(stream) [ENET disconnect → PauseStreamEvent in Wolf]
-  → Test pattern producers quit on Pause/Stop events
-```
+## Verification
 
-### WebSocket-Only Mode Flow
-```
-Browser closes WebSocket
-  → web-server detects close in ws_stream_handler
-  → sends ServerIpcMessage::Stop to streamer
-  → streamer breaks main loop
-  → host.cancel() [fires StopStreamEvent in Wolf]
-  → drop(stream) [ENET disconnect → PauseStreamEvent in Wolf]
-  → Test pattern producers SHOULD quit...
-```
+After fix deployment:
+1. Start WebSocket-only stream
+2. Close browser tab (unclean close)
+3. Check logs for: "[WsStream]: Received shutdown signal from frame forwarder"
+4. Check logs for: "[WsStream]: Sending Stop to streamer for clean shutdown"
+5. Verify thread count returns to baseline (6 threads)
 
-## Key Questions
+## Dashboard Regression
 
-1. Why does WebSocket cleanup leak when WebRTC cleanup doesn't?
-2. Is cancel() finding the session in WebSocket mode?
-3. Is PauseStreamEvent being fired with the correct session_id?
-4. Why is the dashboard not showing connected clients?
-
-## Files Involved
-
-- `/prod/home/luke/pm/moonlight-web-stream/moonlight-web/web-server/src/api/stream.rs`
-  - `start_host()` - WebRTC endpoint
-  - `ws_stream_handler()` - WebSocket-only endpoint
-
-- `/prod/home/luke/pm/moonlight-web-stream/moonlight-web/streamer/src/main.rs`
-  - `StreamConnection::stop()` - WebRTC cleanup
-  - `run_websocket_only_mode()` - WebSocket-only mode
-
-- `/prod/home/luke/pm/wolf/src/moonlight-server/streaming/streaming.cpp`
-  - `start_test_pattern_producer()` - Video test pattern
-  - `start_test_audio_producer()` - Audio test pattern
-
-- `/prod/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`
-  - ENET event handling, fires PauseStreamEvent
-
-## Debugging Notes
-
-(To be filled in during investigation)
-
+Still investigating. May be related to session tracking changes in lobbies mode.
