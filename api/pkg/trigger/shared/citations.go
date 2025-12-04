@@ -102,7 +102,13 @@ func removeExcerptBlocks(text string) string {
 	multipleNewlines := regexp.MustCompile(`\n{3,}`)
 	text = multipleNewlines.ReplaceAllString(text, "\n\n")
 
-	return strings.TrimSpace(text)
+	// Only trim space if there's actual content (not just whitespace)
+	// This preserves the original behavior for whitespace-only input
+	if strings.TrimSpace(text) != "" {
+		text = strings.TrimSpace(text)
+	}
+
+	return text
 }
 
 // convertDocIDsToNumberedCitationsWithMap converts [DOC_ID:xxx] markers to numbered citations
