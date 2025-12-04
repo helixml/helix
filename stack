@@ -991,6 +991,7 @@ function build-desktop() {
 
   # Export tarball for embedding in sandbox
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
+  mkdir -p sandbox-images
   docker save "${IMAGE_NAME}:latest" > "sandbox-images/${IMAGE_NAME}.tar"
   echo "${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.version"
 
