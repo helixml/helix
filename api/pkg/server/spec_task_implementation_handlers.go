@@ -184,9 +184,11 @@ func generateFeatureBranchName(task *types.SpecTask) string {
 	}
 
 	// Add task ID suffix for uniqueness
+	// Use last 16 chars of task ID to get more of the random ULID portion
+	// (ULID = 10 char timestamp + 16 char random, we want the random part)
 	taskIDSuffix := task.ID
-	if len(taskIDSuffix) > 8 {
-		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-8:]
+	if len(taskIDSuffix) > 16 {
+		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
 	}
 
 	return fmt.Sprintf("feature/%s-%s", name, taskIDSuffix)

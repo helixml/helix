@@ -127,11 +127,12 @@ const (
 )
 
 type KnowledgeSource struct {
-	Filestore *KnowledgeSourceHelixFilestore `json:"filestore" yaml:"filestore"`
-	S3        *KnowledgeSourceS3             `json:"s3"`
-	GCS       *KnowledgeSourceGCS            `json:"gcs"`
-	Web       *KnowledgeSourceWeb            `json:"web"`
-	Text      *string                        `json:"text"`
+	Filestore  *KnowledgeSourceHelixFilestore `json:"filestore" yaml:"filestore"`
+	S3         *KnowledgeSourceS3             `json:"s3"`
+	GCS        *KnowledgeSourceGCS            `json:"gcs"`
+	Web        *KnowledgeSourceWeb            `json:"web"`
+	Text       *string                        `json:"text"`
+	SharePoint *KnowledgeSourceSharePoint     `json:"sharepoint" yaml:"sharepoint"`
 }
 
 func (k KnowledgeSource) Value() (driver.Value, error) {
@@ -208,6 +209,43 @@ type KnowledgeSourceGithub struct {
 	Branch           string   `json:"branch"`
 	FilterPaths      []string `json:"filter_paths"`
 	FilterExtensions []string `json:"filter_extensions"`
+}
+
+// KnowledgeSourceSharePoint represents a SharePoint document library or folder as a knowledge source.
+// Authentication is done via Microsoft OAuth (OAuthProviderTypeMicrosoft) which provides
+// access to the Microsoft Graph API for SharePoint operations.
+//
+// Setup Requirements:
+//  1. Create a Microsoft OAuth provider in Helix (Settings → OAuth Providers)
+//     with type "microsoft" and the following scopes:
+//     - Sites.Read.All (to list sites and drives)
+//     - Files.Read.All (to download files)
+//  2. Connect your Microsoft account via the OAuth provider
+//  3. Get the SharePoint Site ID from the Graph API or the site URL:
+//     - Format: "hostname,site-guid,web-guid" (e.g., "contoso.sharepoint.com,abc123,def456")
+//     - Can be obtained via: GET https://graph.microsoft.com/v1.0/sites/{hostname}:/{site-path}
+//
+// Example Configuration:
+//
+//	sharepoint:
+//	  site_id: "contoso.sharepoint.com,abc123-def456-789,xyz789-abc123-456"
+//	  folder_path: "/Documents/Reports"
+//	  oauth_provider_id: "provider-uuid"
+//	  filter_extensions: [".pdf", ".docx"]
+//	  recursive: true
+type KnowledgeSourceSharePoint struct {
+	// SiteID is the SharePoint site ID (can be obtained from Graph API or site URL)
+	SiteID string `json:"site_id" yaml:"site_id"`
+	// DriveID is the document library drive ID (optional, defaults to the site's default drive)
+	DriveID string `json:"drive_id,omitempty" yaml:"drive_id,omitempty"`
+	// FolderPath is the path to a specific folder within the drive (optional, defaults to root)
+	FolderPath string `json:"folder_path,omitempty" yaml:"folder_path,omitempty"`
+	// OAuthProviderID is the ID of the Microsoft OAuth provider to use for authentication
+	OAuthProviderID string `json:"oauth_provider_id" yaml:"oauth_provider_id"`
+	// FilterExtensions limits which file types to include (e.g., [".pdf", ".docx", ".txt"])
+	FilterExtensions []string `json:"filter_extensions,omitempty" yaml:"filter_extensions,omitempty"`
+	// Recursive determines whether to include files in subfolders
+	Recursive bool `json:"recursive" yaml:"recursive"`
 }
 
 // CrawledDocument used internally to work with the crawled data

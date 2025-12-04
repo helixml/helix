@@ -194,6 +194,7 @@ func (s *PostgresStore) GetOAuthConnectionByUserAndProvider(ctx context.Context,
 	var connection types.OAuthConnection
 
 	err := s.gdb.WithContext(ctx).
+		Preload("Provider").
 		Where("user_id = ? AND provider_id = ? AND deleted_at IS NULL", userID, providerID).
 		First(&connection).Error
 

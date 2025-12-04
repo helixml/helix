@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,15 +44,35 @@ type Client interface {
 	BillingEnabled() bool
 }
 
+// ClientOptions holds optional configuration for the OpenAI client
+type ClientOptions struct {
+	TLSSkipVerify bool
+}
+
 // New creates a new OpenAI client with the given API key and base URL.
 // If models are provided, models will be filtered to only include the provided models.
 func New(apiKey string, baseURL string, billingEnabled bool, models ...string) *RetryableClient {
+	return NewWithOptions(apiKey, baseURL, billingEnabled, ClientOptions{}, models...)
+}
+
+// NewWithOptions creates a new OpenAI client with the given API key, base URL, and options.
+// If models are provided, models will be filtered to only include the provided models.
+func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts ClientOptions, models ...string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 
 	// Create a custom HTTP client with increased timeout
 	httpClient := &http.Client{
 		Timeout: 5 * time.Minute, // 5 minute timeout for embedding requests
+	}
+
+	// Configure TLS if skip verify is enabled
+	if opts.TLSSkipVerify {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
 	}
 
 	// Use our interceptor with the custom timeout and universal rate limiter
