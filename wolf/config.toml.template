@@ -25,10 +25,10 @@ start_audio_server = false
     run_cmd = 'sh -c "while :; do sleep 60; done"'
 
     [profiles.apps.video]
-    # Chroma zone plate pattern while loading (colorful, psychedelic)
-    # videotestsrc patterns: smpte, snow, black, ball, zone-plate, chroma-zone-plate, pinwheel, gradient
+    # Solid purple loading screen (#a100c7)
+    # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
     # Must specify width/height/format for CUDA pipeline compatibility
-    source = '''videotestsrc pattern=chroma-zone-plate is-live=true !
+    source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
     [profiles.apps.audio]
