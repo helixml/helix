@@ -27,11 +27,9 @@ start_audio_server = false
     [profiles.apps.video]
     # Solid purple loading screen (#a100c7)
     # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
-    # TESTING: Add cudaupload so test pattern outputs CUDA memory like lobby producer
-    # This way the interpipe switch doesn't change memory format mid-stream
+    # Produces system RAM frames - consumer pipeline's cudaupload handles GPU upload
     source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
-video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12 !
-cudaupload ! video/x-raw(memory:CUDAMemory)'''
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
     [profiles.apps.audio]
     # Silence while loading
