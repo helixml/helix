@@ -329,22 +329,67 @@ Since Luke authored these, we can directly reuse:
    Response: XML with paired=1
 ```
 
-### RTSP Messages
+### RTSP Messages (From Public Documentation)
 
+**Source:** [Wolf RTSP Protocol Docs](https://games-on-whales.github.io/wolf/stable/protocols/rtsp.html)
+
+RTSP runs on **TCP port 48010** (unencrypted). It exchanges ports and settings for:
+- Control stream (ENet/UDP)
+- Video stream (RTP/UDP)
+- Audio stream (RTP/UDP)
+
+**Message Structure:**
+- First line: `COMMAND target RTSP/1.0`
+- Headers: Key-value pairs (one per line)
+- `CSeq` header always present (sequence number)
+- Empty line separates headers from body
+- Body may contain SDP or other data
+
+**Commands Used:**
 ```
-ANNOUNCE rtsp://host:48010/launch?appid=123 RTSP/1.0
-...
+OPTIONS rtsp://host:48010 RTSP/1.0
+CSeq: 1
 
 DESCRIBE rtsp://host:48010 RTSP/1.0
-...
-(Response includes SDP with codec info, encryption keys)
+Accept: application/sdp
+CSeq: 2
+X-GS-ClientVersion: 10
+
+ANNOUNCE rtsp://host:48010/launch?appid=123 RTSP/1.0
+CSeq: 3
+Content-Type: application/sdp
+Content-Length: ...
 
 SETUP rtsp://host:48010/video RTSP/1.0
 Transport: RTP/AVP/UDP;unicast;client_port=47998-47999
-...
+CSeq: 4
+
+SETUP rtsp://host:48010/audio RTSP/1.0
+Transport: RTP/AVP/UDP;unicast;client_port=48000-48001
+CSeq: 5
 
 PLAY rtsp://host:48010 RTSP/1.0
-...
+CSeq: 6
+```
+
+### Encryption Keys (rikey/rikeyid)
+
+**Source:** [Sunshine RTSP Implementation](https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp)
+
+- `rikey`: 16-byte AES key for remote input stream encryption
+- `rikeyid`: Key ID (used with RTP sequence for IV construction)
+- Same keys passed in `/launch` and RTSP ANNOUNCE
+- Audio IV = rikeyid (big-endian) + RTP sequence number
+- AES-GCM mode used for control data encryption
+
+### SDP Parameters
+
+The SDP in DESCRIBE response includes:
+```
+a=fmtp:97 surround-params=<channels>/<streams>/<coupled>
+x-nv-vqos[0].fec.minRequiredFecPackets=...
+x-ml-general.featureFlags=...
+x-nv-aqos.qosTrafficType=...
 ```
 
 ### RTP Packet Format
@@ -483,17 +528,24 @@ tshark -r moonlight.pcap -Y 'rtp'
 
 ## Session Log
 
-### 2025-12-04: Initial Implementation
+### 2025-12-04: Initial Implementation (Session 1)
 - Created repository at `~/pm/helix-moonlight-bridge`
 - Implemented Phase 1 (project setup, NVHTTP skeleton, WebSocket skeleton)
 - ~1,700 lines of Go code
 - All dependencies permissively licensed (MIT/BSD)
 - Committed initial cleanroom implementation
 
-**Next Steps:**
-1. Research RTSP protocol by capturing Wolf traffic
-2. Implement RTSP client using gortsplib
-3. Test against live Wolf instance
+**Research completed:**
+- Studied Wolf RTSP protocol docs (games-on-whales.github.io)
+- Documented RTSP message flow (OPTIONS → DESCRIBE → ANNOUNCE → SETUP → PLAY)
+- Understood encryption: rikey/rikeyid for AES-GCM
+- Found SDP parameter format
+
+**Next session should:**
+1. Implement RTSP client skeleton in `internal/rtsp/client.go`
+2. Parse SDP responses for codec info
+3. Test DESCRIBE against live Wolf instance
+4. Handle encryption key exchange
 
 ---
 
