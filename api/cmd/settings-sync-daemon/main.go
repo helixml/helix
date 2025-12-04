@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -69,6 +71,47 @@ func (d *SettingsDaemon) generateQwenAgentConfig() map[string]interface{} {
 	}
 }
 
+// rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
+// This fixes the issue where the API server returns its SERVER_URL (localhost:8080 in dev),
+// which is unreachable from inside containers. We use HELIX_API_URL's host instead,
+// which we know works because the daemon connected with it.
+// Only rewrites if URL contains "localhost" - production URLs pass through unchanged.
+func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
+	if !strings.Contains(originalURL, "localhost") {
+		return originalURL // Production URL, leave unchanged
+	}
+
+	// Parse our known-working API URL to get the host
+	apiParsed, err := url.Parse(d.apiURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		return originalURL
+	}
+
+	// Parse the original URL
+	origParsed, err := url.Parse(originalURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		return originalURL
+	}
+
+	// Replace the host with our working API host
+	origParsed.Host = apiParsed.Host
+
+	rewritten := origParsed.String()
+	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
+	return rewritten
+}
+
+// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
+func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
+	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
+		if extURL, ok := wsSync["external_url"].(string); ok {
+			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
+		}
+	}
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
@@ -123,6 +166,9 @@ func main() {
 		qwenModel:   qwenModel,
 		userAPIKey:  userAPIKey,
 	}
+
+	// Rewrite qwenBaseURL if it contains localhost (fix for dev mode)
+	daemon.qwenBaseURL = daemon.rewriteLocalhostURL(daemon.qwenBaseURL)
 
 	// Initial sync from Helix → local
 	if err := daemon.syncFromHelix(); err != nil {
@@ -194,6 +240,9 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["assistant"] = config.Assistant
 	}
 	if config.ExternalSync != nil {
+		// Rewrite localhost URLs to use container-internal API host
+		// This fixes dev mode where SERVER_URL=localhost:8080 is unreachable from containers
+		d.rewriteLocalhostURLsInExternalSync(config.ExternalSync)
 		d.helixSettings["external_sync"] = config.ExternalSync
 	}
 	if config.Agent != nil {
@@ -480,6 +529,8 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		newHelixSettings["assistant"] = config.Assistant
 	}
 	if config.ExternalSync != nil {
+		// Rewrite localhost URLs to use container-internal API host
+		d.rewriteLocalhostURLsInExternalSync(config.ExternalSync)
 		newHelixSettings["external_sync"] = config.ExternalSync
 	}
 	if config.Agent != nil {
