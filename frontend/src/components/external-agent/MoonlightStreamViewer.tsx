@@ -783,28 +783,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket mode doesn't have WebRTC stats
+    // WebSocket mode - poll stats from WebSocketStream
     if (streamingMode === 'websocket') {
-      setStats({
-        video: {
-          codec: 'H264 (WebSocket)',
-          width: width,
-          height: height,
-          fps: 60,
-          bitrate: 'N/A',
-          packetsLost: 0,
-          packetsReceived: 'N/A',
-          framesDecoded: 'N/A',
-          framesDropped: 'N/A',
-          jitter: 'N/A',
-        },
-        connection: {
-          transport: 'WebSocket (L7)',
-          rtt: 'N/A',
-        },
-        timestamp: new Date().toISOString(),
-      });
-      return;
+      const pollWsStats = () => {
+        const wsStream = streamRef.current as WebSocketStream | null;
+        if (!wsStream) return;
+
+        const wsStats = wsStream.getStats();
+        setStats({
+          video: {
+            codec: 'H264 (WebSocket)',
+            width: wsStats.width,
+            height: wsStats.height,
+            fps: wsStats.fps,
+            bitrate: wsStats.bitrateMbps.toFixed(2),
+            framesDecoded: wsStats.framesDecoded,
+            framesDropped: wsStats.framesDropped,
+          },
+          connection: {
+            transport: 'WebSocket (L7)',
+          },
+          timestamp: new Date().toISOString(),
+        });
+      };
+
+      // Poll every second
+      const interval = setInterval(pollWsStats, 1000);
+      pollWsStats(); // Initial call
+
+      return () => clearInterval(interval);
     }
 
     const pollStats = async () => {
@@ -1484,18 +1491,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                <div><strong>Bitrate:</strong> {stats.video.bitrate}{stats.video.bitrate !== 'N/A' ? ' Mbps' : ''} <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
-                <div><strong>Decoded:</strong> {stats.video.framesDecoded}{stats.video.framesDecoded !== 'N/A' ? ' frames' : ''}</div>
+                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
                 <div>
-                  <strong>Dropped:</strong> {stats.video.framesDropped}{stats.video.framesDropped !== 'N/A' ? ' frames' : ''}
+                  <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
-                <div>
-                  <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
-                  {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
-                </div>
-                <div><strong>Jitter:</strong> {stats.video.jitter}{stats.video.jitter !== 'N/A' ? ' ms' : ''}</div>
-                {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt}{stats.connection.rtt !== 'N/A' ? ' ms' : ''}</div>}
+                {/* WebRTC-only stats - not available in WebSocket mode */}
+                {streamingMode === 'webrtc' && (
+                  <>
+                    <div>
+                      <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
+                      {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
+                    </div>
+                    <div><strong>Jitter:</strong> {stats.video.jitter} ms</div>
+                    {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt} ms</div>}
+                  </>
+                )}
               </>
             )}
             {!stats.video.codec && <div>Waiting for video data...</div>}
