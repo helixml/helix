@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/sharepoint"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -23,6 +24,8 @@ func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([
 		return r.extractDataFromWeb(ctx, k)
 	case k.Source.Filestore != nil:
 		return r.extractDataFromHelixFilestore(ctx, k)
+	case k.Source.SharePoint != nil:
+		return r.extractDataFromSharePoint(ctx, k)
 	default:
 		return nil, fmt.Errorf("unknown source: %+v", k.Source)
 	}
@@ -415,4 +418,187 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 		Msgf("Completed file listing")
 
 	return result, nil
+}
+
+// extractDataFromSharePoint fetches files from a SharePoint site/drive using Microsoft Graph API
+func (r *Reconciler) extractDataFromSharePoint(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	if k.Source.SharePoint == nil {
+		return nil, fmt.Errorf("no SharePoint source defined")
+	}
+
+	spConfig := k.Source.SharePoint
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Str("site_id", spConfig.SiteID).
+		Str("drive_id", spConfig.DriveID).
+		Str("folder_path", spConfig.FolderPath).
+		Bool("recursive", spConfig.Recursive).
+		Msg("Extracting data from SharePoint")
+
+	// Check if OAuth manager is available
+	if r.oauthManager == nil {
+		return nil, fmt.Errorf("OAuth manager not configured, cannot access SharePoint")
+	}
+
+	// Get the OAuth connection for the knowledge owner
+	connection, err := r.oauthManager.GetConnection(ctx, k.Owner, spConfig.OAuthProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth connection for SharePoint: %w", err)
+	}
+
+	// Verify the connection is for Microsoft OAuth (either Microsoft type or Custom with Microsoft URLs)
+	if !isMicrosoftOAuthProvider(connection.Provider) {
+		return nil, fmt.Errorf("OAuth provider must be Microsoft type (or Custom with Microsoft URLs) for SharePoint access, got: %s", connection.Provider.Type)
+	}
+
+	// Create SharePoint client with the access token
+	spClient := sharepoint.NewClient(connection.AccessToken)
+
+	// List files from SharePoint
+	files, err := spClient.ListFiles(ctx, spConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SharePoint files: %w", err)
+	}
+
+	if len(files) == 0 {
+		log.Warn().
+			Str("knowledge_id", k.ID).
+			Str("site_id", spConfig.SiteID).
+			Msg("No files found in SharePoint")
+		return nil, ErrNoFilesFound
+	}
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int("file_count", len(files)).
+		Msg("Found files in SharePoint")
+
+	// Update progress
+	r.updateKnowledgeProgress(k.ID, types.KnowledgeProgress{
+		Step:     "downloading",
+		Progress: 0,
+		Message:  fmt.Sprintf("Downloading %d files from SharePoint", len(files)),
+	})
+
+	// Get the drive ID (use default if not specified)
+	driveID := spConfig.DriveID
+	if driveID == "" {
+		drive, err := spClient.GetDefaultDrive(ctx, spConfig.SiteID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default drive: %w", err)
+		}
+		driveID = drive.ID
+	}
+
+	var result []*indexerData
+
+	// Download each file
+	for i, file := range files {
+		// Update progress
+		progress := int(float64(i) / float64(len(files)) * 100)
+		r.updateKnowledgeProgress(k.ID, types.KnowledgeProgress{
+			Step:     "downloading",
+			Progress: progress,
+			Message:  fmt.Sprintf("Downloading %s (%d/%d)", file.Name, i+1, len(files)),
+		})
+
+		// Download the file
+		downloadedFile, err := spClient.DownloadFile(ctx, driveID, file.ID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("file_name", file.Name).
+				Str("file_id", file.ID).
+				Msg("Failed to download file from SharePoint, skipping")
+			continue
+		}
+
+		log.Debug().
+			Str("knowledge_id", k.ID).
+			Str("file_name", downloadedFile.Name).
+			Str("file_path", downloadedFile.Path).
+			Int("content_size", len(downloadedFile.Content)).
+			Msg("Downloaded file from SharePoint")
+
+		// If chunking is disabled, add raw content
+		if k.RAGSettings.DisableChunking {
+			result = append(result, &indexerData{
+				Data:            downloadedFile.Content,
+				Source:          downloadedFile.WebURL,
+				DocumentGroupID: getDocumentGroupID(downloadedFile.Path),
+				Metadata: map[string]interface{}{
+					"filename":      downloadedFile.Name,
+					"path":          downloadedFile.Path,
+					"mime_type":     downloadedFile.MimeType,
+					"size":          downloadedFile.Size,
+					"last_modified": downloadedFile.LastModified,
+					"source":        "sharepoint",
+				},
+			})
+			continue
+		}
+
+		// Extract text from the file
+		extractedText, err := r.extractor.Extract(ctx, &extract.Request{
+			Content: downloadedFile.Content,
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", k.ID).
+				Str("file_name", downloadedFile.Name).
+				Msg("Failed to extract text from SharePoint file, skipping")
+			continue
+		}
+
+		result = append(result, &indexerData{
+			Data:            []byte(extractedText),
+			Source:          downloadedFile.WebURL,
+			DocumentGroupID: getDocumentGroupID(downloadedFile.Path),
+			Metadata: map[string]interface{}{
+				"filename":      downloadedFile.Name,
+				"path":          downloadedFile.Path,
+				"mime_type":     downloadedFile.MimeType,
+				"size":          downloadedFile.Size,
+				"last_modified": downloadedFile.LastModified,
+				"source":        "sharepoint",
+			},
+		})
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no files could be processed from SharePoint")
+	}
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int("processed_count", len(result)).
+		Msg("Completed SharePoint data extraction")
+
+	return result, nil
+}
+
+// isMicrosoftOAuthProvider checks if an OAuth provider is Microsoft-compatible
+// This includes both the explicit Microsoft type and Custom providers that use Microsoft OAuth URLs
+func isMicrosoftOAuthProvider(provider types.OAuthProvider) bool {
+	// Check if it's explicitly a Microsoft provider
+	if provider.Type == types.OAuthProviderTypeMicrosoft {
+		return true
+	}
+
+	// Check if it's a Custom provider with Microsoft OAuth URLs
+	if provider.Type == types.OAuthProviderTypeCustom {
+		// Check auth URL for Microsoft login endpoint
+		if strings.Contains(provider.AuthURL, "login.microsoftonline.com") {
+			return true
+		}
+		// Check token URL for Microsoft login endpoint
+		if strings.Contains(provider.TokenURL, "login.microsoftonline.com") {
+			return true
+		}
+	}
+
+	return false
 }
