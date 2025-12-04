@@ -185,7 +185,7 @@ RUN apt-get update && \
 #
 # CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
 # early in the Dockerfile before frequently-changing sway configs and scripts.
-WORKDIR /tmp/qwen-code-build
+WORKDIR /opt/qwen-code
 RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     # Pin to specific audited commit for reproducibility and audit trail
     # Commit: c9af7481 "fix: reset authType settings (#1091)"
@@ -194,10 +194,7 @@ RUN git clone https://github.com/QwenLM/qwen-code.git . && \
     git checkout c9af7481 && \
     npm install && \
     npm run build && \
-    # Install globally from the built source
     npm install -g . && \
-    # Clean up build artifacts
-    cd / && rm -rf /tmp/qwen-code-build && \
     npm cache clean --force
 
 # ====================================================================
