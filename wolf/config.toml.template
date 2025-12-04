@@ -27,12 +27,11 @@ start_audio_server = false
     [profiles.apps.video]
     # Solid purple loading screen (#a100c7)
     # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
-    # CRITICAL: Must produce CUDA memory frames to match lobby producer format!
-    # Without cudaupload, switching interpipe sources causes "Failed to copy CUDA -> CUDA" error
-    # because consumer pipeline expects CUDAMemory but gets system RAM.
+    # NOTE: This produces system RAM frames. Consumer pipeline's cudaupload handles
+    # uploading to CUDA. DO NOT add cudaupload here - it creates a separate CUDA context
+    # which causes cross-context buffer access failures during interpipe switching.
     source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
-video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12 !
-cudaupload ! video/x-raw(memory:CUDAMemory)'''
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
     [profiles.apps.audio]
     # Silence while loading
