@@ -796,7 +796,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             width: wsStats.width,
             height: wsStats.height,
             fps: wsStats.fps,
-            bitrate: wsStats.bitrateMbps.toFixed(2),
+            videoBitrate: wsStats.videoBitrateMbps.toFixed(2),
+            totalBitrate: wsStats.totalBitrateMbps.toFixed(2),
             framesDecoded: wsStats.framesDecoded,
             framesDropped: wsStats.framesDropped,
           },
@@ -1491,7 +1492,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                {streamingMode === 'websocket' ? (
+                  <>
+                    <div><strong>Video:</strong> {stats.video.videoBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                    <div><strong>Total:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>
+                      {parseFloat(stats.video.videoBitrate) > 0
+                        ? `(${((parseFloat(stats.video.totalBitrate) / parseFloat(stats.video.videoBitrate) - 1) * 100).toFixed(1)}% overhead)`
+                        : ''}
+                    </span></div>
+                  </>
+                ) : (
+                  <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                )}
                 <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
                 <div>
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames

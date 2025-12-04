@@ -122,10 +122,15 @@ export class WebSocketStream {
   private lastFrameTime = 0
   private frameCount = 0
   private currentFps = 0
-  private bytesReceived = 0
-  private lastBytesReceived = 0
+  // Video-only bytes (H.264 payload)
+  private videoBytesReceived = 0
+  private lastVideoBytesReceived = 0
+  private currentVideoBitrateMbps = 0
+  // Total WebSocket bytes (video + audio + control)
+  private totalBytesReceived = 0
+  private lastTotalBytesReceived = 0
   private lastBytesTime = 0
-  private currentBitrateMbps = 0
+  private currentTotalBitrateMbps = 0
   private framesDecoded = 0
   private framesDropped = 0
 
@@ -320,9 +325,11 @@ export class WebSocketStream {
     this.lastMessageTime = Date.now()
 
     if (!(event.data instanceof ArrayBuffer)) {
-      // JSON control message
+      // JSON control message (text frame) - track string length as bytes
+      const textData = event.data as string
+      this.totalBytesReceived += textData.length
       try {
-        const json = JSON.parse(event.data as string)
+        const json = JSON.parse(textData)
         this.handleControlMessage(json)
       } catch (e) {
         console.error("[WebSocketStream] Failed to parse JSON message:", e)
@@ -332,6 +339,9 @@ export class WebSocketStream {
 
     const data = new Uint8Array(event.data)
     if (data.length === 0) return
+
+    // Track total bytes received (all binary messages)
+    this.totalBytesReceived += data.length
 
     const msgType = data[0]
 
@@ -547,15 +557,20 @@ export class WebSocketStream {
       this.frameCount = 0
       this.lastFrameTime = now
 
-      // Calculate bitrate
+      // Calculate bitrates
       if (this.lastBytesTime > 0) {
-        const deltaBytes = this.bytesReceived - this.lastBytesReceived
         const deltaTime = (now - this.lastBytesTime) / 1000 // seconds
         if (deltaTime > 0) {
-          this.currentBitrateMbps = (deltaBytes * 8) / 1000000 / deltaTime
+          // Video-only bitrate
+          const deltaVideoBytes = this.videoBytesReceived - this.lastVideoBytesReceived
+          this.currentVideoBitrateMbps = (deltaVideoBytes * 8) / 1000000 / deltaTime
+          // Total WebSocket bitrate (video + audio + control)
+          const deltaTotalBytes = this.totalBytesReceived - this.lastTotalBytesReceived
+          this.currentTotalBitrateMbps = (deltaTotalBytes * 8) / 1000000 / deltaTime
         }
       }
-      this.lastBytesReceived = this.bytesReceived
+      this.lastVideoBytesReceived = this.videoBytesReceived
+      this.lastTotalBytesReceived = this.totalBytesReceived
       this.lastBytesTime = now
     }
   }
@@ -569,8 +584,8 @@ export class WebSocketStream {
   private lastVideoHeight = 0
 
   private async handleVideoFrame(data: Uint8Array) {
-    // Track bytes received for bitrate calculation
-    this.bytesReceived += data.length
+    // Track video bytes received for bitrate calculation
+    this.videoBytesReceived += data.length
 
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
@@ -858,7 +873,8 @@ export class WebSocketStream {
 
   getStats(): {
     fps: number
-    bitrateMbps: number
+    videoBitrateMbps: number
+    totalBitrateMbps: number
     framesDecoded: number
     framesDropped: number
     width: number
@@ -866,7 +882,8 @@ export class WebSocketStream {
   } {
     return {
       fps: this.currentFps,
-      bitrateMbps: this.currentBitrateMbps,
+      videoBitrateMbps: this.currentVideoBitrateMbps,
+      totalBitrateMbps: this.currentTotalBitrateMbps,
       framesDecoded: this.framesDecoded,
       framesDropped: this.framesDropped,
       width: this.streamerSize[0],
