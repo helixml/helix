@@ -118,9 +118,16 @@ export class WebSocketStream {
   private lastMessageTime = 0
   private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
-  // Frame timing
+  // Frame timing and stats
   private lastFrameTime = 0
   private frameCount = 0
+  private currentFps = 0
+  private bytesReceived = 0
+  private lastBytesReceived = 0
+  private lastBytesTime = 0
+  private currentBitrateMbps = 0
+  private framesDecoded = 0
+  private framesDropped = 0
 
   constructor(
     api: Api,
@@ -517,6 +524,7 @@ export class WebSocketStream {
   private renderVideoFrame(frame: VideoFrame) {
     if (!this.canvas || !this.canvasCtx) {
       frame.close()
+      this.framesDropped++
       return
     }
 
@@ -529,14 +537,26 @@ export class WebSocketStream {
     // Draw frame to canvas
     this.canvasCtx.drawImage(frame, 0, 0)
     frame.close()
+    this.framesDecoded++
 
-    // Track frame rate
+    // Track frame rate (update every second)
     this.frameCount++
     const now = performance.now()
     if (now - this.lastFrameTime >= 1000) {
-      console.log(`[WebSocketStream] FPS: ${this.frameCount}`)
+      this.currentFps = this.frameCount
       this.frameCount = 0
       this.lastFrameTime = now
+
+      // Calculate bitrate
+      if (this.lastBytesTime > 0) {
+        const deltaBytes = this.bytesReceived - this.lastBytesReceived
+        const deltaTime = (now - this.lastBytesTime) / 1000 // seconds
+        if (deltaTime > 0) {
+          this.currentBitrateMbps = (deltaBytes * 8) / 1000000 / deltaTime
+        }
+      }
+      this.lastBytesReceived = this.bytesReceived
+      this.lastBytesTime = now
     }
   }
 
@@ -549,6 +569,9 @@ export class WebSocketStream {
   private lastVideoHeight = 0
 
   private async handleVideoFrame(data: Uint8Array) {
+    // Track bytes received for bitrate calculation
+    this.bytesReceived += data.length
+
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
       return
@@ -831,6 +854,24 @@ export class WebSocketStream {
 
   getStreamerSize(): [number, number] {
     return this.streamerSize
+  }
+
+  getStats(): {
+    fps: number
+    bitrateMbps: number
+    framesDecoded: number
+    framesDropped: number
+    width: number
+    height: number
+  } {
+    return {
+      fps: this.currentFps,
+      bitrateMbps: this.currentBitrateMbps,
+      framesDecoded: this.framesDecoded,
+      framesDropped: this.framesDropped,
+      width: this.streamerSize[0],
+      height: this.streamerSize[1],
+    }
   }
 
   getInput(): StreamInput {
