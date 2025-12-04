@@ -1227,7 +1227,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         cursor: 'default',
       }}
     >
-      {/* Toolbar */}
+      {/* Toolbar - always visible so user can reconnect/access controls */}
       <Box
         sx={{
           position: 'absolute',
@@ -1238,8 +1238,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           borderRadius: 1,
           display: 'flex',
           gap: 1,
-          opacity: isConnected ? 1 : 0,
-          transition: 'opacity 0.3s',
         }}
       >
         <IconButton
