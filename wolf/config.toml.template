@@ -18,18 +18,21 @@ name = 'Moonlight'
 [[profiles.apps]]
 title = 'Blank'
 start_virtual_compositor = false
+start_audio_server = false
 
     [profiles.apps.runner]
     type = 'process'
     run_cmd = 'sh -c "while :; do sleep 60; done"'
 
     [profiles.apps.video]
-    # SMPTE color bars = "waiting room" before joining lobby (retro TV vibes)
-    # videotestsrc patterns: black, white, red, green, blue, smpte, ball, gradient
-    source = '''videotestsrc pattern=ball is-live=true !
-video/x-raw, framerate={fps}/1'''
+    # Chroma zone plate pattern while loading (colorful, psychedelic)
+    # videotestsrc patterns: smpte, snow, black, ball, zone-plate, chroma-zone-plate, pinwheel, gradient
+    # Must specify width/height/format for CUDA pipeline compatibility
+    source = '''videotestsrc pattern=chroma-zone-plate is-live=true !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
     [profiles.apps.audio]
+    # Silence while loading
     source = 'audiotestsrc wave=silence is-live=true'
 
 # Wolf UI app (lobby browser) - for native Moonlight clients (app 1)

@@ -316,23 +316,16 @@ const LiveAgentScreenshot: React.FC<{
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 60%, transparent 100%)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%)',
             color: 'white',
-            py: 1,
+            py: 0.75,
             px: 1.5,
             display: 'flex',
             alignItems: 'flex-end',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             pointerEvents: 'none',
-            minHeight: 36,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <CircleIcon sx={{ fontSize: 8, color: '#4ade80' }} />
-            <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
-              Agent Running
-            </Typography>
-          </Box>
           <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.65rem', opacity: 0.8 }}>
             Click to view
           </Typography>

@@ -1,11 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, Alert, CircularProgress, IconButton, Button } from '@mui/material';
+import { Box, Typography, Alert, CircularProgress, IconButton, Button, Tooltip } from '@mui/material';
 import {
   Fullscreen,
   FullscreenExit,
   Refresh,
-  Videocam,
-  VideocamOff,
   VolumeUp,
   VolumeOff,
   BarChart,
@@ -88,8 +86,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [pendingAutoJoin, setPendingAutoJoin] = useState(false); // Wait for video before auto-join
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -331,31 +329,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setRetryAttemptDisplay(0);
           onConnectionChange?.(true);
 
-          // Auto-join lobby if in lobbies mode (after connection established)
+          // Auto-join lobby if in lobbies mode (after video starts playing)
+          // Set pending flag - actual join triggered by onCanPlay handler
           if (wolfLobbyId && sessionId) {
-            console.log('[AUTO-JOIN] Connection established, triggering auto-join for lobby:', wolfLobbyId);
-
-            // Use setTimeout to ensure connection is fully established before triggering auto-join
-            setTimeout(async () => {
-              try {
-                // SECURITY: Backend derives Wolf client_id from Wolf API (no frontend parameter)
-                // This prevents manipulation - backend matches by client_unique_id pattern
-                console.log('[AUTO-JOIN] Triggering secure auto-join (backend derives Wolf client_id)');
-
-                const apiClient = helixApi.getApiClient();
-                const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
-
-                if (response.status === 200) {
-                  console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);
-                } else {
-                  console.warn('[AUTO-JOIN] Failed to auto-join lobby. Status:', response.status);
-                }
-              } catch (err: any) {
-                // Log error but don't fail - user can still manually join
-                console.error('[AUTO-JOIN] Error calling auto-join endpoint:', err);
-                console.error('[AUTO-JOIN] User can still manually join lobby via Wolf UI');
-              }
-            }, 1000); // Wait 1 second after connection complete
+            console.log('[AUTO-JOIN] Connection established, waiting for video to start before auto-join');
+            setPendingAutoJoin(true);
           }
         } else if (data.type === 'error') {
           const errorMsg = data.message || 'Stream error';
@@ -534,6 +512,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setIsConnected(false);
     setIsConnecting(false);
     setStatus('Disconnected');
+    setPendingAutoJoin(false); // Reset auto-join state on disconnect
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
@@ -607,6 +586,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       containerRef.current.focus();
     }
   }, [isConnected]);
+
+  // Auto-join lobby after video starts playing (shows zone-plate loading screen briefly)
+  useEffect(() => {
+    if (!pendingAutoJoin || !sessionId) return;
+
+    const doAutoJoin = async () => {
+      try {
+        console.log('[AUTO-JOIN] Triggering secure auto-join (backend derives Wolf client_id)');
+        const apiClient = helixApi.getApiClient();
+        const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
+
+        if (response.status === 200) {
+          console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);
+        } else {
+          console.warn('[AUTO-JOIN] Failed to auto-join lobby. Status:', response.status);
+        }
+      } catch (err: any) {
+        console.error('[AUTO-JOIN] Error calling auto-join endpoint:', err);
+        console.error('[AUTO-JOIN] User can still manually join lobby via Wolf UI');
+      } finally {
+        setPendingAutoJoin(false);
+      }
+    };
+
+    // Auto-join immediately - black screen + silence means no delay needed
+    console.log('[AUTO-JOIN] Triggering auto-join immediately');
+    const timer = setTimeout(doAutoJoin, 0);
+    return () => clearTimeout(timer);
+  }, [pendingAutoJoin, sessionId, streamingMode]);
 
   // Track container size for canvas aspect ratio calculation
   useEffect(() => {
@@ -775,15 +783,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     };
   }, []);
 
-  // Handle video/audio toggle
+  // Handle audio toggle
   useEffect(() => {
     if (videoRef.current) {
       // Mute/unmute video element
       videoRef.current.muted = !audioEnabled;
-
-      // TODO: Signal to Stream instance to stop sending video/audio tracks
     }
-  }, [videoEnabled, audioEnabled]);
+  }, [audioEnabled]);
 
   // Poll WebRTC stats when stats overlay is visible
   useEffect(() => {
@@ -1240,7 +1246,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sx={{
           position: 'absolute',
           top: 8,
-          right: 8,
+          left: '50%',
+          transform: 'translateX(-50%)',
           zIndex: 1000,
           backgroundColor: 'rgba(0,0,0,0.7)',
           borderRadius: 1,
@@ -1248,66 +1255,66 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           gap: 1,
         }}
       >
-        <IconButton
-          size="small"
-          onClick={() => setVideoEnabled(!videoEnabled)}
-          sx={{ color: videoEnabled ? 'white' : 'grey' }}
-          title={videoEnabled ? 'Disable Video' : 'Enable Video'}
-        >
-          {videoEnabled ? <Videocam fontSize="small" /> : <VideocamOff fontSize="small" />}
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() => setAudioEnabled(!audioEnabled)}
-          sx={{ color: audioEnabled ? 'white' : 'grey' }}
-          title={audioEnabled ? 'Mute Audio' : 'Unmute Audio'}
-        >
-          {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={reconnect}
-          sx={{ color: 'white' }}
-          title="Reconnect"
-          disabled={isConnecting}
-        >
-          <Refresh fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() => setShowStats(!showStats)}
-          sx={{ color: showStats ? 'primary.main' : 'white' }}
-          title="Stats for Nerds"
-        >
-          <BarChart fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
-          sx={{ color: showKeyboardPanel ? 'primary.main' : 'white' }}
-          title="Keyboard State Monitor"
-        >
-          <Keyboard fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() => {
-            // Toggle mode - the useEffect below will handle reconnection
-            setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
-          }}
-          sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
-          title={`Transport: ${streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'} - click to switch`}
-        >
-          {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={toggleFullscreen}
-          sx={{ color: 'white' }}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-        >
-          {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
-        </IconButton>
+        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={() => setAudioEnabled(!audioEnabled)}
+            sx={{ color: audioEnabled ? 'white' : 'grey' }}
+          >
+            {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <span>
+            <IconButton
+              size="small"
+              onClick={reconnect}
+              sx={{ color: 'white' }}
+              disabled={isConnecting}
+            >
+              <Refresh fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={() => setShowStats(!showStats)}
+            sx={{ color: showStats ? 'primary.main' : 'white' }}
+          >
+            <BarChart fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
+            sx={{ color: showKeyboardPanel ? 'primary.main' : 'white' }}
+          >
+            <Keyboard fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={() => {
+              // Toggle mode - the useEffect below will handle reconnection
+              setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+            }}
+            sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
+          >
+            {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={toggleFullscreen}
+            sx={{ color: 'white' }}
+          >
+            {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
