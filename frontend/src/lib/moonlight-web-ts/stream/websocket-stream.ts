@@ -122,11 +122,11 @@ export class WebSocketStream {
   private lastFrameTime = 0
   private frameCount = 0
   private currentFps = 0
-  // Video-only bytes (H.264 payload)
-  private videoBytesReceived = 0
-  private lastVideoBytesReceived = 0
-  private currentVideoBitrateMbps = 0
-  // Total WebSocket bytes (video + audio + control)
+  // Video payload bytes (H.264 data only, excluding protocol headers)
+  private videoPayloadBytes = 0
+  private lastVideoPayloadBytes = 0
+  private currentVideoPayloadBitrateMbps = 0
+  // Total WebSocket bytes received (video + audio + control + all headers)
   private totalBytesReceived = 0
   private lastTotalBytesReceived = 0
   private lastBytesTime = 0
@@ -561,15 +561,15 @@ export class WebSocketStream {
       if (this.lastBytesTime > 0) {
         const deltaTime = (now - this.lastBytesTime) / 1000 // seconds
         if (deltaTime > 0) {
-          // Video-only bitrate
-          const deltaVideoBytes = this.videoBytesReceived - this.lastVideoBytesReceived
-          this.currentVideoBitrateMbps = (deltaVideoBytes * 8) / 1000000 / deltaTime
-          // Total WebSocket bitrate (video + audio + control)
+          // Video payload bitrate (H.264 data only, excluding protocol headers)
+          const deltaVideoPayload = this.videoPayloadBytes - this.lastVideoPayloadBytes
+          this.currentVideoPayloadBitrateMbps = (deltaVideoPayload * 8) / 1000000 / deltaTime
+          // Total WebSocket bitrate (everything received: video + audio + control + headers)
           const deltaTotalBytes = this.totalBytesReceived - this.lastTotalBytesReceived
           this.currentTotalBitrateMbps = (deltaTotalBytes * 8) / 1000000 / deltaTime
         }
       }
-      this.lastVideoBytesReceived = this.videoBytesReceived
+      this.lastVideoPayloadBytes = this.videoPayloadBytes
       this.lastTotalBytesReceived = this.totalBytesReceived
       this.lastBytesTime = now
     }
@@ -584,9 +584,6 @@ export class WebSocketStream {
   private lastVideoHeight = 0
 
   private async handleVideoFrame(data: Uint8Array) {
-    // Track video bytes received for bitrate calculation
-    this.videoBytesReceived += data.length
-
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
       return
@@ -606,6 +603,9 @@ export class WebSocketStream {
     // width at offset 11, height at offset 13 (already have from StreamInit)
 
     const frameData = data.slice(15)
+
+    // Track video PAYLOAD bytes only (H.264 data, excluding 15-byte protocol header)
+    this.videoPayloadBytes += frameData.length
 
     // Skip delta frames until we receive the first keyframe
     // (keyframe should contain SPS/PPS needed for decoding)
@@ -873,8 +873,8 @@ export class WebSocketStream {
 
   getStats(): {
     fps: number
-    videoBitrateMbps: number
-    totalBitrateMbps: number
+    videoPayloadBitrateMbps: number  // H.264 data only
+    totalBitrateMbps: number         // Everything over WebSocket
     framesDecoded: number
     framesDropped: number
     width: number
@@ -882,7 +882,7 @@ export class WebSocketStream {
   } {
     return {
       fps: this.currentFps,
-      videoBitrateMbps: this.currentVideoBitrateMbps,
+      videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
       totalBitrateMbps: this.currentTotalBitrateMbps,
       framesDecoded: this.framesDecoded,
       framesDropped: this.framesDropped,
