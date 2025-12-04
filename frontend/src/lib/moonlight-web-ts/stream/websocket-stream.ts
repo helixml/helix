@@ -108,8 +108,15 @@ export class WebSocketStream {
   private streamerSize: [number, number]
   private connected = false
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
+  private maxReconnectAttempts = 10  // Increased from 5 for better reliability
   private reconnectDelay = 1000
+  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private closed = false  // True when explicitly closed (prevents reconnection)
+
+  // Heartbeat for stale connection detection
+  private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
+  private lastMessageTime = 0
+  private heartbeatTimeout = 10000  // 10 seconds without data = stale
 
   // Frame timing
   private lastFrameTime = 0
@@ -200,7 +207,26 @@ export class WebSocketStream {
   }
 
   private connect() {
+    // Don't connect if explicitly closed
+    if (this.closed) {
+      console.log("[WebSocketStream] Not connecting - stream was explicitly closed")
+      return
+    }
+
     this.dispatchInfoEvent({ type: "connecting" })
+
+    // Clean up old WebSocket if it exists
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
+      this.ws = null
+    }
+
+    // Clean up decoders for fresh start
+    this.cleanupDecoders()
 
     // Reset stream state for fresh connection
     this.resetStreamState()
@@ -228,7 +254,11 @@ export class WebSocketStream {
     console.log("[WebSocketStream] Connected")
     this.connected = true
     this.reconnectAttempts = 0
+    this.lastMessageTime = Date.now()
     this.dispatchInfoEvent({ type: "connected" })
+
+    // Start heartbeat monitoring for stale connections
+    this.startHeartbeat()
 
     // Send initialization message
     this.sendInit()
@@ -237,17 +267,39 @@ export class WebSocketStream {
   private onClose(event: CloseEvent) {
     console.log("[WebSocketStream] Disconnected:", event.code, event.reason)
     this.connected = false
+
+    // Stop heartbeat
+    this.stopHeartbeat()
+
     this.dispatchInfoEvent({ type: "disconnected" })
 
-    // Attempt reconnection
+    // Don't reconnect if explicitly closed
+    if (this.closed) {
+      console.log("[WebSocketStream] Not reconnecting - stream was explicitly closed")
+      return
+    }
+
+    // Attempt reconnection with exponential backoff (capped at 10 seconds)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
+      const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 10000)
       this.dispatchInfoEvent({ type: "reconnecting", attempt: this.reconnectAttempts })
 
-      setTimeout(() => {
+      console.log(`[WebSocketStream] Will reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+
+      // Cancel any pending reconnection
+      if (this.reconnectTimeoutId) {
+        clearTimeout(this.reconnectTimeoutId)
+      }
+
+      this.reconnectTimeoutId = setTimeout(() => {
+        this.reconnectTimeoutId = null
         console.log(`[WebSocketStream] Reconnecting (attempt ${this.reconnectAttempts})...`)
         this.connect()
-      }, this.reconnectDelay * this.reconnectAttempts)
+      }, delay)
+    } else {
+      console.error(`[WebSocketStream] Max reconnection attempts (${this.maxReconnectAttempts}) reached, giving up`)
+      this.dispatchInfoEvent({ type: "error", message: "Connection lost - max reconnection attempts reached" })
     }
   }
 
@@ -257,6 +309,9 @@ export class WebSocketStream {
   }
 
   private async onMessage(event: MessageEvent) {
+    // Update heartbeat timestamp on any message
+    this.lastMessageTime = Date.now()
+
     if (!(event.data instanceof ArrayBuffer)) {
       // JSON control message
       try {
@@ -379,6 +434,11 @@ export class WebSocketStream {
       return
     }
 
+    // Store config for potential recovery
+    this.lastVideoCodec = codec
+    this.lastVideoWidth = width
+    this.lastVideoHeight = height
+
     const codecString = codecToWebCodecsString(codec)
     console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
 
@@ -483,6 +543,11 @@ export class WebSocketStream {
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
 
+  // Track last video config for decoder recovery
+  private lastVideoCodec: WsVideoCodecType | null = null
+  private lastVideoWidth = 0
+  private lastVideoHeight = 0
+
   private async handleVideoFrame(data: Uint8Array) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
@@ -525,9 +590,18 @@ export class WebSocketStream {
       this.videoDecoder.decode(chunk)
     } catch (e) {
       console.error("[WebSocketStream] Failed to decode video chunk:", e, "isKeyframe:", isKeyframe)
-      // If decoding fails, reset and wait for next keyframe
+
+      // If decoding fails, reset state and wait for next keyframe
+      this.receivedFirstKeyframe = false
+
       if (isKeyframe) {
-        console.warn("[WebSocketStream] Keyframe decode failed, may need reconfiguration")
+        console.warn("[WebSocketStream] Keyframe decode failed, attempting decoder recovery")
+
+        // Try to reconfigure decoder for recovery
+        if (this.lastVideoCodec !== null && this.lastVideoWidth > 0 && this.lastVideoHeight > 0) {
+          this.initVideoDecoder(this.lastVideoCodec, this.lastVideoWidth, this.lastVideoHeight)
+            .catch(err => console.error("[WebSocketStream] Failed to recover video decoder:", err))
+        }
       }
     }
   }
@@ -581,6 +655,13 @@ export class WebSocketStream {
     if (!this.audioContext) {
       data.close()
       return
+    }
+
+    // Resume AudioContext if suspended (browser autoplay policy)
+    if (this.audioContext.state === "suspended") {
+      this.audioContext.resume().catch(e => {
+        console.warn("[WebSocketStream] Failed to resume AudioContext:", e)
+      })
     }
 
     // Create audio buffer from AudioData
@@ -812,16 +893,12 @@ export class WebSocketStream {
     this.audioPtsBase = 0
   }
 
-  close() {
-    console.log("[WebSocketStream] Closing")
-
-    this.resetStreamState()
-
+  private cleanupDecoders() {
     if (this.videoDecoder) {
       try {
         this.videoDecoder.close()
       } catch (e) {
-        // Ignore
+        // Ignore - decoder may already be closed
       }
       this.videoDecoder = null
     }
@@ -843,11 +920,101 @@ export class WebSocketStream {
       }
       this.audioContext = null
     }
+  }
 
+  private startHeartbeat() {
+    this.stopHeartbeat()
+
+    this.heartbeatIntervalId = setInterval(() => {
+      if (!this.connected) return
+
+      const now = Date.now()
+      const elapsed = now - this.lastMessageTime
+
+      if (elapsed > this.heartbeatTimeout) {
+        console.warn(`[WebSocketStream] Stale connection detected (${elapsed}ms since last message), forcing reconnect`)
+        this.dispatchInfoEvent({ type: "error", message: "Connection stale - no data received" })
+
+        // Force close and trigger reconnection
+        if (this.ws) {
+          try {
+            this.ws.close()
+          } catch (e) {
+            // Ignore
+          }
+        }
+      }
+    }, 5000) // Check every 5 seconds
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatIntervalId) {
+      clearInterval(this.heartbeatIntervalId)
+      this.heartbeatIntervalId = null
+    }
+  }
+
+  /**
+   * Public method to force reconnection
+   * Resets the attempt counter and initiates a fresh connection
+   */
+  reconnect() {
+    console.log("[WebSocketStream] Manual reconnect requested")
+
+    // Reset state for fresh connection
+    this.closed = false
+    this.reconnectAttempts = 0
+
+    // Cancel any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
+    // Close current connection and reconnect
     if (this.ws) {
-      this.maxReconnectAttempts = 0 // Prevent reconnection
-      this.ws.close()
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
+    }
+
+    // Connect immediately
+    this.connect()
+  }
+
+  close() {
+    console.log("[WebSocketStream] Closing")
+
+    // Mark as explicitly closed to prevent reconnection
+    this.closed = true
+
+    // Cancel any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId)
+      this.reconnectTimeoutId = null
+    }
+
+    // Stop heartbeat
+    this.stopHeartbeat()
+
+    // Reset stream state
+    this.resetStreamState()
+
+    // Clean up decoders
+    this.cleanupDecoders()
+
+    // Close WebSocket
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {
+        // Ignore
+      }
       this.ws = null
     }
+
+    this.connected = false
   }
 }
