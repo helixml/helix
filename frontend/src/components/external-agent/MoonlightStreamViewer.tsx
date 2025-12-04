@@ -316,7 +316,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       stream.addInfoListener((event: any) => {
         const data = event.detail;
 
-        if (data.type === 'connectionComplete') {
+        if (data.type === 'connected') {
+          // WebSocket opened - show initializing status (still waiting for connectionComplete)
+          setStatus('Initializing stream...');
+        } else if (data.type === 'streamInit') {
+          // Stream parameters received - decoding about to start
+          setStatus('Starting video decoder...');
+        } else if (data.type === 'connectionComplete') {
           setIsConnected(true);
           setIsConnecting(false);
           setStatus('Streaming active');
@@ -391,6 +397,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           // Permanent error - not AlreadyStreaming
           setError(errorMsg);
+          setIsConnected(false);  // Important: mark as disconnected on error
           setIsConnecting(false);
           retryAttemptRef.current = 0; // Reset retry counter on different error
           setRetryAttemptDisplay(0);
@@ -467,6 +474,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       // Permanent error - not AlreadyStreaming
       setError(errorMsg);
+      setIsConnected(false);  // Important: mark as disconnected on error
       setIsConnecting(false);
       retryAttemptRef.current = 0; // Reset retry counter on different error
       setRetryAttemptDisplay(0);
@@ -1227,7 +1235,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         cursor: 'default',
       }}
     >
-      {/* Toolbar */}
+      {/* Toolbar - always visible so user can reconnect/access controls */}
       <Box
         sx={{
           position: 'absolute',
@@ -1238,8 +1246,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           borderRadius: 1,
           display: 'flex',
           gap: 1,
-          opacity: isConnected ? 1 : 0,
-          transition: 'opacity 0.3s',
         }}
       >
         <IconButton
