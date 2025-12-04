@@ -84,6 +84,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.store.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	suite.store.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
 	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Provider prefix lookup - return not found by default (model namespaces like "meta-llama" are not providers)
+	suite.store.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
@@ -1327,6 +1329,108 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.True(startFound, "start chunk not found")
 	suite.True(stopFound, "stop chunk not found")
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_ProviderPrefix() {
+	// Create a new store mock for this test to override the default AnyTimes mock
+	ctrl := gomock.NewController(suite.T())
+	storeMock := store.NewMockStore(ctrl)
+
+	// Set up the base expectations
+	storeMock.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	storeMock.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storeMock.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storeMock.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	storeMock.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	storeMock.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// First check for system provider fails, then user provider succeeds
+	storeMock.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		Name:      "custom-provider",
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	}).Return(nil, store.ErrNotFound)
+	storeMock.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).Return(&types.ProviderEndpoint{Name: "custom-provider"}, nil)
+
+	// Temporarily replace the store
+	originalStore := suite.server.Store
+	suite.server.Store = storeMock
+	defer func() { suite.server.Store = originalStore }()
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
+		"model": "custom-provider/gpt-4",
+		"stream": false,
+		"messages": [{"role": "user", "content": "hello"}]
+	}`))
+	suite.NoError(err)
+	req = req.WithContext(suite.authCtx)
+	rec := httptest.NewRecorder()
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("gpt-4", req.Model)
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{{Message: oai.ChatCompletionMessage{Content: "hi"}, FinishReason: "stop"}},
+			}, nil
+		})
+
+	suite.server.createChatCompletion(rec, req)
+	suite.Equal(http.StatusOK, rec.Code)
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_ProviderPrefix_SystemProvider() {
+	// Test that system-owned providers (e.g., from DYNAMIC_PROVIDERS env var) work with prefix routing
+	ctrl := gomock.NewController(suite.T())
+	storeMock := store.NewMockStore(ctrl)
+
+	// Set up the base expectations
+	storeMock.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	storeMock.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storeMock.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	storeMock.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	storeMock.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	storeMock.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// System provider lookup succeeds on first try
+	storeMock.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		Name:      "openrouter",
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	}).Return(&types.ProviderEndpoint{
+		Name:      "openrouter",
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	}, nil)
+
+	// Temporarily replace the store
+	originalStore := suite.server.Store
+	suite.server.Store = storeMock
+	defer func() { suite.server.Store = originalStore }()
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
+		"model": "openrouter/x-ai/grok-beta",
+		"stream": false,
+		"messages": [{"role": "user", "content": "hello"}]
+	}`))
+	suite.NoError(err)
+	req = req.WithContext(suite.authCtx)
+	rec := httptest.NewRecorder()
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			// Model should have prefix stripped, preserving nested path
+			suite.Equal("x-ai/grok-beta", req.Model)
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{{Message: oai.ChatCompletionMessage{Content: "hi"}, FinishReason: "stop"}},
+			}, nil
+		})
+
+	suite.server.createChatCompletion(rec, req)
+	suite.Equal(http.StatusOK, rec.Code)
 }
 
 func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {

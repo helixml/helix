@@ -62,6 +62,16 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 	return types.InferenceRuntimeAxolotl
 }
 
+// ParseProviderFromModel extracts a provider prefix from a model name.
+// Format: "provider/model" returns (provider, model)
+// If no prefix, returns ("", modelName)
+func ParseProviderFromModel(modelName string) (provider, model string) {
+	if idx := strings.Index(modelName, "/"); idx > 0 {
+		return modelName[:idx], modelName[idx+1:]
+	}
+	return "", modelName
+}
+
 // this will handle aliases and defaults
 func ProcessModelName(
 	provider string,
