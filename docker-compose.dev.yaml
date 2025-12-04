@@ -240,6 +240,16 @@ services:
         #   - 8108:8108
         volumes:
             - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+    qdrant:
+        image: qdrant/qdrant:v1.16.1
+        restart: always
+        # ports:
+        #   - 6333:6333
+        #   - 6334:6334
+        volumes:
+            - ${QDRANT_DATA:-helix-qdrant-db}:/qdrant/storage
+        environment:
+            - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
     chrome:
         image: ghcr.io/go-rod/rod:v0.115.0
         restart: always
@@ -717,6 +727,7 @@ volumes:
     helix-kodit-data:
     helix-filestore:
     helix-typesense-db:
+    helix-qdrant-db:
     helix-socket:
     wolf-socket:
     wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)

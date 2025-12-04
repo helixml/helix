@@ -46,7 +46,7 @@ Our intelligent GPU scheduler packs models efficiently into available GPU memory
 ### 📚 Knowledge Management
 - **Built-in document ingestion** (PDFs, Word, text files)
 - **Web scraper** for automatic content extraction
-- **Multiple RAG backends**: Typesense, Haystack, PGVector, LlamaIndex
+- **Multiple RAG backends**: Typesense, Qdrant, Haystack, PGVector, LlamaIndex
 - **Vector embeddings** with PGVector for semantic search
 - **Vision RAG support** for multimodal content
 
@@ -103,7 +103,8 @@ HelixML uses a microservices architecture with the following components:
 └────────────────────┘            └────────────────────┘
           │
 ┌─────────▼──────────────────────────────────────────────┐
-│  Supporting Services: Keycloak, Typesense, Haystack,   │
+│  Supporting Services: Keycloak, Typesense, Qdrant,      │
+│  Haystack, GPTScript Runner, Chrome/Rod, Tika, SearXNG │
 │  GPTScript Runner, Chrome/Rod, Tika, SearXNG           │
 └────────────────────────────────────────────────────────┘
 ```
@@ -138,7 +139,7 @@ HelixML uses a microservices architecture with the following components:
 - **Anthropic SDK** - Claude models integration
 - **LangChain Go** - LLM orchestration
 - **GPTScript** - Scripting capabilities
-- **Typesense / Haystack / LlamaIndex** - RAG backends
+- **Typesense / Qdrant / Haystack / LlamaIndex** - RAG backends
 
 ### Infrastructure
 - **Docker & Docker Compose** - Containerization
