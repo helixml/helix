@@ -52,6 +52,70 @@ func TestConvertDocIDsToNumberedCitations(t *testing.T) {
 	}
 }
 
+func TestProcessCitationsForChatWithLinks(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		documentIDs map[string]string
+		linkFormat  LinkFormat
+		expected    string
+	}{
+		{
+			name:        "no document IDs - falls back to no links",
+			input:       "Content [DOC_ID:abc].\n\n<excerpts><excerpt><document_id>abc</document_id><snippet>Snippet text</snippet></excerpt></excerpts>",
+			documentIDs: nil,
+			linkFormat:  LinkFormatMarkdown,
+			expected:    "Content [1].\n\n---\n**Sources:**\n[1] Snippet text\n",
+		},
+		{
+			name:  "with SharePoint URL - markdown format",
+			input: "Content [DOC_ID:abc123].\n\n<excerpts><excerpt><document_id>abc123</document_id><snippet>Emergency procedures</snippet></excerpt></excerpts>",
+			documentIDs: map[string]string{
+				"https://sharepoint.com/docs/emergency.md": "abc123",
+			},
+			linkFormat: LinkFormatMarkdown,
+			expected:   "Content [1].\n\n---\n**Sources:**\n[[1]](https://sharepoint.com/docs/emergency.md) Emergency procedures\n",
+		},
+		{
+			name:  "with SharePoint URL - slack format",
+			input: "Content [DOC_ID:abc123].\n\n<excerpts><excerpt><document_id>abc123</document_id><snippet>Emergency procedures</snippet></excerpt></excerpts>",
+			documentIDs: map[string]string{
+				"https://sharepoint.com/docs/emergency.md": "abc123",
+			},
+			linkFormat: LinkFormatSlack,
+			expected:   "Content [1].\n\n---\n**Sources:**\n<https://sharepoint.com/docs/emergency.md|[1]> Emergency procedures\n",
+		},
+		{
+			name:  "multiple URLs with links",
+			input: "First [DOC_ID:doc1]. Second [DOC_ID:doc2].\n\n<excerpts><excerpt><document_id>doc1</document_id><snippet>First doc</snippet></excerpt><excerpt><document_id>doc2</document_id><snippet>Second doc</snippet></excerpt></excerpts>",
+			documentIDs: map[string]string{
+				"https://sharepoint.com/first.md":  "doc1",
+				"https://sharepoint.com/second.md": "doc2",
+			},
+			linkFormat: LinkFormatMarkdown,
+			expected:   "First [1]. Second [2].\n\n---\n**Sources:**\n[[1]](https://sharepoint.com/first.md) First doc\n[[2]](https://sharepoint.com/second.md) Second doc\n",
+		},
+		{
+			name:  "non-URL path - no link generated",
+			input: "Content [DOC_ID:abc].\n\n<excerpts><excerpt><document_id>abc</document_id><snippet>Local file</snippet></excerpt></excerpts>",
+			documentIDs: map[string]string{
+				"dev/apps/app123/document.pdf": "abc",
+			},
+			linkFormat: LinkFormatMarkdown,
+			expected:   "Content [1].\n\n---\n**Sources:**\n[1] Local file\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessCitationsForChatWithLinks(tt.input, tt.documentIDs, tt.linkFormat)
+			if result != tt.expected {
+				t.Errorf("ProcessCitationsForChatWithLinks() =\n%q\nwant:\n%q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestProcessCitationsForChat(t *testing.T) {
 	tests := []struct {
 		name     string
