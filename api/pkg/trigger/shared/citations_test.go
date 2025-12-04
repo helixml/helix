@@ -64,34 +64,39 @@ func TestProcessCitationsForChat(t *testing.T) {
 			expected: "This is a simple message.",
 		},
 		{
-			name:     "only DOC_ID markers",
+			name:     "only DOC_ID markers without excerpts",
 			input:    "Point one [DOC_ID:abc]. Point two [DOC_ID:def].",
-			expected: "Point one [1]. Point two [2].",
-		},
-		{
-			name:     "excerpts block removed",
-			input:    "Main content here.\n\n<excerpts><excerpt><document_id>abc123</document_id><snippet>Some snippet</snippet></excerpt></excerpts>",
-			expected: "Main content here.",
+			expected: "Point one [1]. Point two [2].\n\n---\n**Sources:**\n[1] Source document\n[2] Source document\n",
 		},
 		{
 			name:     "DOC_ID and excerpts together",
-			input:    "Content with citation [DOC_ID:abc123].\n\n<excerpts><excerpt><document_id>abc123</document_id><snippet>Source text</snippet></excerpt></excerpts>",
-			expected: "Content with citation [1].",
+			input:    "Content with citation [DOC_ID:abc123].\n\n<excerpts><excerpt><document_id>abc123</document_id><snippet>Source text from the document</snippet></excerpt></excerpts>",
+			expected: "Content with citation [1].\n\n---\n**Sources:**\n[1] Source text from the document\n",
 		},
 		{
-			name:     "multiple excerpts removed",
-			input:    "First part [DOC_ID:doc1].\n\n<excerpts><excerpt><document_id>doc1</document_id><snippet>Snippet 1</snippet></excerpt><excerpt><document_id>doc2</document_id><snippet>Snippet 2</snippet></excerpt></excerpts>\n\nSecond part [DOC_ID:doc2].",
-			expected: "First part [1].\n\nSecond part [2].",
+			name:     "multiple citations with excerpts",
+			input:    "First point [DOC_ID:doc1]. Second point [DOC_ID:doc2].\n\n<excerpts><excerpt><document_id>doc1</document_id><snippet>First source snippet</snippet></excerpt><excerpt><document_id>doc2</document_id><snippet>Second source snippet</snippet></excerpt></excerpts>",
+			expected: "First point [1]. Second point [2].\n\n---\n**Sources:**\n[1] First source snippet\n[2] Second source snippet\n",
 		},
 		{
 			name:     "real world Teams example",
-			input:    "The evacuation points are at Stairwell A [DOC_ID:357638e68b]. Immediate evacuation required [DOC_ID:25c1dfb246].\n\n<excerpts><excerpt><document_id>357638e68b</document_id><snippet>Emergency Exit: Stairwell A</snippet></excerpt><excerpt><document_id>25c1dfb246</document_id><snippet>Immediate evacuation is required</snippet></excerpt></excerpts>",
-			expected: "The evacuation points are at Stairwell A [1]. Immediate evacuation required [2].",
+			input:    "The evacuation points are at Stairwell A [DOC_ID:357638e68b]. Immediate evacuation required [DOC_ID:25c1dfb246].\n\n<excerpts><excerpt><document_id>357638e68b</document_id><snippet>Emergency Exit: Stairwell A (North)</snippet></excerpt><excerpt><document_id>25c1dfb246</document_id><snippet>Immediate evacuation is required for all personnel</snippet></excerpt></excerpts>",
+			expected: "The evacuation points are at Stairwell A [1]. Immediate evacuation required [2].\n\n---\n**Sources:**\n[1] Emergency Exit: Stairwell A (North)\n[2] Immediate evacuation is required for all personnel\n",
 		},
 		{
-			name:     "unclosed excerpts tag (streaming)",
+			name:     "long snippet gets truncated",
+			input:    "Citation here [DOC_ID:long].\n\n<excerpts><excerpt><document_id>long</document_id><snippet>This is a very long snippet that exceeds one hundred characters and should be truncated to keep the references section readable</snippet></excerpt></excerpts>",
+			expected: "Citation here [1].\n\n---\n**Sources:**\n[1] This is a very long snippet that exceeds one hundred characters and should be truncated to keep t...\n",
+		},
+		{
+			name:     "unclosed excerpts tag (streaming) - no references added",
 			input:    "Content here [DOC_ID:abc].\n\n<excerpts><excerpt><document_id>abc",
-			expected: "Content here [1].",
+			expected: "Content here [1].\n\n---\n**Sources:**\n[1] Source document\n",
+		},
+		{
+			name:     "repeated citation uses same number",
+			input:    "First mention [DOC_ID:same]. Second mention [DOC_ID:same]. Different [DOC_ID:other].\n\n<excerpts><excerpt><document_id>same</document_id><snippet>Same document</snippet></excerpt><excerpt><document_id>other</document_id><snippet>Other document</snippet></excerpt></excerpts>",
+			expected: "First mention [1]. Second mention [1]. Different [2].\n\n---\n**Sources:**\n[1] Same document\n[2] Other document\n",
 		},
 	}
 
@@ -99,7 +104,7 @@ func TestProcessCitationsForChat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ProcessCitationsForChat(tt.input)
 			if result != tt.expected {
-				t.Errorf("ProcessCitationsForChat() = %q, want %q", result, tt.expected)
+				t.Errorf("ProcessCitationsForChat() =\n%q\nwant:\n%q", result, tt.expected)
 			}
 		})
 	}
