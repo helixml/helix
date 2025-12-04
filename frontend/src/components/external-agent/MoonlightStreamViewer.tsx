@@ -610,9 +610,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
     };
 
-    // Auto-join immediately - black screen + silence means no delay needed
-    console.log('[AUTO-JOIN] Triggering auto-join immediately');
-    const timer = setTimeout(doAutoJoin, 0);
+    // Delay auto-join slightly to allow consumer pipeline to fully initialize
+    // Without this delay, the interpipe switch happens before CUDA context and
+    // caps negotiation are ready, causing "Failed to copy CUDA -> CUDA" errors
+    console.log('[AUTO-JOIN] Delaying auto-join by 500ms for pipeline initialization');
+    const timer = setTimeout(doAutoJoin, 500);
     return () => clearTimeout(timer);
   }, [pendingAutoJoin, sessionId, streamingMode]);
 
