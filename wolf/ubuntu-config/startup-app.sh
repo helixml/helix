@@ -154,6 +154,55 @@ export XMODIFIERS=@im=none
 echo "IBus disabled (using simple input context)"
 
 # ============================================================================
+# Devilspie2 Window Positioning Setup
+# ============================================================================
+# Devilspie2 auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
+# Copy config from /etc/skel to user home (skel only used for new user creation)
+echo "Setting up devilspie2 window positioning..."
+mkdir -p ~/.config/devilspie2
+if [ -f /etc/skel/.config/devilspie2/helix-tiling.lua ]; then
+    cp /etc/skel/.config/devilspie2/helix-tiling.lua ~/.config/devilspie2/
+    echo "✅ Devilspie2 config copied to ~/.config/devilspie2/"
+else
+    echo "⚠️  Devilspie2 config not found at /etc/skel/.config/devilspie2/helix-tiling.lua"
+fi
+
+# ============================================================================
+# XFCE HiDPI Configuration
+# ============================================================================
+# Configure XFCE for 2x HiDPI scaling to match remote streaming resolution
+# This ensures consistent font/UI sizing across all components
+echo "Configuring XFCE HiDPI settings..."
+
+# Create script to apply XFCE settings after desktop starts (needs xfconf-query)
+cat > /tmp/configure-xfce-hidpi.sh <<'XFCE_HIDPI_EOF'
+#!/bin/bash
+# Wait for XFCE to be fully started
+sleep 3
+
+# Set DPI for XFCE (96 * 2 = 192 for 2x scaling)
+xfconf-query -c xsettings -p /Xft/DPI -s 192 2>/dev/null || true
+
+# Set GTK window scaling factor
+xfconf-query -c xsettings -p /Gdk/WindowScalingFactor -s 2 2>/dev/null || true
+
+# Set cursor size for HiDPI
+xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 48 2>/dev/null || true
+
+# Configure panel for HiDPI - set panel height
+xfconf-query -c xfce4-panel -p /panels/panel-1/size -s 48 2>/dev/null || true
+
+# Set Helix wallpaper
+xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -s /usr/share/backgrounds/helix-hero.png 2>/dev/null || true
+
+echo "✅ XFCE HiDPI settings applied"
+XFCE_HIDPI_EOF
+
+sudo mv /tmp/configure-xfce-hidpi.sh /usr/local/bin/configure-xfce-hidpi.sh
+sudo chmod +x /usr/local/bin/configure-xfce-hidpi.sh
+echo "✅ XFCE HiDPI configuration script created"
+
+# ============================================================================
 # XFCE Autostart Entries Configuration
 # ============================================================================
 # Create XFCE autostart directory
@@ -207,6 +256,33 @@ Icon=zed
 EOF
 
 echo "Zed autostart entry created"
+
+# Create autostart entry for devilspie2 window positioning
+# Devilspie2 watches for new windows and positions them in 3 columns
+cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Devilspie2 Window Manager
+Exec=devilspie2
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
+echo "✅ devilspie2 autostart entry created"
+
+# Create autostart entry for XFCE HiDPI configuration
+cat > ~/.config/autostart/xfce-hidpi.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=XFCE HiDPI Configuration
+Exec=/usr/local/bin/configure-xfce-hidpi.sh
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
+echo "✅ XFCE HiDPI autostart entry created"
 
 # ============================================================================
 # XFCE Session Startup via GOW xorg.sh

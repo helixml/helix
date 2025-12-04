@@ -187,6 +187,58 @@ export XMODIFIERS=@im=none
 echo "✅ IBus disabled (using simple input context)"
 
 # ============================================================================
+# Window Management (devilspie2 + wmctrl)
+# ============================================================================
+# devilspie2 daemon watches for new windows and applies geometry rules
+# This positions Firefox (launched by startup script via xdg-open) in the right third
+# wmctrl is used by position-windows.sh to tile Terminal and Zed
+
+mkdir -p ~/.config/devilspie2
+
+# Firefox window rule - position in right third of screen
+# Screen: 1920x1080 effective (4K @ 200% scaling)
+cat > ~/.config/devilspie2/firefox.lua << 'DEVILSPIE_EOF'
+-- Position Firefox windows in right third of screen
+-- Right third: x=1280, width=640, full height
+if (get_application_name() == "Firefox" or get_class_instance_name() == "firefox") then
+    set_window_geometry(1280, 0, 640, 1080)
+end
+DEVILSPIE_EOF
+
+echo "✅ devilspie2 Firefox rule created"
+
+# Create window positioning script (positions Terminal and Zed after they launch)
+cat > /tmp/position-windows.sh << 'POSITION_EOF'
+#!/bin/bash
+# Tile windows in thirds after they appear
+# Screen: 1920x1080 effective (4K @ 200% scaling)
+# Left third (0-639): Terminal
+# Middle third (640-1279): Zed
+# Right third (1280-1919): Firefox (handled by devilspie2)
+
+sleep 8  # Wait for Zed and Terminal to launch
+
+# Position Terminal (gnome-terminal) - left third
+TERMINAL_WID=$(wmctrl -l | grep -i "terminal\|startup" | head -1 | awk '{print $1}')
+if [ -n "$TERMINAL_WID" ]; then
+    wmctrl -i -r "$TERMINAL_WID" -e 0,0,0,640,1080
+    echo "Positioned terminal: $TERMINAL_WID"
+fi
+
+# Position Zed - middle third
+ZED_WID=$(wmctrl -l | grep -i "zed" | head -1 | awk '{print $1}')
+if [ -n "$ZED_WID" ]; then
+    wmctrl -i -r "$ZED_WID" -e 0,640,0,640,1080
+    echo "Positioned Zed: $ZED_WID"
+fi
+
+echo "Window positioning complete"
+POSITION_EOF
+
+chmod +x /tmp/position-windows.sh
+echo "✅ Window positioning script created"
+
+# ============================================================================
 # GNOME Autostart Entries Configuration
 # ============================================================================
 # Create GNOME autostart directory
@@ -257,6 +309,32 @@ EOF
 
 echo "✅ screenshot-server autostart entry created"
 
+# Autostart devilspie2 (window rule daemon - must start early, before Firefox)
+cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Devilspie2 Window Rules
+Exec=devilspie2
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+
+echo "✅ devilspie2 autostart entry created"
+
+# Autostart window positioning (runs after Zed and Terminal have launched)
+cat > ~/.config/autostart/position-windows.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Position Windows
+Exec=/tmp/position-windows.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=12
+NoDisplay=true
+EOF
+
+echo "✅ Window positioning autostart entry created"
+
 # Create autostart entry for settings-sync-daemon
 # Pass environment variables via script wrapper
 cat > /tmp/start-settings-sync-daemon.sh <<EOF
@@ -292,18 +370,10 @@ EOF
 
 echo "✅ Zed autostart entry created"
 
-# Create autostart entry for Firefox browser (launches after desktop is ready)
-cat > ~/.config/autostart/firefox-helix.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Firefox Browser
-Exec=firefox
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=8
-NoDisplay=true
-EOF
-
-echo "✅ Firefox autostart entry created"
+# NOTE: Firefox is NOT auto-started here - the project's startup script
+# (from .helix/startup.sh in the cloned repo) handles opening Firefox
+# with the correct app URL via xdg-open. Adding Firefox autostart here
+# would create duplicate windows.
 
 # ============================================================================
 # GNOME Session Startup via GOW xorg.sh

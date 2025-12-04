@@ -101,6 +101,14 @@ RUN apt-get update && apt-get install -y \
     git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Install window management tools for tiling (Terminal, Zed, Firefox in thirds)
+# - wmctrl: Position windows by ID
+# - xdotool: Search and manipulate windows
+# - devilspie2: Daemon that applies geometry rules to new windows
+RUN apt-get update && apt-get install -y \
+    wmctrl xdotool devilspie2 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy settings-sync-daemon, screenshot-server, and revdial-client binaries from Go build stage
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
