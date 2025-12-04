@@ -564,6 +564,7 @@ func (r *Reconciler) extractDataFromSharePoint(ctx context.Context, k *types.Kno
 				"size":          downloadedFile.Size,
 				"last_modified": downloadedFile.LastModified,
 				"source":        "sharepoint",
+				"source_url":    downloadedFile.WebURL,
 			},
 		})
 	}
