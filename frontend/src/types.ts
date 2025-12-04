@@ -771,6 +771,14 @@ export interface IKnowledgeSource {
       };
     };
     text?: string;
+    sharepoint?: {
+      site_id: string;
+      drive_id?: string;
+      folder_path?: string;
+      oauth_provider_id: string;
+      filter_extensions?: string[];
+      recursive: boolean;
+    };
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;

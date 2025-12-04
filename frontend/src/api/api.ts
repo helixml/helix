@@ -929,6 +929,19 @@ export interface ServerWolfSystemMemory {
   total_memory_bytes?: number;
 }
 
+/** SharePoint site URL resolution request */
+export interface ServerSharePointSiteResolveRequest {
+  site_url?: string;
+  provider_id?: string;
+}
+
+/** SharePoint site URL resolution response */
+export interface ServerSharePointSiteResolveResponse {
+  site_id?: string;
+  display_name?: string;
+  web_url?: string;
+}
+
 export interface ServicesCoordinationEvent {
   acknowledged?: boolean;
   acknowledged_at?: string;
@@ -7327,6 +7340,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/oauth/connections/${id}/refresh`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Resolve a SharePoint site URL to its site ID using Microsoft Graph API
+     *
+     * @tags oauth
+     * @name V1OauthSharepointResolveSiteCreate
+     * @summary Resolve SharePoint site URL to site ID
+     * @request POST:/api/v1/oauth/sharepoint/resolve-site
+     * @secure
+     */
+    v1OauthSharepointResolveSiteCreate: (request: ServerSharePointSiteResolveRequest, params: RequestParams = {}) =>
+      this.request<ServerSharePointSiteResolveResponse, any>({
+        path: `/api/v1/oauth/sharepoint/resolve-site`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
