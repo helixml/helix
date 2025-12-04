@@ -90,6 +90,13 @@ RUN apt-get update && apt-get install -y \
     xfce4-terminal \
     && rm -rf /var/lib/apt/lists/*
 
+# Install devilspie2 for window positioning rules
+# This allows us to automatically position windows (Firefox, Zed, Terminal) in columns
+# like Sway's tiling, but in a floating window manager
+RUN apt-get update && apt-get install -y \
+    devilspie2 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy settings-sync-daemon, screenshot-server, and revdial-client binaries from Go build stage
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
@@ -118,3 +125,8 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 # Copy Helix background image for desktop wallpaper
 RUN mkdir -p /usr/share/backgrounds
 COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
+
+# Copy devilspie2 window positioning config
+# This script auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
+RUN mkdir -p /etc/skel/.config/devilspie2
+COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua

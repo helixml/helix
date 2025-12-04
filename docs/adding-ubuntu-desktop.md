@@ -4,6 +4,14 @@ This guide documents how to add a new desktop environment to the Helix Code sand
 
 ---
 
+## Debugging failed containers
+
+Sometimes we will try to launch desktop containers inside the sandbox and they will fail. The following is how to get inside to the sandbox container to be able to see containers as they start to be able to then extract their ID and then hopefully get their logs.
+
+```
+docker exec $(docker ps -a | grep helix-sandbox:latest | awk '{print $1}') docker ps -a
+```
+
 ## Architecture Overview
 
 ```
