@@ -10,11 +10,14 @@ import {
   VolumeOff,
   BarChart,
   Keyboard,
+  Wifi,
+  SignalCellularAlt,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
-import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
+import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
+import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
@@ -64,8 +67,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<any>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance from moonlight-web
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
@@ -93,6 +97,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [showStats, setShowStats] = useState(false);
   const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
   const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
+  const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
+  const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -226,13 +233,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Create Stream instance with mode-aware parameters
       console.log('[MoonlightStreamViewer] Creating Stream instance', {
         mode: moonlightWebMode,
+        streamingMode,
         hostId,
         actualAppId,
         sessionId,
       });
 
-      let stream;
-      if (moonlightWebMode === 'multi') {
+      let stream: Stream | WebSocketStream;
+
+      // Check if using WebSocket-only mode
+      if (streamingMode === 'websocket') {
+        // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
+        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode');
+        stream = new WebSocketStream(
+          api,
+          hostId,
+          actualAppId,
+          settings,
+          supportedFormats,
+          [width, height],
+          sessionId
+        );
+
+        // Set canvas for WebSocket stream rendering
+        if (canvasRef.current) {
+          stream.setCanvas(canvasRef.current);
+        }
+      } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
         // Connect to persistent streamer via peer endpoint
         // Include instance ID for multi-tab support
@@ -375,11 +402,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setIsConnected(false);
         } else if (data.type === 'stageStarting') {
           setStatus(data.stage);
+        } else if (data.type === 'disconnected') {
+          // WebSocket disconnected - show reconnecting status
+          console.log('[MoonlightStreamViewer] Stream disconnected');
+          setIsConnected(false);
+          setStatus('Disconnected - reconnecting...');
+          onConnectionChange?.(false);
+        } else if (data.type === 'reconnecting') {
+          // Show reconnection attempt in status
+          console.log(`[MoonlightStreamViewer] Reconnecting attempt ${data.attempt}`);
+          setIsConnecting(true);
+          setStatus(`Reconnecting (attempt ${data.attempt})...`);
         }
       });
 
-      // Attach media stream to video element
-      if (videoRef.current) {
+      // Attach media stream to video element (WebRTC mode only)
+      // WebSocket mode renders directly to canvas via WebCodecs
+      if (streamingMode === 'webrtc' && videoRef.current && stream instanceof Stream) {
         videoRef.current.srcObject = stream.getMediaStream();
         videoRef.current.play().catch((err) => {
           console.warn('Autoplay blocked, user interaction required:', err);
@@ -433,7 +472,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated]);
 
   // Disconnect
   const disconnect = useCallback(() => {
@@ -442,26 +481,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        console.log('[MoonlightStreamViewer] Closing WebSocket and RTCPeerConnection...');
+        // Check if it's a WebSocketStream (has close() method)
+        if (streamRef.current instanceof WebSocketStream) {
+          console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
+          streamRef.current.close();
+        } else {
+          // WebRTC Stream - close WebSocket and RTCPeerConnection
+          console.log('[MoonlightStreamViewer] Closing WebSocket and RTCPeerConnection...');
 
-        // Close WebSocket connection if it exists
-        if (streamRef.current.ws) {
-          console.log('[MoonlightStreamViewer] Closing WebSocket, readyState:', streamRef.current.ws.readyState);
-          streamRef.current.ws.close();
-        }
+          // Close WebSocket connection if it exists
+          if ((streamRef.current as any).ws) {
+            console.log('[MoonlightStreamViewer] Closing WebSocket, readyState:', (streamRef.current as any).ws.readyState);
+            (streamRef.current as any).ws.close();
+          }
 
-        // Close RTCPeerConnection if it exists
-        if (streamRef.current.peer) {
-          console.log('[MoonlightStreamViewer] Closing RTCPeerConnection');
-          streamRef.current.peer.close();
-        }
+          // Close RTCPeerConnection if it exists
+          if ((streamRef.current as any).peer) {
+            console.log('[MoonlightStreamViewer] Closing RTCPeerConnection');
+            (streamRef.current as any).peer.close();
+          }
 
-        // Stop all media stream tracks
-        const mediaStream = streamRef.current.getMediaStream();
-        if (mediaStream) {
-          const tracks = mediaStream.getTracks();
-          console.log('[MoonlightStreamViewer] Stopping', tracks.length, 'media tracks');
-          tracks.forEach((track: MediaStreamTrack) => track.stop());
+          // Stop all media stream tracks
+          const mediaStream = (streamRef.current as Stream).getMediaStream();
+          if (mediaStream) {
+            const tracks = mediaStream.getTracks();
+            console.log('[MoonlightStreamViewer] Stopping', tracks.length, 'media tracks');
+            tracks.forEach((track: MediaStreamTrack) => track.stop());
+          }
         }
       } catch (err) {
         console.warn('[MoonlightStreamViewer] Error during stream cleanup:', err);
@@ -510,6 +556,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Track previous streaming mode for reconnection
+  const previousStreamingModeRef = useRef<StreamingMode>(streamingMode);
+
+  // Reconnect when streaming mode changes (user toggled the transport)
+  useEffect(() => {
+    if (previousStreamingModeRef.current !== streamingMode) {
+      console.log('[MoonlightStreamViewer] Streaming mode changed from', previousStreamingModeRef.current, 'to', streamingMode);
+      previousStreamingModeRef.current = streamingMode;
+      reconnect();
+    }
+  }, [streamingMode, reconnect]);
+
   // Detect lobby changes and reconnect (for test script restart scenarios)
   useEffect(() => {
     if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
@@ -541,6 +599,89 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       containerRef.current.focus();
     }
   }, [isConnected]);
+
+  // Track container size for canvas aspect ratio calculation
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerSize({ width, height });
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Calculate proper canvas display size to maintain aspect ratio
+  useEffect(() => {
+    if (!containerSize || !canvasRef.current) return;
+
+    // Get the actual canvas internal dimensions (set by WebCodecs when frames are rendered)
+    const canvas = canvasRef.current;
+    const canvasWidth = canvas.width || 1920;  // Default to 1080p if not yet set
+    const canvasHeight = canvas.height || 1080;
+
+    if (canvasWidth === 0 || canvasHeight === 0) return;
+
+    const containerWidth = containerSize.width;
+    const containerHeight = containerSize.height;
+
+    const canvasAspect = canvasWidth / canvasHeight;
+    const containerAspect = containerWidth / containerHeight;
+
+    let displayWidth: number;
+    let displayHeight: number;
+
+    if (containerAspect > canvasAspect) {
+      // Container is wider than canvas aspect - height is the limiting factor
+      displayHeight = containerHeight;
+      displayWidth = displayHeight * canvasAspect;
+    } else {
+      // Container is taller than canvas aspect - width is the limiting factor
+      displayWidth = containerWidth;
+      displayHeight = displayWidth / canvasAspect;
+    }
+
+    setCanvasDisplaySize({ width: displayWidth, height: displayHeight });
+  }, [containerSize]);
+
+  // Update canvas display size when canvas dimensions change (after first frame is rendered)
+  useEffect(() => {
+    if (!containerSize || !canvasRef.current || streamingMode !== 'websocket') return;
+
+    const checkCanvasDimensions = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+
+      const containerWidth = containerSize.width;
+      const containerHeight = containerSize.height;
+      const canvasAspect = canvas.width / canvas.height;
+      const containerAspect = containerWidth / containerHeight;
+
+      let displayWidth: number;
+      let displayHeight: number;
+
+      if (containerAspect > canvasAspect) {
+        displayHeight = containerHeight;
+        displayWidth = displayHeight * canvasAspect;
+      } else {
+        displayWidth = containerWidth;
+        displayHeight = displayWidth / canvasAspect;
+      }
+
+      setCanvasDisplaySize({ width: displayWidth, height: displayHeight });
+    };
+
+    // Check periodically until canvas has dimensions
+    const interval = setInterval(checkCanvasDimensions, 100);
+    checkCanvasDimensions();
+
+    return () => clearInterval(interval);
+  }, [containerSize, streamingMode, isConnected]);
 
   // Auto-sync clipboard from remote → local every 2 seconds
   useEffect(() => {
@@ -642,8 +783,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
+    // WebSocket mode - poll stats from WebSocketStream
+    if (streamingMode === 'websocket') {
+      const pollWsStats = () => {
+        const wsStream = streamRef.current as WebSocketStream | null;
+        if (!wsStream) return;
+
+        const wsStats = wsStream.getStats();
+        setStats({
+          video: {
+            codec: 'H264 (WebSocket)',
+            width: wsStats.width,
+            height: wsStats.height,
+            fps: wsStats.fps,
+            videoBitrate: wsStats.videoBitrateMbps.toFixed(2),
+            totalBitrate: wsStats.totalBitrateMbps.toFixed(2),
+            framesDecoded: wsStats.framesDecoded,
+            framesDropped: wsStats.framesDropped,
+          },
+          connection: {
+            transport: 'WebSocket (L7)',
+          },
+          timestamp: new Date().toISOString(),
+        });
+      };
+
+      // Poll every second
+      const interval = setInterval(pollWsStats, 1000);
+      pollWsStats(); // Initial call
+
+      return () => clearInterval(interval);
+    }
+
     const pollStats = async () => {
-      const peer = streamRef.current?.getPeer?.();
+      const peer = (streamRef.current as any)?.getPeer?.();
       if (!peer) {
         console.warn('[Stats] getPeer not available yet');
         return;
@@ -718,18 +891,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats]);
+  }, [showStats, streamingMode, width, height]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
-    if (!videoRef.current || !streamRef.current) {
+    // Use canvas for WebSocket mode, video for WebRTC mode
+    const element = streamingMode === 'websocket' ? canvasRef.current : videoRef.current;
+    if (!element || !streamRef.current) {
       return new DOMRect(0, 0, width, height);
     }
 
+    const boundingRect = element.getBoundingClientRect();
+
+    // For WebSocket mode: canvas is already sized to maintain aspect ratio,
+    // so bounding rect IS the video content area (no letterboxing)
+    if (streamingMode === 'websocket') {
+      return new DOMRect(
+        boundingRect.x,
+        boundingRect.y,
+        boundingRect.width,
+        boundingRect.height
+      );
+    }
+
+    // For WebRTC mode: video element uses objectFit: contain, so we need to
+    // calculate where the actual video content appears within the element
     const videoSize = streamRef.current.getStreamerSize() || [width, height];
     const videoAspect = videoSize[0] / videoSize[1];
-
-    const boundingRect = videoRef.current.getBoundingClientRect();
     const boundingRectAspect = boundingRect.width / boundingRect.height;
 
     let x = boundingRect.x;
@@ -754,7 +942,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       videoSize[0] * videoMultiplier,
       videoSize[1] * videoMultiplier
     );
-  }, [width, height]);
+  }, [width, height, streamingMode]);
 
   // Input event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
@@ -1097,6 +1285,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </IconButton>
         <IconButton
           size="small"
+          onClick={() => {
+            // Toggle mode - the useEffect below will handle reconnection
+            setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+          }}
+          sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
+          title={`Transport: ${streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'} - click to switch`}
+        >
+          {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
+        </IconButton>
+        <IconButton
+          size="small"
           onClick={toggleFullscreen}
           sx={{ color: 'white' }}
           title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -1183,7 +1382,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Video Element */}
+      {/* Video Element (WebRTC mode) */}
       <video
         ref={videoRef}
         autoPlay
@@ -1199,12 +1398,42 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           objectFit: 'contain',
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
+          display: streamingMode === 'webrtc' ? 'block' : 'none',
         }}
         onClick={() => {
           // Unmute on first interaction (browser autoplay policy)
           if (videoRef.current) {
             videoRef.current.muted = false;
           }
+          // Focus container for keyboard input
+          if (containerRef.current) {
+            containerRef.current.focus();
+          }
+        }}
+      />
+
+      {/* Canvas Element (WebSocket mode) - centered with proper aspect ratio */}
+      <canvas
+        ref={canvasRef}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseMove={handleMouseMove}
+        onContextMenu={handleContextMenu}
+        style={{
+          // Use calculated dimensions to maintain aspect ratio
+          // Canvas doesn't support objectFit like video, so we calculate size manually
+          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
+          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+          // Center the canvas within the container
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: '#000',
+          cursor: 'none', // Hide default cursor to prevent double cursor effect
+          display: streamingMode === 'websocket' ? 'block' : 'none',
+        }}
+        onClick={() => {
           // Focus container for keyboard input
           if (containerRef.current) {
             containerRef.current.focus();
@@ -1257,23 +1486,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </Typography>
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
+            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'}</div>
             {stats.video.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                {streamingMode === 'websocket' ? (
+                  <>
+                    <div><strong>Video:</strong> {stats.video.videoBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                    <div><strong>Total:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>
+                      {parseFloat(stats.video.videoBitrate) > 0
+                        ? `(${((parseFloat(stats.video.totalBitrate) / parseFloat(stats.video.videoBitrate) - 1) * 100).toFixed(1)}% overhead)`
+                        : ''}
+                    </span></div>
+                  </>
+                ) : (
+                  <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
+                )}
                 <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
                 <div>
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
-                <div>
-                  <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
-                  {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
-                </div>
-                <div><strong>Jitter:</strong> {stats.video.jitter} ms</div>
-                {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt} ms</div>}
+                {/* WebRTC-only stats - not available in WebSocket mode */}
+                {streamingMode === 'webrtc' && (
+                  <>
+                    <div>
+                      <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
+                      {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
+                    </div>
+                    <div><strong>Jitter:</strong> {stats.video.jitter} ms</div>
+                    {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt} ms</div>}
+                  </>
+                )}
               </>
             )}
             {!stats.video.codec && <div>Waiting for video data...</div>}

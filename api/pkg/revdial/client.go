@@ -112,7 +112,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 	wsDialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // TODO: make configurable via c.config.InsecureSkipVerify
+			InsecureSkipVerify: c.config.InsecureSkipVerify,
 		},
 	}
 
@@ -130,10 +130,30 @@ func (c *Client) runConnection(ctx context.Context) error {
 		return fmt.Errorf("failed to connect control WebSocket: %w", err)
 	}
 
+	log.Info().Msg("✅ RevDial control connection established (WebSocket)")
+
+	// Start ping keepalive goroutine to keep connection alive through proxies/load balancers
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := controlWS.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to send WebSocket ping, closing connection")
+					controlWS.Close()
+					return
+				}
+				log.Debug().Msg("Sent WebSocket ping keepalive")
+			}
+		}
+	}()
+
 	// Wrap WebSocket as net.Conn for the Listener
 	controlConn := wsconnadapter.New(controlWS)
-
-	log.Info().Msg("✅ RevDial control connection established (WebSocket)")
 
 	// Create listener with the WebSocket-wrapped control connection
 	listener := NewListener(controlConn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
