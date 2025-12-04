@@ -1581,49 +1581,63 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 			}
 
 			if key != "" {
-				// Handle app session path prefix
-				if session.ParentApp != "" {
-					// For app sessions, we need the full filestore path for the document
-					// Check if we already have a full path
-					if !strings.HasPrefix(key, c.Options.Config.Controller.FilePrefixGlobal) &&
-						!strings.HasPrefix(key, "apps/") {
-						// Construct the full path using app prefix
-						appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, session.ParentApp)
+				// Check if the key is an external URL (e.g., SharePoint, web sources)
+				// External URLs should be stored directly without path manipulation
+				isExternalURL := strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://")
 
-						// First check if the source already has a path structure (could be from a knowledge path)
-						// If it's a simple filename, join it with the app prefix
-						// If it already has path components, preserve them
-						var fullPath string
-						if strings.Contains(key, "/") {
-							// This already has a path structure, so keep it intact under the app prefix
-							fullPath = filepath.Join(appPrefix, key)
-						} else {
-							// Simple filename, put it directly in the app prefix
-							fullPath = filepath.Join(appPrefix, key)
-						}
-
-						log.Debug().
-							Str("session_id", session.ID).
-							Str("app_id", session.ParentApp).
-							Str("original_key", key).
-							Str("full_path", fullPath).
-							Msg("constructing full filestore path for app document ID")
-						key = fullPath
-					}
-				}
-
-				// If the result has metadata with source_url, also store it directly
-				if result.Metadata != nil && result.Metadata["source_url"] != "" {
-					// Use the source_url as a key directly to allow frontend to find it
+				if isExternalURL {
+					// Store external URLs directly - they're clickable links, not filestore paths
 					log.Debug().
 						Str("session_id", session.ID).
 						Str("document_id", result.DocumentID).
-						Str("source_url", result.Metadata["source_url"]).
-						Msg("adding source_url mapping for document ID")
-					session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
-				} else {
-					// Store the document ID mapping
+						Str("external_url", key).
+						Msg("storing external URL directly as document ID key")
 					session.Metadata.DocumentIDs[key] = result.DocumentID
+				} else {
+					// Handle app session path prefix for filestore paths
+					if session.ParentApp != "" {
+						// For app sessions, we need the full filestore path for the document
+						// Check if we already have a full path
+						if !strings.HasPrefix(key, c.Options.Config.Controller.FilePrefixGlobal) &&
+							!strings.HasPrefix(key, "apps/") {
+							// Construct the full path using app prefix
+							appPrefix := filestore.GetAppPrefix(c.Options.Config.Controller.FilePrefixGlobal, session.ParentApp)
+
+							// First check if the source already has a path structure (could be from a knowledge path)
+							// If it's a simple filename, join it with the app prefix
+							// If it already has path components, preserve them
+							var fullPath string
+							if strings.Contains(key, "/") {
+								// This already has a path structure, so keep it intact under the app prefix
+								fullPath = filepath.Join(appPrefix, key)
+							} else {
+								// Simple filename, put it directly in the app prefix
+								fullPath = filepath.Join(appPrefix, key)
+							}
+
+							log.Debug().
+								Str("session_id", session.ID).
+								Str("app_id", session.ParentApp).
+								Str("original_key", key).
+								Str("full_path", fullPath).
+								Msg("constructing full filestore path for app document ID")
+							key = fullPath
+						}
+					}
+
+					// If the result has metadata with source_url, also store it directly
+					if result.Metadata != nil && result.Metadata["source_url"] != "" {
+						// Use the source_url as a key directly to allow frontend to find it
+						log.Debug().
+							Str("session_id", session.ID).
+							Str("document_id", result.DocumentID).
+							Str("source_url", result.Metadata["source_url"]).
+							Msg("adding source_url mapping for document ID")
+						session.Metadata.DocumentIDs[result.Metadata["source_url"]] = result.DocumentID
+					} else {
+						// Store the document ID mapping
+						session.Metadata.DocumentIDs[key] = result.DocumentID
+					}
 				}
 			}
 		}

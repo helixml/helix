@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -19,11 +20,12 @@ import (
 )
 
 var (
-	apiURL       = flag.String("api-url", "", "Control plane API URL (e.g., http://api.example.com:8080)")
-	wolfID       = flag.String("wolf-id", "", "Unique Wolf instance ID")
-	runnerToken  = flag.String("token", "", "Runner authentication token")
-	localAddr    = flag.String("local", "localhost:8080", "Local Wolf API address")
-	reconnectSec = flag.Int("reconnect", 5, "Reconnect interval in seconds if connection drops")
+	apiURL             = flag.String("api-url", "", "Control plane API URL (e.g., http://api.example.com:8080)")
+	wolfID             = flag.String("wolf-id", "", "Unique Wolf instance ID")
+	runnerToken        = flag.String("token", "", "Runner authentication token")
+	localAddr          = flag.String("local", "localhost:8080", "Local Wolf API address")
+	reconnectSec       = flag.Int("reconnect", 5, "Reconnect interval in seconds if connection drops")
+	insecureSkipVerify = flag.Bool("insecure", false, "Skip TLS certificate verification (env: HELIX_INSECURE_TLS)")
 )
 
 func main() {
@@ -108,6 +110,9 @@ func runRevDialClient(ctx context.Context) error {
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // TODO: make configurable
+		},
 	}
 
 	wsConn, resp, err := dialer.Dial(dialURL, header)
@@ -121,13 +126,39 @@ func runRevDialClient(ctx context.Context) error {
 
 	log.Printf("✅ Connected to control plane via RevDial")
 
+	// Start ping keepalive goroutine to keep connection alive through proxies/load balancers
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := wsConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				if err != nil {
+					log.Printf("Failed to send WebSocket ping, closing connection: %v", err)
+					wsConn.Close()
+					return
+				}
+				log.Printf("Sent WebSocket ping keepalive")
+			}
+		}
+	}()
+
 	// Upgrade websocket to net.Conn
 	conn := &wsConnAdapter{wsConn}
+
+	// Determine WebSocket scheme for data connections
+	wsScheme := "ws://"
+	if strings.HasPrefix(*apiURL, "https://") || strings.HasPrefix(*apiURL, "wss://") {
+		wsScheme = "wss://"
+	}
 
 	// Create RevDial listener (reverse proxy)
 	listener := revdial.NewListener(conn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
 		// Dial back to server for data connections
-		dataURL := "ws://" + extractHost(*apiURL) + path
+		dataURL := wsScheme + extractHost(*apiURL) + path
 		header := http.Header{}
 		header.Set("Authorization", "Bearer "+*runnerToken)
 

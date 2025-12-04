@@ -233,7 +233,17 @@ export const useKnowledge = ({
         }
         return;
       }
-      
+
+      // For SharePoint knowledge, we need site_id and oauth_provider_id
+      if (source.source.sharepoint) {
+        if (!source.source.sharepoint.site_id) {
+          newErrors[`${index}`] = ["A SharePoint Site ID must be specified."];
+        } else if (!source.source.sharepoint.oauth_provider_id) {
+          newErrors[`${index}`] = ["An OAuth provider must be selected for SharePoint."];
+        }
+        return;
+      }
+
       // If none of the above types are specified
       newErrors[`${index}`] = ["Knowledge source type is not properly configured."];
     });

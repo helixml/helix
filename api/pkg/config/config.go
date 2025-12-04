@@ -576,4 +576,9 @@ type ExternalAgents struct {
 	// MaxConcurrentLobbies is the maximum number of Wolf lobbies that can be created concurrently.
 	// Each lobby uses GPU resources (VRAM for video encoding).
 	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent Wolf lobbies (GPU streaming sessions)."`
+
+	// Qwen Code configuration (passed to sway containers)
+	QwenBaseURL string `envconfig:"QWEN_BASE_URL" description:"OpenAI-compatible API endpoint for Qwen Code (default: SERVER_URL/v1)"`
+	QwenModel   string `envconfig:"QWEN_MODEL" default:"qwen-oss:120b" description:"Model name for Qwen Code"`
+	QwenAPIKey  string `envconfig:"QWEN_API_KEY" description:"API key for Qwen Code (default: user's Helix API token)"`
 }
