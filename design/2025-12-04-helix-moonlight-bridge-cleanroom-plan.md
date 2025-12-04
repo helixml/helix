@@ -10,10 +10,10 @@
 
 ### Overall Status
 - [x] Phase 1: Project Setup & NVHTTP Client (skeleton)
-- [ ] Phase 2: RTSP Session Client
-- [ ] Phase 3: Media Streams (RTP/Decryption)
-- [ ] Phase 4: Control Stream (Input)
-- [ ] Phase 5: WebSocket Bridge (complete)
+- [x] Phase 2: RTSP Session Client (skeleton)
+- [x] Phase 3: Media Streams (RTP/Decryption) (skeleton)
+- [x] Phase 4: Control Stream (Input) (skeleton)
+- [x] Phase 5: WebSocket Bridge (skeleton)
 - [ ] Phase 6: Integration & Testing
 
 ### Detailed Progress
@@ -31,40 +31,38 @@
 - [x] Session handling skeleton
 - [x] Initial commit
 
-#### Phase 2: RTSP Session Client 🔄 IN PROGRESS
-- [ ] Research: Capture real RTSP traffic with Wireshark
-- [ ] Add gortsplib dependency
-- [ ] Implement RTSP client wrapper
-- [ ] ANNOUNCE request for launching app
-- [ ] DESCRIBE request to get SDP
-- [ ] Parse SDP for codec info and encryption keys
-- [ ] SETUP request for video track
-- [ ] SETUP request for audio track
-- [ ] PLAY request to start streaming
-- [ ] TEARDOWN for cleanup
+#### Phase 2: RTSP Session Client ✅ SKELETON COMPLETE
+- [x] Research: Protocol documented from public sources
+- [x] Implement custom RTSP client (simpler than gortsplib for our use)
+- [x] OPTIONS request
+- [x] ANNOUNCE request with SDP body
+- [x] DESCRIBE request to get SDP
+- [x] Parse SDP for codec info and encryption keys
+- [x] SETUP request for video/audio/control tracks
+- [x] PLAY request to start streaming
+- [x] TEARDOWN for cleanup
 - [ ] Test against Wolf
 
-#### Phase 3: Media Streams ⏳ PENDING
-- [ ] RTP packet receiver (UDP socket)
-- [ ] Sequence number tracking and reordering
-- [ ] Encryption key extraction from RTSP
-- [ ] AES-GCM decryption implementation
-- [ ] H264 NAL unit reassembly from RTP
-- [ ] H265 NAL unit reassembly (if needed)
-- [ ] Opus audio frame extraction
-- [ ] Jitter buffer (optional for v1)
+#### Phase 3: Media Streams ✅ SKELETON COMPLETE
+- [x] RTP packet receiver (UDP socket)
+- [x] Sequence number tracking
+- [x] AES-GCM decryption implementation
+- [x] H264/H265 NAL type detection
+- [x] Opus audio frame extraction
+- [ ] NAL unit reassembly from RTP (needs testing)
 - [ ] Forward frames to WebSocket bridge
+- [ ] Test with live stream
 
-#### Phase 4: Control Stream ⏳ PENDING
-- [ ] Research: Capture ENet traffic with Wireshark
-- [ ] Implement minimal reliable UDP (pure Go)
-- [ ] Connection handshake
-- [ ] Keepalive messages
-- [ ] Keyboard input encoding
-- [ ] Mouse movement encoding
-- [ ] Mouse button encoding
-- [ ] Mouse wheel encoding
-- [ ] Controller state encoding (optional for v1)
+#### Phase 4: Control Stream ✅ SKELETON COMPLETE
+- [x] Implement minimal reliable UDP (pure Go)
+- [x] Connection handshake
+- [x] Keepalive messages
+- [x] Keyboard input encoding
+- [x] Mouse movement encoding
+- [x] Mouse button encoding
+- [x] Mouse wheel encoding
+- [x] Controller state encoding
+- [x] JavaScript keycode to Windows VK mapping
 - [ ] Test input with Wolf
 
 #### Phase 5: WebSocket Bridge ✅ SKELETON COMPLETE
@@ -541,11 +539,26 @@ tshark -r moonlight.pcap -Y 'rtp'
 - Understood encryption: rikey/rikeyid for AES-GCM
 - Found SDP parameter format
 
+### 2025-12-04: Major Implementation (Session 2)
+- Implemented RTSP client (`internal/rtsp/client.go`, `sdp.go`)
+  - Full handshake: OPTIONS → ANNOUNCE → SETUP → PLAY → TEARDOWN
+  - SDP parsing for codec and encryption info
+  - rikey/rikeyid handling
+- Implemented media receivers (`internal/media/`)
+  - Video RTP receiver with NAL extraction
+  - Audio RTP receiver for Opus
+  - AES-GCM decryption utilities
+- Implemented control stream (`internal/control/`)
+  - Pure Go reliable UDP (no CGO)
+  - Keyboard, mouse, controller input encoding
+  - JavaScript keycode → Windows VK mapping
+- **~3,700 lines of Go code total**
+
 **Next session should:**
-1. Implement RTSP client skeleton in `internal/rtsp/client.go`
-2. Parse SDP responses for codec info
-3. Test DESCRIBE against live Wolf instance
-4. Handle encryption key exchange
+1. Wire everything together in a `Session` struct
+2. Connect WebSocket bridge to media receivers
+3. Test against live Wolf instance
+4. Debug any protocol issues with Wireshark
 
 ---
 
