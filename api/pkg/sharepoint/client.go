@@ -122,6 +122,7 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*Site, error) {
 
 // GetSiteByURL retrieves a SharePoint site by its URL
 // URL format: https://tenant.sharepoint.com/sites/sitename
+// Also handles URLs with extra paths like /SitePages/Home.aspx
 func (c *Client) GetSiteByURL(ctx context.Context, siteURL string) (*Site, error) {
 	parsedURL, err := url.Parse(siteURL)
 	if err != nil {
@@ -130,6 +131,14 @@ func (c *Client) GetSiteByURL(ctx context.Context, siteURL string) (*Site, error
 
 	hostname := parsedURL.Hostname()
 	path := strings.TrimPrefix(parsedURL.Path, "/")
+
+	// Extract just the site path (e.g., "sites/sitename" from "sites/sitename/SitePages/Home.aspx")
+	// SharePoint site paths are typically /sites/sitename or /teams/teamname
+	pathParts := strings.Split(path, "/")
+	if len(pathParts) >= 2 {
+		// Keep only the first two parts (e.g., "sites/sitename" or "teams/teamname")
+		path = strings.Join(pathParts[:2], "/")
+	}
 
 	endpoint := fmt.Sprintf("%s/sites/%s:/%s", graphAPIBaseURL, hostname, path)
 

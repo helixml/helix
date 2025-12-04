@@ -17,10 +17,14 @@ import {
   FormHelperText,
   Checkbox,
   Box,
+  Alert,
+  Typography,
 } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { IKnowledgeSource } from '../../types';
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
 import { TypesOAuthProviderType } from '../../api/api';
+import useApi from '../../hooks/useApi';
 
 interface AddKnowledgeDialogProps {
   open: boolean;
@@ -43,12 +47,19 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
   const [isLoading, setIsLoading] = useState(false);
 
   // SharePoint specific state
+  const [siteUrl, setSiteUrl] = useState('');
   const [siteId, setSiteId] = useState('');
+  const [siteName, setSiteName] = useState('');
   const [driveId, setDriveId] = useState('');
   const [folderPath, setFolderPath] = useState('');
   const [oauthProviderId, setOauthProviderId] = useState('');
   const [filterExtensions, setFilterExtensions] = useState('');
   const [recursive, setRecursive] = useState(true);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+
+  // API client for SharePoint lookup
+  const api = useApi();
 
   // Fetch OAuth providers and connections for SharePoint
   const { data: oauthProviders } = useListOAuthProviders();
@@ -64,6 +75,59 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
   // Check if user has a connection for the selected provider
   const hasConnectionForProvider = (providerId: string) => {
     return oauthConnections?.some(c => c.provider?.id === providerId);
+  };
+
+  // Validate SharePoint URL format
+  const isValidSharePointUrl = (url: string) => {
+    return url.includes('sharepoint.com');
+  };
+
+  // Lookup SharePoint site ID from URL
+  const handleLookupSite = async () => {
+    if (!siteUrl.trim()) {
+      setLookupError('Please enter a SharePoint site URL');
+      return;
+    }
+
+    if (!isValidSharePointUrl(siteUrl)) {
+      setLookupError('Invalid URL. Must be a SharePoint URL (e.g., https://contoso.sharepoint.com/sites/MySite)');
+      return;
+    }
+
+    if (!oauthProviderId) {
+      setLookupError('Please select a Microsoft OAuth provider first');
+      return;
+    }
+
+    if (!hasConnectionForProvider(oauthProviderId)) {
+      setLookupError('You need to connect to this OAuth provider first');
+      return;
+    }
+
+    setIsLookingUp(true);
+    setLookupError('');
+    setSiteId('');
+    setSiteName('');
+
+    try {
+      const response = await api.getApiClient().v1OauthSharepointResolveSiteCreate({
+        site_url: siteUrl,
+        provider_id: oauthProviderId,
+      });
+
+      if (response.data.site_id) {
+        setSiteId(response.data.site_id);
+        setSiteName(response.data.display_name || '');
+        setError('');
+      } else {
+        setLookupError('Could not resolve site ID from the provided URL');
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to lookup SharePoint site';
+      setLookupError(errorMessage);
+    } finally {
+      setIsLookingUp(false);
+    }
   };
 
   const handleSubmit = () => {
@@ -84,7 +148,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
 
     if (sourceType === 'sharepoint') {
       if (!siteId.trim()) {
-        setError('SharePoint Site ID is required');
+        setError('Please lookup the SharePoint site first using the "Lookup Site" button');
         return;
       }
       if (!oauthProviderId) {
@@ -164,12 +228,15 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
     setSourceType('web');
     setIsLoading(false);
     // Reset SharePoint fields
+    setSiteUrl('');
     setSiteId('');
+    setSiteName('');
     setDriveId('');
     setFolderPath('');
     setOauthProviderId('');
     setFilterExtensions('');
     setRecursive(true);
+    setLookupError('');
     onClose();
   };
 
@@ -271,18 +338,53 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
                   )}
                 </FormControl>
 
-                <TextField
-                  fullWidth
-                  label="SharePoint Site ID"
-                  value={siteId}
-                  onChange={(e) => {
-                    setSiteId(e.target.value);
-                    setError('');
-                  }}
-                  placeholder="contoso.sharepoint.com,guid,guid"
-                  helperText="The SharePoint site ID (format: hostname,site-guid,web-guid)"
-                  sx={{ mb: 2 }}
-                />
+                <Box sx={{ mb: 2 }}>
+                  <TextField
+                    fullWidth
+                    label="SharePoint Site URL"
+                    value={siteUrl}
+                    onChange={(e) => {
+                      setSiteUrl(e.target.value);
+                      setSiteId('');
+                      setSiteName('');
+                      setLookupError('');
+                      setError('');
+                    }}
+                    placeholder="https://contoso.sharepoint.com/sites/MySite"
+                    helperText="Enter the full URL of your SharePoint site (e.g., https://yourcompany.sharepoint.com/sites/TeamSite)"
+                    sx={{ mb: 1 }}
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={handleLookupSite}
+                    disabled={isLookingUp || !siteUrl.trim() || !oauthProviderId || !hasConnectionForProvider(oauthProviderId)}
+                    startIcon={isLookingUp ? <CircularProgress size={16} /> : null}
+                    size="small"
+                  >
+                    {isLookingUp ? 'Looking up...' : 'Lookup Site'}
+                  </Button>
+                </Box>
+
+                {lookupError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {lookupError}
+                  </Alert>
+                )}
+
+                {siteId && (
+                  <Alert
+                    severity="success"
+                    icon={<CheckCircleIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                      Site found: {siteName || 'SharePoint Site'}
+                    </Typography>
+                    <Typography variant="caption" sx={{ wordBreak: 'break-all' }}>
+                      Site ID: {siteId}
+                    </Typography>
+                  </Alert>
+                )}
 
                 <TextField
                   fullWidth
