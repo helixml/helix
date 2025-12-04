@@ -292,6 +292,19 @@ EOF
 
 echo "✅ Zed autostart entry created"
 
+# Create autostart entry for Firefox browser (launches after desktop is ready)
+cat > ~/.config/autostart/firefox-helix.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Firefox Browser
+Exec=firefox
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=8
+NoDisplay=true
+EOF
+
+echo "✅ Firefox autostart entry created"
+
 # ============================================================================
 # GNOME Session Startup via GOW xorg.sh
 # ============================================================================
