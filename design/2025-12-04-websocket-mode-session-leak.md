@@ -88,12 +88,14 @@ loop {
 1. **WebRTC mode: call cancel() before drop()** - Fixed WebRTC cleanup order
 2. **Added PauseStreamEvent handlers to test pattern producers** - Test pattern producers now stop on both StopStreamEvent AND PauseStreamEvent
 3. **Purple loading screen** - Changed from chroma-zone-plate to solid purple (#a100c7)
+4. **Canvas clearing on disconnect** - Clears canvas on disconnect to prevent stale frames persisting when switching modes
 
 ## Files Modified
 
 - `moonlight-web/web-server/src/api/stream.rs` - Added shutdown signal + select!
 - `wolf/config.toml.template` - Changed loading screen to purple
 - `wolf/src/moonlight-server/streaming/streaming.cpp` - Added PauseStreamEvent handlers
+- `helix/frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - Added canvas.clearRect() on disconnect
 
 ## Verification
 
@@ -103,6 +105,48 @@ After fix deployment:
 3. Check logs for: "[WsStream]: Received shutdown signal from frame forwarder"
 4. Check logs for: "[WsStream]: Sending Stop to streamer for clean shutdown"
 5. Verify thread count returns to baseline (6 threads)
+
+## Secondary Issue: Black Screen After Mode Switch
+
+### Symptom
+After session leak fix was deployed:
+1. First session works
+2. Switching modes (WebSocket → WebRTC) or reconnecting = black screen
+3. All future sessions show blank screens
+
+### Root Cause
+**CUDA memory format mismatch during interpipe source switch**
+
+The test pattern producer in `config.toml.template` produced system RAM frames:
+```
+videotestsrc ... ! video/x-raw, format=NV12  # System memory
+```
+
+But the consumer pipeline expects CUDA memory (from `video_params_zero_copy`):
+```
+interpipesrc ... ! cudaupload ! video/x-raw(memory:CUDAMemory)
+```
+
+**Timeline of failure:**
+1. Session starts → test pattern producer creates `{session_id}_video` interpipesink (system RAM)
+2. Consumer creates interpipesrc with `cudaupload` in pipeline
+3. Wolf fires SwitchStreamProducerEvent to switch to lobby producer (CUDA memory)
+4. `cudaupload` fails: "Failed to map input buffer" / "Failed to copy CUDA -> CUDA"
+5. Pipeline crashes with "Internal data stream error"
+6. All subsequent sessions inherit corrupted GStreamer state
+
+### Fix
+Updated test pattern to produce CUDA memory frames:
+```toml
+source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12 !
+cudaupload ! video/x-raw(memory:CUDAMemory)'''
+```
+
+Now both test pattern and lobby producer output CUDA memory → no format mismatch during switch.
+
+### Why This Wasn't Caught Before
+The session leak fix caused more frequent test pattern → lobby switches (cleanup works now), exposing the latent format mismatch bug that was always present but rarely triggered.
 
 ## Dashboard Regression
 
