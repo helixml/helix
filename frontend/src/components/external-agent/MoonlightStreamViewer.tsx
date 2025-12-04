@@ -98,6 +98,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
   const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
+  const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -587,6 +589,89 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
+  // Track container size for canvas aspect ratio calculation
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerSize({ width, height });
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Calculate proper canvas display size to maintain aspect ratio
+  useEffect(() => {
+    if (!containerSize || !canvasRef.current) return;
+
+    // Get the actual canvas internal dimensions (set by WebCodecs when frames are rendered)
+    const canvas = canvasRef.current;
+    const canvasWidth = canvas.width || 1920;  // Default to 1080p if not yet set
+    const canvasHeight = canvas.height || 1080;
+
+    if (canvasWidth === 0 || canvasHeight === 0) return;
+
+    const containerWidth = containerSize.width;
+    const containerHeight = containerSize.height;
+
+    const canvasAspect = canvasWidth / canvasHeight;
+    const containerAspect = containerWidth / containerHeight;
+
+    let displayWidth: number;
+    let displayHeight: number;
+
+    if (containerAspect > canvasAspect) {
+      // Container is wider than canvas aspect - height is the limiting factor
+      displayHeight = containerHeight;
+      displayWidth = displayHeight * canvasAspect;
+    } else {
+      // Container is taller than canvas aspect - width is the limiting factor
+      displayWidth = containerWidth;
+      displayHeight = displayWidth / canvasAspect;
+    }
+
+    setCanvasDisplaySize({ width: displayWidth, height: displayHeight });
+  }, [containerSize]);
+
+  // Update canvas display size when canvas dimensions change (after first frame is rendered)
+  useEffect(() => {
+    if (!containerSize || !canvasRef.current || streamingMode !== 'websocket') return;
+
+    const checkCanvasDimensions = () => {
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+
+      const containerWidth = containerSize.width;
+      const containerHeight = containerSize.height;
+      const canvasAspect = canvas.width / canvas.height;
+      const containerAspect = containerWidth / containerHeight;
+
+      let displayWidth: number;
+      let displayHeight: number;
+
+      if (containerAspect > canvasAspect) {
+        displayHeight = containerHeight;
+        displayWidth = displayHeight * canvasAspect;
+      } else {
+        displayWidth = containerWidth;
+        displayHeight = displayWidth / canvasAspect;
+      }
+
+      setCanvasDisplaySize({ width: displayWidth, height: displayHeight });
+    };
+
+    // Check periodically until canvas has dimensions
+    const interval = setInterval(checkCanvasDimensions, 100);
+    checkCanvasDimensions();
+
+    return () => clearInterval(interval);
+  }, [containerSize, streamingMode, isConnected]);
+
   // Auto-sync clipboard from remote → local every 2 seconds
   useEffect(() => {
     if (!isConnected || !sessionId) return;
@@ -797,10 +882,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return new DOMRect(0, 0, width, height);
     }
 
+    const boundingRect = element.getBoundingClientRect();
+
+    // For WebSocket mode: canvas is already sized to maintain aspect ratio,
+    // so bounding rect IS the video content area (no letterboxing)
+    if (streamingMode === 'websocket') {
+      return new DOMRect(
+        boundingRect.x,
+        boundingRect.y,
+        boundingRect.width,
+        boundingRect.height
+      );
+    }
+
+    // For WebRTC mode: video element uses objectFit: contain, so we need to
+    // calculate where the actual video content appears within the element
     const videoSize = streamRef.current.getStreamerSize() || [width, height];
     const videoAspect = videoSize[0] / videoSize[1];
-
-    const boundingRect = element.getBoundingClientRect();
     const boundingRectAspect = boundingRect.width / boundingRect.height;
 
     let x = boundingRect.x;
@@ -1295,7 +1393,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }}
       />
 
-      {/* Canvas Element (WebSocket mode) */}
+      {/* Canvas Element (WebSocket mode) - centered with proper aspect ratio */}
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
@@ -1303,8 +1401,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         onMouseMove={handleMouseMove}
         onContextMenu={handleContextMenu}
         style={{
-          width: '100%',
-          height: '100%',
+          // Use calculated dimensions to maintain aspect ratio
+          // Canvas doesn't support objectFit like video, so we calculate size manually
+          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
+          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+          // Center the canvas within the container
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
           display: streamingMode === 'websocket' ? 'block' : 'none',
