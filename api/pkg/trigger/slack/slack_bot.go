@@ -433,6 +433,10 @@ func convertMarkdownToSlackFormat(markdown string) string {
 	// Convert markdown to Slack format
 	slackFormat := markdown
 
+	// Convert [DOC_ID:xxx] markers to numbered citations [1], [2], etc.
+	// Slack can't link to internal documents, so we just show citation numbers
+	slackFormat = shared.ConvertDocIDsToNumberedCitations(slackFormat)
+
 	// First, let's protect code blocks and inline code from other conversions
 	codeBlocks := []string{}
 	inlineCodes := []string{}

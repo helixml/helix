@@ -364,6 +364,10 @@ func convertMarkdownToTeamsFormat(markdown string) string {
 
 	// Teams supports most standard markdown, but we need to handle a few edge cases
 
+	// Convert [DOC_ID:xxx] markers to numbered citations [1], [2], etc.
+	// Teams can't link to internal documents, so we just show citation numbers
+	result = shared.ConvertDocIDsToNumberedCitations(result)
+
 	// Handle any triple newlines (reduce to double)
 	multipleNewlines := regexp.MustCompile(`\n{3,}`)
 	result = multipleNewlines.ReplaceAllString(result, "\n\n")
