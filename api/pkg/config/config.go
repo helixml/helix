@@ -580,5 +580,4 @@ type ExternalAgents struct {
 	// Qwen Code configuration (passed to sway containers)
 	QwenBaseURL string `envconfig:"QWEN_BASE_URL" description:"OpenAI-compatible API endpoint for Qwen Code (default: SERVER_URL/v1)"`
 	QwenModel   string `envconfig:"QWEN_MODEL" default:"qwen-oss:120b" description:"Model name for Qwen Code"`
-	QwenAPIKey  string `envconfig:"QWEN_API_KEY" description:"API key for Qwen Code (default: user's Helix API token)"`
 }
