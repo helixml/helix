@@ -191,8 +191,8 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				Str("session_id", sessionID).
 				Str("spec_task_id", session.Metadata.SpecTaskID).
 				Str("app_id", specTask.HelixAppID).
-				Msg("No zed_external assistant found in app")
-			return nil, system.NewHTTPError500("no code agent (zed_external assistant) configured in app")
+				Msg("No zed_external assistant found in app, or assistant has no provider/model configured")
+			return nil, system.NewHTTPError500("no code agent configured: app must have a zed_external assistant with provider and model set")
 		}
 
 		log.Debug().
@@ -371,8 +371,24 @@ func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfi
 }
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
+// For zed_external agents, it prefers Provider/Model but falls back to GenerationModelProvider/GenerationModel.
 func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
-	provider := strings.ToLower(assistant.Provider)
+	// Get provider and model, falling back to generation model fields if primary fields are empty
+	providerName := assistant.Provider
+	if providerName == "" {
+		providerName = assistant.GenerationModelProvider
+	}
+	modelName := assistant.Model
+	if modelName == "" {
+		modelName = assistant.GenerationModel
+	}
+
+	// If still no provider/model, return nil (can't configure code agent without these)
+	if providerName == "" || modelName == "" {
+		return nil
+	}
+
+	provider := strings.ToLower(providerName)
 
 	var baseURL, apiType, agentName, model string
 
@@ -382,24 +398,24 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		baseURL = helixURL + "/v1"
 		apiType = "anthropic"
 		agentName = "claude-code"
-		model = assistant.Model // Anthropic models don't need prefix
+		model = modelName // Anthropic models don't need prefix
 	case "azure", "azure_openai":
 		// Azure OpenAI uses the /openai/deployments/{model}/chat/completions endpoint
 		baseURL = helixURL + "/openai"
 		apiType = "azure_openai"
 		agentName = "azure-agent"
-		model = assistant.Model // Azure models don't need prefix
+		model = modelName // Azure models don't need prefix
 	default:
 		// OpenAI, OpenRouter, TogetherAI, Helix, etc. use the /v1/chat/completions endpoint
 		// Model must be prefixed with provider name: "openrouter/x-ai/grok-3" or "togetherai/meta-llama/..."
 		baseURL = helixURL + "/v1"
 		apiType = "openai"
 		agentName = "qwen"
-		model = fmt.Sprintf("%s/%s", assistant.Provider, assistant.Model)
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
 	}
 
 	return &types.CodeAgentConfig{
-		Provider:  assistant.Provider,
+		Provider:  providerName,
 		Model:     model,
 		AgentName: agentName,
 		BaseURL:   baseURL,
