@@ -560,17 +560,40 @@ Failed to copy CUDA -> CUDA
 error: Internal data stream error.
 ```
 
-**Potential fixes (not yet implemented)**:
+**Current Workaround (December 2025)**: Use "Select Agent" Wolf-UI app instead of test pattern.
+- Select Agent uses `waylanddisplaysrc` which produces CUDA memory directly
+- No format conversion needed when switching to lobby
+- Implemented in `external_agent_handlers.go` - prefer "Select Agent" over "Blank"
+
+**Potential fixes for test pattern consistency**:
 
 1. **Add GPU memory upload to test pattern producer** (ensures consistent memory format from start):
-   - Modify test pattern: `videotestsrc ! cudaupload ! video/x-raw(memory:CUDAMemory) ! interpipesink`
+   - Modify `start_test_pattern_producer()` in `streaming.cpp` to add GPU upload
+   - **Key insight**: Wolf already has GPU detection in `configTOML.cpp:170-197`
+
+   Implementation approach:
+   ```cpp
+   // In start_test_pattern_producer, add buffer_caps parameter:
+   void start_test_pattern_producer(const std::string &session_id,
+                                    const std::string &source_pipeline,
+                                    const std::string &buffer_caps,  // NEW: GPU-specific caps
+                                    const std::string &render_node,  // NEW: for GPU context
+                                    ...)
+   ```
+
+   Pipeline modification per GPU:
+   - **NVIDIA** (`buffer_caps = "video/x-raw(memory:CUDAMemory)"`):
+     `videotestsrc ! cudaupload ! video/x-raw(memory:CUDAMemory) ! interpipesink`
+   - **AMD/Intel** (`buffer_caps = "video/x-raw(memory:DMABuf)"`):
+     `videotestsrc ! vapostproc ! video/x-raw(memory:VAMemory) ! interpipesink`
+     OR: `videotestsrc ! glupload ! video/x-raw(memory:GLMemory) ! interpipesink`
+
+   Wolf already computes `video_producer_buffer_caps` per GPU in `compute_pipeline_defaults()`.
+   The test pattern producer just needs to receive and use this value.
+
+   - Pro: Reuses existing GPU detection logic
    - Pro: No interpipe caps renegotiation needed
-   - Con: **Complex multi-vendor implementation required**:
-     - NVIDIA: `cudaupload` for CUDA memory
-     - AMD: `vaupload` or similar for VA-API memory
-     - Intel: `vaupload` for VA-API memory
-     - Requires detecting GPU vendor at runtime and selecting appropriate elements
-     - Test pattern source pipeline would need to be GPU-vendor-specific
+   - Con: Requires Wolf code changes
 
 2. **Skip test pattern entirely for lobby-destined sessions**:
    - Create streaming pipeline listening directly to lobby's interpipesink
@@ -581,11 +604,12 @@ error: Internal data stream error.
    - Pro: Cleans up buffer pool state
    - Con: Disruptive, may affect running applications
 
-4. **Use Select Agent flow (no auto-join)**:
-   - Don't auto-join lobby from frontend
-   - User manually selects session from Wolf UI
-   - No interpipe switching = no buffer pool corruption
-   - Testing this as interim workaround
+4. **Use Select Agent flow (current workaround)**:
+   - Frontend prefers "Select Agent" over "Blank" test pattern
+   - Select Agent runs Wolf-UI which uses `waylanddisplaysrc`
+   - `waylanddisplaysrc` produces GPU memory directly (CUDA on NVIDIA)
+   - No interpipe format switching = no buffer pool corruption
+   - ✅ **Implemented in commit `5442aeed1`**
 
 ### Deadlock on Producer Switch
 

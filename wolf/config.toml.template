@@ -41,7 +41,8 @@ video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 start_virtual_compositor = true
 title = 'Select Agent'
 icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
-video_producer_buffer_caps = 'video/x-raw(memory:CUDAMemory)'
+# NOTE: video_producer_buffer_caps is computed automatically per-GPU by Wolf.
+# See configTOML.cpp:compute_pipeline_defaults() - NVIDIA gets CUDAMemory, AMD/Intel get DMABuf.
 
     [profiles.apps.runner]
     type = 'docker'
