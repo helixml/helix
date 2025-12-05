@@ -114,39 +114,186 @@ After session leak fix was deployed:
 2. Switching modes (WebSocket → WebRTC) or reconnecting = black screen
 3. All future sessions show blank screens
 
-### Root Cause
-**CUDA memory format mismatch during interpipe source switch**
+### Attempted Fixes (All Failed)
 
-The test pattern producer in `config.toml.template` produced system RAM frames:
-```
-videotestsrc ... ! video/x-raw, format=NV12  # System memory
-```
+#### Attempt 1: CUDA memory format mismatch theory (WRONG)
+**Theory:** Test pattern outputs system RAM, lobby outputs CUDA → format mismatch during switch.
 
-But the consumer pipeline expects CUDA memory (from `video_params_zero_copy`):
-```
-interpipesrc ... ! cudaupload ! video/x-raw(memory:CUDAMemory)
-```
-
-**Timeline of failure:**
-1. Session starts → test pattern producer creates `{session_id}_video` interpipesink (system RAM)
-2. Consumer creates interpipesrc with `cudaupload` in pipeline
-3. Wolf fires SwitchStreamProducerEvent to switch to lobby producer (CUDA memory)
-4. `cudaupload` fails: "Failed to map input buffer" / "Failed to copy CUDA -> CUDA"
-5. Pipeline crashes with "Internal data stream error"
-6. All subsequent sessions inherit corrupted GStreamer state
-
-### Fix
-Updated test pattern to produce CUDA memory frames:
+**Fix tried:** Added `cudaupload` to test pattern source:
 ```toml
-source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
-video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12 !
-cudaupload ! video/x-raw(memory:CUDAMemory)'''
+source = '''videotestsrc ... ! cudaupload ! video/x-raw(memory:CUDAMemory)'''
 ```
 
-Now both test pattern and lobby producer output CUDA memory → no format mismatch during switch.
+**Result:** Broke streaming entirely. Even first session failed with InternalServerError.
 
-### Why This Wasn't Caught Before
-The session leak fix caused more frequent test pattern → lobby switches (cleanup works now), exposing the latent format mismatch bug that was always present but rarely triggered.
+**Why it failed:**
+- `cudaupload` is NVIDIA-specific (wouldn't work on AMD/Intel anyway)
+- Theory was based on GStreamer errors seen during switch, but may have been a symptom not root cause
+
+#### Attempt 2: Timing delay before auto-join (DIDN'T HELP)
+**Theory:** Auto-join happens too fast (36ms after consumer starts), before pipeline is ready.
+
+**Fix tried:** Added 500ms delay in `MoonlightStreamViewer.tsx`:
+```typescript
+const timer = setTimeout(doAutoJoin, 500);
+```
+
+**Result:** Still black screen on mode switch. Delay alone doesn't fix it.
+
+### Current Status: NEEDS BISECTION
+
+The black screen issue appeared after the session leak fix, but the exact cause is unclear.
+
+**Changes made in session leak fix:**
+1. `stream.rs`: Added `tokio::select!` with shutdown signal from frame forwarder
+2. `streaming.cpp`: Added `PauseStreamEvent` handlers to test pattern producers
+3. `config.toml.template`: Changed test pattern to purple solid color
+4. `MoonlightStreamViewer.tsx`: Added canvas clearing on disconnect
+
+**One of these changes (or their interaction) broke mode switching.**
+
+**Next steps:**
+1. Revert to last known working state (before session leak fix)
+2. Apply changes one at a time to isolate which one breaks mode switching
+3. The PauseStreamEvent handlers are most suspicious - they change when test pattern producers stop
+
+### Key Question
+Why did mode switching work before with thread leaks, but breaks now with proper cleanup?
+
+**Hypothesis:** The old behavior (test pattern never stopping) was actually important for the interpipe switch to work. When we made cleanup work properly, we also stopped something that shouldn't have been stopped.
+
+## Bisection Findings (2025-12-05)
+
+### Critical Discovery: Race Condition on Low-Latency Connections
+
+User tested from two browsers:
+- **Localhost (via RDP)**: Blank screen RELIABLY on WebSocket mode
+- **WiFi over SSH tunnel**: Works RELIABLY (higher latency)
+
+**Conclusion:** The race condition is timing-related. On fast connections (localhost), the interpipe switch happens before the consumer pipeline is ready to receive frames.
+
+### Attempted Timing Fixes (Did Not Help)
+
+1. **Frontend 500ms delay before auto-join:**
+   ```typescript
+   // In MoonlightStreamViewer.tsx
+   await new Promise(resolve => setTimeout(resolve, 500));
+   ```
+
+2. **Backend polling loop after JoinLobby:**
+   ```go
+   // In external_agent_handlers.go autoJoinWolfLobby()
+   maxWait := 2 * time.Second
+   pollInterval := 100 * time.Millisecond
+   // Poll Wolf sessions until session.AppID changes from test pattern to lobby
+   ```
+
+Both fixes are currently uncommitted on `main` branch.
+
+### Current Hypothesis: Test Pattern Producer Issue
+
+The test pattern producer (`videotestsrc pattern=solid-color`) may be causing the issue:
+- Test pattern outputs system RAM frames
+- Lobby producer outputs GPU memory frames
+- Format mismatch during switch could cause black screen on fast connections
+
+**Test:** Switch from "Blank" (test pattern) to "Select Agent" (Wolf-UI Docker container) to see if real compositor eliminates the race condition.
+
+### Uncommitted Changes to Preserve
+
+**Helix (main branch):**
+1. `frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - 500ms delay before auto-join
+2. `api/pkg/server/external_agent_handlers.go` - Polling loop after JoinLobby
+
+These changes can be recovered from git stash if needed.
+
+## CRITICAL FINDING: WebSocket vs WebRTC Cleanup Difference (2025-12-05)
+
+### The Problem
+- **WebSocket-only mode**: Closing connections STILL leaks interpipesrc sessions and threads
+- **WebRTC mode**: Closing connections cleans up correctly
+- **Reproduction**: Simply open WebSocket connection, close browser tab. Even refresh doesn't clean up.
+
+**This rules out Wolf changes (test pattern producers, PauseStreamEvent handlers) as the cause.**
+The issue is in moonlight-web-stream's WebSocket cleanup path.
+
+### Code Comparison Summary
+
+**WebRTC Mode (`StreamConnection::stop()` in main.rs:880-952):**
+1. Idempotency check via `stopped` mutex
+2. Sends `PeerDisconnect` IPC message
+3. Sends `ConnectionTerminated` via general_channel
+4. Calls `host.cancel().await` (HTTP request to Wolf)
+5. Drops stream in `spawn_blocking`
+6. Sends `StreamerIpcMessage::Stop`
+7. Notifies `terminate` waiters
+
+**WebSocket-Only Mode (`run_websocket_only_mode` cleanup in main.rs:1243-1272):**
+1. Calls `host.cancel().await`
+2. Drops stream in `spawn_blocking`
+3. Sends `StreamerIpcMessage::Stop`
+
+**Key Differences:**
+- No idempotency check in WebSocket mode
+- No `PeerDisconnect` / `ConnectionTerminated` messages
+- No `terminate.notify_waiters()` call
+
+### Hypotheses for Cleanup Failure
+
+1. **H1: IPC Stop Not Reaching Streamer**
+   - Web-server sends `ServerIpcMessage::Stop` but streamer never receives it
+   - Could be due to IPC buffer issues or timing
+   - Test: Add logging to confirm Stop is received
+
+2. **H2: `host.cancel()` Hanging or Timing Out**
+   - HTTP request to Wolf takes >15 seconds
+   - Web-server kills streamer before cancel completes
+   - Test: Add timing logs around `host.cancel()`
+
+3. **H3: Race Between WebSocket Close and Cleanup**
+   - When WebSocket closes, frame forwarder task exits
+   - Shutdown signal race with main loop detection
+   - Test: Add sequence logging
+
+4. **H4: ENET Connection Already Dead**
+   - In WebSocket mode, ENET might time out before `host.cancel()` is called
+   - Wolf might ignore cancel for dead sessions
+   - Test: Compare Wolf logs for WebRTC vs WebSocket close
+
+5. **H5: Missing Termination Signals**
+   - WebRTC sends `PeerDisconnect` and `ConnectionTerminated` before cleanup
+   - These might trigger additional cleanup in Wolf
+   - Test: Add these messages to WebSocket cleanup
+
+6. **H6: No Idempotency = Double Cleanup Issues**
+   - WebSocket mode might call cleanup twice
+   - Second call might interfere with first
+   - Test: Add idempotency check like WebRTC mode
+
+7. **H7: Stream Drop Before Cancel Completes**
+   - `spawn_blocking` for drop might race with `host.cancel()`
+   - Stream drops → ENET disconnect → Wolf fires `PauseStreamEvent` before `StopStreamEvent`
+   - Test: Add barrier between cancel completion and stream drop
+
+8. **H8: Frame Forwarder Task Keeps Resources Alive**
+   - Frame forwarder holds clones of resources
+   - When WebSocket closes, forwarder might not exit cleanly
+   - Test: Add explicit cleanup of frame forwarder
+
+### Most Likely Cause
+
+**Hypothesis H7 (Stream Drop Before Cancel)** seems most likely because:
+- Wolf cleanup depends on `StopStreamEvent` (not `PauseStreamEvent`)
+- ENET disconnect fires `PauseStreamEvent`
+- If stream drops before cancel HTTP completes, sequence is wrong:
+  1. `host.cancel()` starts (HTTP in flight)
+  2. `spawn_blocking(drop(stream))` starts immediately (not waiting for cancel!)
+  3. Stream drops → ENET disconnects → `PauseStreamEvent` fires
+  4. Cancel HTTP completes → `StopStreamEvent` fires (too late?)
+
+**The fix**: Ensure `host.cancel()` fully completes BEFORE calling `spawn_blocking(drop(stream))`.
+
+Current code already awaits cancel, but there might be a subtle issue with how Rust handles the async boundary.
 
 ## Dashboard Regression
 

@@ -89,10 +89,12 @@ func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *type
 // RegisterRequestToSessionMapping registers a request_id to session_id mapping for external agent sessions
 // This is used to route initial messages to Zed when it connects via WebSocket
 func (apiServer *HelixAPIServer) RegisterRequestToSessionMapping(requestID, sessionID string) {
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.requestToSessionMapping == nil {
 		apiServer.requestToSessionMapping = make(map[string]string)
 	}
 	apiServer.requestToSessionMapping[requestID] = sessionID
+	apiServer.contextMappingsMutex.Unlock()
 	log.Info().
 		Str("request_id", requestID).
 		Str("session_id", sessionID).
@@ -142,10 +144,12 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		Msg("Creating external agent via API endpoint")
 
 	// Store user mapping for this external agent session
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.externalAgentUserMapping == nil {
 		apiServer.externalAgentUserMapping = make(map[string]string)
 	}
 	apiServer.externalAgentUserMapping[agent.SessionID] = user.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("session_id", agent.SessionID).
@@ -183,6 +187,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		Msg("✅ Created Helix session for external agent")
 
 	// Store mapping: agent_session_id -> helix_session_id
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.externalAgentSessionMapping == nil {
 		apiServer.externalAgentSessionMapping = make(map[string]string)
 	}
@@ -194,6 +199,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		apiServer.requestToSessionMapping = make(map[string]string)
 	}
 	apiServer.requestToSessionMapping[requestID] = createdSession.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("request_id", requestID).
@@ -224,10 +230,12 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	}
 
 	// Store session -> waiting interaction mapping
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.sessionToWaitingInteraction == nil {
 		apiServer.sessionToWaitingInteraction = make(map[string]string)
 	}
 	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("interaction_id", createdInteraction.ID).
@@ -1183,19 +1191,19 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
 
-	// Find placeholder app - prefer "Blank" (new), fall back to "Wolf UI" (legacy)
+	// Find placeholder app - prefer "Blank" (test pattern), fall back to "Select Agent" (Wolf-UI)
 	var wolfUIAppID string
 	for _, app := range apps {
 		if app.Title == "Blank" {
 			wolfUIAppID = app.ID
 			break
 		}
-		if app.Title == "Wolf UI" && wolfUIAppID == "" {
+		if app.Title == "Select Agent" && wolfUIAppID == "" {
 			wolfUIAppID = app.ID
 		}
 	}
 	if wolfUIAppID == "" {
-		return fmt.Errorf("placeholder app (Blank or Wolf UI) not found in apps list")
+		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
 	}
 
 	log.Info().
@@ -1358,7 +1366,53 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 	log.Info().
 		Str("lobby_id", lobbyID).
 		Str("moonlight_session_id", moonlightSessionID).
-		Msg("[AUTO-JOIN] ✅ Successfully called JoinLobby API")
+		Msg("[AUTO-JOIN] JoinLobby API called, waiting for pipeline to stabilize...")
+
+	// RACE CONDITION FIX: Wait for GStreamer interpipe switch to complete
+	// The JoinLobby triggers an interpipe producer switch, but the consumer pipeline
+	// needs time for the switch to propagate and new frames to start flowing.
+	// On low-latency connections (localhost), the frontend can receive the success response
+	// and expect frames before the pipeline switch is complete.
+	//
+	// Poll Wolf sessions to verify the session has switched to the lobby's producer
+	// by checking that the session's app_id has changed from the test pattern app
+	// to the lobby's app.
+	maxWait := 2 * time.Second
+	pollInterval := 100 * time.Millisecond
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		// Query Wolf sessions to check if the switch has completed
+		sessions, err := wolfClient.ListSessions(ctx)
+		if err != nil {
+			log.Warn().Err(err).Msg("[AUTO-JOIN] Failed to poll sessions, continuing anyway")
+			break
+		}
+
+		// Find our session and check if it's now connected to the lobby
+		for _, session := range sessions {
+			if session.ClientID == moonlightSessionID {
+				// Check if the session is no longer on the test pattern app (Wolf UI / Blank)
+				if session.AppID != wolfUIAppID {
+					log.Info().
+						Str("moonlight_session_id", moonlightSessionID).
+						Str("new_app_id", session.AppID).
+						Str("old_app_id", wolfUIAppID).
+						Msg("[AUTO-JOIN] ✅ Session switched to lobby producer, pipeline ready")
+					return nil
+				}
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	// If we get here, the switch might not have completed, but continue anyway
+	log.Warn().
+		Str("moonlight_session_id", moonlightSessionID).
+		Str("lobby_id", lobbyID).
+		Dur("waited", maxWait).
+		Msg("[AUTO-JOIN] ⚠️ Timed out waiting for producer switch, continuing anyway")
 
 	return nil
 }
