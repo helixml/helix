@@ -537,13 +537,55 @@ When a streaming pipeline is created, it initially listens to `{session_id}_vide
 
 ## Common Issues Reference
 
-### Black Screen on Second Session
+### Black Screen on Second Session (CURRENT ISSUE - December 2025)
 
-**Symptom**: First session works, second session sees black screen.
+**Symptom**: First session connects to lobby and works perfectly. All subsequent sessions see black screen.
 
-**Root Cause (Historical)**: Complex pause/resume lifecycle caused race conditions between sessions.
+**Root Cause**: CUDA buffer pool corruption in GStreamer interpipe after first consumer disconnects.
 
-**Fix**: December 2025 Simplification (commit `14dca9b`) - always fire `StopStreamEvent` on disconnect. Sessions are destroyed cleanly, and new connections get fresh sessions that join existing lobbies.
+**Analysis**:
+1. First session streaming pipeline starts with NV12 test pattern
+2. First session joins lobby → interpipesrc switches to lobby's CUDA video
+3. `cudaupload` in streaming pipeline converts NV12 → CUDA, everything works
+4. First session disconnects → interpipesrc disconnects from lobby's interpipesink
+5. **Problem**: Lobby's interpipesink retains stale CUDA buffer pool state
+6. Second session starts fresh streaming pipeline with NV12 test pattern
+7. Second session joins lobby → interpipesrc switches to lobby's CUDA video
+8. **Crash**: `Failed to copy CUDA -> CUDA` - buffer pool from first session is invalid
+
+**GStreamer logs showing the issue**:
+```
+cudamemorycopy gstcudamemorycopy.c:997:gst_cuda_memory_copy_transform:<cudaupload7>
+Failed to copy CUDA -> CUDA
+error: Internal data stream error.
+```
+
+**Potential fixes (not yet implemented)**:
+
+1. **Add GPU memory upload to test pattern producer** (ensures consistent memory format from start):
+   - Modify test pattern: `videotestsrc ! cudaupload ! video/x-raw(memory:CUDAMemory) ! interpipesink`
+   - Pro: No interpipe caps renegotiation needed
+   - Con: **Complex multi-vendor implementation required**:
+     - NVIDIA: `cudaupload` for CUDA memory
+     - AMD: `vaupload` or similar for VA-API memory
+     - Intel: `vaupload` for VA-API memory
+     - Requires detecting GPU vendor at runtime and selecting appropriate elements
+     - Test pattern source pipeline would need to be GPU-vendor-specific
+
+2. **Skip test pattern entirely for lobby-destined sessions**:
+   - Create streaming pipeline listening directly to lobby's interpipesink
+   - Requires knowing lobby ID at session creation time (API change)
+
+3. **Reset interpipesink state when all consumers disconnect**:
+   - Restart waylanddisplaysrc pipeline on last consumer leave
+   - Pro: Cleans up buffer pool state
+   - Con: Disruptive, may affect running applications
+
+4. **Use Select Agent flow (no auto-join)**:
+   - Don't auto-join lobby from frontend
+   - User manually selects session from Wolf UI
+   - No interpipe switching = no buffer pool corruption
+   - Testing this as interim workaround
 
 ### Deadlock on Producer Switch
 

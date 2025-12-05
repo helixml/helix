@@ -587,7 +587,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
-  // Auto-join lobby after video starts playing (shows zone-plate loading screen briefly)
+  // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
   useEffect(() => {
     if (!pendingAutoJoin || !sessionId) return;
