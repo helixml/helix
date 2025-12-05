@@ -2222,13 +2222,29 @@ type ZedSettingsOverride struct {
 
 // ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
 type ZedConfigResponse struct {
-	ContextServers map[string]interface{} `json:"context_servers"`
-	LanguageModels map[string]interface{} `json:"language_models,omitempty"`
-	Assistant      map[string]interface{} `json:"assistant,omitempty"`
-	ExternalSync   map[string]interface{} `json:"external_sync,omitempty"`
-	Agent          map[string]interface{} `json:"agent,omitempty"`
-	Theme          string                 `json:"theme,omitempty"`
-	Version        int64                  `json:"version"` // Unix timestamp of app config update
+	ContextServers  map[string]interface{} `json:"context_servers"`
+	LanguageModels  map[string]interface{} `json:"language_models,omitempty"`
+	Assistant       map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
+	Agent           map[string]interface{} `json:"agent,omitempty"`
+	Theme           string                 `json:"theme,omitempty"`
+	Version         int64                  `json:"version"`                      // Unix timestamp of app config update
+	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+}
+
+// CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
+// This is dynamically generated based on the spec task's assistant configuration.
+type CodeAgentConfig struct {
+	// Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter")
+	Provider string `json:"provider"`
+	// Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o")
+	Model string `json:"model"`
+	// AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code")
+	AgentName string `json:"agent_name"`
+	// BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
+	BaseURL string `json:"base_url"`
+	// APIType specifies the API format: "anthropic", "openai", or "azure_openai"
+	APIType string `json:"api_type"`
 }
 
 type RunnerLLMInferenceRequest struct {

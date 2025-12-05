@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -162,17 +163,59 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
+	// Build CodeAgentConfig from the spec task's assistant configuration
+	var codeAgentConfig *types.CodeAgentConfig
+	if session.Metadata.SpecTaskID != "" {
+		// Get the spec task to find the associated app
+		specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to get spec task for code agent config")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get spec task: %v", err))
+		}
+
+		if specTask.HelixAppID == "" {
+			log.Error().Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Spec task has no HelixAppID configured")
+			return nil, system.NewHTTPError500("spec task has no app configured")
+		}
+
+		// Get the app to find the code agent assistant
+		specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for code agent config")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
+		}
+
+		codeAgentConfig = buildCodeAgentConfig(specTaskApp, helixAPIURL)
+		if codeAgentConfig == nil {
+			log.Error().
+				Str("session_id", sessionID).
+				Str("spec_task_id", session.Metadata.SpecTaskID).
+				Str("app_id", specTask.HelixAppID).
+				Msg("No zed_external assistant found in app")
+			return nil, system.NewHTTPError500("no code agent (zed_external assistant) configured in app")
+		}
+
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("provider", codeAgentConfig.Provider).
+			Str("model", codeAgentConfig.Model).
+			Str("api_type", codeAgentConfig.APIType).
+			Msg("Built code agent config from spec task")
+	}
+
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
 
 	response := &types.ZedConfigResponse{
-		ContextServers: contextServers,
-		LanguageModels: languageModels,
-		Assistant:      assistant,
-		ExternalSync:   externalSync,
-		Agent:          agentConfig,
-		Theme:          zedConfig.Theme,
-		Version:        version,
+		ContextServers:  contextServers,
+		LanguageModels:  languageModels,
+		Assistant:       assistant,
+		ExternalSync:    externalSync,
+		Agent:           agentConfig,
+		Theme:           zedConfig.Theme,
+		Version:         version,
+		CodeAgentConfig: codeAgentConfig,
 	}
 
 	return response, nil
@@ -313,4 +356,49 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	merged := external_agent.MergeZedConfigWithUserOverrides(zedConfig, userOverrides)
 
 	return merged, nil
+}
+
+// buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.
+// Returns nil if no zed_external assistant is found.
+func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfig {
+	// Find the assistant with AgentType = zed_external
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			return buildCodeAgentConfigFromAssistant(&assistant, helixURL)
+		}
+	}
+	return nil
+}
+
+// buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
+func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
+	provider := strings.ToLower(assistant.Provider)
+
+	var baseURL, apiType, agentName string
+
+	switch provider {
+	case "anthropic":
+		// Anthropic uses the /v1/messages endpoint
+		baseURL = helixURL + "/v1"
+		apiType = "anthropic"
+		agentName = "claude-code"
+	case "azure", "azure_openai":
+		// Azure OpenAI uses the /openai/deployments/{model}/chat/completions endpoint
+		baseURL = helixURL + "/openai"
+		apiType = "azure_openai"
+		agentName = "azure-agent"
+	default:
+		// OpenAI, OpenRouter, TogetherAI, Helix, etc. use the /v1/chat/completions endpoint
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "qwen"
+	}
+
+	return &types.CodeAgentConfig{
+		Provider:  assistant.Provider,
+		Model:     assistant.Model,
+		AgentName: agentName,
+		BaseURL:   baseURL,
+		APIType:   apiType,
+	}
 }
