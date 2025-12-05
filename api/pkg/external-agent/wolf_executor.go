@@ -650,7 +650,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Define container hostname for external agent
 	// Use session ID (without ses_ prefix) so we can construct hostname from session ID
 	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
-	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+	containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
 
 	// Build agent instance ID for this session-scoped agent
 	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
@@ -1753,9 +1753,9 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
 						if envStr == expectedEnv {
 							// Found lobby - extract container hostname
-							// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+							// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
 							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
-							containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+							containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
 
 							log.Trace().
 								Str("helix_session_id", helixSessionID).
@@ -2222,7 +2222,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessionsForInstance(ctx context.Cont
 		// This is insufficient for exact matching, so we need a better approach
 
 		// Instead: Check if lobby's container is running by using lobby ID
-		// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+		// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
 		// We can't reverse-engineer session ID from this easily
 
 		// BETTER: Extract HELIX_SESSION_ID from lobby's runner env vars if available
