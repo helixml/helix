@@ -1191,19 +1191,21 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
 
-	// Find placeholder app - prefer "Blank" (test pattern), fall back to "Select Agent" (Wolf-UI)
+	// Find placeholder app - prefer "Select Agent" (Wolf-UI with CUDA video), fall back to "Blank" (test pattern with NV12)
+	// Using Select Agent ensures consistent CUDA memory format from start, preventing buffer pool corruption
+	// when switching interpipe sources from test pattern (NV12) to lobby video (CUDA)
 	var wolfUIAppID string
 	for _, app := range apps {
-		if app.Title == "Blank" {
+		if app.Title == "Select Agent" {
 			wolfUIAppID = app.ID
 			break
 		}
-		if app.Title == "Select Agent" && wolfUIAppID == "" {
+		if app.Title == "Blank" && wolfUIAppID == "" {
 			wolfUIAppID = app.ID
 		}
 	}
 	if wolfUIAppID == "" {
-		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
+		return fmt.Errorf("placeholder app (Select Agent or Blank) not found in apps list")
 	}
 
 	log.Info().
