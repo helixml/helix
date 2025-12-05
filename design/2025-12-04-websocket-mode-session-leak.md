@@ -949,3 +949,68 @@ Use **Select Agent (Wolf-UI)** app instead of **Blank** test pattern:
 - No buffer sharing issues because each session has independent producers
 
 This is a workaround, not a fix. The test pattern approach would be more efficient for the "loading screen" use case.
+
+## Why Select Agent Works But Blank Doesn't (2025-12-05)
+
+### Revised Understanding: Buffer Pool Initialization
+
+The earlier NVENC buffer registration theory is only part of the story. The key insight is:
+
+**The consumer pipeline's `nvh264enc` initializes its buffer pool based on the FIRST source it reads from.**
+
+### The Switch Problem
+
+When interpipesrc switches from the initial app to the lobby, the encoder may not handle the transition cleanly:
+
+```
+Blank (test pattern):                    Select Agent (waylanddisplaysrc):
+
+videotestsrc                             waylanddisplaysrc (Wolf-UI)
+    ↓                                        ↓
+cudaupload ← (creates buffers)           (creates buffers directly)
+    ↓                                        ↓
+interpipesink                            interpipesink
+    ↓                                        ↓
+    ╔═══════════════════════════════════════════════════╗
+    ║  interpipesrc (in consumer)                        ║
+    ║     ↓                                              ║
+    ║  nvh264enc ← (initializes pool from FIRST source) ║
+    ╚═══════════════════════════════════════════════════╝
+    ↓                                        ↓
+Lobby switch happens                     Lobby switch happens
+    ↓                                        ↓
+waylanddisplaysrc (lobby)               waylanddisplaysrc (lobby)
+```
+
+**With Blank:**
+- nvh264enc initializes with buffers from `cudaupload`
+- Then switches to buffers from `waylanddisplaysrc` (lobby)
+- **Mismatched buffer pool characteristics** → NVENC registration issues
+
+**With Select Agent:**
+- nvh264enc initializes with buffers from `waylanddisplaysrc` (Wolf-UI)
+- Then switches to buffers from `waylanddisplaysrc` (lobby)
+- **Same buffer pool characteristics** → works fine
+
+The issue isn't that buffers are "shared" - it's that `cudaupload` creates buffers with different internal properties than `waylanddisplaysrc`, and nvh264enc can't handle the transition cleanly.
+
+### Why Buffer Pools Differ
+
+Even though we matched the VIDEO CAPS (resolution, framerate, memory type), the underlying buffer pools may differ in:
+
+1. **Buffer pool allocator** - cudaupload vs waylanddisplaysrc use different allocators
+2. **Internal buffer flags** - CUDA memory allocation parameters
+3. **Buffer metadata** - GstMeta attached to buffers
+4. **Pool configuration** - min/max buffers, alignment requirements
+
+NVENC's `nvEncRegisterResource` may fail when it encounters buffers allocated with different characteristics than what it was initialized with.
+
+### Potential Fixes (Future Work)
+
+1. **Use a minimal waylanddisplaysrc for test pattern** - Run a trivial Wayland compositor that just displays a solid color, ensuring all sources use the same buffer allocation path
+
+2. **Use CUDA-native test source** - Find or create a GStreamer element that generates test patterns directly in CUDA memory using the same allocator as waylanddisplaysrc
+
+3. **Force buffer pool renegotiation on switch** - Make interpipesrc flush and renegotiate its buffer pool when switching `listen-to` sources
+
+4. **Investigate GStreamer nvh264enc** - Determine if this is a bug in nvh264enc's handling of buffer pool transitions
