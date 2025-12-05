@@ -1,7 +1,7 @@
 # WebSocket Mode Session Leak Investigation
 
 **Date:** 2025-12-04
-**Status:** FIXED
+**Status:** FIXED (WebSocket leak fix) + IN PROGRESS (black screen on second session)
 
 ## Problem Statement
 
@@ -1014,3 +1014,304 @@ NVENC's `nvEncRegisterResource` may fail when it encounters buffers allocated wi
 3. **Force buffer pool renegotiation on switch** - Make interpipesrc flush and renegotiate its buffer pool when switching `listen-to` sources
 
 4. **Investigate GStreamer nvh264enc** - Determine if this is a bug in nvh264enc's handling of buffer pool transitions
+
+## Deep Source Code Analysis: Token-Based NVENC Registration (2025-12-05)
+
+### gst-interpipe Buffer Passing Mechanism
+
+Examined source code from games-on-whales/gst-interpipe (cloned from Wolf's Docker build).
+
+**Key finding from `gstinterpipesink.c:828-848`:**
+
+```c
+static void
+gst_inter_pipe_sink_push_to_listener (gpointer key, gpointer data,
+    gpointer user_data)
+{
+  GstInterPipeIListener *listener;
+  GstInterPipeSink *sink;
+  GstBuffer *buffer;
+  // ...
+  sink = GST_INTER_PIPE_SINK (data_array[0]);
+  buffer = gst_buffer_ref (GST_BUFFER (data_array[1]));  // <-- REF, NOT COPY
+
+  listener = GST_INTER_PIPE_ILISTENER (data);
+  // ...
+  gst_inter_pipe_ilistener_push_buffer (listener, buffer, basetime);
+}
+```
+
+**Buffers are passed BY REFERENCE, not copied.** When a lobby producer (waylanddisplaysrc) creates a buffer,
+that SAME buffer object (with SAME underlying CUDA memory) is passed to ALL consumers.
+
+### NVENC Token-Based Resource Registration
+
+**Critical discovery from `gstnvencobject.cpp:725-797`:**
+
+```cpp
+NVENCSTATUS
+GstNvEncObject::acquireResourceCuda (GstMemory * mem, guint width, guint height,
+      guint stride, GstNvEncResource ** resource)
+{
+  GstNvEncResource *res;
+  GstCudaMemory *cmem;
+  cmem = GST_CUDA_MEMORY_CAST (mem);
+
+  // STEP 1: Check if this memory ALREADY has a registered resource for THIS encoder
+  res = (GstNvEncResource *) gst_cuda_memory_get_token_data (cmem, user_token_);
+  if (res) {
+    auto iter = resource_queue_.find (res);
+    if (iter != resource_queue_.end ()) {
+      GST_LOG_ID (id_.c_str (), "Memory is holding registered resource");
+      *resource = gst_nv_enc_resource_ref (res);
+      return NV_ENC_SUCCESS;  // REUSE EXISTING REGISTRATION
+    }
+  }
+
+  // STEP 2: If no existing registration, create new one
+  status = NvEncRegisterResource (session_, &new_resource);
+  // ...
+  status = NvEncMapInputResource (session_, &mapped_resource);
+  // ...
+
+  // STEP 3: Store registration ON THE BUFFER ITSELF using encoder's unique token
+  gst_cuda_memory_set_token_data (cmem, user_token_,
+      gst_nv_enc_resource_ref (res),
+      (GDestroyNotify) gst_nv_enc_resource_unref);
+  resource_queue_.insert (res);
+  *resource = res;
+  return NV_ENC_SUCCESS;
+}
+```
+
+**Each encoder has a unique `user_token_`** (created at line 197):
+```cpp
+self->user_token_ = gst_cuda_create_user_token ();
+```
+
+**The registration is stored ON THE BUFFER** via `gst_cuda_memory_set_token_data()`.
+
+### The Root Cause: Stale Token Data on Shared Buffers
+
+**Timeline of failure:**
+
+```
+1. Lobby producer (waylanddisplaysrc) creates buffer B with CUDA memory M
+
+2. Session 1 encoder (token=T1) receives buffer B
+   - Checks: gst_cuda_memory_get_token_data(M, T1) → NULL (no registration for T1)
+   - Registers: NvEncRegisterResource(M) → registration R1
+   - Stores: gst_cuda_memory_set_token_data(M, T1, R1)  ← STORED ON BUFFER
+   - Buffer M now has: {T1: R1}
+
+3. Session 1 encoder is destroyed
+   - Destructor calls: NvEncUnregisterResource(R1.registeredResource)
+   - BUT: Buffer M still has token data {T1: R1} with STALE pointer!
+   - gst_nv_enc_resource_unref called on R1, but...
+
+4. Session 2 encoder (token=T2) receives SAME buffer B
+   - Checks: gst_cuda_memory_get_token_data(M, T2) → NULL (no registration for T2)
+   - Checks: gst_cuda_memory_get_token_data(M, T1) → stale R1 pointer (DIFFERENT TOKEN)
+   - Session 2 doesn't find its own token, so it tries to register again
+   - Calls: NvEncRegisterResource(M)
+   - NVENC FAILS: Memory M was already registered by Session 1!
+   - Returns: NV_ENC_ERR_RESOURCE_REGISTER_FAILED (0x17)
+```
+
+### Why Test Pattern Works But Lobby Fails
+
+| Scenario | Buffer Ownership | Why |
+|----------|------------------|-----|
+| Blank → Lobby (FAILS) | Lobby buffers shared across sessions | Session 2 sees lobby buffers with stale T1 registration |
+| Select Agent → Lobby (WORKS) | Both use waylanddisplaysrc | May have different buffer characteristics that avoid conflict |
+| Blank (no switch) | Per-session buffers | Each session gets fresh buffers |
+
+The key insight: **Lobby buffers persist across session lifetimes** because the lobby producer runs continuously.
+When Session 1's encoder is destroyed, it unregisters with NVENC but the token data on the buffer still exists.
+Session 2's encoder can't find its own token, tries to re-register, and NVENC refuses.
+
+### Potential Fixes (Based on Source Analysis)
+
+1. **Clear token data on encoder destroy** - Modify nvh264enc to remove its token data from all buffers in resource_queue_ before unregistering:
+   ```cpp
+   // In destructor, before NvEncUnregisterResource:
+   for (auto it : resource_queue_) {
+     // Clear our token data from the buffer
+     gst_cuda_memory_set_token_data(it->cmem, user_token_, NULL, NULL);
+   }
+   ```
+
+2. **Check if registration is still valid** - The code already checks `resource_queue_.find(res)`, but the stale registration might have been cleaned up from the queue while token data remains.
+
+3. **Force buffer pool flush on interpipe switch** - When interpipesrc changes `listen-to`, flush all pending buffers so encoder gets fresh buffers from new producer.
+
+4. **Use per-session lobby producers** - Each session gets its own waylanddisplaysrc for the lobby (defeats multi-user optimization but avoids buffer sharing).
+
+### Refined Analysis: Race Condition Between Sessions
+
+After deeper analysis of the destructor flow, I found that `NvEncUnregisterResource` IS called in the destructor.
+The resource uses a `std::weak_ptr<GstNvEncObject>` to track its parent encoder.
+
+**The actual problem is a RACE CONDITION:**
+
+```
+Timeline (Race Condition Scenario):
+
+T=0:   Lobby producer creates buffer B, stored in buffer pool
+T=1:   Session 1 encoder registers B with NVENC (token T1)
+       - NvEncRegisterResource(B) → success
+       - gst_cuda_memory_set_token_data(B, T1, registration)
+T=2:   Session 1 encoding in progress (buffer B in use by nvh264enc)
+T=3:   User disconnects Session 1
+       - GStreamer pipeline set to NULL state
+       - Destructor NOT YET RUN (async cleanup)
+T=4:   Session 2 starts, joins lobby (before Session 1 destructor runs!)
+T=5:   Lobby producer sends buffer B to Session 2's interpipesrc
+T=6:   Session 2 encoder receives buffer B
+       - Check: gst_cuda_memory_get_token_data(B, T2) → NULL
+       - Session 2 has different token T2, so it tries to register
+       - NvEncRegisterResource(B) → FAILS!
+       - Buffer B is STILL registered by Session 1's encoder!
+T=7:   NV_ENC_ERR_RESOURCE_REGISTER_FAILED (0x17)
+T=8:   Session 1's destructor finally runs
+       - NvEncUnregisterResource(B) → success (too late!)
+```
+
+**Why GStreamer pipeline cleanup is asynchronous:**
+- `gst_element_set_state(pipeline, GST_STATE_NULL)` queues the state change
+- Elements transition through PAUSED → READY → NULL
+- Each transition involves flushing buffers, stopping threads
+- The nvh264enc destructor only runs when the element's refcount drops to 0
+- This can take hundreds of milliseconds after `set_state(NULL)` is called
+
+**Why this explains the observed behavior:**
+- First session works: No previous registrations to conflict with
+- Second session fails: Races with first session's async cleanup
+- High-latency connections sometimes work: More time for cleanup before new session starts
+- Test pattern works: Each session has its OWN interpipesink (unique buffers)
+- Lobby fails: SHARED interpipesink across all sessions (buffers persist)
+
+### Verification Needed
+
+To confirm this theory, add logging to track:
+1. When exactly `~GstNvEncObject()` runs (destructor entry/exit)
+2. When exactly `acquireResourceCuda()` tries to register
+3. Timestamp comparison between Session 1 destructor and Session 2 registration attempt
+
+### Potential Solutions (Updated)
+
+1. **Synchronous pipeline cleanup** - Wait for destructor to complete before allowing new session:
+   ```cpp
+   // In Wolf's session cleanup:
+   pipeline->set_state(GST_STATE_NULL);
+   // Wait for state change to complete
+   pipeline->get_state(nullptr, nullptr, GST_CLOCK_TIME_NONE);
+   // Now destructor has run, safe to start new session
+   ```
+
+2. **Barrier between sessions** - Add explicit synchronization:
+   ```cpp
+   // Before joining lobby, ensure no other encoders are using lobby buffers
+   std::lock_guard<std::mutex> lobby_lock(lobby_encoder_mutex);
+   // Now safe to join
+   ```
+
+3. **Per-session buffer pools** - Lobby uses interpipe proxy pattern:
+   ```
+   waylanddisplaysrc → interpipesink (shared)
+                           ↓
+   interpipesrc → identity → interpipesink_{session_id} (per-session)
+                                      ↓
+                             interpipesrc → nvh264enc (consumer)
+   ```
+   Each session gets its own buffers (copied from shared source).
+
+4. **Force buffer pool flush on switch** - Send EOS or FLUSH event before joining lobby:
+   ```cpp
+   // Before switching interpipesrc listen-to:
+   gst_pad_push_event(interpipesrc->srcpad, gst_event_new_flush_start());
+   gst_pad_push_event(interpipesrc->srcpad, gst_event_new_flush_stop(TRUE));
+   // Now encoder has no cached buffers
+   g_object_set(interpipesrc, "listen-to", lobby_producer, NULL);
+   ```
+
+### The Bug in Wolf's Pipeline Cleanup (streaming.hpp:224-226)
+
+The current cleanup code does NOT wait for state transitions to complete:
+
+```cpp
+/* Out of the main loop, clean up nicely */
+gst_element_set_state(pipeline.get(), GST_STATE_PAUSED);
+gst_element_set_state(pipeline.get(), GST_STATE_READY);
+gst_element_set_state(pipeline.get(), GST_STATE_NULL);
+// Returns immediately! State transitions are ASYNCHRONOUS!
+return true;
+```
+
+**Problem:** `gst_element_set_state()` returns immediately. The actual state transition
+(including nvh264enc destructor running `NvEncUnregisterResource`) happens asynchronously.
+When the function returns, the encoder may still be cleaning up.
+
+**Fix:** Wait for each state transition to complete:
+
+```cpp
+/* Out of the main loop, clean up nicely */
+logs::log(logs::info, "[THREAD_LIFECYCLE] Pipeline thread (TID={}) exiting normally, cleaning up", tid);
+gst_element_set_state(pipeline.get(), GST_STATE_PAUSED);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+
+gst_element_set_state(pipeline.get(), GST_STATE_READY);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+
+gst_element_set_state(pipeline.get(), GST_STATE_NULL);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+// NOW nvh264enc destructor has definitely run and NvEncUnregisterResource completed
+
+return true;
+```
+
+`gst_element_get_state()` with `GST_CLOCK_TIME_NONE` blocks until the state transition completes.
+This ensures the encoder has fully released all NVENC resources before the thread exits.
+
+### GStreamer Code References
+
+- `gstnvencobject.cpp:CreateInstance()` (169-209) - Creates encoder, generates unique user_token_
+- `gstnvencobject.cpp:acquireResourceCuda()` (725-797) - Token-based registration lookup
+- `gstnvencobject.cpp:~GstNvEncObject()` (211-248) - Destructor, calls releaseResourceUnlocked
+- `gstnvencobject.cpp:releaseResourceUnlocked()` (996-1003) - Unregisters with NVENC
+- `gstnvencobject.cpp:GstNvEncResource` (66-85) - Uses weak_ptr to encoder
+- `gstnvencobject.cpp:gst_nv_enc_resource_dispose()` (1120-1136) - Only cleans up if encoder still alive
+- `gstinterpipesink.c:push_to_listener()` (828-848) - Buffer passed by reference
+- `streaming.hpp:224-226` - **THE BUG**: async state changes without waiting
+
+## Fix Implemented: Synchronous Pipeline Cleanup (2025-12-05)
+
+Applied the fix to `wolf/src/moonlight-server/streaming/streaming.hpp`:
+
+```cpp
+// CRITICAL: Wait for each state transition to complete!
+// gst_element_set_state() is ASYNC - without waiting, nvh264enc's destructor
+// (which calls NvEncUnregisterResource) may not have run when this function returns.
+// This causes NV_ENC_ERR_RESOURCE_REGISTER_FAILED when the next session tries to
+// register the same CUDA buffers that are still registered by the dying encoder.
+gst_element_set_state(pipeline.get(), GST_STATE_PAUSED);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+
+gst_element_set_state(pipeline.get(), GST_STATE_READY);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+
+gst_element_set_state(pipeline.get(), GST_STATE_NULL);
+gst_element_get_state(pipeline.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
+```
+
+This ensures that when Session 1 ends, its nvh264enc destructor (which calls `NvEncUnregisterResource`)
+has fully completed before Session 2 can start using the same lobby buffers.
+
+### Verification Steps
+
+After deploying the fix:
+1. Start a WebSocket stream (Blank app)
+2. Close the browser tab
+3. Start a new WebSocket stream
+4. **Should see video** instead of black screen
+5. Check logs for: `[THREAD_LIFECYCLE] Pipeline thread cleanup complete`
