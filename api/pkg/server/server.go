@@ -240,7 +240,6 @@ func NewServer(
 		cfg.WebServer.RunnerToken,
 		qwenBaseURL,
 		cfg.ExternalAgents.QwenModel,
-		cfg.ExternalAgents.QwenAPIKey,
 		store,
 		connectionManager,
 	)
