@@ -85,7 +85,6 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
-				"type":    "custom",
 				"command": "qwen",
 				"args": []string{
 					"--experimental-acp",
@@ -217,9 +216,12 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	if config.Assistant != nil {
 		d.helixSettings["assistant"] = config.Assistant
 	}
-	if config.ExternalSync != nil {
-		d.helixSettings["external_sync"] = config.ExternalSync
-	}
+	// Note: external_sync is NOT written to settings.json because:
+	// 1. Zed's settings schema doesn't include it (causes "Property external_sync is not allowed" warning)
+	// 2. Zed reads external_sync config from environment variables instead (ZED_EXTERNAL_SYNC_ENABLED, ZED_HELIX_URL, etc.)
+	// if config.ExternalSync != nil {
+	// 	d.helixSettings["external_sync"] = config.ExternalSync
+	// }
 	if config.Agent != nil {
 		d.helixSettings["agent"] = config.Agent
 	}
@@ -241,20 +243,23 @@ func (d *SettingsDaemon) syncFromHelix() error {
 
 	// Inject code agent configuration (if using qwen custom agent)
 	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
+	// Note: We don't set "default_agent" because Zed doesn't have that setting.
+	// Instead, thread_service.rs dynamically selects the agent based on agent_name from Helix.
 	agentServers := d.generateAgentServerConfig()
 	if agentServers != nil {
 		d.helixSettings["agent_servers"] = agentServers
-		d.helixSettings["default_agent"] = "qwen"
 	}
 
 	return d.writeSettings(d.helixSettings)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API
+// Also includes deprecated fields that should be removed from settings
 var SECURITY_PROTECTED_FIELDS = map[string]bool{
-	"telemetry":      true,
-	"agent_servers":  true,
-	"default_agent":  true,
+	"telemetry":     true,
+	"agent_servers": true,
+	"default_agent": true,  // Deprecated: Zed doesn't have this setting; remove from old configs
+	"external_sync": true,  // Deprecated: Zed reads this from env vars, not settings.json
 }
 
 // mergeSettings combines Helix settings with user overrides, then injects code agent config
@@ -511,9 +516,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	if config.Assistant != nil {
 		newHelixSettings["assistant"] = config.Assistant
 	}
-	if config.ExternalSync != nil {
-		newHelixSettings["external_sync"] = config.ExternalSync
-	}
+	// Note: external_sync is NOT written - Zed reads it from environment variables
 	if config.Agent != nil {
 		newHelixSettings["agent"] = config.Agent
 	}
@@ -538,12 +541,20 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	return nil
 }
 
+// DEPRECATED_FIELDS should be removed from settings.json (Zed doesn't support them)
+var DEPRECATED_FIELDS = []string{"default_agent", "external_sync"}
+
 // writeSettings atomically writes settings.json
 func (d *SettingsDaemon) writeSettings(settings map[string]interface{}) error {
 	// Ensure directory exists
 	dir := filepath.Dir(SettingsPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
+	}
+
+	// Remove deprecated fields that Zed doesn't support
+	for _, field := range DEPRECATED_FIELDS {
+		delete(settings, field)
 	}
 
 	// Marshal with indentation
