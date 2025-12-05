@@ -27,7 +27,7 @@ start_audio_server = false
     [profiles.apps.video]
     # Solid purple loading screen (#a100c7)
     # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
-    # Produces system RAM frames - consumer pipeline's cudaupload handles GPU upload
+    # Wolf's start_test_pattern_producer() handles GPU upload based on detected GPU type
     source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 

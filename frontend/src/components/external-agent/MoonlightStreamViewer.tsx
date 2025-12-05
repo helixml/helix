@@ -135,8 +135,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           });
           if (response.ok) {
             const data = await response.json();
-            actualAppId = parseInt(data.wolf_ui_app_id, 10);
-            console.log(`MoonlightStreamViewer: Using Wolf UI app ID ${actualAppId} for lobbies mode, lobby ${wolfLobbyId}`);
+            actualAppId = parseInt(data.placeholder_app_id, 10);
+            console.log(`MoonlightStreamViewer: Using placeholder app ID ${actualAppId} for lobbies mode, lobby ${wolfLobbyId}`);
           } else {
             const errorText = await response.text();
             console.warn(`MoonlightStreamViewer: Failed to fetch Wolf UI app ID: ${errorText}`);
