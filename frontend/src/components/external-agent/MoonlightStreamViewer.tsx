@@ -588,12 +588,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   }, [isConnected]);
 
   // Auto-join lobby after video starts playing (shows zone-plate loading screen briefly)
+  // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
   useEffect(() => {
     if (!pendingAutoJoin || !sessionId) return;
 
     const doAutoJoin = async () => {
       try {
-        console.log('[AUTO-JOIN] Triggering secure auto-join (backend derives Wolf client_id)');
+        console.log('[AUTO-JOIN] Triggering auto-join (backend waits for pipeline switch)');
         const apiClient = helixApi.getApiClient();
         const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
 
@@ -610,12 +611,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
     };
 
-    // Delay auto-join slightly to allow consumer pipeline to fully initialize
-    // Without this delay, the interpipe switch happens before CUDA context and
-    // caps negotiation are ready, causing "Failed to copy CUDA -> CUDA" errors
-    console.log('[AUTO-JOIN] Delaying auto-join by 500ms for pipeline initialization');
-    const timer = setTimeout(doAutoJoin, 500);
-    return () => clearTimeout(timer);
+    doAutoJoin();
   }, [pendingAutoJoin, sessionId, streamingMode]);
 
   // Track container size for canvas aspect ratio calculation

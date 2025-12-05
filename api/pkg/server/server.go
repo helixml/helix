@@ -95,6 +95,7 @@ type HelixAPIServer struct {
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
 	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping

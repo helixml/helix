@@ -462,16 +462,14 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Find placeholder app by name - prefer "Blank" (new), fall back to "Wolf UI" (legacy)
+	// Find placeholder app by name - prefer "Blank" (test pattern), fall back to "Select Agent" (Wolf-UI)
 	var foundAppID string
 	for _, app := range apps {
 		if app.Title == "Blank" {
-			// Prefer "Blank" app (new placeholder app for WebRTC clients)
 			foundAppID = app.ID
 			break
 		}
-		if app.Title == "Wolf UI" && foundAppID == "" {
-			// Fall back to "Wolf UI" for backward compatibility
+		if app.Title == "Select Agent" && foundAppID == "" {
 			foundAppID = app.ID
 		}
 	}
@@ -484,7 +482,7 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	http.Error(rw, "Placeholder app (Blank or Wolf UI) not found in apps list", http.StatusNotFound)
+	http.Error(rw, "Placeholder app (Blank or Select Agent) not found in apps list", http.StatusNotFound)
 }
 
 // fetchWolfSessions retrieves all streaming sessions from Wolf via WolfClientInterface
