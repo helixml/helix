@@ -374,7 +374,7 @@ func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfi
 func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
 	provider := strings.ToLower(assistant.Provider)
 
-	var baseURL, apiType, agentName string
+	var baseURL, apiType, agentName, model string
 
 	switch provider {
 	case "anthropic":
@@ -382,21 +382,25 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		baseURL = helixURL + "/v1"
 		apiType = "anthropic"
 		agentName = "claude-code"
+		model = assistant.Model // Anthropic models don't need prefix
 	case "azure", "azure_openai":
 		// Azure OpenAI uses the /openai/deployments/{model}/chat/completions endpoint
 		baseURL = helixURL + "/openai"
 		apiType = "azure_openai"
 		agentName = "azure-agent"
+		model = assistant.Model // Azure models don't need prefix
 	default:
 		// OpenAI, OpenRouter, TogetherAI, Helix, etc. use the /v1/chat/completions endpoint
+		// Model must be prefixed with provider name: "openrouter/x-ai/grok-3" or "togetherai/meta-llama/..."
 		baseURL = helixURL + "/v1"
 		apiType = "openai"
 		agentName = "qwen"
+		model = fmt.Sprintf("%s/%s", assistant.Provider, assistant.Model)
 	}
 
 	return &types.CodeAgentConfig{
 		Provider:  assistant.Provider,
-		Model:     assistant.Model,
+		Model:     model,
 		AgentName: agentName,
 		BaseURL:   baseURL,
 		APIType:   apiType,
