@@ -484,13 +484,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Typography>
                           {isRecommended && (
                             <Tooltip title="Recommended model">
-                              <StarIcon 
-                                sx={{ 
-                                  fontSize: '1rem', 
+                              <StarIcon
+                                sx={{
+                                  fontSize: '1rem',
                                   color: '#FFD700',
                                   ml: 0.5,
                                   verticalAlign: 'middle'
-                                }} 
+                                }}
                               />
                             </Tooltip>
                           )}
@@ -502,10 +502,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                             {model.provider.name}
                           </Typography>
                           {model.description && (
-                            <Typography 
-                              variant="caption" 
-                              component="span" 
-                              sx={{ 
+                            <Typography
+                              variant="caption"
+                              component="span"
+                              sx={{
                                 color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
                                 fontSize: '0.75rem',
                                 lineHeight: 1.2,
@@ -515,22 +515,24 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                             </Typography>
                           )}
                           <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
-                            {model.provider.name}                        
-                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}            
+                            {model.provider.name}
+                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}
                                 {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input tokens`}
                                 {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}                            
+                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}
                           </>)}
                            </Typography>
                         </Box>
                       }
                       primaryTypographyProps={{
+                        component: 'div',
                         sx: {
                           fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
                       }}
+                      secondaryTypographyProps={{ component: 'div' }}
                       sx={{ mr: 1 }}
                     />
                   </Box>
@@ -687,12 +689,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Box>
                         }
                         primaryTypographyProps={{
+                          component: 'div',
                           sx: {
                             fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                           }
                         }}
+                        secondaryTypographyProps={{ component: 'div' }}
                         sx={{ mr: 1 }}
                       />
                     </Box>

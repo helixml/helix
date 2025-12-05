@@ -592,6 +592,34 @@ const AppSettings: FC<AppSettingsProps> = ({
         </Box>
       )}
 
+      {/* Zed External Agent Configuration */}
+      {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Model</Typography>
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Select the LLM that will run inside Zed for agentic coding. This model handles code generation,
+            tool use, and iterative development within the Zed editor environment.
+          </Typography>
+          <AdvancedModelPicker
+            hint="Choose a capable model for agentic coding. Claude Sonnet 4.5 or GPT-4o recommended for best results."
+            selectedProvider={generation_model_provider}
+            selectedModelId={generation_model}
+            onSelectModel={(provider, modelId) => {
+              setGenerationModel(modelId);
+              setGenerationModelProvider(provider);
+              const updatedApp: IAppFlatState = {
+                ...app,
+                generation_model: modelId,
+                generation_model_provider: provider,
+              };
+              onUpdate(updatedApp);
+            }}
+            currentType="text"
+            displayMode="short"
+          />
+        </Box>
+      )}
+
         {/* Multi-Turn Agent Configuration */}
         {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>

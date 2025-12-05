@@ -70,9 +70,17 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Generate Zed MCP config
+	// Use SERVER_URL for external-facing URLs (browser access)
 	helixAPIURL := apiServer.Cfg.WebServer.URL
 	if helixAPIURL == "" {
 		helixAPIURL = "http://api:8080"
+	}
+
+	// Use SANDBOX_API_URL for sandbox containers (internal Docker network)
+	// This is the URL that Zed inside the sandbox uses to call the Helix API
+	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
+	if sandboxAPIURL == "" {
+		sandboxAPIURL = "http://api:8080" // Default Docker internal address
 	}
 
 	helixToken := apiServer.Cfg.WebServer.RunnerToken
@@ -185,7 +193,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
 		}
 
-		codeAgentConfig = buildCodeAgentConfig(specTaskApp, helixAPIURL)
+		codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
 		if codeAgentConfig == nil {
 			log.Error().
 				Str("session_id", sessionID).
