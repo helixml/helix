@@ -135,6 +135,14 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-typesense:8108
             - name: RAG_TYPESENSE_API_KEY
               value: {{ .Values.typesense.apiKey }}
+            - name: RAG_QDRANT_HOST
+              value: {{ include "helix-controlplane.fullname" . }}-qdrant
+            - name: RAG_QDRANT_PORT
+              value: "6334"
+            {{- if .Values.qdrant.apiKey }}
+            - name: RAG_QDRANT_API_KEY
+              value: {{ .Values.qdrant.apiKey }}
+            {{- end }}
             - name: TEXT_EXTRACTION_TIKA_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL

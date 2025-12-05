@@ -215,7 +215,7 @@ controlplane:
 
   # RAG configuration
   rag:
-    # The default RAG provider to use. Valid values: haystack, typesense
+    # The default RAG provider to use. Valid values: haystack, typesense, qdrant
     defaultProvider: "haystack"
     # The helix inference provider that will serve embeddings for haystack.
     # Valid values: vllm, helix (for haystack which uses external GPU-accelerated
@@ -451,3 +451,25 @@ typesense:
     # selector:
     #   matchLabels:
     #     app: typesense
+
+## Qdrant configuration (vector database RAG provider)
+qdrant:
+  # Enable Qdrant for vector-based RAG
+  enabled: false
+  apiKey: "" # Optional API key for Qdrant authentication
+  # Use custom image if needed
+  # image:
+  #   repository: qdrant/qdrant
+  #   tag: "v1.16.1"
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "" # Use default storage class
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-qdrant-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: qdrant
