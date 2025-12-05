@@ -29,43 +29,76 @@ type SettingsDaemon struct {
 	watcher      *fsnotify.Watcher
 	lastModified time.Time
 
-	// Qwen Code configuration (from environment)
-	qwenBaseURL string
-	qwenModel   string
-	userAPIKey  string
+	// User's Helix API token (for authenticating with LLM proxies)
+	userAPIKey string
+
+	// Code agent configuration (from Helix API)
+	codeAgentConfig *CodeAgentConfig
 
 	// Current state
 	helixSettings map[string]interface{}
 	userOverrides map[string]interface{}
 }
 
-// generateQwenAgentConfig creates the agent_servers configuration for Qwen Code
-func (d *SettingsDaemon) generateQwenAgentConfig() map[string]interface{} {
-	env := map[string]interface{}{
-		"GEMINI_TELEMETRY_ENABLED": "false",
-		"OPENAI_BASE_URL":          d.qwenBaseURL,
+// CodeAgentConfig mirrors the API response structure for code agent configuration
+type CodeAgentConfig struct {
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	AgentName string `json:"agent_name"`
+	BaseURL   string `json:"base_url"`
+	APIType   string `json:"api_type"`
+}
+
+// generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
+// Returns nil for providers that use Zed's built-in agent (Anthropic, Azure).
+//
+// There are two modes:
+// 1. Zed's built-in agent (Anthropic/Azure) - No agent_servers needed. Zed reads ANTHROPIC_API_KEY
+//    or AZURE_OPENAI_* env vars directly from the container environment (set by wolf_executor).
+// 2. Qwen custom agent (OpenAI-compatible) - Requires agent_servers with qwen command and env vars.
+func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
+	if d.codeAgentConfig == nil {
+		// No code agent configured - return nil (no agent_servers will be set)
+		log.Printf("Warning: No code agent configuration received from Helix API")
+		return nil
 	}
 
-	// Add API key if available (user's Helix API token)
-	if d.userAPIKey != "" {
-		env["OPENAI_API_KEY"] = d.userAPIKey
-	}
+	switch d.codeAgentConfig.APIType {
+	case "anthropic", "azure_openai":
+		// Anthropic and Azure use Zed's built-in agent - no agent_servers needed
+		// The container env vars (ANTHROPIC_API_KEY, etc.) are set by wolf_executor
+		log.Printf("Using Zed's built-in agent for %s (no agent_servers needed)", d.codeAgentConfig.APIType)
+		return nil
 
-	// Add model configuration if set
-	if d.qwenModel != "" {
-		env["OPENAI_MODEL"] = d.qwenModel
-	}
+	default:
+		// OpenAI-compatible providers (OpenAI, OpenRouter, TogetherAI, Helix, etc.)
+		// Use the qwen custom agent with agent_servers
+		env := map[string]interface{}{
+			"GEMINI_TELEMETRY_ENABLED": "false",
+			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
+		}
 
-	return map[string]interface{}{
-		"qwen": map[string]interface{}{
-			"type":    "custom",
-			"command": "qwen",
-			"args": []string{
-				"--experimental-acp",
-				"--no-telemetry",
+		if d.userAPIKey != "" {
+			env["OPENAI_API_KEY"] = d.userAPIKey
+		}
+		if d.codeAgentConfig.Model != "" {
+			env["OPENAI_MODEL"] = d.codeAgentConfig.Model
+		}
+
+		log.Printf("Generated qwen agent config: base_url=%s, model=%s",
+			d.codeAgentConfig.BaseURL, d.codeAgentConfig.Model)
+
+		return map[string]interface{}{
+			"qwen": map[string]interface{}{
+				"type":    "custom",
+				"command": "qwen",
+				"args": []string{
+					"--experimental-acp",
+					"--no-telemetry",
+				},
+				"env": env,
 			},
-			"env": env,
-		},
+		}
 	}
 }
 
@@ -82,18 +115,7 @@ func main() {
 		port = "9877"
 	}
 
-	// Qwen Code configuration (installer-configurable)
-	qwenBaseURL := os.Getenv("QWEN_BASE_URL")
-	if qwenBaseURL == "" {
-		qwenBaseURL = helixURL + "/v1"
-	}
-	qwenModel := os.Getenv("QWEN_MODEL")
-	if qwenModel == "" {
-		qwenModel = "qwen-oss:120b"
-	}
-
-	// API key: use USER_API_TOKEN (the user's Helix API token)
-	// This allows users to specify their own provider via the model prefix (e.g., "openrouter/gpt-4")
+	// User's Helix API token (for authenticating with LLM proxies)
 	userAPIKey := os.Getenv("USER_API_TOKEN")
 
 	if sessionID == "" {
@@ -102,8 +124,6 @@ func main() {
 
 	log.Printf("Starting settings sync daemon for session %s", sessionID)
 	log.Printf("Helix API URL: %s", helixURL)
-	log.Printf("Qwen Base URL: %s", qwenBaseURL)
-	log.Printf("Qwen Model: %s", qwenModel)
 	log.Printf("Settings path: %s", SettingsPath)
 
 	// Create HTTP client with insecure TLS (TODO: make configurable)
@@ -116,13 +136,11 @@ func main() {
 	}
 
 	daemon := &SettingsDaemon{
-		httpClient:  httpClient,
-		apiURL:      helixURL,
-		apiToken:    helixToken,
-		sessionID:   sessionID,
-		qwenBaseURL: qwenBaseURL,
-		qwenModel:   qwenModel,
-		userAPIKey:  userAPIKey,
+		httpClient: httpClient,
+		apiURL:     helixURL,
+		apiToken:   helixToken,
+		sessionID:  sessionID,
+		userAPIKey: userAPIKey,
 	}
 
 	// Initial sync from Helix → local
@@ -173,17 +191,21 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	}
 
 	var config struct {
-		ContextServers map[string]interface{} `json:"context_servers"`
-		LanguageModels map[string]interface{} `json:"language_models"`
-		Assistant      map[string]interface{} `json:"assistant"`
-		ExternalSync   map[string]interface{} `json:"external_sync"`
-		Agent          map[string]interface{} `json:"agent"`
-		Theme          string                 `json:"theme"`
-		Version        int64                  `json:"version"`
+		ContextServers  map[string]interface{} `json:"context_servers"`
+		LanguageModels  map[string]interface{} `json:"language_models"`
+		Assistant       map[string]interface{} `json:"assistant"`
+		ExternalSync    map[string]interface{} `json:"external_sync"`
+		Agent           map[string]interface{} `json:"agent"`
+		Theme           string                 `json:"theme"`
+		Version         int64                  `json:"version"`
+		CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse Helix config: %w", err)
 	}
+
+	// Store code agent config for generating agent_servers
+	d.codeAgentConfig = config.CodeAgentConfig
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
@@ -216,10 +238,13 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		}
 	}
 
-	// Inject Qwen Code agent configuration
-	d.helixSettings["agent_servers"] = d.generateQwenAgentConfig()
-	d.helixSettings["default_agent"] = "qwen"
-	log.Printf("Injected Qwen Code agent config (base_url=%s, model=%s)", d.qwenBaseURL, d.qwenModel)
+	// Inject code agent configuration (if using qwen custom agent)
+	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
+	agentServers := d.generateAgentServerConfig()
+	if agentServers != nil {
+		d.helixSettings["agent_servers"] = agentServers
+		d.helixSettings["default_agent"] = "qwen"
+	}
 
 	return d.writeSettings(d.helixSettings)
 }
@@ -231,7 +256,7 @@ var SECURITY_PROTECTED_FIELDS = map[string]bool{
 	"default_agent":  true,
 }
 
-// mergeSettings combines Helix settings with user overrides, then injects Qwen config
+// mergeSettings combines Helix settings with user overrides, then injects code agent config
 func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
 
@@ -269,9 +294,13 @@ func (d *SettingsDaemon) mergeSettings(helix, user map[string]interface{}) map[s
 		}
 	}
 
-	// Inject Qwen Code agent configuration
-	merged["agent_servers"] = d.generateQwenAgentConfig()
-	merged["default_agent"] = "qwen"
+	// Inject code agent configuration (if using qwen custom agent)
+	// For Anthropic/Azure, Zed's built-in agent is used (no agent_servers needed)
+	agentServers := d.generateAgentServerConfig()
+	if agentServers != nil {
+		merged["agent_servers"] = agentServers
+		merged["default_agent"] = "qwen"
+	}
 
 	return merged
 }
@@ -459,13 +488,14 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 	}
 
 	var config struct {
-		ContextServers map[string]interface{} `json:"context_servers"`
-		LanguageModels map[string]interface{} `json:"language_models"`
-		Assistant      map[string]interface{} `json:"assistant"`
-		ExternalSync   map[string]interface{} `json:"external_sync"`
-		Agent          map[string]interface{} `json:"agent"`
-		Theme          string                 `json:"theme"`
-		Version        int64                  `json:"version"`
+		ContextServers  map[string]interface{} `json:"context_servers"`
+		LanguageModels  map[string]interface{} `json:"language_models"`
+		Assistant       map[string]interface{} `json:"assistant"`
+		ExternalSync    map[string]interface{} `json:"external_sync"`
+		Agent           map[string]interface{} `json:"agent"`
+		Theme           string                 `json:"theme"`
+		Version         int64                  `json:"version"`
+		CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return err
@@ -490,10 +520,12 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		newHelixSettings["theme"] = config.Theme
 	}
 
-	// Check if Helix settings changed
-	if !deepEqual(newHelixSettings, d.helixSettings) {
+	// Check if Helix settings or code agent config changed
+	codeAgentChanged := !deepEqual(config.CodeAgentConfig, d.codeAgentConfig)
+	if !deepEqual(newHelixSettings, d.helixSettings) || codeAgentChanged {
 		log.Println("Detected Helix config change, updating settings.json")
 		d.helixSettings = newHelixSettings
+		d.codeAgentConfig = config.CodeAgentConfig
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)
