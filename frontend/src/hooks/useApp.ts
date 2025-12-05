@@ -387,6 +387,10 @@ export const useApp = (appId: string) => {
       assistants[0].small_reasoning_model_effort = updates.small_reasoning_model_effort
     }
 
+    if (updates.code_agent_runtime !== undefined) {
+      assistants[0].code_agent_runtime = updates.code_agent_runtime
+    }
+
     if (updates.context_limit !== undefined) {
       assistants[0].context_limit = updates.context_limit
     }

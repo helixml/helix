@@ -1282,6 +1282,33 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	// Generate unique request ID for tracking
 	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
 
+	// Determine which agent to use based on the spec task's code agent config
+	// This tells Zed which thread type to create (zed-agent vs qwen)
+	agentName := "zed-agent" // Default to Zed's built-in agent
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := s.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err == nil && specTask.HelixAppID != "" {
+			specTaskApp, err := s.Store.GetApp(ctx, specTask.HelixAppID)
+			if err == nil {
+				// Use SANDBOX_API_URL for internal Docker network
+				sandboxAPIURL := s.Cfg.WebServer.SandboxAPIURL
+				if sandboxAPIURL == "" {
+					sandboxAPIURL = "http://api:8080"
+				}
+				codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+				if codeAgentConfig != nil {
+					agentName = codeAgentConfig.AgentName
+					log.Info().
+						Str("session_id", session.ID).
+						Str("spec_task_id", session.Metadata.SpecTaskID).
+						Str("agent_name", agentName).
+						Str("runtime", string(codeAgentConfig.Runtime)).
+						Msg("Using code agent config from spec task")
+				}
+			}
+		}
+	}
+
 	// Send chat message to external agent
 	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
 	command := types.ExternalAgentCommand{
@@ -1289,7 +1316,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
 			"message":       userMessage,
-			"request_id":    requestID, // For correlation
+			"request_id":    requestID,    // For correlation
+			"agent_name":    agentName,    // Which agent to use (zed-agent or qwen)
 			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
 		},
 	}
