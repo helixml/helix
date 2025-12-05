@@ -631,6 +631,7 @@ func (apiServer *HelixAPIServer) canUserStreamSession(ctx context.Context, user 
 // @Summary Get moonlight-web internal state
 // @Description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
 // @Tags Moonlight
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/moonlight/status [get]
 // @Security ApiKeyAuth
@@ -643,9 +644,35 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 		return
 	}
 
-	// Fetch moonlight-web admin status (includes all clients + sessions)
-	moonlightURL := "http://moonlight-web:8080/api/admin/status"
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", moonlightURL, nil)
+	// Get wolf_instance_id from query params - required for RevDial routing
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Build RevDial runner ID - moonlight-web registers as "moonlight-{wolfInstanceID}"
+	moonlightRunnerID := "moonlight-" + wolfInstanceID
+
+	log.Debug().
+		Str("wolf_instance_id", wolfInstanceID).
+		Str("runner_id", moonlightRunnerID).
+		Msg("Fetching moonlight-web status via RevDial")
+
+	// Dial Moonlight Web via RevDial
+	conn, err := apiServer.connman.Dial(ctx, moonlightRunnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", moonlightRunnerID).
+			Msg("Failed to dial Moonlight Web via RevDial for status")
+		http.Error(res, "Failed to connect to Moonlight Web - sandbox may not be running", http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	// Create HTTP request for admin status endpoint
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/admin/status", nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create request to moonlight-web")
 		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
@@ -656,11 +683,18 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 	moonlightCreds := apiServer.getMoonlightCredentials()
 	httpReq.Header.Set("Authorization", "Bearer "+moonlightCreds)
 
-	client := &http.Client{}
-	resp, err := client.Do(httpReq)
+	// Write HTTP request to RevDial connection
+	if err := httpReq.Write(conn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Read HTTP response from RevDial connection
+	resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to fetch moonlight-web status")
-		http.Error(res, "Failed to fetch moonlight-web status", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to read response from RevDial connection")
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
@@ -668,17 +702,10 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 	// Forward the response
 	res.Header().Set("Content-Type", "application/json")
 	res.WriteHeader(resp.StatusCode)
-	_, _ = res.Write([]byte{}) // Will be filled by copying response body
 
 	// Copy response body
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			res.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
+	if _, err := io.Copy(res, resp.Body); err != nil {
+		log.Error().Err(err).Msg("Failed to copy moonlight-web status response body")
+		return
 	}
 }

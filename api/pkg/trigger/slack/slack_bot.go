@@ -161,7 +161,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		Str("text", ev.Text).
 		Msg("We have been mentioned")
 
-	agentResponse, err := s.handleMessage(context.Background(), nil, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
+	agentResponse, documentIDs, err := s.handleMessage(context.Background(), nil, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
 		// Convert error message to Slack format
@@ -170,8 +170,8 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		return
 	}
 
-	// Convert markdown to Slack format
-	slackFormattedResponse := convertMarkdownToSlackFormat(agentResponse)
+	// Convert markdown to Slack format with clickable citation links
+	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
 
 	// Write agent response to Slack's thread
 	// Use the message timestamp as the thread timestamp to create a proper thread
@@ -256,7 +256,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("user", ev.User).
 		Msg("Received message in active thread")
 
-	agentResponse, err := s.handleMessage(context.Background(), thread, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
+	agentResponse, documentIDs, err := s.handleMessage(context.Background(), thread, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to continue chat")
 		// Convert error message to Slack format
@@ -265,8 +265,8 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		return
 	}
 
-	// Convert markdown to Slack format
-	slackFormattedResponse := convertMarkdownToSlackFormat(agentResponse)
+	// Convert markdown to Slack format with clickable citation links
+	slackFormattedResponse := convertMarkdownToSlackFormatWithLinks(agentResponse, documentIDs)
 
 	// Write agent response to Slack's thread
 	// Use the thread timestamp to keep the reply in the same thread
@@ -283,7 +283,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 	}
 }
 
-func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.SlackThread, app *types.App, messageText, channel, messageTimestamp, threadTimestamp string, isMention bool) (string, error) {
+func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.SlackThread, app *types.App, messageText, channel, messageTimestamp, threadTimestamp string, isMention bool) (string, map[string]string, error) {
 	log.Debug().
 		Str("app_id", app.ID).
 		Str("message_timestamp", messageTimestamp).
@@ -318,7 +318,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		_, err = s.createNewThread(ctx, channel, threadKey, session.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create new thread")
-			return "", fmt.Errorf("failed to create new thread: %w", err)
+			return "", nil, fmt.Errorf("failed to create new thread: %w", err)
 		}
 
 		log.Debug().
@@ -333,14 +333,14 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 				Err(err).
 				Str("app_id", app.ID).
 				Msg("failed to create session")
-			return "", fmt.Errorf("failed to create session: %w", err)
+			return "", nil, fmt.Errorf("failed to create session: %w", err)
 		}
 	} else {
 		// This is a continuation of an existing conversation
 		session, err = s.store.GetSession(ctx, existingThread.SessionID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get session")
-			return "", fmt.Errorf("failed to get session, error: %w", err)
+			return "", nil, fmt.Errorf("failed to get session, error: %w", err)
 		}
 
 		log.Info().
@@ -362,7 +362,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Str("app_id", app.ID).
 			Str("user_id", app.Owner).
 			Msg("failed to get user")
-		return "", fmt.Errorf("failed to get user: %w", err)
+		return "", nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -373,10 +373,17 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get response from inference API: %w", err)
+		return "", nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	return resp.ResponseMessage, nil
+	// Fetch updated session to get document_ids (populated during RAG)
+	updatedSession, err := s.store.GetSession(ctx, session.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to fetch updated session for document IDs")
+		return resp.ResponseMessage, nil, nil
+	}
+
+	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
 }
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
@@ -430,8 +437,17 @@ func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sess
 }
 
 func convertMarkdownToSlackFormat(markdown string) string {
+	return convertMarkdownToSlackFormatWithLinks(markdown, nil)
+}
+
+// convertMarkdownToSlackFormatWithLinks converts markdown to Slack format with clickable citation links
+func convertMarkdownToSlackFormatWithLinks(markdown string, documentIDs map[string]string) string {
 	// Convert markdown to Slack format
 	slackFormat := markdown
+
+	// Process citations: convert [DOC_ID:xxx] to [1], [2], remove XML excerpt blocks,
+	// and add clickable links in the Sources section
+	slackFormat = shared.ProcessCitationsForChatWithLinks(slackFormat, documentIDs, shared.LinkFormatSlack)
 
 	// First, let's protect code blocks and inline code from other conversions
 	codeBlocks := []string{}

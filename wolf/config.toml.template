@@ -14,19 +14,25 @@ name = 'Moonlight'
 # Uses GStreamer test pattern - no Docker container, minimal resources
 # WebRTC clients connect here, then Helix API switches them to the correct lobby
 # Native Moonlight clients can click "Select Agent" below to use wolf-ui lobby browser
+# NOTE: title must be non-empty or Moonlight Web XML parser fails with XmlTextNotFound("AppTitle")
 [[profiles.apps]]
-title = ''
+title = 'Blank'
 start_virtual_compositor = false
+start_audio_server = false
 
     [profiles.apps.runner]
     type = 'process'
     run_cmd = 'sh -c "while :; do sleep 60; done"'
 
     [profiles.apps.video]
-    source = '''videotestsrc pattern=black is-live=true !
-video/x-raw, framerate={fps}/1'''
+    # Solid purple loading screen (#a100c7)
+    # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
+    # Produces system RAM frames - consumer pipeline's cudaupload handles GPU upload
+    source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
     [profiles.apps.audio]
+    # Silence while loading
     source = 'audiotestsrc wave=silence is-live=true'
 
 # Wolf UI app (lobby browser) - for native Moonlight clients (app 1)
@@ -88,8 +94,31 @@ colorimetry={color_space}, pixel-aspect-ratio=1/1'''
     # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
     # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
     # msdkvpp uses force-aspect-ratio=true by default (no add-borders property)
-    video_params_zero_copy = '''msdkvpp !
+    #video_params_zero_copy = '''msdkvpp
+    #video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
+    #
+    # --- FALLBACK: vapostproc (has R/B color swap bug on Intel, but known working) ---
+    # Uncomment below and comment out msdkvpp above to revert:
+    video_params_zero_copy = '''vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
+    #
+    # --- DEBUGGING GSTREAMER PIPELINES ---
+    # To inspect element properties (run inside sandbox container):
+    #   gst-inspect-1.0 msdkvpp      # List all properties for msdkvpp
+    #   gst-inspect-1.0 vapostproc   # List all properties for vapostproc
+    #   gst-inspect-1.0 qsvh264enc   # List encoder properties
+    #
+    # To test a pipeline manually:
+    #   gst-launch-1.0 videotestsrc ! msdkvpp ! fakesink
+    #
+    # Common errors:
+    #   "no property X in element Y" -> element doesn't support that property, use gst-inspect-1.0
+    #   "Internal data stream error" -> pipeline failed, check element compatibility
+    #
+    # To check which GPU plugin is being used:
+    #   gst-inspect-1.0 | grep -E "vaapi|msdk|qsv|nvcodec"
+    #
+    # Wolf logs pipeline selection at startup - check sandbox logs for "encoder" messages
 
     [gstreamer.video.defaults.va]
     # Note: This is used by AMD GPUs and older Intel GPUs without Quick Sync.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -63,6 +65,24 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
+	ownerID := user.ID
+	if user.TokenType == types.TokenTypeRunner {
+		ownerID = oai.RunnerID
+	}
+
+	// Parse provider prefix from model name (e.g., "openrouter/gpt-4" -> provider="openrouter", model="gpt-4")
+	// Only use the prefix if it matches a known provider
+	providerFromModel, modelWithoutPrefix := model.ParseProviderFromModel(chatCompletionRequest.Model)
+	var validatedProvider string
+	if providerFromModel != "" {
+		// Check if this prefix is a known provider (global or user-defined)
+		if s.isKnownProvider(r.Context(), providerFromModel, ownerID) {
+			validatedProvider = providerFromModel
+			chatCompletionRequest.Model = modelWithoutPrefix
+		}
+		// If not a known provider, treat the whole string as the model name (e.g., "meta-llama/Model")
+	}
+
 	modelName, err := model.ProcessModelName(
 		s.Cfg.Inference.Provider,
 		chatCompletionRequest.Model,
@@ -75,10 +95,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	chatCompletionRequest.Model = modelName
-	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	responseID := system.GenerateOpenAIResponseID()
 
@@ -93,6 +109,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		AppID:       r.URL.Query().Get("app_id"),
 		AssistantID: r.URL.Query().Get("assistant_id"),
 		RAGSourceID: r.URL.Query().Get("rag_source_id"),
+		Provider:    validatedProvider,
 		QueryParams: func() map[string]string {
 			params := make(map[string]string)
 			for key, values := range r.URL.Query() {
@@ -235,4 +252,27 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			log.Error().Msgf("failed to write completion chunk: %v", err)
 		}
 	}
+}
+
+// isKnownProvider checks if a provider name exists as a global or user-defined provider
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+	// Check global providers first (fast path)
+	if types.IsGlobalProvider(providerName) {
+		return true
+	}
+	// Check for system-owned global providers (e.g., dynamic providers from env vars)
+	_, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+		Name:      providerName,
+		Owner:     string(types.OwnerTypeSystem),
+		OwnerType: types.OwnerTypeSystem,
+	})
+	if err == nil {
+		return true
+	}
+	// Check for user-defined providers
+	_, err = s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+		Name:  providerName,
+		Owner: ownerID,
+	})
+	return err == nil
 }

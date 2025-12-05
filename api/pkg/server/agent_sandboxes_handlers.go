@@ -462,18 +462,27 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Find "Wolf UI" app by name
+	// Find placeholder app by name - prefer "Blank" (test pattern), fall back to "Select Agent" (Wolf-UI)
+	var foundAppID string
 	for _, app := range apps {
-		if app.Title == "Wolf UI" {
-			rw.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(rw).Encode(map[string]string{
-				"wolf_ui_app_id": app.ID,
-			})
-			return
+		if app.Title == "Blank" {
+			foundAppID = app.ID
+			break
+		}
+		if app.Title == "Select Agent" && foundAppID == "" {
+			foundAppID = app.ID
 		}
 	}
 
-	http.Error(rw, "Wolf UI app not found in apps list", http.StatusNotFound)
+	if foundAppID != "" {
+		rw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(rw).Encode(map[string]string{
+			"wolf_ui_app_id": foundAppID,
+		})
+		return
+	}
+
+	http.Error(rw, "Placeholder app (Blank or Select Agent) not found in apps list", http.StatusNotFound)
 }
 
 // fetchWolfSessions retrieves all streaming sessions from Wolf via WolfClientInterface

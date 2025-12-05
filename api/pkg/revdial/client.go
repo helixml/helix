@@ -103,7 +103,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 	}
 	controlURL := fmt.Sprintf("%s%s/api/v1/revdial?runnerid=%s", wsScheme, host, c.config.RunnerID)
 
-	log.Debug().
+	log.Trace().
 		Str("control_url", controlURL).
 		Bool("tls", useTLS).
 		Msg("Connecting to RevDial server via WebSocket")
@@ -112,7 +112,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 	wsDialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // TODO: make configurable via c.config.InsecureSkipVerify
+			InsecureSkipVerify: c.config.InsecureSkipVerify,
 		},
 	}
 
@@ -130,10 +130,30 @@ func (c *Client) runConnection(ctx context.Context) error {
 		return fmt.Errorf("failed to connect control WebSocket: %w", err)
 	}
 
+	log.Info().Msg("✅ RevDial control connection established (WebSocket)")
+
+	// Start ping keepalive goroutine to keep connection alive through proxies/load balancers
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				err := controlWS.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to send WebSocket ping, closing connection")
+					controlWS.Close()
+					return
+				}
+				log.Trace().Msg("Sent WebSocket ping keepalive")
+			}
+		}
+	}()
+
 	// Wrap WebSocket as net.Conn for the Listener
 	controlConn := wsconnadapter.New(controlWS)
-
-	log.Info().Msg("✅ RevDial control connection established (WebSocket)")
 
 	// Create listener with the WebSocket-wrapped control connection
 	listener := NewListener(controlConn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
@@ -142,7 +162,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 		dataHeader := http.Header{}
 		dataHeader.Set("Authorization", "Bearer "+c.config.RunnerToken)
 
-		log.Debug().Str("data_url", dataURL).Msg("DATA connection")
+		log.Trace().Str("data_url", dataURL).Msg("DATA connection")
 		return wsDialer.DialContext(ctx, dataURL, dataHeader)
 	})
 	defer listener.Close()
@@ -162,7 +182,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 
-		log.Debug().Msg("Accepted RevDial connection")
+		log.Trace().Msg("Accepted RevDial connection")
 
 		localConn, err := DialLocal(c.config.LocalAddr)
 		if err != nil {
@@ -203,7 +223,7 @@ func ProxyConn(remote, local net.Conn) {
 
 	err := <-errChan
 	if err != nil && err != io.EOF {
-		log.Debug().Err(err).Msg("Proxy connection ended")
+		log.Trace().Err(err).Msg("Proxy connection ended")
 	}
 }
 
