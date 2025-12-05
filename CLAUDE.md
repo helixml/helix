@@ -203,6 +203,34 @@ git add -A && git commit -m "changes" && git push
 
 **Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
 
+## 🚨 CRITICAL: VERIFY DOCKER CACHE BUSTING ON REBUILDS 🚨
+
+**When rebuilding Wolf, Moonlight Web, or sandbox images, VERIFY the cache was actually busted**
+
+Docker BuildKit can cache `FROM` layers even when the referenced image has been rebuilt with the same tag. This caused hours of debugging when a Wolf fix was deployed but the sandbox kept using the old cached binary.
+
+**After running `./stack build-wolf`, `./stack build-moonlight-web`, or `./stack build-sandbox`, check:**
+
+```bash
+# Check Wolf binary timestamp in the image
+docker run --rm --entrypoint="" wolf:helix-fixed stat /wolf/wolf | grep Modify
+docker run --rm --entrypoint="" helix-sandbox:latest stat /wolf/wolf | grep Modify
+
+# Check Moonlight Web binary timestamp
+docker run --rm --entrypoint="" helix-moonlight-web:helix-fixed stat /app/web-server | grep Modify
+docker run --rm --entrypoint="" helix-sandbox:latest stat /moonlight-web/web-server | grep Modify
+
+# Timestamps should be AFTER your source code changes
+# If they're old, the cache wasn't busted properly
+```
+
+**Signs the cache wasn't busted:**
+- Build output shows `CACHED` for layers that should have rebuilt
+- Binary timestamps are older than your source changes
+- `COPY . /wolf/` or `COPY . /build/` shows `CACHED` when you changed source files
+
+**The build-sandbox script now passes `--build-arg WOLF_IMAGE_ID=...` and `--build-arg MOONLIGHT_IMAGE_ID=...` to bust the cache**, but always verify when debugging deployment issues.
+
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
 **DEBUGGING HUNG PROCESSES IS ALWAYS MORE IMPORTANT THAN QUICK RECOVERY**
