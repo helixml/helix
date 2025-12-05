@@ -92,11 +92,9 @@ func main() {
 		qwenModel = "qwen-oss:120b"
 	}
 
-	// API key: use QWEN_API_KEY if set (for external providers), else USER_API_TOKEN
-	userAPIKey := os.Getenv("QWEN_API_KEY")
-	if userAPIKey == "" {
-		userAPIKey = os.Getenv("USER_API_TOKEN")
-	}
+	// API key: use USER_API_TOKEN (the user's Helix API token)
+	// This allows users to specify their own provider via the model prefix (e.g., "openrouter/gpt-4")
+	userAPIKey := os.Getenv("USER_API_TOKEN")
 
 	if sessionID == "" {
 		log.Fatal("HELIX_SESSION_ID environment variable is required")
