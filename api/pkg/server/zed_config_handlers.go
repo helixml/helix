@@ -380,6 +380,7 @@ func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfi
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
 // For zed_external agents, it prefers Provider/Model but falls back to GenerationModelProvider/GenerationModel.
+// The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
 func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
 	// Get provider and model, falling back to generation model fields if primary fields are empty
 	providerName := assistant.Provider
@@ -396,30 +397,46 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		return nil
 	}
 
-	provider := strings.ToLower(providerName)
+	// Get the code agent runtime, default to zed_agent
+	runtime := assistant.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeZedAgent
+	}
 
+	provider := strings.ToLower(providerName)
 	var baseURL, apiType, agentName, model string
 
-	switch provider {
-	case "anthropic":
-		// Anthropic uses the /v1/messages endpoint
-		baseURL = helixURL + "/v1"
-		apiType = "anthropic"
-		agentName = "claude-code"
-		model = modelName // Anthropic models don't need prefix
-	case "azure", "azure_openai":
-		// Azure OpenAI uses the /openai/deployments/{model}/chat/completions endpoint
-		baseURL = helixURL + "/openai"
-		apiType = "azure_openai"
-		agentName = "azure-agent"
-		model = modelName // Azure models don't need prefix
-	default:
-		// OpenAI, OpenRouter, TogetherAI, Helix, etc. use the /v1/chat/completions endpoint
-		// Model must be prefixed with provider name: "openrouter/x-ai/grok-3" or "togetherai/meta-llama/..."
+	// The runtime choice determines how the LLM is configured in Zed
+	switch runtime {
+	case types.CodeAgentRuntimeQwenCode:
+		// Qwen Code: Uses the qwen command as a custom agent_server
+		// All providers go through OpenAI-compatible API with provider prefix
 		baseURL = helixURL + "/v1"
 		apiType = "openai"
 		agentName = "qwen"
 		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	default: // CodeAgentRuntimeZedAgent
+		// Zed Agent: Uses Zed's built-in agent panel with env vars
+		// The API type depends on the provider
+		switch provider {
+		case "anthropic":
+			baseURL = helixURL + "/v1"
+			apiType = "anthropic"
+			agentName = "zed-agent"
+			model = modelName
+		case "azure", "azure_openai":
+			baseURL = helixURL + "/openai"
+			apiType = "azure_openai"
+			agentName = "zed-agent"
+			model = modelName
+		default:
+			// For other providers (OpenAI, OpenRouter, etc.), use OpenAI-compatible API
+			baseURL = helixURL + "/v1"
+			apiType = "openai"
+			agentName = "zed-agent"
+			model = fmt.Sprintf("%s/%s", providerName, modelName)
+		}
 	}
 
 	return &types.CodeAgentConfig{
@@ -428,5 +445,6 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		AgentName: agentName,
 		BaseURL:   baseURL,
 		APIType:   apiType,
+		Runtime:   runtime,
 	}
 }

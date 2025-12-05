@@ -47,15 +47,17 @@ type CodeAgentConfig struct {
 	AgentName string `json:"agent_name"`
 	BaseURL   string `json:"base_url"`
 	APIType   string `json:"api_type"`
+	Runtime   string `json:"runtime"` // "zed_agent" or "qwen_code"
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
-// Returns nil for providers that use Zed's built-in agent (Anthropic, Azure).
+// Returns nil for runtimes that use Zed's built-in agent.
 //
-// There are two modes:
-// 1. Zed's built-in agent (Anthropic/Azure) - No agent_servers needed. Zed reads ANTHROPIC_API_KEY
-//    or AZURE_OPENAI_* env vars directly from the container environment (set by wolf_executor).
-// 2. Qwen custom agent (OpenAI-compatible) - Requires agent_servers with qwen command and env vars.
+// There are two code agent runtimes:
+// 1. zed_agent - Zed's built-in agent panel. No agent_servers needed. Zed reads
+//    env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) from the container environment.
+// 2. qwen_code - Qwen code agent as a custom agent_server. Requires agent_servers
+//    with qwen command and env vars (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL).
 func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	if d.codeAgentConfig == nil {
 		// No code agent configured - return nil (no agent_servers will be set)
@@ -63,16 +65,9 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		return nil
 	}
 
-	switch d.codeAgentConfig.APIType {
-	case "anthropic", "azure_openai":
-		// Anthropic and Azure use Zed's built-in agent - no agent_servers needed
-		// The container env vars (ANTHROPIC_API_KEY, etc.) are set by wolf_executor
-		log.Printf("Using Zed's built-in agent for %s (no agent_servers needed)", d.codeAgentConfig.APIType)
-		return nil
-
-	default:
-		// OpenAI-compatible providers (OpenAI, OpenRouter, TogetherAI, Helix, etc.)
-		// Use the qwen custom agent with agent_servers
+	switch d.codeAgentConfig.Runtime {
+	case "qwen_code":
+		// Qwen Code: Uses the qwen command as a custom agent_server
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
 			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
@@ -85,7 +80,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			env["OPENAI_MODEL"] = d.codeAgentConfig.Model
 		}
 
-		log.Printf("Generated qwen agent config: base_url=%s, model=%s",
+		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
 			d.codeAgentConfig.BaseURL, d.codeAgentConfig.Model)
 
 		return map[string]interface{}{
@@ -99,6 +94,12 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"env": env,
 			},
 		}
+
+	default: // "zed_agent" or empty (default)
+		// Zed Agent: Uses Zed's built-in agent panel - no agent_servers needed
+		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
+		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
+		return nil
 	}
 }
 

@@ -1554,6 +1554,11 @@ type AssistantConfig struct {
 	SmallGenerationModelProvider string `json:"small_generation_model_provider" yaml:"small_generation_model_provider"`
 	SmallGenerationModel         string `json:"small_generation_model" yaml:"small_generation_model"`
 
+	// CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+	// Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+	// If empty, defaults to "zed_agent".
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime,omitempty" yaml:"code_agent_runtime,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -2245,6 +2250,8 @@ type CodeAgentConfig struct {
 	BaseURL string `json:"base_url"`
 	// APIType specifies the API format: "anthropic", "openai", or "azure_openai"
 	APIType string `json:"api_type"`
+	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
+	Runtime CodeAgentRuntime `json:"runtime"`
 }
 
 type RunnerLLMInferenceRequest struct {
