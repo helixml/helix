@@ -462,16 +462,16 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Find placeholder app by name - prefer "Select Agent" (Wolf-UI with CUDA video), fall back to "Blank" (test pattern with NV12)
-	// Using Select Agent ensures consistent CUDA memory format from start, preventing buffer pool corruption
-	// when switching interpipe sources from test pattern (NV12) to lobby video (CUDA)
+	// Find placeholder app by name - prefer "Blank" (lightweight test pattern, no Docker container)
+	// Wolf's start_test_pattern_producer() now outputs GPU-native frames matching waylanddisplaysrc,
+	// so Blank works correctly for lobby switching without buffer pool corruption
 	var foundAppID string
 	for _, app := range apps {
-		if app.Title == "Select Agent" {
+		if app.Title == "Blank" {
 			foundAppID = app.ID
 			break
 		}
-		if app.Title == "Blank" && foundAppID == "" {
+		if app.Title == "Select Agent" && foundAppID == "" {
 			foundAppID = app.ID
 		}
 	}
@@ -479,12 +479,12 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 	if foundAppID != "" {
 		rw.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(rw).Encode(map[string]string{
-			"wolf_ui_app_id": foundAppID,
+			"placeholder_app_id": foundAppID,
 		})
 		return
 	}
 
-	http.Error(rw, "Placeholder app (Select Agent or Blank) not found in apps list", http.StatusNotFound)
+	http.Error(rw, "Placeholder app (Blank or Select Agent) not found in apps list", http.StatusNotFound)
 }
 
 // fetchWolfSessions retrieves all streaming sessions from Wolf via WolfClientInterface

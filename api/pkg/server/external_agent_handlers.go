@@ -1191,27 +1191,27 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
 
-	// Find placeholder app - prefer "Select Agent" (Wolf-UI with CUDA video), fall back to "Blank" (test pattern with NV12)
-	// Using Select Agent ensures consistent CUDA memory format from start, preventing buffer pool corruption
-	// when switching interpipe sources from test pattern (NV12) to lobby video (CUDA)
-	var wolfUIAppID string
+	// Find placeholder app - prefer "Blank" (lightweight test pattern, no Docker container)
+	// Wolf's start_test_pattern_producer() now outputs GPU-native frames matching waylanddisplaysrc,
+	// so Blank works correctly for lobby switching without buffer pool corruption
+	var placeholderAppID string
 	for _, app := range apps {
-		if app.Title == "Select Agent" {
-			wolfUIAppID = app.ID
+		if app.Title == "Blank" {
+			placeholderAppID = app.ID
 			break
 		}
-		if app.Title == "Blank" && wolfUIAppID == "" {
-			wolfUIAppID = app.ID
+		if app.Title == "Select Agent" && placeholderAppID == "" {
+			placeholderAppID = app.ID
 		}
 	}
-	if wolfUIAppID == "" {
-		return fmt.Errorf("placeholder app (Select Agent or Blank) not found in apps list")
+	if placeholderAppID == "" {
+		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
 	}
 
 	log.Info().
 		Str("lobby_id", lobbyID).
-		Str("wolf_ui_app_id", wolfUIAppID).
-		Msg("[AUTO-JOIN] Found Wolf UI app, querying sessions to find client")
+		Str("placeholder_app_id", placeholderAppID).
+		Msg("[AUTO-JOIN] Found placeholder app, querying sessions to find client")
 
 	// Query Wolf sessions to find the Wolf UI client via interface
 	sessions, err := wolfClient.ListSessions(ctx)
@@ -1236,7 +1236,7 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 	var wolfUISessions []string
 
 	for _, session := range sessions {
-		if session.AppID == wolfUIAppID {
+		if session.AppID == placeholderAppID {
 			sessionInfo := fmt.Sprintf("client_id=%s unique_id=%s ip=%s",
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
 			wolfUISessions = append(wolfUISessions, sessionInfo)
@@ -1395,11 +1395,11 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		for _, session := range sessions {
 			if session.ClientID == moonlightSessionID {
 				// Check if the session is no longer on the test pattern app (Wolf UI / Blank)
-				if session.AppID != wolfUIAppID {
+				if session.AppID != placeholderAppID {
 					log.Info().
 						Str("moonlight_session_id", moonlightSessionID).
 						Str("new_app_id", session.AppID).
-						Str("old_app_id", wolfUIAppID).
+						Str("old_app_id", placeholderAppID).
 						Msg("[AUTO-JOIN] ✅ Session switched to lobby producer, pipeline ready")
 					return nil
 				}
