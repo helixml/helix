@@ -298,3 +298,255 @@ Current code already awaits cancel, but there might be a subtle issue with how R
 ## Dashboard Regression
 
 Still investigating. May be related to session tracking changes in lobbies mode.
+
+## Deep Analysis: Blank vs Select Agent (2025-12-05)
+
+### Problem Statement
+Black screen still occurs on second stream when using Blank app (test pattern) instead of Select Agent (Wolf-UI).
+Despite implementing GPU-aware test pattern producer with matching memory formats, the issue persists.
+
+### Code Path Comparison
+
+**Select Agent (Wolf-UI) - `start_virtual_compositor = true`:**
+```
+moonlight.cpp:93-107 → streaming::start_video_producer()
+```
+
+Pipeline structure:
+```
+waylanddisplaysrc name=wolf_wayland_source render_node=/dev/dri/renderD128 !
+  video/x-raw(memory:CUDAMemory), width=1920, height=1080, framerate=60/1 !
+  interpipesink sync=true async=false name={session_id}_video max-buffers=5
+```
+
+Key characteristics:
+- waylanddisplaysrc DIRECTLY outputs GPU memory (native output)
+- Caps negotiation is implicit - waylanddisplaysrc decides format
+- No explicit `format=NV12` in caps - format is negotiated dynamically
+- framerate is included in output caps
+
+**Blank App (test pattern) - `start_virtual_compositor = false`:**
+```
+moonlight.cpp:136-148 → streaming::start_test_pattern_producer()
+```
+
+Pipeline structure (after GPU-aware fix):
+```
+videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
+  video/x-raw, width=1920, height=1080, framerate=60/1, format=NV12 !
+  cudaupload !
+  video/x-raw(memory:CUDAMemory), format=NV12, width=1920, height=1080 !
+  interpipesink sync=true async=false name={session_id}_video max-buffers=5
+```
+
+Key characteristics:
+- videotestsrc outputs **CPU memory** with explicit NV12 format
+- We upload to GPU via cudaupload
+- **Explicit `format=NV12` on GPU output caps** (different from waylanddisplaysrc!)
+- **Missing `framerate=60/1` on GPU output caps** (different from waylanddisplaysrc!)
+
+### Critical Differences Identified
+
+#### 1. Explicit vs Implicit Format Specification
+
+**waylanddisplaysrc output caps:**
+```
+video/x-raw(memory:CUDAMemory), width=1920, height=1080, framerate=60/1
+```
+- No `format=NV12` - format is negotiated
+- waylanddisplaysrc produces whatever format is optimal for the compositor
+
+**test pattern output caps (after cudaupload):**
+```
+video/x-raw(memory:CUDAMemory), format=NV12, width=1920, height=1080
+```
+- Explicit `format=NV12`
+- Forces NV12 regardless of what consumer wants
+
+#### 2. Missing Framerate on Test Pattern GPU Output
+
+waylanddisplaysrc includes `framerate=60/1` on its output caps.
+Test pattern's GPU output caps have no framerate.
+
+This could cause buffer pool negotiation differences.
+
+#### 3. DMABuf Format List vs Single Format (AMD/Intel)
+
+**waylanddisplaysrc (via compute_pipeline_defaults):**
+```
+video/x-raw(memory:DMABuf), drm-format={NV12,P010,...}
+```
+- List of acceptable DRM formats in curly braces
+
+**test pattern (my fix):**
+```
+video/x-raw(memory:DMABuf), drm-format=NV12
+```
+- Single format without curly braces
+- May not negotiate correctly if consumer expects format list
+
+### Buffer Pool Hypothesis
+
+GStreamer interpipe elements can hold onto buffer pools. When interpipesrc switches
+`listen-to` from one producer to another:
+
+1. First session starts → test pattern producer creates buffer pool with its caps
+2. Consumer pipeline negotiates caps with that pool
+3. Second session starts → test pattern producer tries to use same interpipesink name?
+
+Wait - each session has a DIFFERENT interpipesink name (`{session_id}_video`).
+So buffer pools shouldn't interfere between sessions...
+
+Unless the **consumer** is the problem:
+
+1. Session 1: Consumer creates pool based on Session 1's producer caps
+2. Session 1 joins lobby: Consumer switches to lobby producer (different caps)
+3. Session 2: Consumer creates pool based on Session 2's producer caps
+4. Something in the encoder pipeline holds stale pool reference?
+
+### New Hypothesis: Encoder Pipeline Re-negotiation Failure
+
+The consumer pipeline structure (from config.toml):
+```toml
+[gstreamer.video.defaults.nvcodec]
+video_params = '''cudaupload !
+cudaconvertscale add-borders=true !
+video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+```
+
+Full consumer pipeline:
+```
+interpipesrc name=interpipesrc_{}_video listen-to={session_id}_video ...
+  ! cudaupload
+  ! cudaconvertscale add-borders=true
+  ! video/x-raw(memory:CUDAMemory), width=..., height=..., format=NV12, ...
+  ! nvh264enc ...
+  ! h264parse
+  ! rtpmoonlightpay_video
+  ! appsink
+```
+
+The consumer does `cudaupload` which can pass-through CUDAMemory input.
+But if the incoming format doesn't match expectations, cudaconvertscale might fail.
+
+### Trace the Actual Caps Negotiation
+
+**waylanddisplaysrc → interpipesink:**
+- Output: `video/x-raw(memory:CUDAMemory)` (format negotiated, likely NV12 or P010)
+- The caps filter adds width/height/framerate constraints
+
+**interpipesrc → cudaupload (consumer):**
+- Receives CUDAMemory buffer
+- cudaupload passes through (already CUDA)
+
+**test pattern → cudaupload → interpipesink:**
+- videotestsrc outputs: `video/x-raw, format=NV12` (CPU)
+- cudaupload receives NV12 CPU, outputs: `video/x-raw(memory:CUDAMemory)` (GPU)
+- Caps filter: `format=NV12, width=..., height=...`
+
+**Key difference:** The test pattern FORCES explicit format=NV12 on the interpipesink,
+while waylanddisplaysrc lets the format be negotiated.
+
+### Root Cause Theory
+
+**The explicit `format=NV12` caps filter on test pattern's interpipesink
+is too restrictive.**
+
+When the interpipesrc switches to the lobby producer (waylanddisplaysrc),
+the interpipesink for the test pattern might have cached caps with explicit NV12.
+When a second session connects, its consumer pipeline might fail to negotiate
+because of stale caps state in the interpipe layer.
+
+But wait - each session has its OWN interpipesink... so this doesn't explain it.
+
+### Alternative Theory: Global State in cudaupload
+
+`cudaupload` might maintain global CUDA context or pool state.
+
+1. Session 1: test pattern → cudaupload creates CUDA context with NV12 pool
+2. Session 1 joins lobby: consumer switches to lobby's waylanddisplaysrc (different pool)
+3. Session 2: test pattern → cudaupload reuses stale CUDA context/pool
+4. Pool mismatch causes black frames
+
+This would explain why:
+- First session works
+- Lobby switch works
+- Second session fails
+
+### Recommended Fixes to Test
+
+1. **Remove explicit `format=NV12` from GPU output caps:**
+```cpp
+gpu_upload = fmt::format("cudaupload ! "
+                         "video/x-raw(memory:CUDAMemory), width={}, height={}",
+                         display_mode.width, display_mode.height);
+```
+
+2. **Add framerate to GPU output caps:**
+```cpp
+gpu_upload = fmt::format("cudaupload ! "
+                         "video/x-raw(memory:CUDAMemory), width={}, height={}, framerate={}/1",
+                         display_mode.width, display_mode.height, display_mode.refreshRate);
+```
+
+3. **Match waylanddisplaysrc's exact caps format:**
+```cpp
+gpu_upload = fmt::format("cudaupload ! "
+                         "{}, width={}, height={}, framerate={}/1",
+                         buffer_caps,  // Use the exact same caps string
+                         display_mode.width, display_mode.height, display_mode.refreshRate);
+```
+
+### Why Select Agent Works
+
+Select Agent uses waylanddisplaysrc, which:
+1. Runs a real Wayland compositor (Docker container)
+2. Outputs GPU-native frames with negotiated format
+3. Never goes through CPU memory or cudaupload
+4. Every session creates fresh waylanddisplaysrc with fresh context
+
+The test pattern shares nothing between sessions either, but the cudaupload
+element might have global state that persists across sessions within the same
+Wolf process.
+
+### Action Items
+
+1. Test with framerate added to test pattern GPU caps
+2. Test with format=NV12 removed from test pattern GPU caps
+3. Test with buffer_caps used directly (matching waylanddisplaysrc exactly)
+4. If still failing, add GST_DEBUG logging to see actual caps negotiation
+5. Consider if cudaupload has global pool state that needs explicit cleanup
+
+### Fix Implemented (2025-12-05)
+
+Updated `start_test_pattern_producer()` in `wolf/src/moonlight-server/streaming/streaming.cpp`:
+
+**Before (incorrect):**
+```cpp
+gpu_upload = fmt::format("cudaupload ! "
+                         "video/x-raw(memory:CUDAMemory), format=NV12, width={}, height={}",
+                         display_mode.width, display_mode.height);
+```
+
+Output caps: `video/x-raw(memory:CUDAMemory), format=NV12, width=1920, height=1080`
+- Explicit `format=NV12` (not in waylanddisplaysrc)
+- Missing framerate
+
+**After (matching waylanddisplaysrc):**
+```cpp
+gpu_upload = fmt::format("cudaupload ! "
+                         "{}, width={}, height={}, framerate={}/1",
+                         buffer_caps, display_mode.width, display_mode.height, display_mode.refreshRate);
+```
+
+Output caps: `video/x-raw(memory:CUDAMemory), width=1920, height=1080, framerate=60/1`
+- Uses exact buffer_caps from Wolf's compute_pipeline_defaults()
+- Includes framerate (matching waylanddisplaysrc)
+- No explicit format (negotiated, like waylanddisplaysrc)
+
+**Why this should work:**
+- waylanddisplaysrc pipeline: `waylanddisplaysrc ! {buffer_caps}, width=W, height=H, framerate=F/1 ! interpipesink`
+- test pattern pipeline: `videotestsrc ! ... ! cudaupload ! {buffer_caps}, width=W, height=H, framerate=F/1 ! interpipesink`
+
+Both now have identical output caps, so interpipesrc should negotiate identically regardless of which
+producer it's listening to.
