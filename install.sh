@@ -117,6 +117,7 @@ RUNNER=false
 SANDBOX=false
 LARGE=false
 HAYSTACK=""
+QDRANT=""
 KODIT=""
 CODE=""
 API_HOST=""
@@ -246,6 +247,7 @@ Options:
   --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
+  --qdrant                 Enable Qdrant vector database for RAG (lightweight alternative to haystack)
   --kodit                  Enable the kodit code indexing service
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
@@ -383,6 +385,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --haystack)
             HAYSTACK=true
+            shift
+            ;;
+        --qdrant)
+            QDRANT=true
             shift
             ;;
         --kodit)
@@ -1059,9 +1065,9 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
-if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
-    echo "Note: --code or --haystack specified (controlplane features)."
+# Auto-enable controlplane if --code, --haystack, or --qdrant specified (they're controlplane features)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" || -n "$QDRANT" ]]; then
+    echo "Note: --code, --haystack, or --qdrant specified (controlplane features)."
     echo "      Auto-enabling: --cli --controlplane"
     CONTROLPLANE=true
     CLI=true
@@ -1108,7 +1114,7 @@ fi
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Three cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
-    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack/--qdrant = local installation
     # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
 
     if [ -n "$RUNNER_TOKEN" ]; then
@@ -1126,7 +1132,7 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
         # Case 2: --runner without token = ERROR (need either token or controlplane)
         echo "Error: --runner requires either:"
         echo "  1. --runner-token (for remote runner connecting to external controlplane)"
-        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo "  2. --controlplane or controlplane features like --code/--haystack/--qdrant (for local installation)"
         echo
         echo "Examples:"
         echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
@@ -1572,6 +1578,8 @@ EOF
     RAG_DEFAULT_PROVIDER=""
     if [[ -n "$HAYSTACK" ]]; then
         RAG_DEFAULT_PROVIDER="haystack"
+    elif [[ -n "$QDRANT" ]]; then
+        RAG_DEFAULT_PROVIDER="qdrant"
     fi
 
     # Generate .env content

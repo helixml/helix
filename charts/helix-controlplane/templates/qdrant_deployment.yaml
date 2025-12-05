@@ -1,0 +1,79 @@
+{{- if .Values.qdrant.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-qdrant
+  labels:
+    app.kubernetes.io/component: qdrant
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: qdrant
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: qdrant
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: qdrant
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+          env:
+            {{- if .Values.qdrant.apiKey }}
+            - name: QDRANT__SERVICE__API_KEY
+              value: {{ .Values.qdrant.apiKey }}
+            {{- end }}
+          {{- if .Values.qdrant.persistence.enabled }}
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+          {{- end }}
+      {{- if .Values.qdrant.persistence.enabled }}
+      volumes:
+      - name: qdrant-storage
+        persistentVolumeClaim:
+          claimName: {{ include "helix-controlplane.fullname" . }}-qdrant-pvc
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

@@ -37,6 +37,15 @@ services:
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=${RAG_HAYSTACK_ENABLED:-false}
       - RAG_HAYSTACK_URL=http://haystack:8000
+      # Qdrant configuration
+      - RAG_QDRANT_HOST=${RAG_QDRANT_HOST:-qdrant}
+      - RAG_QDRANT_PORT=${RAG_QDRANT_PORT:-6334}
+      - RAG_QDRANT_API_KEY=${RAG_QDRANT_API_KEY:-}
+      - RAG_QDRANT_USE_TLS=${RAG_QDRANT_USE_TLS:-false}
+      - RAG_QDRANT_COLLECTION=${RAG_QDRANT_COLLECTION:-helix-documents}
+      - RAG_QDRANT_PROVIDER=${RAG_QDRANT_PROVIDER:-openai}
+      - RAG_QDRANT_EMBEDDINGS_MODEL=${RAG_QDRANT_EMBEDDINGS_MODEL:-text-embedding-3-small}
+      - RAG_QDRANT_EMBEDDINGS_CONCURRENCY=${RAG_QDRANT_EMBEDDINGS_CONCURRENCY:-10}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -119,6 +128,16 @@ services:
     #   - 8108:8108
     volumes:
       - ${TYPESENSE_DATA:-helix-typesense-db}:/data
+  qdrant:
+    image: qdrant/qdrant:v1.16.1
+    restart: always
+    # ports:
+    #   - 6333:6333
+    #   - 6334:6334
+    volumes:
+      - ${QDRANT_DATA:-helix-qdrant-db}:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
@@ -223,6 +242,7 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
   helix-typesense-db:
+  helix-qdrant-db:
   wolf-debug-dumps:  # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
   helix-socket:
   helix-kodit:
