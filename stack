@@ -1203,16 +1203,27 @@ function build-sandbox() {
   echo "📝 [3/4] Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+  # Get image IDs to bust Docker cache when upstream images change
+  # Without this, BuildKit caches the FROM layers even when wolf/moonlight-web are rebuilt
+  local WOLF_IMAGE_ID=$(docker images wolf:helix-fixed -q)
+  local MOONLIGHT_IMAGE_ID=$(docker images helix-moonlight-web:helix-fixed -q)
+  echo "📦 Wolf image ID: ${WOLF_IMAGE_ID:-not found}"
+  echo "📦 Moonlight Web image ID: ${MOONLIGHT_IMAGE_ID:-not found}"
+
   # Build sandbox with tarball embedded
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       .

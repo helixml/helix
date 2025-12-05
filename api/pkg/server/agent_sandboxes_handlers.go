@@ -462,16 +462,17 @@ func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *htt
 		return
 	}
 
-	// Find placeholder app by name - prefer "Blank" (lightweight test pattern, no Docker container)
-	// Wolf's start_test_pattern_producer() now outputs GPU-native frames matching waylanddisplaysrc,
-	// so Blank works correctly for lobby switching without buffer pool corruption
+	// Find placeholder app by name - prefer "Select Agent" (Wolf-UI with real Wayland compositor)
+	// The "Blank" test pattern causes NVENC buffer registration failures on second session
+	// because shared lobby buffers have stale registrations from previous encoder sessions.
+	// See design/2025-12-04-websocket-mode-session-leak.md for details.
 	var foundAppID string
 	for _, app := range apps {
-		if app.Title == "Blank" {
+		if app.Title == "Select Agent" {
 			foundAppID = app.ID
 			break
 		}
-		if app.Title == "Select Agent" && foundAppID == "" {
+		if app.Title == "Blank" && foundAppID == "" {
 			foundAppID = app.ID
 		}
 	}

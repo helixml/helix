@@ -7,6 +7,13 @@
 # Use same base as Wolf (GOW gstreamer base-app with init system)
 ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
+# CACHE FIX: These ARGs are passed by build-sandbox script with current image IDs
+# When wolf:helix-fixed or moonlight-web is rebuilt, the image ID changes,
+# causing these ARG values to change, which busts the BuildKit cache for
+# the FROM stages that reference those images.
+ARG WOLF_IMAGE_ID
+ARG MOONLIGHT_IMAGE_ID
+
 # ====================================================================
 # Stage 1: Build Go binaries (revdial-client, hydra, sandbox-heartbeat)
 # ====================================================================

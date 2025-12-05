@@ -103,7 +103,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 	}
 	controlURL := fmt.Sprintf("%s%s/api/v1/revdial?runnerid=%s", wsScheme, host, c.config.RunnerID)
 
-	log.Trace().
+	log.Debug().
 		Str("control_url", controlURL).
 		Bool("tls", useTLS).
 		Msg("Connecting to RevDial server via WebSocket")
@@ -147,7 +147,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 					controlWS.Close()
 					return
 				}
-				log.Trace().Msg("Sent WebSocket ping keepalive")
+				// Ping keepalive sent - no log to avoid spam
 			}
 		}
 	}()
@@ -162,7 +162,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 		dataHeader := http.Header{}
 		dataHeader.Set("Authorization", "Bearer "+c.config.RunnerToken)
 
-		log.Trace().Str("data_url", dataURL).Msg("DATA connection")
+		// DATA connection established - no log to avoid spam
 		return wsDialer.DialContext(ctx, dataURL, dataHeader)
 	})
 	defer listener.Close()
@@ -182,7 +182,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 
-		log.Trace().Msg("Accepted RevDial connection")
+		// RevDial connection accepted - no log to avoid spam
 
 		localConn, err := DialLocal(c.config.LocalAddr)
 		if err != nil {
@@ -222,8 +222,9 @@ func ProxyConn(remote, local net.Conn) {
 	}()
 
 	err := <-errChan
-	if err != nil && err != io.EOF {
-		log.Trace().Err(err).Msg("Proxy connection ended")
+	// Only log errors, not normal connection closes (io.EOF or websocket close)
+	if err != nil && err != io.EOF && !strings.Contains(err.Error(), "websocket: close") {
+		log.Debug().Err(err).Msg("Proxy connection ended with error")
 	}
 }
 
