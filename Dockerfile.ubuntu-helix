@@ -130,3 +130,4 @@ COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
 # This script auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
 RUN mkdir -p /etc/skel/.config/devilspie2
 COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua
+RUN chmod 644 /etc/skel/.config/devilspie2/helix-tiling.lua

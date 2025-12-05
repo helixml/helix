@@ -43,6 +43,15 @@ echo "=== UBUNTU/XFCE STARTUP BEGINS ==="
 echo "Starting Helix Ubuntu/XFCE environment..."
 
 # ============================================================================
+# CRITICAL: Fix home directory ownership FIRST
+# ============================================================================
+# Wolf mounts /wolf-state/agent-xxx:/home/retro which may be owned by ubuntu:ubuntu
+# We need write permission to /home/retro before creating any symlinks or files
+echo "Fixing /home/retro ownership..."
+sudo chown retro:retro /home/retro
+echo "Home directory ownership fixed"
+
+# ============================================================================
 # Workspace Directory Setup (Hydra Compatibility)
 # ============================================================================
 # CRITICAL: Create workspace symlink for Hydra bind-mount compatibility
@@ -285,11 +294,12 @@ EOF
 echo "✅ XFCE HiDPI autostart entry created"
 
 # ============================================================================
-# XFCE Session Startup via GOW xorg.sh
+# XFCE Session Startup via GOW launch-comp.sh
 # ============================================================================
-# Launch XFCE via GOW's proven xorg.sh script
+# Launch XFCE via GOW's launcher() function from launch-comp.sh
 # This handles: Xwayland startup -> D-Bus -> XFCE session
-# XFCE is simpler than GNOME and doesn't need systemd workarounds
+# The XFCE base image uses launch-comp.sh (not xorg.sh like Zorin)
 
-echo "Launching XFCE via GOW xorg.sh..."
-exec /opt/gow/xorg.sh
+echo "Launching XFCE via GOW launcher..."
+source /opt/gow/launch-comp.sh
+launcher
