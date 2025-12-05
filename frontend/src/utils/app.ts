@@ -175,12 +175,9 @@ export const validateApp = (app: IApp): string[] => {
   // Validate assistants
   if (!app.config.helix.assistants || app.config.helix.assistants.length === 0) {
     errors.push('At least one assistant is required')
-  } else {
-    const assistant = app.config.helix.assistants[0]
-    if (!assistant.model || assistant.model.trim() === '') {
-      errors.push('Please select a model for the assistant')
-    }
   }
+  // Note: Model is optional - agents can be saved without a model selected initially
+  // and configured later. The model will be required at runtime when starting a session.
 
   errors = errors.concat(validateApiSchemas(app))
   errors = errors.concat(validateKnowledge(app))

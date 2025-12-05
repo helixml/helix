@@ -45,10 +45,37 @@ const Apps: FC = () => {
     return true
   }
 
-  const onNewAgent = () => {
+  const onNewAgent = async () => {
     if(!checkLoginStatus()) return
 
-    account.orgNavigate('new-agent')
+    try {
+      // Create a blank agent with minimal config, then navigate to settings page
+      const newAgent = await apps.createAgent({
+        name: 'New Agent',
+        systemPrompt: '',
+        reasoningModelProvider: '',
+        reasoningModel: '',
+        reasoningModelEffort: '',
+        generationModelProvider: '',
+        generationModel: '',
+        smallReasoningModelProvider: '',
+        smallReasoningModel: '',
+        smallReasoningModelEffort: '',
+        smallGenerationModelProvider: '',
+        smallGenerationModel: '',
+      })
+
+      if (!newAgent || !newAgent.id) {
+        throw new Error('Failed to create agent')
+      }
+
+      // Navigate directly to the agent settings page
+      account.orgNavigate('app', { app_id: newAgent.id })
+      snackbar.success('Agent created - configure it below')
+    } catch (error) {
+      console.error('Error creating agent:', error)
+      snackbar.error('Failed to create agent')
+    }
   }
 
   const onNewSecret = () => {

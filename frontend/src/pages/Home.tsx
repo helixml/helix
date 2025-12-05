@@ -242,6 +242,41 @@ const Home: FC = () => {
     }
   }
 
+  // Create a blank agent and navigate to its settings page
+  const handleCreateNewAgent = async () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+
+    try {
+      const newAgent = await apps.createAgent({
+        name: 'New Agent',
+        systemPrompt: '',
+        reasoningModelProvider: '',
+        reasoningModel: '',
+        reasoningModelEffort: '',
+        generationModelProvider: '',
+        generationModel: '',
+        smallReasoningModelProvider: '',
+        smallReasoningModel: '',
+        smallReasoningModelEffort: '',
+        smallGenerationModelProvider: '',
+        smallGenerationModel: '',
+      })
+
+      if (!newAgent || !newAgent.id) {
+        throw new Error('Failed to create agent')
+      }
+
+      account.orgNavigate('app', { app_id: newAgent.id })
+      snackbar.success('Agent created - configure it below')
+    } catch (error) {
+      console.error('Error creating agent:', error)
+      snackbar.error('Failed to create agent')
+    }
+  }
+
   return (
     <Page
       showTopbar={ isBigScreen ? false : true }
@@ -1041,7 +1076,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={() => account.orgNavigate('new-agent')}
+                        onClick={handleCreateNewAgent}
                       >
                         <Box
                           sx={{
