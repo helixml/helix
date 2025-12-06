@@ -323,6 +323,7 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:rw
         - ./wolf/zorin-config:/helix-dev/zorin-config:rw
         - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
+        - ./wolf/xfce-config:/helix-dev/xfce-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -437,6 +438,7 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:rw
         - ./wolf/zorin-config:/helix-dev/zorin-config:rw
         - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
+        - ./wolf/xfce-config:/helix-dev/xfce-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
@@ -549,6 +551,7 @@ services:
         - ./wolf/sway-config:/helix-dev/sway-config:rw
         - ./wolf/zorin-config:/helix-dev/zorin-config:rw
         - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
+        - ./wolf/xfce-config:/helix-dev/xfce-config:rw
         # Moonlight Web configuration
         - ./moonlight-web-config:/app/server:rw
         # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers

@@ -888,7 +888,7 @@ function build-desktop() {
 
   if [ -z "$DESKTOP_NAME" ]; then
     echo "Usage: ./stack build-desktop <name>"
-    echo "Available: sway, zorin, ubuntu"
+    echo "Available: sway, zorin, ubuntu, xfce"
     exit 1
   fi
 
@@ -1124,6 +1124,14 @@ function transfer-ubuntu-to-sandbox() {
   transfer-desktop-to-sandbox ubuntu
 }
 
+function build-xfce() {
+  build-desktop xfce
+}
+
+function transfer-xfce-to-sandbox() {
+  transfer-desktop-to-sandbox xfce
+}
+
 function build-moonlight-web() {
   echo "🌙 Building Moonlight Web container..."
 
@@ -1239,7 +1247,7 @@ function build-sandbox() {
 
   # Step 2: Build helix-sway and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [2/6] Building helix-sway and exporting tarball..."
+  echo "📝 [2/7] Building helix-sway and exporting tarball..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build helix-sway image and export tarball (build-desktop now handles tarball export)
@@ -1264,7 +1272,7 @@ function build-sandbox() {
 
   # Step 3: Build helix-zorin and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [3/6] Building helix-zorin and exporting tarball..."
+  echo "📝 [3/7] Building helix-zorin and exporting tarball..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build helix-zorin image and export tarball (build-desktop now handles tarball export)
@@ -1286,7 +1294,7 @@ function build-sandbox() {
 
   # Step 4: Build helix-ubuntu and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [4/6] Building helix-ubuntu and exporting tarball..."
+  echo "📝 [4/7] Building helix-ubuntu and exporting tarball..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build helix-ubuntu image and export tarball (build-desktop now handles tarball export)
@@ -1306,9 +1314,31 @@ function build-sandbox() {
   echo "✅ Using sandbox-images/helix-ubuntu.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-ubuntu.version)"
   echo ""
 
-  # Step 5: Build unified sandbox container with embedded tarballs
+  # Step 5: Build helix-xfce and export as tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [5/6] Building helix-sandbox container..."
+  echo "📝 [5/7] Building helix-xfce and exporting tarball..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build helix-xfce image and export tarball (build-desktop now handles tarball export)
+  # Skip image transfer since we'll restart sandbox with new embedded tarball
+  if ! SKIP_DESKTOP_TRANSFER=1 build-xfce; then
+    echo "❌ Failed to build helix-xfce"
+    return 1
+  fi
+
+  # Verify tarball was created (build-desktop exports it)
+  if [ ! -f sandbox-images/helix-xfce.tar ]; then
+    echo "❌ sandbox-images/helix-xfce.tar not found after build-xfce - this shouldn't happen"
+    return 1
+  fi
+
+  TARBALL_SIZE=$(du -h sandbox-images/helix-xfce.tar | cut -f1)
+  echo "✅ Using sandbox-images/helix-xfce.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-xfce.version)"
+  echo ""
+
+  # Step 6: Build unified sandbox container with embedded tarballs
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [6/7] Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build sandbox with tarball embedded
@@ -1328,7 +1358,7 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f sandbox-images/helix-sway.tar sandbox-images/helix-zorin.tar sandbox-images/helix-ubuntu.tar
+    rm -f sandbox-images/helix-sway.tar sandbox-images/helix-zorin.tar sandbox-images/helix-ubuntu.tar sandbox-images/helix-xfce.tar
     return 1
   fi
 
@@ -1900,11 +1930,11 @@ function help() {
   echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
   echo "  build-wolf         - Build Wolf container with latest source code"
-  echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
-  echo "  build-desktop <name> - Build desktop container (sway, zorin, ubuntu)"
+  echo "  build-desktop <name> - Build desktop container (sway, zorin, ubuntu, xfce)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
+  echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
