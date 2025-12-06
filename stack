@@ -963,10 +963,12 @@ function build-desktop() {
   local IMAGE_HASH_AFTER=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}')
 
   # Get Docker image hash (content-addressable, survives save/load)
-  local IMAGE_HASH=$(echo "$IMAGE_HASH_AFTER" | sed 's/sha256://')
+  local IMAGE_HASH_FULL=$(echo "$IMAGE_HASH_AFTER" | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
 
   echo "✅ ${DESKTOP_NAME} container built successfully"
-  echo "📦 Image hash: ${IMAGE_HASH}"
+  echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
   # Log image hash comparison for debugging cache behavior
   echo "🔍 Image cache check:"
@@ -980,7 +982,7 @@ function build-desktop() {
 
   # Skip export if: image unchanged AND tarball exists
   if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
-    TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
+    local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
     echo "✅ Image unchanged, tarball up-to-date: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
     # Still transfer to sandbox if running (in case sandbox was restarted)
     if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
@@ -990,20 +992,20 @@ function build-desktop() {
   fi
 
   # Export tarball for embedding in sandbox
-  # Include both :latest and :${IMAGE_HASH} tags so docker ps shows proper image names
+  # Include both :latest and :${IMAGE_TAG} tags so docker ps shows proper image names
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
   mkdir -p sandbox-images
 
-  # Tag with IMAGE_HASH before saving (Wolf uses helix-${desktop}:${hash} to run containers)
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_HASH}..."
-  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}"
+  # Tag with IMAGE_TAG before saving (Wolf uses helix-${desktop}:${tag} to run containers)
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Save tarball with BOTH tags - this ensures docker ps shows the named image
-  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.tar"
-  echo "${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.version"
+  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
 
   local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
-  echo "✅ Tarball created: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) hash=${IMAGE_HASH}"
+  echo "✅ Tarball created: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) tag=${IMAGE_TAG}"
 
   # Transfer to running sandbox (hot-reload in development)
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
@@ -1041,15 +1043,17 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Get image hash and commit hash for versioned tags
-  local IMAGE_HASH=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
   local COMMIT_HASH=$(git rev-parse --short HEAD)
 
-  # CRITICAL: Create image hash tag on host - Wolf executor requests images by hash
-  # The heartbeat reports the image hash from the version file, and Wolf uses
-  # helix-${desktop}:${hash} when creating containers. Without this tag, the
+  # CRITICAL: Create image tag on host - Wolf executor requests images by tag
+  # The heartbeat reports the tag from the version file, and Wolf uses
+  # helix-${desktop}:${tag} when creating containers. Without this tag, the
   # sandbox won't find the image and the container will fail to start.
-  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_HASH} (for Wolf executor)..."
-  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}"
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG} (for Wolf executor)..."
+  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Check if versioned tag exists locally
   local HAS_VERSIONED_TAG=""
@@ -1058,26 +1062,26 @@ function transfer-desktop-to-sandbox() {
   fi
 
   # Transfer image(s) to sandbox's dockerd
-  # Always include the IMAGE_HASH tag since Wolf uses it to pull images
+  # Always include the IMAGE_TAG since Wolf uses it to run containers
   local TRANSFER_SUCCESS=""
   if [ -n "$HAS_VERSIONED_TAG" ]; then
-    # Transfer all tags: latest, commit hash, and image hash (Wolf uses helix-${desktop}:${hash})
-    echo "📦 Transferring ${IMAGE_NAME}:latest, ${IMAGE_NAME}:${COMMIT_HASH}, and ${IMAGE_NAME}:${IMAGE_HASH} to sandbox's dockerd..."
-    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" "${IMAGE_NAME}:${IMAGE_HASH}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+    # Transfer all tags: latest, commit hash, and image tag (Wolf uses helix-${desktop}:${tag})
+    echo "📦 Transferring ${IMAGE_NAME}:latest, ${IMAGE_NAME}:${COMMIT_HASH}, and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
       TRANSFER_SUCCESS="true"
       echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
-      echo "📦 Image hash tag: ${IMAGE_NAME}:${IMAGE_HASH}"
+      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
     fi
   else
-    # Only :latest exists - transfer with image hash tag
-    echo "📦 Transferring ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${IMAGE_HASH} to sandbox's dockerd..."
-    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+    # Only :latest exists - transfer with image tag
+    echo "📦 Transferring ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
       echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
       # Tag it with the commit hash inside sandbox for consistency
       echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${COMMIT_HASH} inside sandbox..."
       docker exec "$SANDBOX_CONTAINER" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}"
       TRANSFER_SUCCESS="true"
-      echo "📦 Image hash tag: ${IMAGE_NAME}:${IMAGE_HASH}"
+      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
     fi
   fi
 
