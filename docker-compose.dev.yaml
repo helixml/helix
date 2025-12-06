@@ -269,6 +269,8 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
+        - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
         # Sandbox data path for workspaces (must match volume mount)
         - SANDBOX_DATA_PATH=/data
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
@@ -381,6 +383,8 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
+        - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
         # Sandbox data path for workspaces (must match volume mount)
         - SANDBOX_DATA_PATH=/data
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
@@ -492,6 +496,8 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # Debug: keep dead desktop containers for inspection (default: false = auto-remove)
+        - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
         # Sandbox data path for workspaces (must match volume mount)
         - SANDBOX_DATA_PATH=/data
         # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)

@@ -141,6 +141,10 @@ load_desktop_image() {
                 echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${VERSION}"
                 docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
             fi
+
+            # Log available tags for debugging (helps verify docker ps will show names)
+            echo "📋 Available tags for ${IMAGE_NAME}:"
+            docker images "${IMAGE_NAME}" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
         else
             echo "⚠️  Failed to load ${IMAGE_NAME} tarball (may be corrupted or out of memory)"
             echo "   Container will continue startup - transfer fresh image with './stack build-${NAME}'"
