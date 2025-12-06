@@ -990,9 +990,16 @@ function build-desktop() {
   fi
 
   # Export tarball for embedding in sandbox
+  # Include both :latest and :${IMAGE_HASH} tags so docker ps shows proper image names
   echo "📦 Exporting ${DESKTOP_NAME} tarball..."
   mkdir -p sandbox-images
-  docker save "${IMAGE_NAME}:latest" > "sandbox-images/${IMAGE_NAME}.tar"
+
+  # Tag with IMAGE_HASH before saving (Wolf uses helix-${desktop}:${hash} to run containers)
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_HASH}..."
+  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}"
+
+  # Save tarball with BOTH tags - this ensures docker ps shows the named image
+  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.tar"
   echo "${IMAGE_HASH}" > "sandbox-images/${IMAGE_NAME}.version"
 
   local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)

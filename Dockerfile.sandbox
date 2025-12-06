@@ -298,7 +298,7 @@ ENV GST_GL_API=gles2 \
     WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem \
     WOLF_PULSE_IMAGE=ghcr.io/games-on-whales/pulseaudio:master \
     WOLF_RENDER_NODE=/dev/dri/renderD128 \
-    WOLF_STOP_CONTAINER_ON_EXIT=TRUE \
+    # WOLF_STOP_CONTAINER_ON_EXIT is set dynamically in startup-app.sh based on HELIX_KEEP_DEAD_CONTAINERS
     WOLF_DOCKER_SOCKET=/var/run/docker.sock \
     RUST_BACKTRACE=full \
     RUST_LOG=WARN \
@@ -321,7 +321,8 @@ ENV HELIX_API_URL="" \
     HELIX_HOSTNAME="" \
     MOONLIGHT_CREDENTIALS="helix" \
     HYDRA_ENABLED="true" \
-    HYDRA_PRIVILEGED_MODE_ENABLED="false"
+    HYDRA_PRIVILEGED_MODE_ENABLED="false" \
+    HELIX_KEEP_DEAD_CONTAINERS="false"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/wolf/

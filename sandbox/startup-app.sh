@@ -14,6 +14,17 @@ set -e
 
 echo "🐺 Starting Wolf (main process with automatic restart)..."
 
+# Configure container cleanup behavior based on HELIX_KEEP_DEAD_CONTAINERS
+# Default: remove containers after they exit (production behavior)
+# Set HELIX_KEEP_DEAD_CONTAINERS=true to keep containers for debugging
+if [ "$HELIX_KEEP_DEAD_CONTAINERS" = "true" ]; then
+    echo "🔧 Debug mode: HELIX_KEEP_DEAD_CONTAINERS=true - dead containers will be preserved"
+    export WOLF_STOP_CONTAINER_ON_EXIT=FALSE
+else
+    echo "🧹 Production mode: containers will be stopped and removed on exit"
+    export WOLF_STOP_CONTAINER_ON_EXIT=TRUE
+fi
+
 # Make sure Wolf config folder and socket directory exist
 export WOLF_CFG_FOLDER=$HOST_APPS_STATE_FOLDER/cfg
 mkdir -p $WOLF_CFG_FOLDER
