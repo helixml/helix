@@ -28,6 +28,8 @@ const WsMessageType = {
   ControlMessage: 0x20,
   StreamInit: 0x30,
   StreamError: 0x31,
+  Ping: 0x40,
+  Pong: 0x41,
 } as const
 
 const WsVideoCodec = {
@@ -133,6 +135,16 @@ export class WebSocketStream {
   private currentTotalBitrateMbps = 0
   private framesDecoded = 0
   private framesDropped = 0
+
+  // RTT (Round-Trip Time) measurement for latency tracking
+  private pingSeq = 0
+  private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
+  private rttSamples: number[] = []
+  private currentRttMs = 0
+  private pingIntervalId: ReturnType<typeof setInterval> | null = null
+  private readonly PING_INTERVAL_MS = 1000  // Send ping every second
+  private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
+  private readonly HIGH_LATENCY_THRESHOLD_MS = 150  // Show warning above this
 
   constructor(
     api: Api,
@@ -272,6 +284,9 @@ export class WebSocketStream {
     // Start heartbeat monitoring for stale connections
     this.startHeartbeat()
 
+    // Start RTT measurement pings
+    this.startPingInterval()
+
     // Send initialization message
     this.sendInit()
   }
@@ -282,6 +297,9 @@ export class WebSocketStream {
 
     // Stop heartbeat
     this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
 
     this.dispatchInfoEvent({ type: "disconnected" })
 
@@ -364,6 +382,9 @@ export class WebSocketStream {
       case WsMessageType.ControllerEvent:
         // Server → client events (rumble, etc.)
         this.input.handleServerMessage(msgType, data.slice(1))
+        break
+      case WsMessageType.Pong:
+        this.handlePong(data)
         break
       default:
         console.warn("[WebSocketStream] Unknown message type:", msgType)
@@ -784,6 +805,100 @@ export class WebSocketStream {
   }
 
   // ============================================================================
+  // RTT (Latency) Measurement
+  // ============================================================================
+
+  private sendPing() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const seq = this.pingSeq++
+    const sendTime = performance.now()
+    this.pendingPings.set(seq, sendTime)
+
+    // Ping format: type(1) + seq(4) + clientTime(8) = 13 bytes
+    const buffer = new ArrayBuffer(13)
+    const view = new DataView(buffer)
+    view.setUint8(0, WsMessageType.Ping)
+    view.setUint32(1, seq, false)  // big-endian
+    // We use performance.now() * 1000 for microseconds, but we only need
+    // the send time locally - the server echoes it back for calculation
+    view.setBigUint64(5, BigInt(Math.floor(sendTime * 1000)), false)
+
+    this.ws.send(buffer)
+  }
+
+  private handlePong(data: Uint8Array) {
+    // Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+    if (data.length < 21) {
+      console.warn("[WebSocketStream] Pong too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const seq = view.getUint32(1, false)  // big-endian
+
+    const sendTime = this.pendingPings.get(seq)
+    if (sendTime === undefined) {
+      console.warn("[WebSocketStream] Received pong for unknown seq:", seq)
+      return
+    }
+
+    this.pendingPings.delete(seq)
+
+    // Calculate RTT
+    const receiveTime = performance.now()
+    const rtt = receiveTime - sendTime
+
+    // Add to samples, keep only the most recent
+    this.rttSamples.push(rtt)
+    if (this.rttSamples.length > this.MAX_RTT_SAMPLES) {
+      this.rttSamples.shift()
+    }
+
+    // Calculate moving average
+    const sum = this.rttSamples.reduce((a, b) => a + b, 0)
+    this.currentRttMs = sum / this.rttSamples.length
+
+    // Dispatch event if latency is high
+    if (this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS) {
+      this.dispatchInfoEvent({
+        type: "addDebugLine",
+        line: `High latency detected: ${this.currentRttMs.toFixed(0)}ms RTT`
+      })
+    }
+  }
+
+  private startPingInterval() {
+    this.stopPingInterval()
+
+    // Send first ping immediately
+    this.sendPing()
+
+    // Then send periodically
+    this.pingIntervalId = setInterval(() => {
+      this.sendPing()
+
+      // Clean up old pending pings (older than 5 seconds = lost)
+      const now = performance.now()
+      for (const [seq, sendTime] of this.pendingPings.entries()) {
+        if (now - sendTime > 5000) {
+          this.pendingPings.delete(seq)
+        }
+      }
+    }, this.PING_INTERVAL_MS)
+  }
+
+  private stopPingInterval() {
+    if (this.pingIntervalId) {
+      clearInterval(this.pingIntervalId)
+      this.pingIntervalId = null
+    }
+    this.pendingPings.clear()
+  }
+
+  // ============================================================================
   // Input Handling - WebSocket transport
   // ============================================================================
 
@@ -879,6 +994,8 @@ export class WebSocketStream {
     framesDropped: number
     width: number
     height: number
+    rttMs: number                    // Round-trip time in milliseconds
+    isHighLatency: boolean           // True if RTT exceeds threshold
   } {
     return {
       fps: this.currentFps,
@@ -888,6 +1005,8 @@ export class WebSocketStream {
       framesDropped: this.framesDropped,
       width: this.streamerSize[0],
       height: this.streamerSize[1],
+      rttMs: this.currentRttMs,
+      isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
     }
   }
 
@@ -1056,6 +1175,9 @@ export class WebSocketStream {
 
     // Stop heartbeat
     this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
 
     // Reset stream state
     this.resetStreamState()
