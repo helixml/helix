@@ -480,22 +480,39 @@ export class WebSocketStream {
     const codecString = codecToWebCodecsString(codec)
     console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
 
-    // Check if codec is supported
+    // Check if codec is supported - try hardware first, then software fallback
+    let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
     try {
-      const support = await VideoDecoder.isConfigSupported({
+      const hwSupport = await VideoDecoder.isConfigSupported({
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
         hardwareAcceleration: "prefer-hardware",
       })
 
-      if (!support.supported) {
-        console.error("[WebSocketStream] Video codec not supported:", codecString)
-        this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
-        return
+      if (!hwSupport.supported) {
+        // Hardware not supported, try software decoding
+        console.log("[WebSocketStream] Hardware decoding not supported, trying software fallback")
+        const swSupport = await VideoDecoder.isConfigSupported({
+          codec: codecString,
+          codedWidth: width,
+          codedHeight: height,
+          // No hardwareAcceleration = allow any
+        })
+
+        if (!swSupport.supported) {
+          console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
+          this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          return
+        }
+        useHardwareAcceleration = "no-preference"
+        console.log("[WebSocketStream] Using software video decoding")
+      } else {
+        console.log("[WebSocketStream] Using hardware video decoding")
       }
     } catch (e) {
       console.error("[WebSocketStream] Failed to check codec support:", e)
+      // Continue anyway and let configure() fail if truly unsupported
     }
 
     // Close existing decoder
@@ -522,7 +539,7 @@ export class WebSocketStream {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
-      hardwareAcceleration: "prefer-hardware",
+      hardwareAcceleration: useHardwareAcceleration,
     }
 
     // For H264, specify Annex B format to handle in-band SPS/PPS
@@ -546,7 +563,7 @@ export class WebSocketStream {
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
-        hardwareAcceleration: "prefer-hardware",
+        hardwareAcceleration: useHardwareAcceleration,
       })
       console.log("[WebSocketStream] Video decoder configured (fallback mode)")
     }
