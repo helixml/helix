@@ -147,14 +147,14 @@ video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'vaav1enc', 'vapostproc' ]
-    encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'va'
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'vaav1lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'va'
@@ -190,14 +190,14 @@ video/x-h264, profile=main, stream-format=byte-stream'''
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'vah264enc', 'vapostproc' ]
-    encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'vah264lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
@@ -226,14 +226,14 @@ video/x-h265, profile=main, stream-format=byte-stream'''
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'vah265enc', 'vapostproc' ]
-    encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'vah265lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=15 rate-control=cqp target-usage=6 !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
