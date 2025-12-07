@@ -48,6 +48,18 @@ func extractHostPortAndTLS(rawURL string) (hostPort string, useTLS bool) {
 	return hostPort, useTLS
 }
 
+// extractEnvVar extracts the value of a specific environment variable from a slice of "KEY=value" strings
+// Returns empty string if the key is not found
+func extractEnvVar(envVars []string, key string) string {
+	prefix := key + "="
+	for _, env := range envVars {
+		if strings.HasPrefix(env, prefix) {
+			return strings.TrimPrefix(env, prefix)
+		}
+	}
+	return ""
+}
+
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
 	lobbyID   string
@@ -66,10 +78,6 @@ type WolfExecutor struct {
 	zedImage      string
 	helixAPIURL   string
 	helixAPIToken string
-
-	// Qwen Code configuration (passed to sway containers)
-	qwenBaseURL string
-	qwenModel   string
 
 	// Workspace path configuration
 	// NOTE: API and sandbox do NOT share filesystems. The API just generates path strings
@@ -214,11 +222,17 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
 
+	// Extract USER_API_TOKEN from extra env vars (for LLM proxy authentication)
+	userAPIToken := extractEnvVar(config.ExtraEnv, "USER_API_TOKEN")
+
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		// LLM proxy configuration: Zed's built-in agent uses these for Anthropic
+		// All LLM traffic goes through Helix's proxy (uses user's token for auth, Helix has provider credentials)
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", userAPIToken),
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s/v1", w.helixAPIURL),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
@@ -349,13 +363,13 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 
 // NewWolfExecutor creates a Wolf executor using lobbies mode
 // Lobbies persist naturally across Wolf restarts, no keepalive needed
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, store store.Store, connmanInst connmanInterface) Executor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, connmanInst connmanInterface) Executor {
 	log.Info().Msg("Initializing Wolf executor (lobbies mode)")
-	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, store, connmanInst)
+	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, connmanInst)
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
-func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
+func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
 	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
 	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
 	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
@@ -404,8 +418,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, 
 		zedImage:                     zedImage,
 		helixAPIURL:                  helixAPIURL,
 		helixAPIToken:                helixAPIToken,
-		qwenBaseURL:                  qwenBaseURL,
-		qwenModel:                    qwenModel,
 		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
@@ -600,16 +612,6 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Pass API base URL for git cloning
 	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
-
-	// Qwen Code configuration for settings-sync-daemon
-	// Note: QWEN_API_KEY is intentionally not passed here - the daemon will use USER_API_TOKEN
-	// which allows users to specify their own provider via the model prefix (e.g., "openrouter/gpt-4")
-	if w.qwenBaseURL != "" {
-		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_BASE_URL=%s", w.qwenBaseURL))
-	}
-	if w.qwenModel != "" {
-		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_MODEL=%s", w.qwenModel))
-	}
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
