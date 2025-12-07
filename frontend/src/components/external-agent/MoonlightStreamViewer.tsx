@@ -101,7 +101,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
-  const [adaptiveQuality, setAdaptiveQuality] = useState(false); // Use dual-stream for automatic quality switching
+  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force 15fps)
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('adaptive');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
 
   // Clipboard sync state
@@ -246,9 +247,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Check if using WebSocket-only mode
       if (streamingMode === 'websocket') {
         // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
-        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, adaptiveQuality:', adaptiveQuality);
+        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, qualityMode:', qualityMode);
 
-        if (adaptiveQuality) {
+        if (qualityMode === 'adaptive') {
           // Dual-stream mode: open high-quality and low-quality streams simultaneously
           // Automatically switches to low-quality when network is congested
           console.log('[MoonlightStreamViewer] Using DualStreamManager for adaptive quality');
@@ -268,12 +269,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             stream.setCanvas(canvasRef.current);
           }
         } else {
-          // Single-stream mode
+          // Single-stream mode: force high (60fps) or low (15fps)
+          const streamSettings = { ...settings };
+          if (qualityMode === 'low') {
+            streamSettings.fps = 15;
+            streamSettings.bitrate = 5000;  // 5 Mbps for 15fps
+            console.log('[MoonlightStreamViewer] Forcing low quality: 15fps @ 5Mbps');
+          } else {
+            console.log('[MoonlightStreamViewer] Forcing high quality: 60fps');
+          }
+
           stream = new WebSocketStream(
             api,
             hostId,
             actualAppId,
-            settings,
+            streamSettings,
             supportedFormats,
             [width, height],
             sessionId
@@ -485,7 +495,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, adaptiveQuality]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode]);
 
   // Disconnect
   const disconnect = useCallback(() => {
@@ -867,9 +877,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Handle regular WebSocketStream
         const wsStream = currentStream as WebSocketStream;
         const wsStats = wsStream.getStats();
+        const isForcedLow = qualityMode === 'low';
         setStats({
           video: {
-            codec: 'H264 (WebSocket)',
+            codec: `H264 (WebSocket${isForcedLow ? ' - 15fps' : ''})`,
             width: wsStats.width,
             height: wsStats.height,
             fps: wsStats.fps,
@@ -881,13 +892,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             isHighLatency: wsStats.isHighLatency,                              // High latency flag
           },
           connection: {
-            transport: 'WebSocket (L7)',
+            transport: `WebSocket (L7)${isForcedLow ? ' - Force 15fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
           },
           timestamp: new Date().toISOString(),
         });
         // Update high latency state for warning banner
         setIsHighLatency(wsStats.isHighLatency);
-        setIsOnFallback(false);
+        // Show orange border for forced low quality mode
+        setIsOnFallback(isForcedLow);
       };
 
       // Poll every second
@@ -973,7 +985,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats, streamingMode, width, height]);
+  }, [showStats, streamingMode, width, height, qualityMode]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
@@ -1375,13 +1387,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </IconButton>
         </Tooltip>
         {streamingMode === 'websocket' && (
-          <Tooltip title={adaptiveQuality ? 'Adaptive Quality ON — Auto-switches to 15fps on slow networks' : 'Adaptive Quality OFF — Click to enable dual-stream mode'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <Tooltip
+            title={
+              qualityMode === 'adaptive'
+                ? 'Adaptive Quality — Auto-switches between 60fps/15fps based on network'
+                : qualityMode === 'high'
+                ? 'Force 60fps — Click for 15fps'
+                : 'Force 15fps — Click for Adaptive'
+            }
+            arrow
+            slotProps={{ popper: { sx: { zIndex: 10000 } } }}
+          >
             <IconButton
               size="small"
               onClick={() => {
-                setAdaptiveQuality(prev => !prev);
+                // Cycle: adaptive -> high -> low -> adaptive
+                setQualityMode(prev =>
+                  prev === 'adaptive' ? 'high' : prev === 'high' ? 'low' : 'adaptive'
+                );
               }}
-              sx={{ color: adaptiveQuality ? 'primary.main' : 'white' }}
+              sx={{
+                color: qualityMode === 'adaptive' ? 'primary.main' : qualityMode === 'low' ? '#ff9800' : 'white',
+              }}
             >
               <Speed fontSize="small" />
             </IconButton>
@@ -1420,7 +1447,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         >
           <Wifi sx={{ fontSize: 16 }} />
           <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-            {isOnFallback
+            {qualityMode === 'low'
+              ? '15fps mode (manually selected)'
+              : isOnFallback
               ? `Slow connection - reduced to 15fps (${stats?.video?.primaryRttMs?.toFixed(0) || stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
               : `High network latency detected (${stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
             }
