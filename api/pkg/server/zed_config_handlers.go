@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -364,6 +365,45 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	merged := external_agent.MergeZedConfigWithUserOverrides(zedConfig, userOverrides)
 
 	return merged, nil
+}
+
+// getAgentNameForSession determines which code agent to use based on the session's spec task configuration.
+// Returns "zed-agent" as default, or the configured agent name (e.g., "qwen") if a code agent is configured.
+func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, session *types.Session) string {
+	agentName := "zed-agent" // Default to Zed's built-in agent
+
+	if session.Metadata.SpecTaskID == "" {
+		return agentName
+	}
+
+	specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil || specTask.HelixAppID == "" {
+		return agentName
+	}
+
+	specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
+	if err != nil {
+		return agentName
+	}
+
+	// Use SANDBOX_API_URL for internal Docker network
+	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
+	if sandboxAPIURL == "" {
+		sandboxAPIURL = "http://api:8080"
+	}
+
+	codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+	if codeAgentConfig != nil {
+		agentName = codeAgentConfig.AgentName
+		log.Info().
+			Str("session_id", session.ID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("agent_name", agentName).
+			Str("runtime", string(codeAgentConfig.Runtime)).
+			Msg("Using code agent config from spec task")
+	}
+
+	return agentName
 }
 
 // buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.

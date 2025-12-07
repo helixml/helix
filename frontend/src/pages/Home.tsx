@@ -31,6 +31,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useSnackbar from '../hooks/useSnackbar'
 import useApps from '../hooks/useApps'
+import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 import { useStreaming } from '../contexts/streaming'
 import { useListUserCronTriggers } from '../services/appService'
 import { useListProjects } from '../services'
@@ -104,6 +105,7 @@ const Home: FC = () => {
   const snackbar = useSnackbar()
   const account = useAccount()
   const apps = useApps()
+  const createBlankAgent = useCreateBlankAgent()
   const { NewInference } = useStreaming()
   const queryClient = useQueryClient()
   const [currentPrompt, setCurrentPrompt] = useState('')
@@ -239,41 +241,6 @@ const Home: FC = () => {
         setSelectedImageName(file.name)
       }
       reader.readAsDataURL(file)
-    }
-  }
-
-  // Create a blank agent and navigate to its settings page
-  const handleCreateNewAgent = async () => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-
-    try {
-      const newAgent = await apps.createAgent({
-        name: 'New Agent',
-        systemPrompt: '',
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: '',
-        generationModelProvider: '',
-        generationModel: '',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: '',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      })
-
-      if (!newAgent || !newAgent.id) {
-        throw new Error('Failed to create agent')
-      }
-
-      account.orgNavigate('app', { app_id: newAgent.id })
-      snackbar.success('Agent created - configure it below')
-    } catch (error) {
-      console.error('Error creating agent:', error)
-      snackbar.error('Failed to create agent')
     }
   }
 
@@ -1076,7 +1043,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={handleCreateNewAgent}
+                        onClick={createBlankAgent}
                       >
                         <Box
                           sx={{

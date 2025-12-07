@@ -352,29 +352,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 							}
 
 							// Determine which agent to use based on the spec task's code agent config
-							agentName := "zed-agent" // Default to Zed's built-in agent
-							if helixSession.Metadata.SpecTaskID != "" {
-								specTask, err := apiServer.Store.GetSpecTask(ctx, helixSession.Metadata.SpecTaskID)
-								if err == nil && specTask.HelixAppID != "" {
-									specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
-									if err == nil {
-										sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
-										if sandboxAPIURL == "" {
-											sandboxAPIURL = "http://api:8080"
-										}
-										codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
-										if codeAgentConfig != nil {
-											agentName = codeAgentConfig.AgentName
-											log.Info().
-												Str("session_id", helixSessionID).
-												Str("spec_task_id", helixSession.Metadata.SpecTaskID).
-												Str("agent_name", agentName).
-												Str("runtime", string(codeAgentConfig.Runtime)).
-												Msg("🔧 [HELIX] Using code agent config from spec task for initial message")
-										}
-									}
-								}
-							}
+							agentName := apiServer.getAgentNameForSession(ctx, helixSession)
 
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",

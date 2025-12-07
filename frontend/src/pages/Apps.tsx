@@ -14,6 +14,7 @@ import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
+import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 
 import {
   IApp,
@@ -22,12 +23,13 @@ import {
 const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
-  const snackbar = useSnackbar()  
-  
+  const snackbar = useSnackbar()
+  const createBlankAgent = useCreateBlankAgent()
+
   const {
     params,
     navigate,
-  } = useRouter()  
+  } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
@@ -47,35 +49,7 @@ const Apps: FC = () => {
 
   const onNewAgent = async () => {
     if(!checkLoginStatus()) return
-
-    try {
-      // Create a blank agent with minimal config, then navigate to settings page
-      const newAgent = await apps.createAgent({
-        name: 'New Agent',
-        systemPrompt: '',
-        reasoningModelProvider: '',
-        reasoningModel: '',
-        reasoningModelEffort: '',
-        generationModelProvider: '',
-        generationModel: '',
-        smallReasoningModelProvider: '',
-        smallReasoningModel: '',
-        smallReasoningModelEffort: '',
-        smallGenerationModelProvider: '',
-        smallGenerationModel: '',
-      })
-
-      if (!newAgent || !newAgent.id) {
-        throw new Error('Failed to create agent')
-      }
-
-      // Navigate directly to the agent settings page
-      account.orgNavigate('app', { app_id: newAgent.id })
-      snackbar.success('Agent created - configure it below')
-    } catch (error) {
-      console.error('Error creating agent:', error)
-      snackbar.error('Failed to create agent')
-    }
+    await createBlankAgent()
   }
 
   const onNewSecret = () => {

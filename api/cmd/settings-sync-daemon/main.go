@@ -50,6 +50,18 @@ type CodeAgentConfig struct {
 	Runtime   string `json:"runtime"` // "zed_agent" or "qwen_code"
 }
 
+// helixConfigResponse is the response structure from the Helix API's zed-config endpoint
+type helixConfigResponse struct {
+	ContextServers  map[string]interface{} `json:"context_servers"`
+	LanguageModels  map[string]interface{} `json:"language_models"`
+	Assistant       map[string]interface{} `json:"assistant"`
+	ExternalSync    map[string]interface{} `json:"external_sync"`
+	Agent           map[string]interface{} `json:"agent"`
+	Theme           string                 `json:"theme"`
+	Version         int64                  `json:"version"`
+	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
+}
+
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
 // Returns nil for runtimes that use Zed's built-in agent.
 //
@@ -190,16 +202,7 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
 	}
 
-	var config struct {
-		ContextServers  map[string]interface{} `json:"context_servers"`
-		LanguageModels  map[string]interface{} `json:"language_models"`
-		Assistant       map[string]interface{} `json:"assistant"`
-		ExternalSync    map[string]interface{} `json:"external_sync"`
-		Agent           map[string]interface{} `json:"agent"`
-		Theme           string                 `json:"theme"`
-		Version         int64                  `json:"version"`
-		CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
-	}
+	var config helixConfigResponse
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse Helix config: %w", err)
 	}
@@ -493,16 +496,7 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
 	}
 
-	var config struct {
-		ContextServers  map[string]interface{} `json:"context_servers"`
-		LanguageModels  map[string]interface{} `json:"language_models"`
-		Assistant       map[string]interface{} `json:"assistant"`
-		ExternalSync    map[string]interface{} `json:"external_sync"`
-		Agent           map[string]interface{} `json:"agent"`
-		Theme           string                 `json:"theme"`
-		Version         int64                  `json:"version"`
-		CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config"`
-	}
+	var config helixConfigResponse
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return err
 	}
