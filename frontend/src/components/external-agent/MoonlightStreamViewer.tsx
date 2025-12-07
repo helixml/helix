@@ -18,7 +18,7 @@ import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
 import { DualStreamManager } from '../../lib/moonlight-web-ts/stream/dual-stream-manager';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
-import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
+import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
@@ -218,20 +218,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.audioSampleQueueSize = 20;
       settings.playAudioLocal = !audioEnabled;
 
-      // Use H264 Main profile (matches Wolf encoder)
-      // Wolf doesn't support 4:4:4, only 4:2:0 (NV12)
-      const supportedFormats = {
-        H264: true,
-        H264_HIGH8_444: false,  // Wolf doesn't support 4:4:4
-        H265: false,
-        H265_MAIN10: false,
-        H265_REXT8_444: false,
-        H265_REXT10_444: false,
-        AV1_MAIN8: false,
-        AV1_MAIN10: false,
-        AV1_HIGH8_444: false,
-        AV1_HIGH10_444: false
-      };
+      // Detect actual browser codec support
+      // For WebSocket mode: use WebCodecs detection (VideoDecoder.isConfigSupported)
+      // For WebRTC mode: use RTCRtpReceiver detection (default behavior)
+      let supportedFormats;
+      if (streamingMode === 'websocket') {
+        // WebSocket mode uses WebCodecs for decoding - detect actual hardware decoder support
+        console.log('[MoonlightStreamViewer] Detecting WebCodecs supported codecs...');
+        supportedFormats = await getWebCodecsSupportedVideoFormats();
+        console.log('[MoonlightStreamViewer] WebCodecs supported formats:', supportedFormats);
+      } else {
+        // WebRTC mode - use standard video format detection
+        supportedFormats = getStandardVideoFormats();
+      }
 
       // Create Stream instance with mode-aware parameters
       console.log('[MoonlightStreamViewer] Creating Stream instance', {

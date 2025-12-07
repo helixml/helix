@@ -46,6 +46,31 @@ const VIDEO_DECODER_CODECS: Array<{ key: string } & VideoDecoderConfig> = [
     // { key: "AV1_HIGH10_444", codec: "av01.0.08M.10", colorSpace: { primaries: "bt709", matrix: "bt709", transfer: "bt709", fullRange: true } }
 ]
 
+// WebCodecs-specific codec configurations for WebSocket streaming mode
+// These use proper codec strings for VideoDecoder.isConfigSupported()
+const WEBCODECS_CODEC_CONFIGS: Array<{ key: keyof VideoCodecSupport; codec: string; width: number; height: number }> = [
+    // H264 - Main Profile Level 5.1 (supports 1080p60)
+    { key: "H264", codec: "avc1.4d0033", width: 1920, height: 1080 },
+    // H264 High Profile 4:4:4 (rarely supported)
+    { key: "H264_HIGH8_444", codec: "avc1.f40032", width: 1920, height: 1080 },
+    // H265/HEVC - Main Profile
+    { key: "H265", codec: "hvc1.1.6.L120.90", width: 1920, height: 1080 },
+    // H265 Main 10
+    { key: "H265_MAIN10", codec: "hvc1.2.4.L120.90", width: 1920, height: 1080 },
+    // H265 RExt 4:4:4 8-bit
+    { key: "H265_REXT8_444", codec: "hvc1.4.10.L120.90", width: 1920, height: 1080 },
+    // H265 RExt 4:4:4 10-bit
+    { key: "H265_REXT10_444", codec: "hvc1.4.10.L120.90", width: 1920, height: 1080 },
+    // AV1 Main Profile 8-bit
+    { key: "AV1_MAIN8", codec: "av01.0.08M.08", width: 1920, height: 1080 },
+    // AV1 Main Profile 10-bit
+    { key: "AV1_MAIN10", codec: "av01.0.08M.10", width: 1920, height: 1080 },
+    // AV1 High Profile 4:4:4 8-bit
+    { key: "AV1_HIGH8_444", codec: "av01.1.08H.08", width: 1920, height: 1080 },
+    // AV1 High Profile 4:4:4 10-bit
+    { key: "AV1_HIGH10_444", codec: "av01.1.08H.10", width: 1920, height: 1080 },
+]
+
 export function getStandardVideoFormats() {
     return {
         H264: true,              // assumed universal
@@ -59,6 +84,48 @@ export function getStandardVideoFormats() {
         AV1_HIGH8_444: false,
         AV1_HIGH10_444: false
     }
+}
+
+/**
+ * Detect video codec support using WebCodecs API (VideoDecoder.isConfigSupported)
+ * This is used for WebSocket streaming mode which uses WebCodecs for decoding,
+ * NOT WebRTC's RTCRtpReceiver.getCapabilities().
+ *
+ * Returns actual browser hardware decoder support for each codec.
+ */
+export async function getWebCodecsSupportedVideoFormats(): Promise<VideoCodecSupport> {
+    const support: VideoCodecSupport = getStandardVideoFormats()
+
+    // WebCodecs API not available
+    if (!("VideoDecoder" in window) || !window.isSecureContext) {
+        console.warn('[VideoCodecs] WebCodecs not available, falling back to H264 only')
+        return support
+    }
+
+    console.log('[VideoCodecs] Detecting WebCodecs hardware decoder support...')
+
+    for (const config of WEBCODECS_CODEC_CONFIGS) {
+        try {
+            const result = await VideoDecoder.isConfigSupported({
+                codec: config.codec,
+                codedWidth: config.width,
+                codedHeight: config.height,
+                hardwareAcceleration: "prefer-hardware",
+            })
+
+            support[config.key] = result.supported ?? false
+
+            if (result.supported) {
+                console.log(`[VideoCodecs] ${config.key} (${config.codec}): supported`)
+            }
+        } catch (e) {
+            support[config.key] = false
+            console.log(`[VideoCodecs] ${config.key} (${config.codec}): not supported (error)`)
+        }
+    }
+
+    console.log('[VideoCodecs] WebCodecs detection complete:', support)
+    return support
 }
 
 export async function getSupportedVideoFormats(): Promise<VideoCodecSupport> {
