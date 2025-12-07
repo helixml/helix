@@ -932,6 +932,47 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
 
+	// Step 3: Bridge desktop to Hydra network (if Hydra is enabled)
+	// This injects a veth pair connecting the desktop container to the Hydra network
+	// enabling Firefox/Zed in the desktop to access dev containers started via docker compose
+	if w.hydraEnabled && dockerSocket != "" {
+		// Wait for container to be running before bridging
+		// Wolf starts containers asynchronously after lobby creation
+		go func() {
+			bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer bridgeCancel()
+
+			// Wait for container to be running (Wolf needs time to start it)
+			time.Sleep(5 * time.Second)
+
+			hydraRunnerID := fmt.Sprintf("hydra-%s", wolfInstance.ID)
+			hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
+
+			// Call Hydra to bridge the desktop to the Hydra network
+			// Hydra will query Wolf's dockerd to get the container PID and inject the veth
+			bridgeResp, err := hydraClient.BridgeDesktop(bridgeCtx, &hydra.BridgeDesktopRequest{
+				SessionID:          agent.SessionID,
+				DesktopContainerID: containerHostname, // Container name (Hydra will query Docker for ID)
+			})
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", agent.SessionID).
+					Str("container_hostname", containerHostname).
+					Msg("Failed to bridge desktop to Hydra network - dev containers won't be accessible from desktop")
+				return
+			}
+
+			log.Info().
+				Str("session_id", agent.SessionID).
+				Str("desktop_ip", bridgeResp.DesktopIP).
+				Str("gateway", bridgeResp.Gateway).
+				Str("subnet", bridgeResp.Subnet).
+				Str("interface", bridgeResp.Interface).
+				Msg("Desktop bridged to Hydra network - dev containers now accessible from desktop")
+		}()
+	}
+
 	// Log resources AFTER lobby creation to see impact
 	go func() {
 		// Wait a few seconds for container to fully start

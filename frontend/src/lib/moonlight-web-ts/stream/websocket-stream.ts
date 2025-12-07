@@ -90,6 +90,7 @@ export class WebSocketStream {
   private appId: number
   private settings: StreamSettings
   private sessionId?: string
+  private supportedVideoFormats: VideoCodecSupport
 
   private ws: WebSocket | null = null
   private eventTarget = new EventTarget()
@@ -159,6 +160,7 @@ export class WebSocketStream {
     this.hostId = hostId
     this.appId = appId
     this.settings = settings
+    this.supportedVideoFormats = supportedVideoFormats
     this.sessionId = sessionId
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
@@ -392,6 +394,15 @@ export class WebSocketStream {
   }
 
   private sendInit() {
+    // Use actual browser codec support detection (from constructor)
+    // This tells the server which codecs the browser can decode
+    const supportBits = createSupportedVideoFormatsBits(this.supportedVideoFormats)
+
+    console.log('[WebSocketStream] Sending init with supported formats:', {
+      bits: supportBits,
+      formats: this.supportedVideoFormats,
+    })
+
     // Send initialization as JSON for simplicity
     const initMessage = {
       type: "init",
@@ -404,18 +415,7 @@ export class WebSocketStream {
       bitrate: this.settings.bitrate,
       packet_size: this.settings.packetSize,
       play_audio_local: this.settings.playAudioLocal,
-      video_supported_formats: createSupportedVideoFormatsBits({
-        H264: true,
-        H264_HIGH8_444: false,
-        H265: false,
-        H265_MAIN10: false,
-        H265_REXT8_444: false,
-        H265_REXT10_444: false,
-        AV1_MAIN8: false,
-        AV1_MAIN10: false,
-        AV1_HIGH8_444: false,
-        AV1_HIGH10_444: false,
-      }),
+      video_supported_formats: supportBits,
     }
 
     this.ws?.send(JSON.stringify(initMessage))

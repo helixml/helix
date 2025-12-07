@@ -1,6 +1,7 @@
 package hydra
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,51 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
+
+// parseResolvConf reads /etc/resolv.conf and extracts nameserver addresses
+// This enables Hydra DNS to use enterprise internal DNS servers
+func parseResolvConf(path string) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Warn().Err(err).Str("path", path).Msg("Failed to open resolv.conf")
+		return nil
+	}
+	defer file.Close()
+
+	var nameservers []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip comments and empty lines
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		// Parse "nameserver IP" lines
+		if strings.HasPrefix(line, "nameserver") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				ip := fields[1]
+				// Add port 53 if not specified
+				if !strings.Contains(ip, ":") {
+					ip = ip + ":53"
+				}
+				// Skip loopback addresses (systemd-resolved, dnsmasq, etc.)
+				// These won't be reachable from container network namespaces
+				if strings.HasPrefix(fields[1], "127.") {
+					log.Debug().Str("nameserver", fields[1]).Msg("Skipping loopback nameserver")
+					continue
+				}
+				nameservers = append(nameservers, ip)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Warn().Err(err).Msg("Error reading resolv.conf")
+	}
+
+	return nameservers
+}
 
 const (
 	// DefaultSocketPath is the default Unix socket path for Hydra API
@@ -28,6 +74,7 @@ type Server struct {
 	socketPath string
 	listener   net.Listener
 	server     *http.Server
+	dnsServer  *DNSServer // DNS server for container name resolution
 
 	// Privileged mode settings
 	privilegedModeEnabled bool // Controlled by HYDRA_PRIVILEGED_MODE_ENABLED env var
@@ -45,9 +92,24 @@ func NewServer(manager *Manager, socketPath string) *Server {
 		log.Warn().Msg("⚠️ HYDRA_PRIVILEGED_MODE_ENABLED=true - Host Docker access available for development")
 	}
 
+	// Pass privileged mode setting to manager for BridgeDesktop to use
+	manager.SetPrivilegedMode(privilegedModeEnabled)
+
+	// Create DNS server for container name resolution
+	// Parse sandbox's /etc/resolv.conf for upstream DNS (supports enterprise internal DNS)
+	upstreamDNS := parseResolvConf("/etc/resolv.conf")
+	if len(upstreamDNS) == 0 {
+		// Fallback to Google DNS if no nameservers found
+		upstreamDNS = []string{"8.8.8.8:53", "8.8.4.4:53"}
+	}
+	log.Info().Strs("upstream_dns", upstreamDNS).Msg("Configured Hydra DNS upstream servers")
+	dnsServer := NewDNSServer(manager, upstreamDNS)
+	manager.SetDNSServer(dnsServer)
+
 	return &Server{
 		manager:               manager,
 		socketPath:            socketPath,
+		dnsServer:             dnsServer,
 		privilegedModeEnabled: privilegedModeEnabled,
 	}
 }
@@ -108,7 +170,13 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Stop(ctx context.Context) error {
 	log.Info().Msg("Stopping Hydra server...")
 
-	// Stop manager first (stops all dockerd instances)
+	// Stop DNS server first
+	if s.dnsServer != nil {
+		log.Info().Msg("Stopping Hydra DNS servers...")
+		s.dnsServer.StopAll()
+	}
+
+	// Stop manager (stops all dockerd instances)
 	if err := s.manager.Stop(ctx); err != nil {
 		log.Error().Err(err).Msg("Error stopping manager")
 	}
@@ -157,6 +225,9 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// Privileged mode endpoint (only available when enabled)
 	api.HandleFunc("/privileged-mode/status", s.handlePrivilegedModeStatus).Methods("GET")
+
+	// Bridge desktop container to Hydra network (for desktop-to-dev-container communication)
+	api.HandleFunc("/bridge-desktop", s.handleBridgeDesktop).Methods("POST")
 }
 
 // handleHealth returns server health status
@@ -332,6 +403,42 @@ func (s *Server) handlePrivilegedModeStatus(w http.ResponseWriter, r *http.Reque
 		resp.Description = "Host Docker access is available for Helix development"
 	} else {
 		resp.Description = "Privileged mode is disabled. Set HYDRA_PRIVILEGED_MODE_ENABLED=true to enable."
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleBridgeDesktop bridges a desktop container (on Wolf's dockerd) to a Hydra network
+// This enables the desktop to access dev containers started via docker compose
+func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
+	var req BridgeDesktopRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.SessionID == "" {
+		http.Error(w, "session_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.DesktopContainerID == "" {
+		http.Error(w, "desktop_container_id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	resp, err := s.manager.BridgeDesktop(ctx, &req)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", req.SessionID).
+			Str("desktop_container_id", req.DesktopContainerID).
+			Msg("Failed to bridge desktop to Hydra network")
+		http.Error(w, fmt.Sprintf("failed to bridge desktop: %s", err), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
