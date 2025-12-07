@@ -50,10 +50,48 @@ Background process that runs every 5 minutes and cleans up orphaned sockets:
 - If there are 10+ orphaned sockets, cleans all sockets
 - Wolf recreates sockets for active lobbies automatically
 
-## Proper Fix (Wolf Upstream)
-The proper fix should be in Wolf's wayland-display-core:
-1. In `comp/mod.rs`, catch the panic from `ListeningSocketSource::new_auto()` and clean up stale sockets
-2. In lobby deletion/timeout handlers, ensure wayland sockets are properly cleaned up
+## Wolf Fix (Applied)
+
+The proper fix was implemented in Wolf's wayland-display-core (commit c4e3b2d):
+
+### `comp/mod.rs` - Socket creation with cleanup on failure
+
+Changed `ListeningSocketSource::new_auto().unwrap()` to a `match` expression that:
+1. On success, returns the socket source directly
+2. On failure, logs a warning, cleans up stale wayland sockets from `XDG_RUNTIME_DIR`, and retries
+
+```rust
+let source = match ListeningSocketSource::new_auto() {
+    Ok(source) => source,
+    Err(e) => {
+        tracing::warn!(?e, "Failed to create wayland socket, attempting cleanup...");
+        // Clean up stale wayland sockets in XDG_RUNTIME_DIR
+        if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+            if let Ok(entries) = std::fs::read_dir(&runtime_dir) {
+                let mut cleaned = 0;
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if name_str.starts_with("wayland-") {
+                        let path = entry.path();
+                        if std::fs::remove_file(&path).is_ok() || std::fs::remove_dir_all(&path).is_ok() {
+                            cleaned += 1;
+                        }
+                    }
+                }
+                if cleaned > 0 {
+                    tracing::info!(cleaned, "Cleaned up stale wayland sockets, retrying...");
+                }
+            }
+        }
+        // Retry after cleanup
+        ListeningSocketSource::new_auto()
+            .expect("Failed to create wayland socket even after cleanup")
+    }
+};
+```
+
+This provides a "belt and braces" approach - the Helix workaround prevents accumulation, and the Wolf fix handles recovery if accumulation does occur
 
 ## Testing
 ```bash
