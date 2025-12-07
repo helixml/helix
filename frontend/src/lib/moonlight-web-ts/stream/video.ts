@@ -113,14 +113,42 @@ export async function getWebCodecsSupportedVideoFormats(): Promise<VideoCodecSup
                 hardwareAcceleration: "prefer-hardware",
             })
 
-            support[config.key] = result.supported ?? false
-
+            // Only update support if codec is confirmed supported
+            // Never downgrade H264 from true to false - it's universally supported
+            // via software decoding even if hardware acceleration isn't available
             if (result.supported) {
-                console.log(`[VideoCodecs] ${config.key} (${config.codec}): supported`)
+                support[config.key] = true
+                console.log(`[VideoCodecs] ${config.key} (${config.codec}): supported (hardware)`)
+            } else if (config.key !== 'H264') {
+                // For non-H264 codecs, mark as unsupported if hardware probe fails
+                support[config.key] = false
+                console.log(`[VideoCodecs] ${config.key} (${config.codec}): not supported (hardware)`)
+            } else {
+                // H264 hardware probe failed - try software fallback
+                try {
+                    const softResult = await VideoDecoder.isConfigSupported({
+                        codec: config.codec,
+                        codedWidth: config.width,
+                        codedHeight: config.height,
+                        // No hardwareAcceleration = allow software decoding
+                    })
+                    if (softResult.supported) {
+                        support[config.key] = true
+                        console.log(`[VideoCodecs] ${config.key} (${config.codec}): supported (software)`)
+                    }
+                    // Keep default H264: true even if software probe fails
+                } catch (softErr) {
+                    // Keep default H264: true
+                    console.log(`[VideoCodecs] ${config.key}: keeping default (probe failed, assuming supported)`)
+                }
             }
         } catch (e) {
-            support[config.key] = false
-            console.log(`[VideoCodecs] ${config.key} (${config.codec}): not supported (error)`)
+            // For H264, keep the default true value (universally supported)
+            // For other codecs, mark as unsupported
+            if (config.key !== 'H264') {
+                support[config.key] = false
+            }
+            console.log(`[VideoCodecs] ${config.key} (${config.codec}): ${config.key === 'H264' ? 'keeping default' : 'not supported'} (error)`)
         }
     }
 
