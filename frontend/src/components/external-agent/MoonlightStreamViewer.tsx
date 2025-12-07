@@ -101,7 +101,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
-  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force 15fps)
+  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force ~4fps keyframes-only)
+  // Low mode uses keyframes-only for corruption-free video at very low bandwidth (~4fps at GOP=15)
   // Default to 'high' until DualStreamManager is fully tested
   const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
@@ -270,14 +271,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             stream.setCanvas(canvasRef.current);
           }
         } else {
-          // Single-stream mode: force high (60fps) or low (15fps)
+          // Single-stream mode: force high (60fps) or low (~4fps keyframes-only)
           const streamSettings = { ...settings };
+          // Use different session ID suffix for different quality modes
+          // This forces the server to create a new encoder session with the correct fps
+          let qualitySessionId = sessionId;
           if (qualityMode === 'low') {
-            streamSettings.fps = 15;
-            streamSettings.bitrate = 5000;  // 5 Mbps for 15fps
-            console.log('[MoonlightStreamViewer] Forcing low quality: 15fps @ 5Mbps');
+            streamSettings.fps = 15;  // Tells server to use keyframes-only mode (~4fps actual)
+            streamSettings.bitrate = 2000;  // 2 Mbps for keyframes-only
+            qualitySessionId = sessionId ? `${sessionId}-lq` : undefined;
+            console.log('[MoonlightStreamViewer] Forcing low quality: keyframes-only (~4fps) @ 2Mbps, sessionId:', qualitySessionId);
           } else {
-            console.log('[MoonlightStreamViewer] Forcing high quality: 60fps');
+            qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
+            console.log('[MoonlightStreamViewer] Forcing high quality: 60fps, sessionId:', qualitySessionId);
           }
 
           stream = new WebSocketStream(
@@ -287,7 +293,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             streamSettings,
             supportedFormats,
             [width, height],
-            sessionId
+            qualitySessionId
           );
 
           // Set canvas for WebSocket stream rendering
@@ -880,7 +886,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               fallbackRttMs: dualStats.fallbackRttMs,
             },
             connection: {
-              transport: `WebSocket (L7) - ${dualStats.activeStream === 'primary' ? '60fps' : '15fps'}`,
+              transport: `WebSocket (L7) - ${dualStats.activeStream === 'primary' ? '60fps' : '~4fps'}`,
             },
             timestamp: new Date().toISOString(),
           });
@@ -895,7 +901,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const isForcedLow = qualityMode === 'low';
         setStats({
           video: {
-            codec: `H264 (WebSocket${isForcedLow ? ' - 15fps' : ''})`,
+            codec: `H264 (WebSocket${isForcedLow ? ' - ~4fps' : ''})`,
             width: wsStats.width,
             height: wsStats.height,
             fps: wsStats.fps,
@@ -907,7 +913,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             isHighLatency: wsStats.isHighLatency,                              // High latency flag
           },
           connection: {
-            transport: `WebSocket (L7)${isForcedLow ? ' - Force 15fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
+            transport: `WebSocket (L7)${isForcedLow ? ' - Force ~4fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
           },
           timestamp: new Date().toISOString(),
         });
@@ -1405,10 +1411,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <Tooltip
             title={
               qualityMode === 'adaptive'
-                ? 'Adaptive Quality — Auto-switches between 60fps/15fps based on network'
+                ? 'Adaptive Quality — Auto-switches based on network'
                 : qualityMode === 'high'
-                ? 'Force 60fps — Click for 15fps'
-                : 'Force 15fps — Click for Adaptive'
+                ? 'Force 60fps — Click for ~4fps (keyframes-only)'
+                : 'Force ~4fps (keyframes-only) — Click for Adaptive'
             }
             arrow
             slotProps={{ popper: { sx: { zIndex: 10000 } } }}
@@ -1463,9 +1469,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <Wifi sx={{ fontSize: 16 }} />
           <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
             {qualityMode === 'low'
-              ? '15fps mode (manually selected)'
+              ? '~4fps keyframes-only mode (manually selected)'
               : isOnFallback
-              ? `Slow connection - reduced to 15fps (${stats?.video?.primaryRttMs?.toFixed(0) || stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
+              ? `Slow connection - reduced to ~4fps (${stats?.video?.primaryRttMs?.toFixed(0) || stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
               : `High network latency detected (${stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
             }
           </Typography>
