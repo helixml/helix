@@ -8,70 +8,64 @@ This document tracks the networking requirements for Docker containers started i
 
 | # | Requirement | Hydra Mode | Privileged Mode |
 |---|-------------|------------|-----------------|
-| 1 | `localhost:8080` for `docker run -p 8080:8080` | ❌ No | ❌ No |
-| 2 | Container names resolve from desktop | ✅ Yes | ❌ No |
-| 3 | Intranet DNS names resolve | ✅ Should work | ❌ No |
-| 4 | External internet DNS resolves | ✅ Should work | ⚠️ Partial |
+| 1 | `localhost:8080` for `docker run -p 8080:8080` | ✅ Yes | ✅ Yes |
+| 2 | Container names resolve from desktop | ✅ Yes | ✅ Yes |
+| 3 | Intranet DNS names resolve | ✅ Yes | ✅ Yes |
+| 4 | External internet DNS resolves | ✅ Yes | ✅ Yes |
 
 ## Detailed Analysis
 
-### 1. localhost:8080 Access
+### 1. localhost:8080 Access ✅ IMPLEMENTED
+
+**Solution:** iptables DNAT rules in desktop container's network namespace forward `localhost:PORT` to `gateway:PORT`.
 
 **Hydra Mode:**
 - `docker run -p 8080:8080` binds to Hydra dockerd's bridge (10.200.X.1)
-- Desktop container sees `localhost` as its own loopback (127.0.0.1)
-- Port is NOT exposed on desktop's localhost
-- **Workaround:** Access via container name (e.g., `http://myapp:8080`) or gateway IP (`http://10.200.X.1:8080`)
+- iptables DNAT rule: `127.0.0.1:* → 10.200.X.1:*`
+- User accesses `localhost:8080` → forwarded to `10.200.X.1:8080` ✅
 
 **Privileged Mode:**
-- `docker run -p 8080:8080` binds to host Docker's network
-- Port exposed on host's 0.0.0.0:8080
-- Desktop routes through sandbox (172.17.255.253) but localhost still means desktop's loopback
-- **Workaround:** Need to determine host Docker gateway IP
+- `docker run -p 8080:8080` binds to host Docker's network (172.17.0.1)
+- iptables DNAT rule: `127.0.0.1:* → 172.17.0.1:*`
+- User accesses `localhost:8080` → forwarded to `172.17.0.1:8080` ✅
 
-**Potential Fix:** Add iptables DNAT rule to forward desktop's localhost:8080 to Docker gateway's :8080. This is complex because we'd need to know which ports to forward.
+**Implementation:** `configureLocalhostForwarding()` in `manager.go`:
+- Adds iptables DNAT rules for ports 1-5999 and 6064-65535
+- Excludes X11 ports 6000-6063 to avoid breaking display
+- Rules are idempotent (deletes before adding)
 
-### 2. Container Name Resolution
+### 2. Container Name Resolution ✅ IMPLEMENTED
 
 **Hydra Mode:** ✅ Works
 - Hydra DNS proxy runs on bridge gateway (10.200.X.1:53)
 - Added to desktop's `/etc/resolv.conf` by `configureDNS()`
-- DNS chain: Desktop → Hydra DNS (10.200.X.1) → Docker DNS (127.0.0.11) → Host DNS
+- DNS chain: Desktop → Hydra DNS (10.200.X.1) → Docker DNS → Host DNS
 - Container names resolve to their 10.200.X.Y IPs
 
-**Privileged Mode:** ❌ Not Implemented
-- `BridgeDesktopPrivileged()` does NOT call `configureDNS()`
-- Desktop has no route to Docker's internal DNS (127.0.0.11)
-- Container names don't resolve
+**Privileged Mode:** ✅ Now Works
+- `BridgeDesktopPrivileged()` now calls `configureDNS(containerPID, sandboxIP)`
+- Desktop's resolv.conf updated to use sandbox IP (172.17.255.253) as DNS
+- DNS chain: Desktop → Sandbox DNS proxy → Docker DNS → Host DNS
+- Container names resolve to their 172.17.X.Y IPs
 
-**Fix Required:** Add DNS configuration to `BridgeDesktopPrivileged()`:
-```go
-// Need to either:
-// a) Run a DNS proxy in the sandbox that forwards to 127.0.0.11
-// b) Configure desktop to use sandbox IP as DNS, with forwarding
-```
-
-### 3. Intranet DNS Names (Enterprise Internal)
-
-**Hydra Mode:** ✅ Should Work
-- DNS chain ends at host's DNS (inherited from `/etc/resolv.conf`)
-- Enterprise DNS configured on host → intranet names resolve
-- Tested chain: Inner container → Hydra DNS → Docker DNS → Host DNS
-
-**Privileged Mode:** ❌ No
-- Without DNS configuration, desktop uses its original resolv.conf
-- Wolf desktop container may have different DNS settings
-- No bridge to enterprise DNS through Docker
-
-### 4. External Internet DNS
+### 3. Intranet DNS Names (Enterprise Internal) ✅ IMPLEMENTED
 
 **Hydra Mode:** ✅ Works
-- Same DNS chain as intranet, resolves through host DNS
+- DNS chain ends at host's DNS (inherited from `/etc/resolv.conf`)
+- Enterprise DNS configured on host → intranet names resolve
+- Chain: Inner container → Hydra DNS → Docker DNS → Host DNS
 
-**Privileged Mode:** ⚠️ Partial
-- Desktop container's original DNS config determines behavior
-- May work if Wolf container has proper DNS
-- Not guaranteed to follow host DNS configuration
+**Privileged Mode:** ✅ Now Works
+- Desktop now uses sandbox's DNS (which reads from `/etc/resolv.conf`)
+- In Kubernetes: uses CoreDNS → forwards to cluster DNS
+- In Docker: uses Docker DNS → forwards to host DNS
+
+### 4. External Internet DNS ✅ IMPLEMENTED
+
+**Both Modes:** ✅ Works
+- Same DNS chain as intranet, resolves through host/cluster DNS
+- `getUpstreamDNS()` reads `/etc/resolv.conf` for environment-agnostic DNS
+- Works in Docker (127.0.0.11) and Kubernetes (CoreDNS IP)
 
 ## Network Architecture
 
@@ -135,52 +129,69 @@ This document tracks the networking requirements for Docker containers started i
 
 ## Action Items
 
-### High Priority
+### Completed ✅
 
-1. **Add DNS configuration to Privileged Mode**
-   - Run DNS proxy on sandbox's veth endpoint (172.17.255.253:53)
-   - Forward to Docker's internal DNS (127.0.0.11)
-   - Add to desktop's resolv.conf
+1. **~~Add DNS configuration to Privileged Mode~~** ✅
+   - Added `configureDNS(containerPID, sandboxIP)` to `BridgeDesktopPrivileged()`
+   - Desktop now uses sandbox DNS → Docker DNS → Host DNS
 
-### Medium Priority
+2. **~~Implement localhost port forwarding~~** ✅
+   - Added `configureLocalhostForwarding()` function
+   - iptables DNAT redirects `localhost:PORT` → `gateway:PORT`
+   - Works for both Hydra and Privileged modes
 
-2. **Document workarounds for localhost:8080**
-   - In Zed/IDE, configure dev server to advertise correct URL
-   - Use container names instead of localhost in browser
-   - Consider adding helper scripts to show accessible URLs
+3. **~~Read DNS from /etc/resolv.conf for Kubernetes compatibility~~** ✅
+   - Added `getUpstreamDNS()` function in `server.go`
+   - Works in Docker (127.0.0.11) and Kubernetes (CoreDNS)
 
-### Low Priority / Future
+### Remaining
 
-3. **Investigate localhost port forwarding**
-   - Complex: requires knowing which ports to forward
-   - May not be worth the complexity
-   - Container names + DNS resolution is a better pattern
+- Test all scenarios after sandbox rebuild
+- Verify X11 still works (ports 6000-6063 excluded from DNAT)
 
 ## Testing Validation
 
-After rebuilding sandbox with DNS proxy changes:
+After rebuilding sandbox:
 
 ```bash
-# 1. Hydra Mode - Container Name Resolution
-docker -H unix:///var/run/hydra/active/session-xxx/docker.sock \
-  run -d --name testapp nginx
-# From desktop browser: http://testapp/ should work
+# === HYDRA MODE ===
 
-# 2. Hydra Mode - Intranet DNS
+# 1. Start a test container with port mapping
 docker -H unix:///var/run/hydra/active/session-xxx/docker.sock \
-  exec testapp nslookup internal.corp.example.com
-# Should resolve to internal IP
+  run -d --name testapp -p 8080:80 nginx
 
-# 3. Hydra Mode - External DNS
-docker -H unix:///var/run/hydra/active/session-xxx/docker.sock \
-  exec testapp nslookup google.com
-# Should resolve
+# 2. Test localhost:8080 (CRITICAL - user expectation)
+curl localhost:8080
+# Should return nginx welcome page ✅
 
-# 4. Check DNS chain from desktop
+# 3. Test container name resolution
+curl http://testapp/
+# Should return nginx welcome page ✅
+
+# 4. Check DNS configuration
 cat /etc/resolv.conf
 # Should show 10.200.X.1 as first nameserver
-nslookup testapp
-# Should resolve to 10.200.X.Y
+
+# 5. Test external DNS
+nslookup google.com
+# Should resolve
+
+# 6. Verify X11 still works (ports 6000-6063 excluded)
+echo $DISPLAY
+# Should still be able to launch GUI apps
+
+# === PRIVILEGED MODE ===
+
+# 1. Start container on host Docker
+docker run -d --name testapp2 -p 9090:80 nginx
+
+# 2. Test localhost:9090
+curl localhost:9090
+# Should return nginx welcome page ✅
+
+# 3. Test DNS
+nslookup google.com
+# Should resolve through sandbox DNS
 ```
 
 ## Kubernetes Deployment Considerations

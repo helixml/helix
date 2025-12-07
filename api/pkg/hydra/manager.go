@@ -999,7 +999,14 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 		log.Warn().Err(err).Msg("Failed to configure DNS (non-fatal)")
 	}
 
-	// 10. Update bridge state for self-healing
+	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
+	// When user accesses localhost:8080 in desktop, forward to gateway:8080
+	// where Docker actually binds the port
+	if err := m.configureLocalhostForwarding(containerPID, gateway); err != nil {
+		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
+	}
+
+	// 11. Update bridge state for self-healing
 	m.mutex.Lock()
 	inst.DesktopBridged = true
 	inst.DesktopContainerID = req.DesktopContainerID
@@ -1128,6 +1135,19 @@ func (m *Manager) BridgeDesktopPrivileged(ctx context.Context, req *BridgeDeskto
 	m.runCommand("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", desktopIP, "-o", "eth0", "-j", "MASQUERADE")
 	// Now add the rule
 	m.runCommand("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", desktopIP, "-o", "eth0", "-j", "MASQUERADE")
+
+	// 9. Configure DNS by adding sandbox's DNS server to resolv.conf
+	// In privileged mode, we use the sandbox's gateway as DNS proxy
+	// The sandbox can reach Docker's internal DNS or host DNS
+	if err := m.configureDNS(containerPID, sandboxIP); err != nil {
+		log.Warn().Err(err).Msg("Failed to configure DNS for privileged mode (non-fatal)")
+	}
+
+	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
+	// Forward localhost:PORT to hostGateway:PORT (where Docker binds ports)
+	if err := m.configureLocalhostForwarding(containerPID, hostGateway); err != nil {
+		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
+	}
 
 	log.Info().
 		Str("session_id", req.SessionID).
@@ -1266,5 +1286,53 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 	return len(p), nil
+}
+
+// configureLocalhostForwarding sets up iptables DNAT rules so that connections
+// to localhost:PORT in the desktop container are forwarded to gateway:PORT
+// where Docker actually binds ports from `docker run -p PORT:PORT`.
+//
+// This enables the standard Docker developer experience:
+//   docker run -p 8080:8080 nginx
+//   curl localhost:8080  # Works!
+func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string) error {
+	// Use iptables DNAT in the OUTPUT chain to redirect localhost → gateway
+	// This catches outgoing connections to 127.0.0.1 and rewrites destination to gateway
+	//
+	// We only redirect TCP (HTTP/HTTPS/websockets) - UDP localhost is rare for dev servers
+	// We exclude some well-known localhost-only ports to avoid breaking things:
+	// - 6000-6063: X11 display
+	// - 631: CUPS printing
+	// - 53: Local DNS (though we configure DNS separately)
+
+	// First, ensure iptables nat module is available and delete any existing rules
+	// (idempotent - allows re-bridging without duplicate rules)
+	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
+		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"--dport", "1:5999", "-j", "DNAT", "--to-destination", gateway)
+	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
+		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"--dport", "6064:65535", "-j", "DNAT", "--to-destination", gateway)
+
+	// Add DNAT rules for ports 1-5999 (below X11)
+	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
+		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"--dport", "1:5999", "-j", "DNAT", "--to-destination", gateway); err != nil {
+		return fmt.Errorf("failed to add localhost DNAT rule (1:5999): %w", err)
+	}
+
+	// Add DNAT rules for ports 6064-65535 (above X11)
+	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
+		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"--dport", "6064:65535", "-j", "DNAT", "--to-destination", gateway); err != nil {
+		return fmt.Errorf("failed to add localhost DNAT rule (6064:65535): %w", err)
+	}
+
+	log.Info().
+		Str("gateway", gateway).
+		Int("container_pid", containerPID).
+		Msg("Configured localhost forwarding (localhost:PORT → gateway:PORT)")
+
+	return nil
 }
 
