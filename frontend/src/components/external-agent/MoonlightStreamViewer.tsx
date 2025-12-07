@@ -599,6 +599,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [streamingMode, reconnect]);
 
+  // Track previous quality mode for reconnection
+  const previousQualityModeRef = useRef<'adaptive' | 'high' | 'low'>(qualityMode);
+
+  // Reconnect when quality mode changes (user toggled fps/quality)
+  useEffect(() => {
+    if (previousQualityModeRef.current !== qualityMode) {
+      console.log('[MoonlightStreamViewer] Quality mode changed from', previousQualityModeRef.current, 'to', qualityMode);
+      previousQualityModeRef.current = qualityMode;
+      // Update fallback state immediately for UI feedback
+      setIsOnFallback(qualityMode === 'low');
+      reconnect();
+    }
+  }, [qualityMode, reconnect]);
+
   // Detect lobby changes and reconnect (for test script restart scenarios)
   useEffect(() => {
     if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
