@@ -1,7 +1,6 @@
 package hydra
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -492,19 +491,11 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// and will configure containers to use the default Docker network
 	// which connects to our custom bridge via --bridge flag
 	//
-	// DNS servers are inherited from sandbox's /etc/resolv.conf for enterprise support
-	dnsServers := m.getUpstreamDNS()
-	dnsJSON := "[]"
-	if len(dnsServers) > 0 {
-		// Format as JSON array: ["8.8.8.8", "8.8.4.4"]
-		quotedServers := make([]string, len(dnsServers))
-		for i, s := range dnsServers {
-			// Remove :53 port suffix if present (Docker expects just IP)
-			s = strings.TrimSuffix(s, ":53")
-			quotedServers[i] = fmt.Sprintf(`"%s"`, s)
-		}
-		dnsJSON = "[" + strings.Join(quotedServers, ", ") + "]"
-	}
+	// DNS: Point containers to Hydra DNS proxy running on the bridge gateway
+	// Hydra DNS proxy (10.200.X.1:53) forwards to Docker's internal DNS (127.0.0.11)
+	// which then forwards to the host's DNS (supporting enterprise internal DNS)
+	gatewayIP := fmt.Sprintf("10.200.%d.1", bridgeIndex)
+	dnsJSON := fmt.Sprintf(`["%s"]`, gatewayIP)
 
 	daemonConfig := fmt.Sprintf(`{
   "runtimes": {
@@ -1277,77 +1268,3 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// getUpstreamDNS reads /etc/resolv.conf and returns nameserver addresses
-// This enables Hydra containers to use enterprise internal DNS servers
-//
-// Priority:
-// 1. HYDRA_DNS environment variable (comma-separated IPs, e.g., "10.0.0.1,10.0.0.2")
-// 2. Non-loopback addresses from /etc/resolv.conf
-// 3. Fallback to Google DNS (8.8.8.8, 8.8.4.4)
-func (m *Manager) getUpstreamDNS() []string {
-	// Check for explicit DNS configuration via environment variable
-	// This is required for enterprise environments where the sandbox container
-	// uses Docker's internal DNS (127.0.0.11) which forwards to systemd-resolved (127.0.0.53)
-	// Neither of these are reachable from inner container network namespaces
-	if dnsEnv := os.Getenv("HYDRA_DNS"); dnsEnv != "" {
-		var nameservers []string
-		for _, ip := range strings.Split(dnsEnv, ",") {
-			ip = strings.TrimSpace(ip)
-			if ip == "" {
-				continue
-			}
-			// Add port 53 if not specified
-			if !strings.Contains(ip, ":") {
-				ip = ip + ":53"
-			}
-			nameservers = append(nameservers, ip)
-		}
-		if len(nameservers) > 0 {
-			log.Info().Strs("dns_servers", nameservers).Msg("Using DNS servers from HYDRA_DNS environment variable")
-			return nameservers
-		}
-	}
-
-	file, err := os.Open("/etc/resolv.conf")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to open /etc/resolv.conf for DNS config")
-		return nil
-	}
-	defer file.Close()
-
-	var nameservers []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		// Parse "nameserver IP" lines
-		if strings.HasPrefix(line, "nameserver") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				ip := fields[1]
-				// Skip loopback addresses (systemd-resolved, dnsmasq, etc.)
-				// These won't be reachable from container network namespaces
-				if strings.HasPrefix(ip, "127.") {
-					continue
-				}
-				// Add port 53 for consistency with upstream DNS format
-				if !strings.Contains(ip, ":") {
-					ip = ip + ":53"
-				}
-				nameservers = append(nameservers, ip)
-			}
-		}
-	}
-
-	if len(nameservers) == 0 {
-		// Fallback to Google DNS
-		log.Debug().Msg("No non-loopback DNS servers found in /etc/resolv.conf, using Google DNS fallback")
-		return []string{"8.8.8.8:53", "8.8.4.4:53"}
-	}
-
-	log.Debug().Strs("dns_servers", nameservers).Msg("Using DNS servers from /etc/resolv.conf")
-	return nameservers
-}
