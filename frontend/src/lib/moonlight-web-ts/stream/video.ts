@@ -48,6 +48,8 @@ const VIDEO_DECODER_CODECS: Array<{ key: string } & VideoDecoderConfig> = [
 
 // WebCodecs-specific codec configurations for WebSocket streaming mode
 // These use proper codec strings for VideoDecoder.isConfigSupported()
+// NOTE: AV1 is disabled for now due to unreliable hardware decoding detection
+// Some browsers report AV1 support but fail during actual decoding
 const WEBCODECS_CODEC_CONFIGS: Array<{ key: keyof VideoCodecSupport; codec: string; width: number; height: number }> = [
     // H264 - Main Profile Level 5.1 (supports 1080p60)
     { key: "H264", codec: "avc1.4d0033", width: 1920, height: 1080 },
@@ -61,14 +63,12 @@ const WEBCODECS_CODEC_CONFIGS: Array<{ key: keyof VideoCodecSupport; codec: stri
     { key: "H265_REXT8_444", codec: "hvc1.4.10.L120.90", width: 1920, height: 1080 },
     // H265 RExt 4:4:4 10-bit
     { key: "H265_REXT10_444", codec: "hvc1.4.10.L120.90", width: 1920, height: 1080 },
-    // AV1 Main Profile 8-bit
-    { key: "AV1_MAIN8", codec: "av01.0.08M.08", width: 1920, height: 1080 },
-    // AV1 Main Profile 10-bit
-    { key: "AV1_MAIN10", codec: "av01.0.08M.10", width: 1920, height: 1080 },
-    // AV1 High Profile 4:4:4 8-bit
-    { key: "AV1_HIGH8_444", codec: "av01.1.08H.08", width: 1920, height: 1080 },
-    // AV1 High Profile 4:4:4 10-bit
-    { key: "AV1_HIGH10_444", codec: "av01.1.08H.10", width: 1920, height: 1080 },
+    // AV1 codecs disabled - unreliable hardware detection causes decode failures
+    // TODO: Re-enable once we have a more robust AV1 support check
+    // { key: "AV1_MAIN8", codec: "av01.0.08M.08", width: 1920, height: 1080 },
+    // { key: "AV1_MAIN10", codec: "av01.0.08M.10", width: 1920, height: 1080 },
+    // { key: "AV1_HIGH8_444", codec: "av01.1.08H.08", width: 1920, height: 1080 },
+    // { key: "AV1_HIGH10_444", codec: "av01.1.08H.10", width: 1920, height: 1080 },
 ]
 
 export function getStandardVideoFormats() {
