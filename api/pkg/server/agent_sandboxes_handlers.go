@@ -573,10 +573,8 @@ func (apiServer *HelixAPIServer) fetchMoonlightWebSessions(ctx context.Context, 
 	req.RequestURI = path
 
 	// Set authentication header (moonlight-web uses MOONLIGHT_CREDENTIALS)
-	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
-	if credentials != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", credentials))
-	}
+	credentials := apiServer.getMoonlightCredentials()
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", credentials))
 
 	// Write HTTP request to RevDial connection
 	if err := req.Write(conn); err != nil {
