@@ -37,6 +37,13 @@ function setup_runner_profile() {
     export RUNNER_PROFILE="--profile runner_gpu_amd"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
+  elif [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*(Intel|Iris)" &> /dev/null; then
+    # Intel GPU mode - video encoding supported (QSV), but CPU mode for LLM inference
+    echo "🖥️ Intel GPU detected - sandbox/video encoding supported (QSV), using CPU mode for AI inference"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   else
     # CPU mode (fallback)
     echo "❌ No supported GPU detected, running without GPU support"
