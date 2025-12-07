@@ -102,7 +102,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force 15fps)
-  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('adaptive');
+  // Default to 'high' until DualStreamManager is fully tested
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
 
   // Clipboard sync state
