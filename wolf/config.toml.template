@@ -92,14 +92,9 @@ video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixe
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
-    # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
-    # msdkvpp uses force-aspect-ratio=true by default (no add-borders property)
-    #video_params_zero_copy = '''msdkvpp
-    #video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
-    #
-    # --- FALLBACK: vapostproc (has R/B color swap bug on Intel, but known working) ---
-    # Uncomment below and comment out msdkvpp above to revert:
+    # Intel VA-API: vapostproc works correctly on Mesa 25.x+ (Ubuntu 25.04+, etc.)
+    # Older Mesa versions had a BGRA/ARGB color swap bug (intel/media-driver#644, #1820)
+    # that required using msdkvpp as a workaround - no longer needed on modern distros.
     video_params_zero_copy = '''vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
     #
