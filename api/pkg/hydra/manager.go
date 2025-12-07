@@ -530,7 +530,8 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 
 	// Start dockerd with our custom bridge
 	// --bridge specifies the bridge interface to use instead of docker0
-	// --bip specifies the IP address for the bridge
+	// Note: We don't use --bip because the bridge already has its IP assigned
+	// via createBridge(). Using both --bridge and --bip is mutually exclusive.
 	cmd := exec.Command("dockerd",
 		"--host=unix://"+socketPath,
 		"--data-root="+dataRoot,
@@ -538,7 +539,6 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		"--pidfile="+pidFile,
 		"--config-file="+configFile,
 		"--bridge="+bridgeName,
-		"--bip="+bridgeIP,
 	)
 
 	// Redirect output to log with prefix
