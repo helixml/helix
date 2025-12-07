@@ -1279,7 +1279,35 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 
 // getUpstreamDNS reads /etc/resolv.conf and returns nameserver addresses
 // This enables Hydra containers to use enterprise internal DNS servers
+//
+// Priority:
+// 1. HYDRA_DNS environment variable (comma-separated IPs, e.g., "10.0.0.1,10.0.0.2")
+// 2. Non-loopback addresses from /etc/resolv.conf
+// 3. Fallback to Google DNS (8.8.8.8, 8.8.4.4)
 func (m *Manager) getUpstreamDNS() []string {
+	// Check for explicit DNS configuration via environment variable
+	// This is required for enterprise environments where the sandbox container
+	// uses Docker's internal DNS (127.0.0.11) which forwards to systemd-resolved (127.0.0.53)
+	// Neither of these are reachable from inner container network namespaces
+	if dnsEnv := os.Getenv("HYDRA_DNS"); dnsEnv != "" {
+		var nameservers []string
+		for _, ip := range strings.Split(dnsEnv, ",") {
+			ip = strings.TrimSpace(ip)
+			if ip == "" {
+				continue
+			}
+			// Add port 53 if not specified
+			if !strings.Contains(ip, ":") {
+				ip = ip + ":53"
+			}
+			nameservers = append(nameservers, ip)
+		}
+		if len(nameservers) > 0 {
+			log.Info().Strs("dns_servers", nameservers).Msg("Using DNS servers from HYDRA_DNS environment variable")
+			return nameservers
+		}
+	}
+
 	file, err := os.Open("/etc/resolv.conf")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to open /etc/resolv.conf for DNS config")
@@ -1316,8 +1344,10 @@ func (m *Manager) getUpstreamDNS() []string {
 
 	if len(nameservers) == 0 {
 		// Fallback to Google DNS
+		log.Debug().Msg("No non-loopback DNS servers found in /etc/resolv.conf, using Google DNS fallback")
 		return []string{"8.8.8.8:53", "8.8.4.4:53"}
 	}
 
+	log.Debug().Strs("dns_servers", nameservers).Msg("Using DNS servers from /etc/resolv.conf")
 	return nameservers
 }
