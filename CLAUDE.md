@@ -464,6 +464,31 @@ mockgen -source api/pkg/external-agent/wolf_client_interface.go \
 9. **Test after every change**: Big-bang approaches impossible to debug
 10. **Check logs after changes**: Verify hot reload succeeded
 
+## Enterprise Deployment Context
+
+**Helix is typically deployed on enterprise networks.** Design decisions should account for:
+
+1. **Internal DNS servers**: Enterprises have internal DNS for intranet TLDs and internal services
+   - Never hardcode public DNS servers (like 8.8.8.8) as the only option
+   - Always inherit DNS configuration from `/etc/resolv.conf` when possible
+   - Example: Hydra passes sandbox's DNS servers to container daemons and DNS proxies
+
+2. **Proxy servers**: HTTP/HTTPS proxies are common in enterprise environments
+   - Respect `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` environment variables
+   - Container builds should pass through proxy settings
+
+3. **Air-gapped networks**: Some deployments have limited or no internet access
+   - All required images should be pullable from configurable registries
+   - Don't assume external services are reachable
+
+4. **Private certificate authorities**: Enterprises use internal CAs
+   - Support custom CA certificates for TLS verification
+   - Never skip certificate verification as a "solution"
+
+5. **Network segmentation**: Services may be on different network segments
+   - Don't assume all services can directly reach each other
+   - Design for configurable endpoints and routing
+
 ## Wolf Development
 
 ```bash
