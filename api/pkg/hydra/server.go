@@ -1,7 +1,6 @@
 package hydra
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,51 +13,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
-
-// parseResolvConf reads /etc/resolv.conf and extracts nameserver addresses
-// This enables Hydra DNS to use enterprise internal DNS servers
-func parseResolvConf(path string) []string {
-	file, err := os.Open(path)
-	if err != nil {
-		log.Warn().Err(err).Str("path", path).Msg("Failed to open resolv.conf")
-		return nil
-	}
-	defer file.Close()
-
-	var nameservers []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		// Parse "nameserver IP" lines
-		if strings.HasPrefix(line, "nameserver") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				ip := fields[1]
-				// Add port 53 if not specified
-				if !strings.Contains(ip, ":") {
-					ip = ip + ":53"
-				}
-				// Skip loopback addresses (systemd-resolved, dnsmasq, etc.)
-				// These won't be reachable from container network namespaces
-				if strings.HasPrefix(fields[1], "127.") {
-					log.Debug().Str("nameserver", fields[1]).Msg("Skipping loopback nameserver")
-					continue
-				}
-				nameservers = append(nameservers, ip)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Warn().Err(err).Msg("Error reading resolv.conf")
-	}
-
-	return nameservers
-}
 
 const (
 	// DefaultSocketPath is the default Unix socket path for Hydra API
@@ -96,13 +50,14 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	manager.SetPrivilegedMode(privilegedModeEnabled)
 
 	// Create DNS server for container name resolution
-	// Parse sandbox's /etc/resolv.conf for upstream DNS (supports enterprise internal DNS)
-	upstreamDNS := parseResolvConf("/etc/resolv.conf")
-	if len(upstreamDNS) == 0 {
-		// Fallback to Google DNS if no nameservers found
-		upstreamDNS = []string{"8.8.8.8:53", "8.8.4.4:53"}
-	}
-	log.Info().Strs("upstream_dns", upstreamDNS).Msg("Configured Hydra DNS upstream servers")
+	// The DNS proxy runs in the outer sandbox, where Docker's internal DNS (127.0.0.11) IS reachable.
+	// We forward to 127.0.0.11, which then forwards to the host's DNS (enterprise DNS if configured).
+	// This works because:
+	// 1. Inner containers use 10.200.X.1:53 (Hydra DNS proxy on bridge gateway)
+	// 2. Hydra DNS proxy forwards to 127.0.0.11:53 (Docker's internal DNS - reachable from outer sandbox)
+	// 3. Docker's internal DNS forwards to host DNS (enterprise DNS, configured via Docker daemon)
+	upstreamDNS := []string{"127.0.0.11:53"}
+	log.Info().Strs("upstream_dns", upstreamDNS).Msg("Configured Hydra DNS proxy (forwarding to Docker internal DNS)")
 	dnsServer := NewDNSServer(manager, upstreamDNS)
 	manager.SetDNSServer(dnsServer)
 
