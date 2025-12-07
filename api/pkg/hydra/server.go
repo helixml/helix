@@ -1,6 +1,7 @@
 package hydra
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -50,14 +51,17 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	manager.SetPrivilegedMode(privilegedModeEnabled)
 
 	// Create DNS server for container name resolution
-	// The DNS proxy runs in the outer sandbox, where Docker's internal DNS (127.0.0.11) IS reachable.
-	// We forward to 127.0.0.11, which then forwards to the host's DNS (enterprise DNS if configured).
-	// This works because:
+	// The DNS proxy runs in the outer sandbox and forwards to the sandbox's upstream DNS.
+	// This works in both Docker and Kubernetes environments:
+	// - Docker: /etc/resolv.conf has 127.0.0.11 (Docker's internal DNS)
+	// - Kubernetes: /etc/resolv.conf has CoreDNS IP (e.g., 10.96.0.10)
+	//
+	// DNS chain:
 	// 1. Inner containers use 10.200.X.1:53 (Hydra DNS proxy on bridge gateway)
-	// 2. Hydra DNS proxy forwards to 127.0.0.11:53 (Docker's internal DNS - reachable from outer sandbox)
-	// 3. Docker's internal DNS forwards to host DNS (enterprise DNS, configured via Docker daemon)
-	upstreamDNS := []string{"127.0.0.11:53"}
-	log.Info().Strs("upstream_dns", upstreamDNS).Msg("Configured Hydra DNS proxy (forwarding to Docker internal DNS)")
+	// 2. Hydra DNS proxy forwards to sandbox's upstream DNS (from /etc/resolv.conf)
+	// 3. Upstream DNS forwards to host/cluster DNS (enterprise DNS if configured)
+	upstreamDNS := getUpstreamDNS()
+	log.Info().Strs("upstream_dns", upstreamDNS).Msg("Configured Hydra DNS proxy (using sandbox resolv.conf)")
 	dnsServer := NewDNSServer(manager, upstreamDNS)
 	manager.SetDNSServer(dnsServer)
 
@@ -398,4 +402,51 @@ func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// getUpstreamDNS reads /etc/resolv.conf and returns the nameservers configured there.
+// This ensures DNS works in both Docker and Kubernetes environments:
+// - Docker: returns 127.0.0.11 (Docker's internal DNS) or host DNS
+// - Kubernetes: returns CoreDNS IP (e.g., 10.96.0.10)
+func getUpstreamDNS() []string {
+	file, err := os.Open("/etc/resolv.conf")
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to read /etc/resolv.conf, falling back to 8.8.8.8")
+		return []string{"8.8.8.8:53"}
+	}
+	defer file.Close()
+
+	var nameservers []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip comments and empty lines
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		// Parse nameserver lines
+		if strings.HasPrefix(line, "nameserver") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				ip := fields[1]
+				// Skip loopback for systemd-resolved stub (127.0.0.53)
+				// It doesn't work from inside containers
+				if ip == "127.0.0.53" {
+					continue
+				}
+				// Add port if not present
+				if !strings.Contains(ip, ":") {
+					ip = ip + ":53"
+				}
+				nameservers = append(nameservers, ip)
+			}
+		}
+	}
+
+	if len(nameservers) == 0 {
+		log.Warn().Msg("No nameservers found in /etc/resolv.conf, falling back to 8.8.8.8")
+		return []string{"8.8.8.8:53"}
+	}
+
+	return nameservers
 }
