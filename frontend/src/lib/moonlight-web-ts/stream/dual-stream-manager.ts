@@ -1,11 +1,12 @@
 /**
- * DualStreamManager - Manages two parallel WebSocket streams for congestion handling
+ * DualStreamManager - Manages adaptive quality WebSocket streaming
  *
- * Opens a high-quality (60fps) and low-quality (15fps) stream simultaneously.
- * Monitors RTT on the primary stream and switches to the fallback stream
- * when latency exceeds the threshold.
+ * Starts with a high-quality (60fps) stream and switches to low-quality (15fps)
+ * when latency exceeds the threshold. Switches are SEQUENTIAL - the old stream
+ * is fully closed before the new one is opened to avoid parallel connections
+ * which break the Moonlight protocol.
  *
- * Same resolution is used for both streams to avoid scaling issues in lobbies mode.
+ * Same resolution is used for both quality levels to avoid scaling issues in lobbies mode.
  */
 
 import { Api } from "../api"
@@ -76,12 +77,23 @@ export class DualStreamManager {
   }
 
   /**
-   * Start both streams
+   * Start streaming (begins with primary/high-quality stream)
    */
   start() {
+    console.log('[DualStream] Starting with primary (high-quality) stream')
+    this.activeStream = 'primary'
+    this.startPrimaryStream()
+
+    // Start periodic check for stream switching
+    this.startSwitchCheck()
+  }
+
+  /**
+   * Create and start the primary (high-quality) stream
+   */
+  private startPrimaryStream() {
     const { api, hostId, appId, settings, supportedVideoFormats, viewerScreenSize, sessionId } = this.config
 
-    // Create high-quality stream (primary)
     const primarySettings = { ...settings, fps: HIGH_QUALITY.fps, bitrate: HIGH_QUALITY.bitrate }
     this.primaryStream = new WebSocketStream(
       api,
@@ -90,10 +102,26 @@ export class DualStreamManager {
       primarySettings,
       supportedVideoFormats,
       viewerScreenSize,
-      sessionId ? `${sessionId}-hq` : undefined  // Unique session ID for each stream
+      sessionId
     )
 
-    // Create low-quality stream (fallback)
+    // Set canvas for rendering
+    if (this.canvas) {
+      this.primaryStream.setCanvas(this.canvas)
+    }
+
+    // Forward events from primary stream
+    this.primaryStream.addInfoListener((event: WsStreamInfoEvent) => {
+      this.handlePrimaryEvent(event)
+    })
+  }
+
+  /**
+   * Create and start the fallback (low-quality) stream
+   */
+  private startFallbackStream() {
+    const { api, hostId, appId, settings, supportedVideoFormats, viewerScreenSize, sessionId } = this.config
+
     const fallbackSettings = { ...settings, fps: LOW_QUALITY.fps, bitrate: LOW_QUALITY.bitrate }
     this.fallbackStream = new WebSocketStream(
       api,
@@ -102,52 +130,39 @@ export class DualStreamManager {
       fallbackSettings,
       supportedVideoFormats,
       viewerScreenSize,
-      sessionId ? `${sessionId}-lq` : undefined
+      sessionId
     )
 
-    // Set canvas on active stream
+    // Set canvas for rendering
     if (this.canvas) {
-      this.getActiveStream()?.setCanvas(this.canvas)
+      this.fallbackStream.setCanvas(this.canvas)
     }
 
-    // Forward events from primary stream (it's the one we monitor)
-    this.primaryStream.addInfoListener((event: WsStreamInfoEvent) => {
-      this.handlePrimaryEvent(event)
-    })
-
-    // Forward connection events from fallback too
+    // Forward events from fallback stream
     this.fallbackStream.addInfoListener((event: WsStreamInfoEvent) => {
       this.handleFallbackEvent(event)
     })
-
-    // Start periodic check for stream switching
-    this.startSwitchCheck()
   }
 
   private handlePrimaryEvent(event: WsStreamInfoEvent) {
     const data = event.detail
 
-    // Forward most events directly
+    // Forward events from primary stream (only active when primary is the current stream)
     if (data.type === 'connected' || data.type === 'disconnected' ||
         data.type === 'error' || data.type === 'connectionComplete' ||
         data.type === 'streamInit' || data.type === 'reconnecting') {
-      // Only forward if this is the active stream
-      if (this.activeStream === 'primary') {
-        this.dispatchInfoEvent(data)
-      }
+      this.dispatchInfoEvent(data)
     }
   }
 
   private handleFallbackEvent(event: WsStreamInfoEvent) {
     const data = event.detail
 
-    // Only forward events if fallback is active
-    if (this.activeStream === 'fallback') {
-      if (data.type === 'connected' || data.type === 'disconnected' ||
-          data.type === 'error' || data.type === 'connectionComplete' ||
-          data.type === 'streamInit' || data.type === 'reconnecting') {
-        this.dispatchInfoEvent(data)
-      }
+    // Forward events from fallback stream (only active when fallback is the current stream)
+    if (data.type === 'connected' || data.type === 'disconnected' ||
+        data.type === 'error' || data.type === 'connectionComplete' ||
+        data.type === 'streamInit' || data.type === 'reconnecting') {
+      this.dispatchInfoEvent(data)
     }
   }
 
@@ -167,19 +182,20 @@ export class DualStreamManager {
   }
 
   private checkAndSwitch() {
-    if (!this.primaryStream) return
+    const activeStream = this.getActiveStream()
+    if (!activeStream) return
 
     const now = Date.now()
     if (now - this.lastSwitchTime < MIN_SWITCH_INTERVAL_MS) {
       return  // Don't switch too frequently
     }
 
-    const primaryStats = this.primaryStream.getStats()
-    const primaryRtt = primaryStats.rttMs
+    const stats = activeStream.getStats()
+    const rtt = stats.rttMs
 
-    if (this.activeStream === 'primary' && primaryRtt > FALLBACK_RTT_THRESHOLD_MS) {
+    if (this.activeStream === 'primary' && rtt > FALLBACK_RTT_THRESHOLD_MS) {
       this.switchToFallback()
-    } else if (this.activeStream === 'fallback' && primaryRtt < RECOVERY_RTT_THRESHOLD_MS) {
+    } else if (this.activeStream === 'fallback' && rtt < RECOVERY_RTT_THRESHOLD_MS) {
       this.switchToPrimary()
     }
   }
@@ -188,13 +204,20 @@ export class DualStreamManager {
     if (this.activeStream === 'fallback') return
 
     console.log('[DualStream] Switching to fallback stream (low quality) due to high latency')
+
+    // SEQUENTIAL: Close primary stream first, then start fallback
+    // This avoids parallel connections which break the Moonlight protocol
+    if (this.primaryStream) {
+      console.log('[DualStream] Closing primary stream before starting fallback...')
+      this.primaryStream.close()
+      this.primaryStream = null
+    }
+
     this.activeStream = 'fallback'
     this.lastSwitchTime = Date.now()
 
-    // Switch canvas to fallback stream
-    if (this.canvas && this.fallbackStream) {
-      this.fallbackStream.setCanvas(this.canvas)
-    }
+    // Now start the fallback stream
+    this.startFallbackStream()
 
     // Notify listeners
     this.dispatchInfoEvent({
@@ -207,13 +230,20 @@ export class DualStreamManager {
     if (this.activeStream === 'primary') return
 
     console.log('[DualStream] Switching back to primary stream (high quality) - network recovered')
+
+    // SEQUENTIAL: Close fallback stream first, then start primary
+    // This avoids parallel connections which break the Moonlight protocol
+    if (this.fallbackStream) {
+      console.log('[DualStream] Closing fallback stream before starting primary...')
+      this.fallbackStream.close()
+      this.fallbackStream = null
+    }
+
     this.activeStream = 'primary'
     this.lastSwitchTime = Date.now()
 
-    // Switch canvas to primary stream
-    if (this.canvas && this.primaryStream) {
-      this.primaryStream.setCanvas(this.canvas)
-    }
+    // Now start the primary stream
+    this.startPrimaryStream()
 
     // Notify listeners
     this.dispatchInfoEvent({
@@ -245,19 +275,19 @@ export class DualStreamManager {
   }
 
   /**
-   * Get combined stats from both streams
+   * Get stats from the active stream
    */
   getStats(): DualStreamStats {
-    const primaryStats = this.primaryStream?.getStats()
-    const fallbackStats = this.fallbackStream?.getStats()
-    const activeStats = this.activeStream === 'primary' ? primaryStats : fallbackStats
+    const activeStream = this.getActiveStream()
+    const activeStats = activeStream?.getStats()
 
     return {
       activeStream: this.activeStream,
-      primaryRttMs: primaryStats?.rttMs ?? 0,
-      fallbackRttMs: fallbackStats?.rttMs ?? 0,
-      primaryFps: primaryStats?.fps ?? 0,
-      fallbackFps: fallbackStats?.fps ?? 0,
+      // Since we only have one stream active at a time, report its RTT in the appropriate field
+      primaryRttMs: this.activeStream === 'primary' ? (activeStats?.rttMs ?? 0) : 0,
+      fallbackRttMs: this.activeStream === 'fallback' ? (activeStats?.rttMs ?? 0) : 0,
+      primaryFps: this.activeStream === 'primary' ? (activeStats?.fps ?? 0) : 0,
+      fallbackFps: this.activeStream === 'fallback' ? (activeStats?.fps ?? 0) : 0,
       isHighLatency: this.activeStream === 'fallback',
       // Forward from active stream
       fps: activeStats?.fps ?? 0,
@@ -305,22 +335,25 @@ export class DualStreamManager {
   }
 
   /**
-   * Force reconnect both streams
+   * Force reconnect the active stream
    */
   reconnect() {
-    this.primaryStream?.reconnect()
-    this.fallbackStream?.reconnect()
+    this.getActiveStream()?.reconnect()
   }
 
   /**
-   * Close both streams
+   * Close the active stream
    */
   close() {
-    console.log('[DualStream] Closing both streams')
+    console.log('[DualStream] Closing active stream')
     this.stopSwitchCheck()
-    this.primaryStream?.close()
-    this.fallbackStream?.close()
-    this.primaryStream = null
-    this.fallbackStream = null
+    if (this.primaryStream) {
+      this.primaryStream.close()
+      this.primaryStream = null
+    }
+    if (this.fallbackStream) {
+      this.fallbackStream.close()
+      this.fallbackStream = null
+    }
   }
 }
