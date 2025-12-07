@@ -92,7 +92,7 @@ video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixe
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    # Intel VA-API: vapostproc works correctly on Mesa 25.x+ (Ubuntu 25.04+, etc.)
+    # Intel VA-API: vapostproc works correctly on Mesa 25.2+ (Ubuntu 25.10+, etc.)
     # Older Mesa versions had a BGRA/ARGB color swap bug (intel/media-driver#644, #1820)
     # that required using msdkvpp as a workaround - no longer needed on modern distros.
     # If you hit color issues on older Mesa, try msdkvpp instead:
