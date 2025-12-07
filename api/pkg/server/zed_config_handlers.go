@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -69,9 +71,17 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	}
 
 	// Generate Zed MCP config
+	// Use SERVER_URL for external-facing URLs (browser access)
 	helixAPIURL := apiServer.Cfg.WebServer.URL
 	if helixAPIURL == "" {
 		helixAPIURL = "http://api:8080"
+	}
+
+	// Use SANDBOX_API_URL for sandbox containers (internal Docker network)
+	// This is the URL that Zed inside the sandbox uses to call the Helix API
+	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
+	if sandboxAPIURL == "" {
+		sandboxAPIURL = "http://api:8080" // Default Docker internal address
 	}
 
 	helixToken := apiServer.Cfg.WebServer.RunnerToken
@@ -162,17 +172,59 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		version = session.Updated.Unix()
 	}
 
+	// Build CodeAgentConfig from the spec task's assistant configuration
+	var codeAgentConfig *types.CodeAgentConfig
+	if session.Metadata.SpecTaskID != "" {
+		// Get the spec task to find the associated app
+		specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+		if err != nil {
+			log.Error().Err(err).Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Failed to get spec task for code agent config")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get spec task: %v", err))
+		}
+
+		if specTask.HelixAppID == "" {
+			log.Error().Str("spec_task_id", session.Metadata.SpecTaskID).Msg("Spec task has no HelixAppID configured")
+			return nil, system.NewHTTPError500("spec task has no app configured")
+		}
+
+		// Get the app to find the code agent assistant
+		specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for code agent config")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %v", err))
+		}
+
+		codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+		if codeAgentConfig == nil {
+			log.Error().
+				Str("session_id", sessionID).
+				Str("spec_task_id", session.Metadata.SpecTaskID).
+				Str("app_id", specTask.HelixAppID).
+				Msg("No zed_external assistant found in app, or assistant has no provider/model configured")
+			return nil, system.NewHTTPError500("no code agent configured: app must have a zed_external assistant with provider and model set")
+		}
+
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("provider", codeAgentConfig.Provider).
+			Str("model", codeAgentConfig.Model).
+			Str("api_type", codeAgentConfig.APIType).
+			Msg("Built code agent config from spec task")
+	}
+
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
 
 	response := &types.ZedConfigResponse{
-		ContextServers: contextServers,
-		LanguageModels: languageModels,
-		Assistant:      assistant,
-		ExternalSync:   externalSync,
-		Agent:          agentConfig,
-		Theme:          zedConfig.Theme,
-		Version:        version,
+		ContextServers:  contextServers,
+		LanguageModels:  languageModels,
+		Assistant:       assistant,
+		ExternalSync:    externalSync,
+		Agent:           agentConfig,
+		Theme:           zedConfig.Theme,
+		Version:         version,
+		CodeAgentConfig: codeAgentConfig,
 	}
 
 	return response, nil
@@ -313,4 +365,126 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	merged := external_agent.MergeZedConfigWithUserOverrides(zedConfig, userOverrides)
 
 	return merged, nil
+}
+
+// getAgentNameForSession determines which code agent to use based on the session's spec task configuration.
+// Returns "zed-agent" as default, or the configured agent name (e.g., "qwen") if a code agent is configured.
+func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, session *types.Session) string {
+	agentName := "zed-agent" // Default to Zed's built-in agent
+
+	if session.Metadata.SpecTaskID == "" {
+		return agentName
+	}
+
+	specTask, err := apiServer.Store.GetSpecTask(ctx, session.Metadata.SpecTaskID)
+	if err != nil || specTask.HelixAppID == "" {
+		return agentName
+	}
+
+	specTaskApp, err := apiServer.Store.GetApp(ctx, specTask.HelixAppID)
+	if err != nil {
+		return agentName
+	}
+
+	// Use SANDBOX_API_URL for internal Docker network
+	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
+	if sandboxAPIURL == "" {
+		sandboxAPIURL = "http://api:8080"
+	}
+
+	codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
+	if codeAgentConfig != nil {
+		agentName = codeAgentConfig.AgentName
+		log.Info().
+			Str("session_id", session.ID).
+			Str("spec_task_id", session.Metadata.SpecTaskID).
+			Str("agent_name", agentName).
+			Str("runtime", string(codeAgentConfig.Runtime)).
+			Msg("Using code agent config from spec task")
+	}
+
+	return agentName
+}
+
+// buildCodeAgentConfig creates a CodeAgentConfig from the app's zed_external assistant configuration.
+// Returns nil if no zed_external assistant is found.
+func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfig {
+	// Find the assistant with AgentType = zed_external
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			return buildCodeAgentConfigFromAssistant(&assistant, helixURL)
+		}
+	}
+	return nil
+}
+
+// buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
+// For zed_external agents, it prefers Provider/Model but falls back to GenerationModelProvider/GenerationModel.
+// The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
+func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
+	// Get provider and model, falling back to generation model fields if primary fields are empty
+	providerName := assistant.Provider
+	if providerName == "" {
+		providerName = assistant.GenerationModelProvider
+	}
+	modelName := assistant.Model
+	if modelName == "" {
+		modelName = assistant.GenerationModel
+	}
+
+	// If still no provider/model, return nil (can't configure code agent without these)
+	if providerName == "" || modelName == "" {
+		return nil
+	}
+
+	// Get the code agent runtime, default to zed_agent
+	runtime := assistant.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeZedAgent
+	}
+
+	provider := strings.ToLower(providerName)
+	var baseURL, apiType, agentName, model string
+
+	// The runtime choice determines how the LLM is configured in Zed
+	switch runtime {
+	case types.CodeAgentRuntimeQwenCode:
+		// Qwen Code: Uses the qwen command as a custom agent_server
+		// All providers go through OpenAI-compatible API with provider prefix
+		baseURL = helixURL + "/v1"
+		apiType = "openai"
+		agentName = "qwen"
+		model = fmt.Sprintf("%s/%s", providerName, modelName)
+
+	default: // CodeAgentRuntimeZedAgent
+		// Zed Agent: Uses Zed's built-in agent panel with env vars
+		// The API type depends on the provider
+		switch provider {
+		case "anthropic":
+			baseURL = helixURL + "/v1"
+			apiType = "anthropic"
+			agentName = "zed-agent"
+			model = modelName
+		case "azure", "azure_openai":
+			baseURL = helixURL + "/openai"
+			apiType = "azure_openai"
+			agentName = "zed-agent"
+			model = modelName
+		default:
+			// For other providers (OpenAI, OpenRouter, etc.), use OpenAI-compatible API
+			baseURL = helixURL + "/v1"
+			apiType = "openai"
+			agentName = "zed-agent"
+			model = fmt.Sprintf("%s/%s", providerName, modelName)
+		}
+	}
+
+	return &types.CodeAgentConfig{
+		Provider:  providerName,
+		Model:     model,
+		AgentName: agentName,
+		BaseURL:   baseURL,
+		APIType:   apiType,
+		Runtime:   runtime,
+	}
 }

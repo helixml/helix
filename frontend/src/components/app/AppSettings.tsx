@@ -221,6 +221,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
@@ -256,6 +257,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
+      setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
 
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
@@ -583,6 +585,71 @@ const AppSettings: FC<AppSettingsProps> = ({
                 ...app,
                 model: modelId,
                 provider: provider,
+              };
+              onUpdate(updatedApp);
+            }}
+            currentType="text"
+            displayMode="short"
+          />
+        </Box>
+      )}
+
+      {/* Zed External Agent Configuration */}
+      {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Runtime</Typography>
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Choose which code agent runtime to use inside Zed.
+          </Typography>
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <Select
+              value={code_agent_runtime}
+              onChange={(e) => {
+                const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                setCodeAgentRuntime(newRuntime);
+                const updatedApp: IAppFlatState = {
+                  ...app,
+                  code_agent_runtime: newRuntime,
+                };
+                onUpdate(updatedApp);
+              }}
+              disabled={readOnly}
+            >
+              <MenuItem value="zed_agent">
+                <Box>
+                  <Typography>Zed Agent (Built-in)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Uses Zed's native agent panel with direct API integration
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="qwen_code">
+                <Box>
+                  <Typography>Qwen Code</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Model</Typography>
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Select the LLM that will run inside Zed for agentic coding. This model handles code generation,
+            tool use, and iterative development within the Zed editor environment.
+          </Typography>
+          <AdvancedModelPicker
+            hint="Choose a capable model for agentic coding. Claude Sonnet 4.5 or GPT-4o recommended for best results."
+            selectedProvider={generation_model_provider}
+            selectedModelId={generation_model}
+            onSelectModel={(provider, modelId) => {
+              setGenerationModel(modelId);
+              setGenerationModelProvider(provider);
+              const updatedApp: IAppFlatState = {
+                ...app,
+                generation_model: modelId,
+                generation_model_provider: provider,
               };
               onUpdate(updatedApp);
             }}

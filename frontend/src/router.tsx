@@ -19,7 +19,8 @@ import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import SSHKeys from './pages/SSHKeys'
-import NewAgent from './pages/NewAgent'
+// NewAgent wizard removed - now creating blank agent and going directly to App settings
+// import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
@@ -209,13 +210,15 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <App />
     ),
   }, {
+    // NewAgent wizard removed - Apps.tsx now creates blank agent and navigates to App settings
+    // Keeping route for backwards compatibility (redirects to apps list)
     name: namePrefix + 'new-agent',
     path: routePrefix + '/new-agent',
     meta: {
       drawer: false,
     },
     render: () => (
-      <NewAgent />
+      <Apps />
     ),
   }, {
     name: namePrefix + 'session',

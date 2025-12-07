@@ -351,12 +351,16 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 								fullMessage = interactions[i].SystemPrompt + "\n\n**User Request:**\n" + interactions[i].PromptMessage
 							}
 
+							// Determine which agent to use based on the spec task's code agent config
+							agentName := apiServer.getAgentNameForSession(ctx, helixSession)
+
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",
 								Data: map[string]interface{}{
 									"message":       fullMessage,
 									"request_id":    requestID,
-									"acp_thread_id": nil, // null = create new thread
+									"acp_thread_id": nil,        // null = create new thread
+									"agent_name":    agentName,  // Which agent to use (zed-agent or qwen)
 								},
 							}
 
