@@ -305,6 +305,11 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     DISABLE_ERROR_REPORTING=1 \
     DISABLE_AUTOUPDATER=1
 
+# ====================================================================
+# Configure Git - Disable TLS verification (self-signed certs in dev)
+# ====================================================================
+RUN git config --system http.sslVerify false
+
 # Configure Kitty terminal (system-wide, since /home/retro is bind-mounted)
 RUN mkdir -p /etc/xdg/kitty && \
     cat > /etc/xdg/kitty/kitty.conf <<'KITTY_CONFIG'
