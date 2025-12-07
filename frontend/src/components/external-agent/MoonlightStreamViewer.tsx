@@ -10,11 +10,13 @@ import {
   Keyboard,
   Wifi,
   SignalCellularAlt,
+  Speed,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
+import { DualStreamManager } from '../../lib/moonlight-web-ts/stream/dual-stream-manager';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
@@ -67,7 +69,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | null>(null); // Stream instance from moonlight-web
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
@@ -98,6 +100,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
+  const [adaptiveQuality, setAdaptiveQuality] = useState(false); // Use dual-stream for automatic quality switching
+  const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -237,25 +242,48 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sessionId,
       });
 
-      let stream: Stream | WebSocketStream;
+      let stream: Stream | WebSocketStream | DualStreamManager;
 
       // Check if using WebSocket-only mode
       if (streamingMode === 'websocket') {
         // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
-        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode');
-        stream = new WebSocketStream(
-          api,
-          hostId,
-          actualAppId,
-          settings,
-          supportedFormats,
-          [width, height],
-          sessionId
-        );
+        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, adaptiveQuality:', adaptiveQuality);
 
-        // Set canvas for WebSocket stream rendering
-        if (canvasRef.current) {
-          stream.setCanvas(canvasRef.current);
+        if (adaptiveQuality) {
+          // Dual-stream mode: open high-quality and low-quality streams simultaneously
+          // Automatically switches to low-quality when network is congested
+          console.log('[MoonlightStreamViewer] Using DualStreamManager for adaptive quality');
+          stream = new DualStreamManager({
+            api,
+            hostId,
+            appId: actualAppId,
+            settings,
+            supportedVideoFormats: supportedFormats,
+            viewerScreenSize: [width, height],
+            sessionId,
+          });
+          (stream as DualStreamManager).start();
+
+          // Set canvas for rendering
+          if (canvasRef.current) {
+            stream.setCanvas(canvasRef.current);
+          }
+        } else {
+          // Single-stream mode
+          stream = new WebSocketStream(
+            api,
+            hostId,
+            actualAppId,
+            settings,
+            supportedFormats,
+            [width, height],
+            sessionId
+          );
+
+          // Set canvas for WebSocket stream rendering
+          if (canvasRef.current) {
+            stream.setCanvas(canvasRef.current);
+          }
         }
       } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
@@ -458,7 +486,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, adaptiveQuality]);
 
   // Disconnect
   const disconnect = useCallback(() => {
@@ -467,8 +495,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        // Check if it's a WebSocketStream (has close() method)
-        if (streamRef.current instanceof WebSocketStream) {
+        // Check if it's a DualStreamManager
+        if (streamRef.current instanceof DualStreamManager) {
+          console.log('[MoonlightStreamViewer] Closing DualStreamManager...');
+          streamRef.current.close();
+        } else if (streamRef.current instanceof WebSocketStream) {
+          // Check if it's a WebSocketStream (has close() method)
           console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
           streamRef.current.close();
         } else {
@@ -513,6 +545,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setIsConnecting(false);
     setStatus('Disconnected');
     setPendingAutoJoin(false); // Reset auto-join state on disconnect
+    setIsHighLatency(false); // Reset latency warning on disconnect
+    setIsOnFallback(false); // Reset fallback state on disconnect
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
@@ -795,12 +829,44 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket mode - poll stats from WebSocketStream
+    // WebSocket mode - poll stats from WebSocketStream or DualStreamManager
     if (streamingMode === 'websocket') {
       const pollWsStats = () => {
-        const wsStream = streamRef.current as WebSocketStream | null;
-        if (!wsStream) return;
+        const currentStream = streamRef.current;
+        if (!currentStream) return;
 
+        // Handle DualStreamManager
+        if (currentStream instanceof DualStreamManager) {
+          const dualStats = currentStream.getStats();
+          setStats({
+            video: {
+              codec: `H264 (WebSocket${dualStats.activeStream === 'fallback' ? ' - Low Quality' : ''})`,
+              width: dualStats.width,
+              height: dualStats.height,
+              fps: dualStats.fps,
+              videoPayloadBitrate: dualStats.videoPayloadBitrateMbps.toFixed(2),
+              totalBitrate: dualStats.totalBitrateMbps.toFixed(2),
+              framesDecoded: dualStats.framesDecoded,
+              framesDropped: dualStats.framesDropped,
+              rttMs: dualStats.rttMs,
+              isHighLatency: dualStats.isHighLatency,
+              // Additional dual-stream info
+              activeStream: dualStats.activeStream,
+              primaryRttMs: dualStats.primaryRttMs,
+              fallbackRttMs: dualStats.fallbackRttMs,
+            },
+            connection: {
+              transport: `WebSocket (L7) - ${dualStats.activeStream === 'primary' ? '60fps' : '15fps'}`,
+            },
+            timestamp: new Date().toISOString(),
+          });
+          setIsHighLatency(dualStats.isHighLatency);
+          setIsOnFallback(dualStats.activeStream === 'fallback');
+          return;
+        }
+
+        // Handle regular WebSocketStream
+        const wsStream = currentStream as WebSocketStream;
         const wsStats = wsStream.getStats();
         setStats({
           video: {
@@ -812,12 +878,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             totalBitrate: wsStats.totalBitrateMbps.toFixed(2),                 // Everything
             framesDecoded: wsStats.framesDecoded,
             framesDropped: wsStats.framesDropped,
+            rttMs: wsStats.rttMs,                                              // RTT in ms
+            isHighLatency: wsStats.isHighLatency,                              // High latency flag
           },
           connection: {
             transport: 'WebSocket (L7)',
           },
           timestamp: new Date().toISOString(),
         });
+        // Update high latency state for warning banner
+        setIsHighLatency(wsStats.isHighLatency);
+        setIsOnFallback(false);
       };
 
       // Poll every second
@@ -1304,6 +1375,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
           </IconButton>
         </Tooltip>
+        {streamingMode === 'websocket' && (
+          <Tooltip title={adaptiveQuality ? 'Adaptive Quality ON — Auto-switches to 15fps on slow networks' : 'Adaptive Quality OFF — Click to enable dual-stream mode'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setAdaptiveQuality(prev => !prev);
+              }}
+              sx={{ color: adaptiveQuality ? 'primary.main' : 'white' }}
+            >
+              <Speed fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
@@ -1314,6 +1398,36 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </IconButton>
         </Tooltip>
       </Box>
+
+      {/* High Latency / Fallback Stream Warning Banner */}
+      {(isHighLatency || isOnFallback) && isConnected && streamingMode === 'websocket' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            backgroundColor: isOnFallback ? 'rgba(255, 152, 0, 0.95)' : 'rgba(255, 152, 0, 0.9)',
+            color: 'black',
+            padding: '4px 16px',
+            borderRadius: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+          }}
+        >
+          <Wifi sx={{ fontSize: 16 }} />
+          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+            {isOnFallback
+              ? `Slow connection - reduced to 15fps (${stats?.video?.primaryRttMs?.toFixed(0) || stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
+              : `High network latency detected (${stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
+            }
+          </Typography>
+        </Box>
+      )}
 
       {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
       {showLoadingOverlay && (
@@ -1443,6 +1557,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
           display: streamingMode === 'websocket' ? 'block' : 'none',
+          // Orange border when on low-quality fallback stream
+          border: isOnFallback ? '4px solid #ff9800' : 'none',
+          boxSizing: 'border-box',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -1513,6 +1630,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
+                {/* RTT (WebSocket mode) */}
+                {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
+                  <div>
+                    <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
+                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                  </div>
+                )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
                 {streamingMode === 'webrtc' && (
                   <>
