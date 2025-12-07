@@ -291,8 +291,14 @@ function build-zed() {
     return 1
   fi
 
-  # Create output directory
+  # Create output directory and ensure we own it
+  # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
+  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable (likely created by Docker as root)"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
+  fi
 
   # Change to Zed source directory
   cd "$ZED_SOURCE_DIR"
@@ -919,6 +925,7 @@ function build-sway() {
 
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
+  local BUILD_SUCCESS=0
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f Dockerfile.sway-helix \
@@ -926,33 +933,39 @@ function build-sway() {
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
-      .
+      . || BUILD_SUCCESS=1
   else
     docker build --provenance=false -f Dockerfile.sway-helix \
       -t helix-sway:latest \
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      .
+      . || BUILD_SUCCESS=1
+  fi
+
+  if [ $BUILD_SUCCESS -ne 0 ]; then
+    echo "❌ Failed to build Sway container"
+    exit 1
+  fi
+
+  # Verify image was actually created
+  if ! docker image inspect helix-sway:latest &>/dev/null; then
+    echo "❌ helix-sway:latest not found after build - something went wrong"
+    exit 1
   fi
 
   # Capture image hash AFTER build
   local IMAGE_HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
 
-  if [ $? -eq 0 ]; then
-    echo "✅ Sway container built successfully"
-    echo "🪟  Custom Sway image ready: helix-sway:latest"
-    echo ""
-    echo "Features added:"
-    echo "  - Sway tiling window manager with waybar"
-    echo "  - Zed editor with External WebSocket Thread Sync"
-    echo "  - Firefox, Ghostty terminal, OnlyOffice"
-    echo "  - Screenshot server (grim-based) for Moonlight streaming"
-    echo "  - Passwordless sudo for development"
-    echo "  - Docker CLI for container-in-container workflows"
-  else
-    echo "❌ Failed to build Sway container"
-    exit 1
-  fi
+  echo "✅ Sway container built successfully"
+  echo "🪟  Custom Sway image ready: helix-sway:latest"
+  echo ""
+  echo "Features added:"
+  echo "  - Sway tiling window manager with waybar"
+  echo "  - Zed editor with External WebSocket Thread Sync"
+  echo "  - Firefox, Ghostty terminal, OnlyOffice"
+  echo "  - Screenshot server (grim-based) for Moonlight streaming"
+  echo "  - Passwordless sudo for development"
+  echo "  - Docker CLI for container-in-container workflows"
 
   echo "✅ Sway container build completed"
   echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
@@ -988,8 +1001,28 @@ function export-sway-tarball() {
   fi
 
   echo "📦 Exporting helix-sway tarball for bind-mount..."
+
+  # Verify image exists before attempting to save
+  if ! docker image inspect helix-sway:latest &>/dev/null; then
+    echo "❌ helix-sway:latest image not found - build-sway must have failed"
+    return 1
+  fi
+
   docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
-  docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
+  if ! docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar; then
+    echo "❌ docker save failed"
+    rm -f helix-sway.tar
+    return 1
+  fi
+
+  # Validate tarball is non-empty (docker save can create empty files on failure)
+  TARBALL_SIZE_BYTES=$(stat -c%s helix-sway.tar 2>/dev/null || echo "0")
+  if [ "$TARBALL_SIZE_BYTES" -lt 1000000 ]; then
+    echo "❌ Tarball is suspiciously small (${TARBALL_SIZE_BYTES} bytes) - likely corrupted"
+    rm -f helix-sway.tar
+    return 1
+  fi
+
   echo "$IMAGE_HASH_AFTER" > helix-sway.tar.hash
   echo "${COMMIT_HASH}" > helix-sway.version
   TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
