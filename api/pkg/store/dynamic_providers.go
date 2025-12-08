@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -172,6 +173,99 @@ func (s *PostgresStore) InitializeDynamicProviders(ctx context.Context, dynamicP
 	log.Info().
 		Int("total_configured", len(configs)).
 		Msg("Finished processing dynamic providers (existing providers were skipped)")
+
+	return nil
+}
+
+// InitializeBuiltInProviders creates provider endpoints for built-in providers when their
+// API keys are set via environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.).
+// This allows these providers to be used by the LLM proxy endpoints without manual configuration.
+func (s *PostgresStore) InitializeBuiltInProviders(ctx context.Context, providers *config.Providers) error {
+	if providers == nil {
+		return nil
+	}
+
+	// Get existing provider endpoints to check for duplicates
+	existingEndpoints, err := s.ListProviderEndpoints(ctx, &ListProviderEndpointsQuery{
+		WithGlobal: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list existing provider endpoints: %w", err)
+	}
+
+	// Create a map of existing provider names for quick lookup
+	existingNames := make(map[string]*types.ProviderEndpoint)
+	for _, endpoint := range existingEndpoints {
+		if endpoint.OwnerType == types.OwnerTypeSystem && endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+			existingNames[endpoint.Name] = endpoint
+		}
+	}
+
+	// Define built-in provider configurations
+	builtInProviders := []struct {
+		name    string
+		apiKey  string
+		baseURL string
+	}{
+		{
+			name:    string(types.ProviderAnthropic),
+			apiKey:  providers.Anthropic.APIKey,
+			baseURL: providers.Anthropic.BaseURL,
+		},
+		{
+			name:    string(types.ProviderOpenAI),
+			apiKey:  providers.OpenAI.APIKey,
+			baseURL: providers.OpenAI.BaseURL,
+		},
+		{
+			name:    string(types.ProviderTogetherAI),
+			apiKey:  providers.TogetherAI.APIKey,
+			baseURL: providers.TogetherAI.BaseURL,
+		},
+	}
+
+	for _, provider := range builtInProviders {
+		if provider.apiKey == "" {
+			continue
+		}
+
+		// Skip if provider already exists
+		if _, exists := existingNames[provider.name]; exists {
+			log.Debug().
+				Str("provider_name", provider.name).
+				Msg("Built-in provider already exists in database, skipping")
+			continue
+		}
+
+		log.Info().
+			Str("provider_name", provider.name).
+			Str("base_url", provider.baseURL).
+			Msg("Creating built-in provider endpoint from environment variable")
+
+		endpoint := &types.ProviderEndpoint{
+			Name:           provider.name,
+			Description:    fmt.Sprintf("Built-in %s provider (auto-configured from environment)", provider.name),
+			BaseURL:        provider.baseURL,
+			APIKey:         provider.apiKey,
+			EndpointType:   types.ProviderEndpointTypeGlobal,
+			Owner:          string(types.OwnerTypeSystem),
+			OwnerType:      types.OwnerTypeSystem,
+			BillingEnabled: true,
+		}
+
+		_, err := s.CreateProviderEndpoint(ctx, endpoint)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("provider_name", provider.name).
+				Msg("Failed to create built-in provider endpoint")
+			continue
+		}
+
+		log.Info().
+			Str("provider_name", provider.name).
+			Msg("Successfully created built-in provider endpoint")
+	}
 
 	return nil
 }

@@ -228,6 +228,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		// Don't fail the entire startup if dynamic providers fail to initialize
 	}
 
+	// Initialize built-in providers from standard API key environment variables
+	// (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) for use by LLM proxy endpoints
+	err = postgresStore.InitializeBuiltInProviders(ctx, &cfg.Providers)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to initialize built-in providers, continuing with startup")
+	}
+
 	// Reset any running executions
 	err = postgresStore.ResetRunningExecutions(ctx)
 	if err != nil {
