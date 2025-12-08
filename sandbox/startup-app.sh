@@ -14,15 +14,17 @@ set -e
 
 echo "🐺 Starting Wolf (main process with automatic restart)..."
 
-# Configure container cleanup behavior based on HELIX_KEEP_DEAD_CONTAINERS
-# Default: remove containers after they exit (production behavior)
-# Set HELIX_KEEP_DEAD_CONTAINERS=true to keep containers for debugging
-if [ "$HELIX_KEEP_DEAD_CONTAINERS" = "true" ]; then
-    echo "🔧 Debug mode: HELIX_KEEP_DEAD_CONTAINERS=true - dead containers will be preserved"
-    export WOLF_STOP_CONTAINER_ON_EXIT=FALSE
-else
-    echo "🧹 Production mode: containers will be stopped and removed on exit"
-    export WOLF_STOP_CONTAINER_ON_EXIT=TRUE
+# Clean up stale wayland sockets from XDG_RUNTIME_DIR
+# Wolf creates wayland-N sockets for each lobby. When lobbies fail or timeout,
+# these sockets aren't always cleaned up, causing ListeningSocketSource::new_auto()
+# to eventually fail with a panic.
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
+    WAYLAND_COUNT=$(ls -d $XDG_RUNTIME_DIR/wayland-* 2>/dev/null | wc -l)
+    if [ "$WAYLAND_COUNT" -gt 0 ]; then
+        echo "🧹 Cleaning up $WAYLAND_COUNT stale wayland sockets from $XDG_RUNTIME_DIR..."
+        rm -rf $XDG_RUNTIME_DIR/wayland-* 2>/dev/null || true
+        echo "✅ Wayland sockets cleaned"
+    fi
 fi
 
 # Make sure Wolf config folder and socket directory exist
@@ -160,6 +162,35 @@ wait_for_wolf
 
 # Start Moonlight Web after Wolf is ready
 start_moonlight_web
+
+# Start background cleanup daemon for stale wayland sockets
+# Wolf doesn't always clean up sockets when lobby creation fails (timeout/panic)
+# This runs every 5 minutes to prevent accumulation of stale sockets
+(
+    while true; do
+        sleep 300  # 5 minutes
+        if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
+            # Get active lobby count from Wolf API
+            ACTIVE_LOBBIES=$(curl -s --unix-socket /var/run/wolf/wolf.sock 'http://localhost/api/v1/lobbies' 2>/dev/null | grep -o '"id"' | wc -l || echo "0")
+            # Count wayland socket PAIRS (socket + lock file = 2 entries per display)
+            SOCKET_COUNT=$(ls $XDG_RUNTIME_DIR/wayland-*.lock 2>/dev/null | wc -l || echo "0")
+
+            # If there are more sockets than active lobbies, we have orphans
+            if [ "$SOCKET_COUNT" -gt "$ACTIVE_LOBBIES" ]; then
+                ORPHANS=$((SOCKET_COUNT - ACTIVE_LOBBIES))
+                echo "[$(date -Iseconds)] Found $ORPHANS orphaned wayland sockets (active: $ACTIVE_LOBBIES, sockets: $SOCKET_COUNT)"
+                # Only clean up if there are MANY more sockets than lobbies (safety margin)
+                if [ "$ORPHANS" -gt 10 ]; then
+                    echo "[$(date -Iseconds)] Cleaning up stale wayland sockets..."
+                    # Clean ALL sockets - Wolf will recreate for active lobbies
+                    rm -rf $XDG_RUNTIME_DIR/wayland-* 2>/dev/null || true
+                    echo "[$(date -Iseconds)] Wayland sockets cleaned"
+                fi
+            fi
+        fi
+    done
+) 2>&1 | sed -u 's/^/[WAYLAND-CLEANUP] /' &
+echo "✅ Wayland socket cleanup daemon started (runs every 5 minutes)"
 
 # Main supervision loop - restart Wolf if it crashes
 while true; do
