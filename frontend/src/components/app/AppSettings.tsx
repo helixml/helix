@@ -59,7 +59,15 @@ const RECOMMENDED_MODELS = {
     'Qwen/Qwen2.5-7B-Instruct-Turbo',
   ],
   // No tool use required, can be any text generation model
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b'],
+  // Zed external agent - strong code generation models, Anthropic models work best with Zed
+  zedExternal: [
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5-20250929',
+    'claude-haiku-4-5-20251001',
+    'gpt-4o',
+    'gpt-4o-mini',
+  ]
 };
 
 interface AppSettingsProps {
@@ -640,7 +648,8 @@ const AppSettings: FC<AppSettingsProps> = ({
             tool use, and iterative development within the Zed editor environment.
           </Typography>
           <AdvancedModelPicker
-            hint="Choose a capable model for agentic coding. Claude Sonnet 4.5 or GPT-4o recommended for best results."
+            recommendedModels={RECOMMENDED_MODELS.zedExternal}
+            hint="Choose a capable model for agentic coding. Claude Opus 4.5 or Sonnet 4.5 recommended for best results."
             selectedProvider={generation_model_provider}
             selectedModelId={generation_model}
             onSelectModel={(provider, modelId) => {
