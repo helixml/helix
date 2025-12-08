@@ -1183,14 +1183,41 @@ func (m *Manager) getHostDockerGateway() string {
 }
 
 // getContainerPID gets the PID of a container from Wolf's dockerd
+// Wolf adds a UUID suffix to container names (e.g., "zed-external-xxx_uuid"),
+// so we first try exact match, then fall back to prefix-based lookup.
 func (m *Manager) getContainerPID(containerID string) (int, error) {
-	// Use docker inspect to get the PID
-	// Wolf's dockerd is at /var/run/docker.sock
+	// First try exact match
 	cmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
 		"inspect", "--format", "{{.State.Pid}}", containerID)
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("docker inspect failed: %w", err)
+		// Exact match failed - try finding container by name prefix
+		// Wolf names containers as "{hostname}_{uuid}", so filter by prefix
+		filterCmd := exec.Command("docker", "-H", "unix:///var/run/docker.sock",
+			"ps", "--filter", fmt.Sprintf("name=%s", containerID), "--format", "{{.Names}}")
+		filterOutput, filterErr := filterCmd.Output()
+		if filterErr != nil {
+			return 0, fmt.Errorf("docker inspect failed and prefix filter failed: %w", err)
+		}
+
+		// Get first matching container name
+		matchedName := strings.TrimSpace(strings.Split(string(filterOutput), "\n")[0])
+		if matchedName == "" {
+			return 0, fmt.Errorf("no container found matching prefix %s", containerID)
+		}
+
+		log.Debug().
+			Str("requested", containerID).
+			Str("matched", matchedName).
+			Msg("Found container by prefix match")
+
+		// Retry inspect with the full container name
+		cmd = exec.Command("docker", "-H", "unix:///var/run/docker.sock",
+			"inspect", "--format", "{{.State.Pid}}", matchedName)
+		output, err = cmd.Output()
+		if err != nil {
+			return 0, fmt.Errorf("docker inspect failed for matched container %s: %w", matchedName, err)
+		}
 	}
 
 	pidStr := strings.TrimSpace(string(output))
