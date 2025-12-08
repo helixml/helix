@@ -220,6 +220,9 @@ cat > /tmp/position-windows.sh << 'POSITION_EOF'
 # Middle third (640-1279): Zed
 # Right third (1280-1919): Firefox (handled by devilspie2)
 
+# CRITICAL: Set DISPLAY for X11 commands (autostart doesn't inherit session env)
+export DISPLAY=:9
+
 sleep 8  # Wait for Zed and Terminal to launch
 
 # Position Terminal (gnome-terminal) - left third
