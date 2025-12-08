@@ -61,27 +61,21 @@ We were so proud. We wrote Rust. We wrote TypeScript. We implemented our own bin
 
 "No, the video is definitely frozen. And now my keyboard isn't working."
 
-*checks logs*
+*checks the video*
 
-```
-[WebSocket] Frame backpressure detected
-[WebSocket] Buffer overflow, dropping frames
-[WebSocket] Decoder state corrupted, waiting for keyframe
-[WebSocket] Still waiting for keyframe...
-[WebSocket] It's been 47 seconds where is the keyframe
-```
+It's showing what the AI was doing 30 seconds ago. And the delay is growing.
 
 Turns out, 40Mbps video streams don't appreciate 200ms+ network latency. Who knew.
 
 When the network gets congested:
-1. WebSocket buffers fill up
-2. Frames arrive with massive delays or get dropped by backpressure
-3. H.264 decoder state gets corrupted (P-frames depend on previous frames)
-4. Everything freezes until the next keyframe
-5. But the keyframe is also stuck in the buffer
+1. Frames buffer up in the TCP/WebSocket layer
+2. They arrive in-order (thanks TCP!) but increasingly delayed
+3. Video falls further and further behind real-time
+4. You're watching the AI type code from 45 seconds ago
+5. By the time you see a bug, the AI has already committed it to main
 6. Everything is terrible forever
 
-"Just lower the bitrate," you say. Great idea. Now it's 10Mbps of blocky garbage that still freezes.
+"Just lower the bitrate," you say. Great idea. Now it's 10Mbps of blocky garbage that's *still* 30 seconds behind.
 
 ---
 
@@ -91,7 +85,37 @@ We tried everything:
 
 **"What if we only send keyframes?"**
 
-Technically possible. In practice, the Moonlight protocol we forked from apparently has some undocumented flow control that stops sending frames entirely after the first keyframe. We got exactly ONE frame. One single, beautiful, 1080p IDR frame. Then silence.
+This was our big brain moment. H.264 keyframes (IDR frames) are self-contained. No dependencies on previous frames. Just drop all the P-frames on the server side, send only keyframes, get ~1fps of corruption-free video. Perfect for low-bandwidth fallback!
+
+We spent a week on this. We added a `keyframes_only` flag. We modified the video decoder to check `FrameType::Idr`. We set GOP to 60 (one keyframe per second at 60fps). We tested.
+
+We got exactly ONE frame.
+
+One single, beautiful, 1080p IDR frame. Then silence. Forever.
+
+```
+[WebSocket] Keyframe received (frame 121), sending
+[WebSocket] ...
+[WebSocket] ...
+[WebSocket] It's been 14 seconds why is nothing else coming
+[WebSocket] Failed to send audio frame: Closed
+```
+
+*checks Wolf logs* — encoder still running
+
+*checks GStreamer pipeline* — frames being produced
+
+*checks Moonlight protocol layer* — **nothing coming through**
+
+Turns out, the Moonlight protocol (which we forked from) has some undocumented flow control mechanism. When you drop P-frames, *something* upstream decides you're not consuming frames fast enough and just... stops sending them. We never figured out what. The protocol is reverse-engineered from NVIDIA GameStream. Documentation is "read the source code and pray."
+
+We tried:
+- Different GOP settings
+- Different encoder configurations
+- Sending ACK-like responses
+- Staring at the code for hours
+
+Nothing worked. The protocol wanted all its frames, or no frames at all.
 
 **"What if we implement proper congestion control?"**
 
