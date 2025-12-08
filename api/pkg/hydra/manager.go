@@ -1320,24 +1320,52 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 // where Docker actually binds ports from `docker run -p PORT:PORT`.
 //
 // This enables the standard Docker developer experience:
-//   docker run -p 8080:8080 nginx
-//   curl localhost:8080  # Works!
+//
+//	docker run -p 8080:8080 nginx
+//	curl localhost:8080  # Works!
+//
+// The implementation requires:
+// 1. route_localnet=1 to allow 127.x.x.x addresses on non-loopback routes
+// 2. DNAT rule to rewrite destination from 127.0.0.1 to gateway
+// 3. MASQUERADE rule to fix source address for return traffic
 func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string) error {
-	// Use iptables DNAT in the OUTPUT chain to redirect localhost → gateway
-	// This catches outgoing connections to 127.0.0.1 and rewrites destination to gateway
-	//
-	// We only redirect TCP (HTTP/HTTPS/websockets) - UDP localhost is rare for dev servers
+	// Enable route_localnet - required to allow packets with 127.x.x.x source/dest
+	// on non-loopback interfaces. Without this, the kernel drops DNAT'd packets.
+	// We use sh -c with redirect because sysctl -w doesn't work on read-only /proc mounts
+	m.runNsenterSh(containerPID, "echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet")
+	m.runNsenterSh(containerPID, "echo 1 > /proc/sys/net/ipv4/conf/eth1/route_localnet")
 
-	// First, delete any existing rule (idempotent - allows re-bridging without duplicate rules)
+	// Delete any existing rules (idempotent - allows re-bridging without duplicate rules)
 	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
-		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"-d", "127.0.0.1", "-p", "tcp",
 		"-j", "DNAT", "--to-destination", gateway)
 
-	// Add DNAT rule for all TCP ports
+	// Extract network from gateway IP (e.g., 10.200.1.1 -> 10.200.1.0/24)
+	gatewayParts := strings.Split(gateway, ".")
+	if len(gatewayParts) == 4 {
+		network := fmt.Sprintf("%s.%s.%s.0/24", gatewayParts[0], gatewayParts[1], gatewayParts[2])
+		m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "POSTROUTING",
+			"-d", network, "-j", "MASQUERADE")
+	}
+
+	// Add DNAT rule to rewrite localhost -> gateway
+	// Note: We don't use -o lo because we want to match before routing decision
 	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
-		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
+		"-d", "127.0.0.1", "-p", "tcp",
 		"-j", "DNAT", "--to-destination", gateway); err != nil {
 		return fmt.Errorf("failed to add localhost DNAT rule: %w", err)
+	}
+
+	// Add MASQUERADE rule to fix source address
+	// After DNAT, packets have src=127.0.0.1, dst=gateway. MASQUERADE changes
+	// src to the outgoing interface's IP (eth1's 10.200.1.254), allowing
+	// proper return routing.
+	if len(gatewayParts) == 4 {
+		network := fmt.Sprintf("%s.%s.%s.0/24", gatewayParts[0], gatewayParts[1], gatewayParts[2])
+		if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "POSTROUTING",
+			"-d", network, "-j", "MASQUERADE"); err != nil {
+			return fmt.Errorf("failed to add MASQUERADE rule: %w", err)
+		}
 	}
 
 	log.Info().
@@ -1345,6 +1373,17 @@ func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string)
 		Int("container_pid", containerPID).
 		Msg("Configured localhost forwarding (localhost:PORT → gateway:PORT)")
 
+	return nil
+}
+
+// runNsenterSh runs a shell command in the container's network namespace
+func (m *Manager) runNsenterSh(pid int, cmd string) error {
+	nsenterArgs := []string{"-t", fmt.Sprintf("%d", pid), "-n", "--", "sh", "-c", cmd}
+	execCmd := exec.Command("nsenter", nsenterArgs...)
+	output, err := execCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nsenter sh failed: %w (output: %s)", err, string(output))
+	}
 	return nil
 }
 
