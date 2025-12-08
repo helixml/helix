@@ -18,6 +18,50 @@ import (
 var cachedWaylandDisplay string
 var jpegSupported = true // Will be set to false if grim reports "jpeg support disabled"
 
+// Clipboard mode detection - cached after first check
+var clipboardModeChecked bool
+var useX11Clipboard bool
+
+// isX11Mode returns true if we should use X11 clipboard (xclip) instead of Wayland (wl-paste/wl-copy)
+// This is needed for Ubuntu GNOME which runs on Xwayland (X11 on top of Wayland)
+func isX11Mode() bool {
+	if clipboardModeChecked {
+		return useX11Clipboard
+	}
+	clipboardModeChecked = true
+
+	// Check if DISPLAY is set (indicates X11/Xwayland environment)
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		log.Printf("[Clipboard] No DISPLAY set, using Wayland mode")
+		useX11Clipboard = false
+		return false
+	}
+
+	// Check if xclip is available
+	_, err := exec.LookPath("xclip")
+	if err != nil {
+		log.Printf("[Clipboard] DISPLAY=%s but xclip not found, using Wayland mode", display)
+		useX11Clipboard = false
+		return false
+	}
+
+	// Test if xclip can actually connect to the X server
+	testCmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+	testCmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+	// We don't care about the output, just whether it can run without "cannot open display" error
+	output, err := testCmd.CombinedOutput()
+	if err != nil && strings.Contains(string(output), "cannot open display") {
+		log.Printf("[Clipboard] xclip cannot connect to DISPLAY=%s, using Wayland mode", display)
+		useX11Clipboard = false
+		return false
+	}
+
+	log.Printf("[Clipboard] Using X11 mode with DISPLAY=%s", display)
+	useX11Clipboard = true
+	return true
+}
+
 func main() {
 	port := os.Getenv("SCREENSHOT_PORT")
 	if port == "" {
@@ -201,6 +245,13 @@ func handleClipboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetClipboard(w http.ResponseWriter, r *http.Request) {
+	// Check if we should use X11 clipboard (for Ubuntu GNOME on Xwayland)
+	if isX11Mode() {
+		handleGetClipboardX11(w, r)
+		return
+	}
+
+	// Wayland mode (original implementation)
 	// Get Wayland display (same logic as screenshot)
 	waylandDisplay := getWaylandDisplay()
 	if waylandDisplay == "" {
@@ -315,7 +366,93 @@ func handleGetClipboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleGetClipboardX11 reads clipboard using xclip (for X11/Xwayland environments like Ubuntu GNOME)
+func handleGetClipboardX11(w http.ResponseWriter, r *http.Request) {
+	display := os.Getenv("DISPLAY")
+
+	// Helper to try getting clipboard from a selection using xclip
+	tryGetClipboardX11 := func(selection string) (string, []byte, bool) {
+		// First check what MIME types are available
+		targetsCmd := exec.Command("xclip", "-selection", selection, "-t", "TARGETS", "-o")
+		targetsCmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+		targetsOutput, err := targetsCmd.Output()
+		if err != nil {
+			return "", nil, false
+		}
+
+		targets := string(targetsOutput)
+		isImage := strings.Contains(targets, "image/png")
+
+		var dataCmd *exec.Cmd
+		if isImage {
+			dataCmd = exec.Command("xclip", "-selection", selection, "-t", "image/png", "-o")
+		} else {
+			dataCmd = exec.Command("xclip", "-selection", selection, "-o")
+		}
+		dataCmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+
+		data, err := dataCmd.Output()
+		if err != nil {
+			return "", nil, false
+		}
+
+		// Empty clipboard
+		if len(data) == 0 {
+			return "", nil, false
+		}
+
+		clipboardType := "text"
+		if isImage {
+			clipboardType = "image"
+		}
+
+		return clipboardType, data, true
+	}
+
+	// Try CLIPBOARD first (Ctrl+C/V), then PRIMARY (text selection)
+	clipType, clipData, found := tryGetClipboardX11("clipboard")
+	if !found {
+		clipType, clipData, found = tryGetClipboardX11("primary")
+		if !found {
+			log.Printf("[X11] Both CLIPBOARD and PRIMARY selections are empty")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"type": "text", "data": ""})
+			return
+		}
+		log.Printf("[X11] Using PRIMARY selection")
+	}
+
+	// Return clipboard data as JSON
+	if clipType == "image" {
+		response := map[string]string{
+			"type": "image",
+			"data": base64.StdEncoding.EncodeToString(clipData),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		log.Printf("[X11] Clipboard image retrieved (%d bytes)", len(clipData))
+	} else {
+		response := map[string]string{
+			"type": "text",
+			"data": string(clipData),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		log.Printf("[X11] Clipboard text retrieved (%d bytes)", len(clipData))
+	}
+}
+
 func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
+	// Check if we should use X11 clipboard (for Ubuntu GNOME on Xwayland)
+	if isX11Mode() {
+		handleSetClipboardX11(w, r)
+		return
+	}
+
+	// Wayland mode (original implementation)
 	// Get Wayland display (same logic as screenshot)
 	waylandDisplay := getWaylandDisplay()
 	if waylandDisplay == "" {
@@ -410,6 +547,80 @@ func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 		log.Printf("Clipboard text set in both selections (%d bytes)", len(clipboardData.Data))
+	}
+}
+
+// handleSetClipboardX11 writes clipboard using xclip (for X11/Xwayland environments like Ubuntu GNOME)
+func handleSetClipboardX11(w http.ResponseWriter, r *http.Request) {
+	display := os.Getenv("DISPLAY")
+
+	// Read request body (JSON with type and data)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("[X11] Failed to read request body: %v", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Parse JSON to determine clipboard type
+	var clipboardData struct {
+		Type string `json:"type"` // "text" or "image"
+		Data string `json:"data"` // text content or base64-encoded image
+	}
+	if err := json.Unmarshal(body, &clipboardData); err != nil {
+		log.Printf("[X11] Failed to parse clipboard JSON: %v", err)
+		http.Error(w, "Invalid clipboard data format", http.StatusBadRequest)
+		return
+	}
+
+	if clipboardData.Type == "image" {
+		// Decode base64 image
+		imageBytes, err := base64.StdEncoding.DecodeString(clipboardData.Data)
+		if err != nil {
+			log.Printf("[X11] Failed to decode base64 image: %v", err)
+			http.Error(w, "Invalid base64 image data", http.StatusBadRequest)
+			return
+		}
+
+		// Set CLIPBOARD selection with image/png MIME type
+		cmd := exec.Command("xclip", "-selection", "clipboard", "-t", "image/png", "-i")
+		cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+		cmd.Stdin = bytes.NewReader(imageBytes)
+
+		if err := cmd.Run(); err != nil {
+			log.Printf("[X11] Failed to set image clipboard: %v", err)
+			http.Error(w, "Failed to set image clipboard", http.StatusInternalServerError)
+			return
+		}
+
+		// Also set PRIMARY selection (best-effort)
+		cmdPrimary := exec.Command("xclip", "-selection", "primary", "-t", "image/png", "-i")
+		cmdPrimary.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+		cmdPrimary.Stdin = bytes.NewReader(imageBytes)
+		cmdPrimary.Run() // Ignore error
+
+		w.WriteHeader(http.StatusOK)
+		log.Printf("[X11] Clipboard image set in both selections (%d bytes)", len(imageBytes))
+	} else {
+		// Set CLIPBOARD selection with text
+		cmd := exec.Command("xclip", "-selection", "clipboard", "-i")
+		cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+		cmd.Stdin = strings.NewReader(clipboardData.Data)
+
+		if err := cmd.Run(); err != nil {
+			log.Printf("[X11] Failed to set text clipboard: %v", err)
+			http.Error(w, "Failed to set clipboard", http.StatusInternalServerError)
+			return
+		}
+
+		// Also set PRIMARY selection (best-effort)
+		cmdPrimary := exec.Command("xclip", "-selection", "primary", "-i")
+		cmdPrimary.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+		cmdPrimary.Stdin = strings.NewReader(clipboardData.Data)
+		cmdPrimary.Run() // Ignore error
+
+		w.WriteHeader(http.StatusOK)
+		log.Printf("[X11] Clipboard text set in both selections (%d bytes)", len(clipboardData.Data))
 	}
 }
 
