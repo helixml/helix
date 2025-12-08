@@ -139,6 +139,11 @@ func GenerateZedMCPConfig(
 		model = "claude-sonnet-4-5-latest"
 	}
 
+	// Normalize model ID to the format Zed expects (strip dates, use -latest aliases)
+	// Zed's serde config only recognizes specific aliases like "claude-3-5-haiku-latest",
+	// not dated versions like "claude-3-5-haiku-20241022"
+	model = normalizeModelIDForZed(model)
+
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
 	config.Agent = &AgentConfig{
 		DefaultModel: &ModelConfig{
@@ -291,6 +296,60 @@ func getAPIKeyForProvider(provider string) string {
 	default:
 		return ""
 	}
+}
+
+// normalizeModelIDForZed converts model IDs to the format Zed expects.
+// Zed's serde config only recognizes specific model aliases (e.g., "claude-3-5-haiku-latest"),
+// not dated versions (e.g., "claude-3-5-haiku-20241022"). This function strips dates
+// and converts to the -latest format.
+func normalizeModelIDForZed(modelID string) string {
+	// Already has -latest suffix, return as-is
+	if strings.HasSuffix(modelID, "-latest") {
+		return modelID
+	}
+
+	// Claude 4.5 models (new naming: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5)
+	if strings.HasPrefix(modelID, "claude-opus-4-5") {
+		return "claude-opus-4-5-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4-5") {
+		return "claude-sonnet-4-5-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
+		return "claude-haiku-4-5-latest"
+	}
+
+	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)
+	if strings.HasPrefix(modelID, "claude-3-7-sonnet") {
+		return "claude-3-7-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-5-sonnet") {
+		return "claude-3-5-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-5-haiku") {
+		return "claude-3-5-haiku-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-opus") {
+		return "claude-3-opus-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-sonnet") {
+		return "claude-3-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-haiku") {
+		return "claude-3-haiku-latest"
+	}
+
+	// OpenAI models - these typically don't have date suffixes in settings
+	// but normalize common patterns just in case
+	if strings.HasPrefix(modelID, "gpt-4o-") && !strings.HasPrefix(modelID, "gpt-4o-mini") {
+		return "gpt-4o"
+	}
+	if strings.HasPrefix(modelID, "gpt-4o-mini-") {
+		return "gpt-4o-mini"
+	}
+
+	// Return unchanged for other models (Gemini, Qwen, etc. - these go through OpenAI provider)
+	return modelID
 }
 
 // GetZedConfigForSession retrieves Zed MCP config for a session
