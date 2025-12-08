@@ -3,6 +3,18 @@
 # This version uses vanilla Ubuntu GNOME with NO custom HiDPI scaling
 
 # ============================================================================
+# FEATURE FLAGS - Set to "true" to enable, "false" to disable
+# ============================================================================
+# For debugging, set all to false for minimal Ubuntu, then enable one at a time
+ENABLE_SCREENSHOT_SERVER="false"    # Screenshot/clipboard server
+ENABLE_DEVILSPIE2="false"           # Window rule daemon
+ENABLE_POSITION_WINDOWS="false"     # wmctrl window positioning
+ENABLE_SETTINGS_SYNC="false"        # Zed settings sync daemon
+ENABLE_ZED_AUTOSTART="false"        # Auto-launch Zed editor
+ENABLE_TERMINAL_STARTUP="false"     # Terminal with startup script
+ENABLE_REVDIAL="false"              # RevDial client for API communication
+
+# ============================================================================
 # CRITICAL DEBUG SECTION - MUST BE FIRST (before set -e)
 # ============================================================================
 DEBUG_LOG=/tmp/ubuntu-startup-debug.log
@@ -131,7 +143,7 @@ echo "Zed state symlinks created"
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE GNOME so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)
-if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
+if [ "$ENABLE_REVDIAL" = "true" ] && [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
     REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
     RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
 
@@ -193,26 +205,30 @@ echo "IBus disabled (using simple input context)"
 # This positions Firefox (launched by startup script via xdg-open) in the right third
 # wmctrl is used by position-windows.sh to tile Terminal and Zed
 
-# Copy devilspie2 config from /etc/skel to user home
-mkdir -p ~/.config/devilspie2
-if [ -f /etc/skel/.config/devilspie2/helix-tiling.lua ]; then
-    cp /etc/skel/.config/devilspie2/helix-tiling.lua ~/.config/devilspie2/
-    echo "Devilspie2 config copied to ~/.config/devilspie2/"
-fi
+if [ "$ENABLE_DEVILSPIE2" = "true" ]; then
+    # Copy devilspie2 config from /etc/skel to user home
+    mkdir -p ~/.config/devilspie2
+    if [ -f /etc/skel/.config/devilspie2/helix-tiling.lua ]; then
+        cp /etc/skel/.config/devilspie2/helix-tiling.lua ~/.config/devilspie2/
+        echo "Devilspie2 config copied to ~/.config/devilspie2/"
+    fi
 
-# Firefox window rule - position in right third of screen
-cat > ~/.config/devilspie2/firefox.lua << 'DEVILSPIE_EOF'
+    # Firefox window rule - position in right third of screen
+    cat > ~/.config/devilspie2/firefox.lua << 'DEVILSPIE_EOF'
 -- Position Firefox windows in right third of screen
 -- Right third: x=1280, width=640, full height
 if (get_application_name() == "Firefox" or get_class_instance_name() == "firefox") then
     set_window_geometry(1280, 0, 640, 1080)
 end
 DEVILSPIE_EOF
+    echo "devilspie2 Firefox rule created"
+else
+    echo "devilspie2 DISABLED by feature flag"
+fi
 
-echo "devilspie2 Firefox rule created"
-
-# Create window positioning script (positions Terminal and Zed after they launch)
-cat > /tmp/position-windows.sh << 'POSITION_EOF'
+if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
+    # Create window positioning script (positions Terminal and Zed after they launch)
+    cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
 # Tile windows in thirds after they appear
 # Screen: 1920x1080 (no HiDPI scaling - vanilla Ubuntu)
@@ -243,9 +259,11 @@ fi
 
 echo "Window positioning complete"
 POSITION_EOF
-
-chmod +x /tmp/position-windows.sh
-echo "Window positioning script created"
+    chmod +x /tmp/position-windows.sh
+    echo "Window positioning script created"
+else
+    echo "position-windows.sh DISABLED by feature flag"
+fi
 
 # ============================================================================
 # GNOME Autostart Entries Configuration
@@ -259,8 +277,9 @@ echo "Creating GNOME autostart entries for Helix services..."
 # instead of via autostart, to ensure wallpaper and theme are set early.
 
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
-# CRITICAL: Pass DISPLAY=:9 for X11 clipboard support (Ubuntu GNOME runs on Xwayland)
-cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
+if [ "$ENABLE_SCREENSHOT_SERVER" = "true" ]; then
+    # CRITICAL: Pass DISPLAY=:9 for X11 clipboard support (Ubuntu GNOME runs on Xwayland)
+    cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Screenshot Server
@@ -269,11 +288,14 @@ X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
-
-echo "screenshot-server autostart entry created (with DISPLAY=:9 for X11 clipboard)"
+    echo "screenshot-server autostart entry created (with DISPLAY=:9 for X11 clipboard)"
+else
+    echo "screenshot-server autostart DISABLED by feature flag"
+fi
 
 # Autostart devilspie2 (window rule daemon - must start early, before Firefox)
-cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
+if [ "$ENABLE_DEVILSPIE2" = "true" ]; then
+    cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Devilspie2 Window Rules
@@ -282,11 +304,14 @@ X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
-
-echo "devilspie2 autostart entry created"
+    echo "devilspie2 autostart entry created"
+else
+    echo "devilspie2 autostart DISABLED by feature flag"
+fi
 
 # Autostart window positioning (runs after Zed and Terminal have launched)
-cat > ~/.config/autostart/position-windows.desktop <<'EOF'
+if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
+    cat > ~/.config/autostart/position-windows.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Position Windows
@@ -295,19 +320,22 @@ X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=12
 NoDisplay=true
 EOF
-
-echo "Window positioning autostart entry created"
+    echo "Window positioning autostart entry created"
+else
+    echo "position-windows autostart DISABLED by feature flag"
+fi
 
 # Create autostart entry for settings-sync-daemon
-# Pass environment variables via script wrapper
-cat > /tmp/start-settings-sync-daemon.sh <<EOF
+if [ "$ENABLE_SETTINGS_SYNC" = "true" ]; then
+    # Pass environment variables via script wrapper
+    cat > /tmp/start-settings-sync-daemon.sh <<EOF
 #!/bin/bash
 exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$HELIX_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
 EOF
-sudo mv /tmp/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-sudo chmod +x /usr/local/bin/start-settings-sync-daemon.sh
+    sudo mv /tmp/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+    sudo chmod +x /usr/local/bin/start-settings-sync-daemon.sh
 
-cat > ~/.config/autostart/settings-sync-daemon.desktop <<'EOF'
+    cat > ~/.config/autostart/settings-sync-daemon.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Settings Sync Daemon
@@ -316,11 +344,14 @@ X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=3
 NoDisplay=true
 EOF
-
-echo "settings-sync-daemon autostart entry created"
+    echo "settings-sync-daemon autostart entry created"
+else
+    echo "settings-sync-daemon autostart DISABLED by feature flag"
+fi
 
 # Create autostart entry for Zed (starts after settings are ready)
-cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
+if [ "$ENABLE_ZED_AUTOSTART" = "true" ]; then
+    cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Zed Helix Editor
@@ -330,8 +361,10 @@ X-GNOME-Autostart-Delay=5
 NoDisplay=false
 Icon=zed
 EOF
-
-echo "Zed autostart entry created"
+    echo "Zed autostart entry created"
+else
+    echo "Zed autostart DISABLED by feature flag"
+fi
 
 # NOTE: Firefox is NOT auto-started here - the project's startup script
 # (from .helix/startup.sh in the cloned repo) handles opening Firefox
