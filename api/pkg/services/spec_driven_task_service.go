@@ -436,6 +436,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
 func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
+	// Add panic recovery for debugging (match StartSpecGeneration pattern)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Str("task_id", task.ID).Msg("PANIC in StartJustDoItMode")
+		}
+	}()
+
 	// Get project first - needed for agent inheritance and guidelines
 	var project *types.Project
 	orgID := ""

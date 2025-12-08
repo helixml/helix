@@ -1114,6 +1114,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		// CRITICAL: Map this interaction so the AI response goes to it!
 		apiServer.contextMappingsMutex.Lock()
+		if apiServer.sessionToWaitingInteraction == nil {
+			apiServer.sessionToWaitingInteraction = make(map[string]string)
+		}
 		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
 		apiServer.contextMappingsMutex.Unlock()
 		log.Info().
