@@ -75,7 +75,7 @@ Turns out, 40Mbps video streams don't appreciate 200ms+ network latency. Who kne
 
 When the network gets congested:
 1. WebSocket buffers fill up
-2. Frames arrive out of order or incomplete
+2. Frames arrive with massive delays or get dropped by backpressure
 3. H.264 decoder state gets corrupted (P-frames depend on previous frames)
 4. Everything freezes until the next keyframe
 5. But the keyframe is also stuck in the buffer
