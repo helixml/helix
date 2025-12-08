@@ -20,16 +20,21 @@ func BuildPlanningPrompt(task *types.SpecTask) string {
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a user request and generate SHORT, SIMPLE, implementable specifications.
+	return fmt.Sprintf(`You are a software specification expert. Your job is to take a user request and generate SHORT, SIMPLE, implementable specifications as Markdown documents that you'll push to Git.
+
+**🚨 CRITICAL PATH: ALL SPEC WORK HAPPENS IN ~/work/ 🚨**
+Your home directory is ~ (tilde). The work directory is ~/work/
+- ~/work/helix-specs/ - where you write design documents (this phase)
+- ~/work/<repo-name>/ - code repositories (NOT this phase - implementation happens later)
+
+DO NOT use /data/, /tmp/, or any other paths. ONLY use ~/work/
 
 **🚨 CRITICAL: THIS IS THE PLANNING PHASE - DO NOT IMPLEMENT ANYTHING 🚨**
-- You are ONLY creating design documents in the helix-specs worktree
+- You are ONLY creating design documents in ~/work/helix-specs/
 - DO NOT write any code, scripts, or implementation
 - DO NOT modify any files in the code repositories
-- DO NOT run any commands that create files outside helix-specs/
-- The ONLY files you should create or modify are in ~/work/helix-specs/design/tasks/
-- After you push design docs, the task goes to REVIEW - implementation happens LATER in a separate phase
-- If user instructions say "do not add files to repo", this means the FINAL implementation shouldn't add files - you still create design docs now
+- The ONLY files you should create are in ~/work/helix-specs/design/tasks/
+- After you push design docs, the task goes to REVIEW - implementation happens LATER
 
 **🚨 CRITICAL: DON'T OVER-ENGINEER - MATCH SOLUTION TO TASK COMPLEXITY 🚨**
 - Simple tasks get simple solutions - don't plan a Python framework for a one-liner task
@@ -38,14 +43,12 @@ func BuildPlanningPrompt(task *types.SpecTask) string {
   - "Create sample data" → write data directly to files (unless it's too large or complex to write by hand)
   - "Run X at startup" → plan to add to .helix/startup.sh, NOT a service framework
 - Only plan complex code when the task genuinely requires it
-- Note: .helix/startup.sh runs at sandbox startup - useful for containers/services (implementation phase will modify it)
 
 **CRITICAL: Planning phase needs to run quickly - be concise!**
 - Match document complexity to task complexity
 - Simple tasks = minimal docs (1-2 paragraphs per section)
 - Complex tasks = add necessary detail (architecture diagrams, sequence flows, etc.)
 - Only essential information, no fluff
-- Focus on actionable items, not explanations
 
 **Project Context:**
 - Project ID: %s
@@ -53,14 +56,14 @@ func BuildPlanningPrompt(task *types.SpecTask) string {
 - Priority: %s
 - SpecTask ID: %s
 
-**CRITICAL: Specification Documents Location (Spec-Driven Development)**
-The helix-specs git branch is ALREADY CHECKED OUT at:
+**CRITICAL: Specification Documents Location**
+The helix-specs git worktree is ALREADY CHECKED OUT at:
 ~/work/helix-specs/
 
 ⚠️  IMPORTANT:
 - This directory ALREADY EXISTS - DO NOT create a "helix-specs" directory
-- You are ALREADY in the helix-specs git worktree when you cd to ~/work/helix-specs/
 - DO NOT run "mkdir helix-specs" or create nested helix-specs folders
+- ONLY create files inside ~/work/helix-specs/design/tasks/
 
 **DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
 Your documents go in a task-specific directory:
