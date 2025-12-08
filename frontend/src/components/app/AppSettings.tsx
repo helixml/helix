@@ -649,7 +649,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           </Typography>
           <AdvancedModelPicker
             recommendedModels={RECOMMENDED_MODELS.zedExternal}
-            hint="Choose a capable model for agentic coding. Claude Opus 4.5 or Sonnet 4.5 recommended for best results."
+            hint="Choose a capable model for agentic coding. Recommended models appear at the top of the list."
             selectedProvider={generation_model_provider}
             selectedModelId={generation_model}
             onSelectModel={(provider, modelId) => {
