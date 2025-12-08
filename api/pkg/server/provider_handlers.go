@@ -169,7 +169,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		})
 	}
 
-	// Get global ones from the provider manager
+	// Get global ones from the provider manager (env var configured providers)
 	globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
@@ -177,18 +177,26 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Build a set of existing provider names to avoid duplicates
-	existingProviderNames := make(map[string]bool)
-	for _, ep := range providerEndpoints {
-		existingProviderNames[ep.Name] = true
+	// Build a set of env var provider names - these take precedence over database entries
+	envVarProviderNames := make(map[string]bool)
+	for _, provider := range globalProviderEndpoints {
+		envVarProviderNames[string(provider)] = true
 	}
 
-	for _, provider := range globalProviderEndpoints {
-		// Skip if this provider already exists in the database
-		if existingProviderNames[string(provider)] {
+	// Filter out database providers that conflict with env var providers
+	// Env vars take precedence over stale database entries
+	filteredEndpoints := make([]*types.ProviderEndpoint, 0, len(providerEndpoints))
+	for _, ep := range providerEndpoints {
+		if ep.EndpointType == types.ProviderEndpointTypeGlobal && envVarProviderNames[ep.Name] {
+			// Skip stale database entry - env var version takes precedence
 			continue
 		}
+		filteredEndpoints = append(filteredEndpoints, ep)
+	}
+	providerEndpoints = filteredEndpoints
 
+	// Add env var configured providers
+	for _, provider := range globalProviderEndpoints {
 		var baseURL string
 		switch provider {
 		case types.ProviderOpenAI:
