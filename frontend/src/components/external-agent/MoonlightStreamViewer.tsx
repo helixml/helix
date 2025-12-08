@@ -1596,60 +1596,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        {/* Quality mode toggle: adaptive -> high -> low -> adaptive */}
-        {/* DISABLED: Adaptive mode is commented out until the underlying streaming quality issues are resolved
+        {/* Quality mode toggle: video (high) <-> screenshots (low) */}
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
               modeSwitchCooldown
                 ? 'Please wait...'
-                : qualityMode === 'adaptive'
-                ? adaptiveLockedToScreenshots
-                  ? 'Adaptive (using screenshots) — Click to retry video'
-                  : 'Adaptive quality — Click for Force 60fps'
                 : qualityMode === 'high'
-                ? 'Force 60fps — Click for Screenshot mode'
-                : 'Screenshot mode — Click for Adaptive quality'
+                ? 'Video mode (60fps) — Click for Screenshot mode'
+                : 'Screenshot mode — Click for Video mode'
             }
             arrow
-            slotProps={{ popper: { sx: { zIndex: 10000 } } }}
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
           >
             <span>
               <IconButton
                 size="small"
                 disabled={modeSwitchCooldown}
                 onClick={() => {
-                  // Special case: if adaptive is locked to screenshots, clicking unlocks and retries video
-                  // This is more intuitive than forcing user to cycle through all modes
-                  if (qualityMode === 'adaptive' && adaptiveLockedToScreenshots) {
-                    console.log('[MoonlightStreamViewer] Unlocking adaptive mode - retrying video');
-                    setModeSwitchCooldown(true);
-                    setAdaptiveLockedToScreenshots(false);
-                    setAdaptiveScreenshotEnabled(false);
-                    // No need to change mode - just unlock
-                    setTimeout(() => setModeSwitchCooldown(false), 3000);
-                    return;
-                  }
-
-                  // Cycle through: adaptive -> high -> low -> adaptive
+                  // Toggle between high (video) and low (screenshots)
                   // With cooldown to prevent Wolf deadlock from rapid switching
                   setModeSwitchCooldown(true);
-                  setQualityMode(prev => {
-                    if (prev === 'adaptive') return 'high';
-                    if (prev === 'high') return 'low';
-                    return 'adaptive';
-                  });
+                  setQualityMode(prev => prev === 'high' ? 'low' : 'high');
                   setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
                 }}
                 sx={{
-                  // Orange for low mode, green for adaptive (normal), amber for adaptive (locked to screenshots), white for high
-                  color: qualityMode === 'low'
-                    ? '#ff9800'  // Orange - screenshot mode
-                    : qualityMode === 'adaptive'
-                    ? adaptiveLockedToScreenshots
-                      ? '#ffb74d'  // Amber - adaptive but locked to screenshots
-                      : '#4caf50'  // Green - adaptive normal
-                    : 'white',   // White - high mode
+                  // Orange for screenshot mode, white for video mode
+                  color: qualityMode === 'low' ? '#ff9800' : 'white',
                 }}
               >
                 <Speed fontSize="small" />
@@ -1657,7 +1630,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </span>
           </Tooltip>
         )}
-        */}
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
