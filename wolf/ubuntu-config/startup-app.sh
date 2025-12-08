@@ -250,18 +250,8 @@ mkdir -p ~/.config/autostart
 
 echo "Creating GNOME autostart entries for Helix services..."
 
-# Create autostart entry for dconf settings loading (runs first, before other services)
-cat > ~/.config/autostart/helix-dconf-settings.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Helix GNOME Settings
-Exec=/bin/bash -c "dconf load / < /opt/gow/dconf-settings.ini"
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=0
-NoDisplay=true
-EOF
-
-echo "dconf settings autostart entry created"
+# NOTE: dconf settings are now loaded directly before GNOME starts (see below)
+# instead of via autostart, to ensure wallpaper and theme are set early.
 
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
 cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
@@ -341,6 +331,47 @@ echo "Zed autostart entry created"
 # (from .helix/startup.sh in the cloned repo) handles opening Firefox
 # with the correct app URL via xdg-open. Adding Firefox autostart here
 # would create duplicate windows.
+
+# ============================================================================
+# Set Firefox as Default Browser
+# ============================================================================
+# Configure Firefox as the default handler for HTTP/HTTPS URLs so xdg-open works
+echo "Setting Firefox as default browser..."
+xdg-mime default firefox.desktop x-scheme-handler/http
+xdg-mime default firefox.desktop x-scheme-handler/https
+xdg-mime default firefox.desktop text/html
+echo "Firefox set as default browser for HTTP/HTTPS URLs"
+
+# ============================================================================
+# Load dconf Settings BEFORE GNOME Starts
+# ============================================================================
+# Load dconf settings immediately to ensure wallpaper and theme are set
+# before GNOME renders the desktop (not via autostart which is too late)
+echo "Loading dconf settings..."
+dconf load / < /opt/gow/dconf-settings.ini
+echo "dconf settings loaded"
+
+# Backup: Also set wallpaper via gsettings autostart entry
+# This runs after GNOME starts in case the initial load timing is wrong
+cat > ~/.config/autostart/helix-background.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Set Ubuntu Background
+Exec=/bin/bash -c "sleep 2 && gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/warty-final-ubuntu.png' && gsettings set org.gnome.desktop.background picture-uri-dark 'file:///usr/share/backgrounds/warty-final-ubuntu.png'"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1
+NoDisplay=true
+EOF
+
+echo "Wallpaper backup autostart entry created"
+
+# ============================================================================
+# Cursor Environment Variables
+# ============================================================================
+# Try to fix double cursor issue (Gamescope software cursor + GNOME cursor)
+# WLR_NO_HARDWARE_CURSORS=1 is used in Hyprland for similar VNC cursor issues
+export WLR_NO_HARDWARE_CURSORS=1
+echo "Cursor environment variables set (WLR_NO_HARDWARE_CURSORS=1)"
 
 # ============================================================================
 # GNOME Session Startup (Zorin-compatible pattern)
