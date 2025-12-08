@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/anthropic"
@@ -102,9 +103,14 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 			q.Name = provider
 		}
 
-		return s.Store.GetProviderEndpoint(ctx, q)
+		endpoint, err := s.Store.GetProviderEndpoint(ctx, q)
+		if err == nil {
+			return endpoint, nil
+		}
+		// Fall through to check built-in providers from config
 	}
 
+	// Try database first for non-org requests
 	q := &store.GetProviderEndpointsQuery{
 		Owner: orgID,
 	}
@@ -115,5 +121,47 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 		q.Name = provider
 	}
 
-	return s.Store.GetProviderEndpoint(ctx, q)
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, q)
+	if err == nil {
+		return endpoint, nil
+	}
+
+	// Fall back to built-in Anthropic provider from environment variables
+	// This allows ANTHROPIC_API_KEY to work without database configuration
+	return s.getBuiltInProviderEndpoint(provider)
+}
+
+// getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider
+// configured via environment variables (ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE).
+// This allows the Anthropic proxy to work without requiring database configuration.
+func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.ProviderEndpoint, error) {
+	if provider != string(types.ProviderAnthropic) {
+		return nil, fmt.Errorf("provider %q not found", provider)
+	}
+
+	// Get API key from env var or file
+	apiKey := s.Cfg.Providers.Anthropic.APIKey
+	if apiKey == "" && s.Cfg.Providers.Anthropic.APIKeyFromFile != "" {
+		data, err := os.ReadFile(s.Cfg.Providers.Anthropic.APIKeyFromFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read ANTHROPIC_API_KEY_FILE: %w", err)
+		}
+		apiKey = strings.TrimSpace(string(data))
+	}
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("anthropic provider not configured: ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE not set")
+	}
+
+	return &types.ProviderEndpoint{
+		ID:             string(types.ProviderAnthropic),
+		Name:           string(types.ProviderAnthropic),
+		Description:    "Built-in Anthropic provider",
+		BaseURL:        s.Cfg.Providers.Anthropic.BaseURL,
+		APIKey:         apiKey,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		Owner:          string(types.OwnerTypeSystem),
+		OwnerType:      types.OwnerTypeSystem,
+		BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+	}, nil
 }
