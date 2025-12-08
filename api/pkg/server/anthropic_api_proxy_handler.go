@@ -162,6 +162,6 @@ func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.Pro
 		EndpointType:   types.ProviderEndpointTypeGlobal,
 		Owner:          string(types.OwnerTypeSystem),
 		OwnerType:      types.OwnerTypeSystem,
-		BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
 	}, nil
 }
