@@ -344,31 +344,27 @@ I'll give you feedback and we can iterate on any changes needed.`
     }
   }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
 
-  // Keyboard shortcuts for task actions
+  // Keyboard shortcuts for task actions (with Ctrl/Cmd modifiers to work while typing)
   useEffect(() => {
     if (!open || !displayTask) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input
-      const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return
-      }
+      const isMod = e.ctrlKey || e.metaKey
 
-      // 'j' - Toggle Just Do It mode (only for backlog tasks)
-      if (e.key === 'j' && displayTask.status === 'backlog') {
+      // Ctrl/Cmd + J - Toggle Just Do It mode (only for backlog tasks)
+      if (isMod && e.key === 'j' && displayTask.status === 'backlog') {
         e.preventDefault()
         handleToggleJustDoIt()
       }
 
-      // 's' or Enter - Start Planning (only for backlog tasks)
-      if ((e.key === 's' || e.key === 'Enter') && displayTask.status === 'backlog') {
+      // Ctrl/Cmd + Enter - Start Planning (only for backlog tasks)
+      if (isMod && e.key === 'Enter' && displayTask.status === 'backlog') {
         e.preventDefault()
         handleStartPlanning()
       }
 
-      // Escape - Close dialog
-      if (e.key === 'Escape') {
+      // Escape - Close dialog (no modifier needed)
+      if (e.key === 'Escape' && !isMod) {
         e.preventDefault()
         onClose()
       }
@@ -674,14 +670,14 @@ I'll give you feedback and we can iterate on any changes needed.`
                       startIcon={<PlayArrow />}
                       onClick={handleStartPlanning}
                       endIcon={
-                        <Box component="span" sx={{ fontSize: '0.7rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
-                          S
+                        <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                          {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
                         </Box>
                       }
                     >
                       {justDoItMode ? 'Just Do It' : 'Start Planning'}
                     </Button>
-                    <Tooltip title="Skip spec planning and start implementation immediately (keyboard: J)">
+                    <Tooltip title={`Skip spec planning and start implementation immediately (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`}>
                       <FormControlLabel
                         control={
                           <Checkbox
@@ -695,8 +691,8 @@ I'll give you feedback and we can iterate on any changes needed.`
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <Typography variant="body2">Just Do It</Typography>
-                            <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
-                              J
+                            <Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                              {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
                             </Box>
                           </Box>
                         }
