@@ -126,12 +126,16 @@ func GenerateZedMCPConfig(
 	// CRITICAL: Zed reads api_url from settings.json, NOT from ANTHROPIC_BASE_URL env var!
 	// The env vars set in wolf_executor.go are NOT used by Zed's language model providers.
 	// We must explicitly set api_url in language_models for each provider.
+	//
+	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:
+	// - Anthropic: base URL only (Zed appends /v1/messages)
+	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
 	config.LanguageModels = map[string]LanguageModelConfig{
 		"anthropic": {
-			APIURL: helixAPIURL + "/v1", // Helix Anthropic proxy
+			APIURL: helixAPIURL, // Zed appends /v1/messages
 		},
 		"openai": {
-			APIURL: helixAPIURL + "/v1", // Helix OpenAI proxy
+			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
 		},
 	}
 

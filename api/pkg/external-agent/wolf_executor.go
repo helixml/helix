@@ -231,8 +231,10 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"RUN_SWAY=1",
 		// LLM proxy configuration: Zed's built-in agent uses these for Anthropic
 		// All LLM traffic goes through Helix's proxy (uses user's token for auth, Helix has provider credentials)
+		// Note: Zed reads api_url from settings.json, not env vars. These are for CLI tools.
+		// Anthropic SDK expects base URL without /v1 (appends /v1/messages)
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", userAPIToken),
-		fmt.Sprintf("ANTHROPIC_BASE_URL=%s/v1", w.helixAPIURL),
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", w.helixAPIURL),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
