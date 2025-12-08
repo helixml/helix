@@ -521,12 +521,14 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 ---
 
-**Important:** If you need to make any code changes or modifications to files in the repository, please:
-1. Create and checkout the feature branch: `+"`git checkout -b %s`"+`
-2. Make your changes
-3. Commit and push when done: `+"`git push origin %s`"+`
+**Working in ~/work/:** All code repositories are in ~/work/. That's where you make changes.
 
-**Persistent installations:** If you need to install any software or dependencies, add the installation commands to `+"`.helix/startup.sh`"+` so they persist across session restarts. This script should be idempotent (safe to run multiple times). You can test it by running `+"`bash .helix/startup.sh`"+`.
+**If making code changes:**
+1. git checkout -b %s
+2. Make your changes
+3. git push origin %s
+
+**For persistent installs:** Add commands to .helix/startup.sh (runs at sandbox startup, must be idempotent).
 `, task.OriginalPrompt, branchName, branchName)
 
 	interaction := &types.Interaction{
