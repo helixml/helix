@@ -254,17 +254,18 @@ echo "Creating GNOME autostart entries for Helix services..."
 # instead of via autostart, to ensure wallpaper and theme are set early.
 
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
+# CRITICAL: Pass DISPLAY=:9 for X11 clipboard support (Ubuntu GNOME runs on Xwayland)
 cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Screenshot Server
-Exec=/usr/local/bin/screenshot-server
+Exec=/bin/bash -c "DISPLAY=:9 /usr/local/bin/screenshot-server"
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
 
-echo "screenshot-server autostart entry created"
+echo "screenshot-server autostart entry created (with DISPLAY=:9 for X11 clipboard)"
 
 # Autostart devilspie2 (window rule daemon - must start early, before Firefox)
 cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
