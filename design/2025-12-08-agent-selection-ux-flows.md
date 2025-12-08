@@ -36,13 +36,15 @@ When creating a new agent inline, users configure:
 - "+ Create new agent" button shows inline form with runtime + model picker
 - Updates project with new `default_helix_app_id`
 
-### 4. Create Spec Task (COMPLETED)
+### 4. Create Spec Task (COMPLETED - Same UX as Flow 1)
 **Location:** `SpecTasksPage.tsx`
 
 - Dropdown to select agent, with project's default agent **pre-selected**
 - User can override the default agent for this specific task
 - If project has no `default_helix_app_id`, auto-selects first zed_external agent
-- If no agents exist: shows option to create one inline
+- If no agents exist: shows inline form with runtime + model picker (same as Flow 1)
+- "+ Create new agent" button shows inline form
+- External agents shown with "External Agent" chip badge
 
 ## Key Requirements
 

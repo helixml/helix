@@ -64,7 +64,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   onClose,
   onSelect,
   title = 'Select Agent',
-  description = 'Choose an agent to use for this project. Agents with the External Agent type are recommended for code development tasks.',
+  description = 'Choose a default agent for this project. You can override this when creating individual tasks.',
 }) => {
   const { apps, loadApps, createAgent } = useContext(AppsContext)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
