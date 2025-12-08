@@ -60,6 +60,11 @@ else
     echo "✅ Git user.email: agent@helix.ml (default)"
 fi
 
+# Configure git to use merge commits (not rebase) for concurrent agent work
+# This is simpler for agents to handle when multiple agents push to helix-specs concurrently
+git config --global pull.rebase false
+echo "✅ Git pull strategy: merge (for concurrent agent compatibility)"
+
 # Configure git credentials for HTTP operations (MUST happen before cloning!)
 # Use user's API token for RBAC-enforced git operations
 if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then

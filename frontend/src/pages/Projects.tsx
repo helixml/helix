@@ -25,6 +25,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
+import useApps from '../hooks/useApps'
 import {
   useListProjects,
   useListSampleProjects,
@@ -41,6 +42,27 @@ const Projects: FC = () => {
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
   const api = useApi()
+  const apps = useApps()
+
+  // Load apps on mount to get app names for project lozenges
+  React.useEffect(() => {
+    if (account.user?.id) {
+      apps.loadApps()
+    }
+  }, [account.user?.id])
+
+  // Create a map of app ID -> app name for displaying in project cards
+  const appNamesMap = React.useMemo(() => {
+    const map: Record<string, string> = {}
+    if (apps.apps) {
+      apps.apps.forEach((app) => {
+        if (app.id) {
+          map[app.id] = app.config?.helix?.name || 'Unnamed Agent'
+        }
+      })
+    }
+    return map
+  }, [apps.apps])
 
   // Check if org slug is set in the URL
   // const orgSlug = router.params.org_id || ''
@@ -417,6 +439,7 @@ const Projects: FC = () => {
             onCreateFromSample={handleInstantiateSample}
             sampleProjects={sampleProjects}
             isCreating={instantiateSampleMutation.isPending}
+            appNamesMap={appNamesMap}
           />
         )}
 

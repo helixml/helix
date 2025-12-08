@@ -12,9 +12,10 @@ import {
   TextField,
   InputAdornment,
   Pagination,
+  Chip,
+  Tooltip,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import SettingsIcon from '@mui/icons-material/Settings'
 import SearchIcon from '@mui/icons-material/Search'
 import { Kanban } from 'lucide-react'
 
@@ -39,6 +40,7 @@ interface ProjectsListViewProps {
   onCreateFromSample: (sampleId: string, sampleName: string) => Promise<void>
   sampleProjects: ServerSampleProject[]
   isCreating: boolean
+  appNamesMap?: Record<string, string>
 }
 
 const ProjectsListView: FC<ProjectsListViewProps> = ({
@@ -58,6 +60,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   onCreateFromSample,
   sampleProjects,
   isCreating,
+  appNamesMap = {},
 }) => {
   return (
     <>
@@ -162,6 +165,24 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                     }}>
                       {project.description}
                     </Typography>
+                  )}
+                  {/* Agent lozenge - show if project has a default agent */}
+                  {project.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
+                    <Tooltip title="Default agent for this project">
+                      <Chip
+                        label={appNamesMap[project.default_helix_app_id]}
+                        size="small"
+                        sx={{
+                          mt: 1.5,
+                          background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          fontWeight: 500,
+                          fontSize: '0.75rem',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                        }}
+                      />
+                    </Tooltip>
                   )}
                 </CardContent>
                 <CardActions>

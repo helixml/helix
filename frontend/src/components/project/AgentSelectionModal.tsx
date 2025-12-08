@@ -17,15 +17,18 @@ import {
   Divider,
   TextField,
   Alert,
-  Chip,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
+  IconButton,
+  Tooltip,
 } from '@mui/material'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import AddIcon from '@mui/icons-material/Add'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import EditIcon from '@mui/icons-material/Edit'
+
+import useAccount from '../../hooks/useAccount'
 
 import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName, CODE_AGENT_RUNTIME_DISPLAY_NAMES } from '../../contexts/apps'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
@@ -66,6 +69,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
   title = 'Select Agent',
   description = 'Choose a default agent for this project. You can override this when creating individual tasks.',
 }) => {
+  const account = useAccount()
   const { apps, loadApps, createAgent } = useContext(AppsContext)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -197,12 +201,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
     onClose()
   }
 
-  const isZedExternalApp = (app: IApp): boolean => {
-    return app.config?.helix?.assistants?.some(
-      (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-  }
-
   return (
     <Dialog
       open={open}
@@ -222,7 +220,6 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
             {sortedApps.length > 0 ? (
               <List sx={{ pt: 0 }}>
                 {sortedApps.map((app) => {
-                  const isZedExternal = isZedExternalApp(app)
                   const isSelected = selectedAgentId === app.id
 
                   return (
@@ -235,6 +232,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                           mb: 0.5,
                           border: isSelected ? '2px solid' : '1px solid',
                           borderColor: isSelected ? 'primary.main' : 'divider',
+                          pr: 10, // Make room for edit and check icons
                         }}
                       >
                         <ListItemIcon>
@@ -246,26 +244,25 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                           </Avatar>
                         </ListItemIcon>
                         <ListItemText
-                          primary={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="subtitle2">
-                                {app.config?.helix?.name || 'Unnamed Agent'}
-                              </Typography>
-                              {isZedExternal && (
-                                <Chip
-                                  label="External Agent"
-                                  size="small"
-                                  color="primary"
-                                  sx={{ height: 20, fontSize: '0.7rem' }}
-                                />
-                              )}
-                            </Box>
-                          }
+                          primary={app.config?.helix?.name || 'Unnamed Agent'}
                           secondary={app.config?.helix?.description || 'No description'}
                         />
-                        {isSelected && (
-                          <CheckCircleIcon color="primary" />
-                        )}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Tooltip title="Edit agent">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                account.orgNavigate('app', { app_id: app.id })
+                              }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          {isSelected && (
+                            <CheckCircleIcon color="primary" />
+                          )}
+                        </Box>
                       </ListItemButton>
                     </ListItem>
                   )

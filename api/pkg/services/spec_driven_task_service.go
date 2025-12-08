@@ -185,9 +185,19 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
 func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
+	// Add panic recovery for debugging
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Str("task_id", task.ID).Msg("PANIC in StartSpecGeneration")
+		}
+	}()
+
+	log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("DEBUG: StartSpecGeneration entered")
+
 	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
 	if task.HelixAppID == "" {
 		task.HelixAppID = s.helixAgentID
+		log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("DEBUG: Set default HelixAppID")
 	}
 
 	log.Info().
@@ -266,6 +276,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Update task with session ID
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: About to update task with session ID")
 	task.PlanningSessionID = session.ID
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -273,12 +284,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
 		return
 	}
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Task updated with session ID")
 
 	// Generate request_id for initial message and register the mapping
 	// This allows the WebSocket handler to find and send the initial message to Zed
 	requestID := system.GenerateRequestID()
+	log.Debug().Str("task_id", task.ID).Str("request_id", requestID).Msg("DEBUG: Generated request ID")
 	if s.RegisterRequestMapping != nil {
 		s.RegisterRequestMapping(requestID, session.ID)
+		log.Debug().Str("task_id", task.ID).Msg("DEBUG: Registered request mapping")
 	}
 
 	// Create initial interaction combining planning instructions with user's request
@@ -299,15 +313,18 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		State:         types.InteractionStateWaiting,
 	}
 
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
 	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
 		return
 	}
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Created initial interaction")
 
 	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
 	// Get parent project to access repository configuration
+	log.Debug().Str("task_id", task.ID).Str("project_id", task.ProjectID).Msg("DEBUG: About to get project")
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
@@ -348,8 +365,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
+		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
 		ProjectPath:         "workspace",        // Use relative path
@@ -361,8 +380,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
+
+	// Check if executor is nil
+	if s.externalAgentExecutor == nil {
+		log.Error().Str("task_id", task.ID).Msg("ERROR: externalAgentExecutor is nil!")
+		s.markTaskFailed(ctx, task, "externalAgentExecutor is nil")
+		return
+	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
 	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
@@ -565,6 +593,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
+		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
 		ProjectPath:         "workspace",        // Use relative path

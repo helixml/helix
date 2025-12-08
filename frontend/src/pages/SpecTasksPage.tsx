@@ -16,6 +16,8 @@ import {
   CircularProgress,
   List,
   ListItem,
+  ListItemButton,
+  ListItemIcon,
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
@@ -23,6 +25,7 @@ import {
   Checkbox,
   FormControlLabel,
   Tooltip,
+  Avatar,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -31,6 +34,7 @@ import {
   Close as CloseIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
+  SmartToy as SmartToyIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
@@ -67,6 +71,7 @@ import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
 import { useSpecTasks } from '../hooks/useSpecTasks';
 import { useFloatingModal } from '../contexts/floatingModal';
+import EditIcon from '@mui/icons-material/Edit';
 import {
   useGetProject,
   useGetProjectRepositories,
@@ -151,18 +156,30 @@ const SpecTasksPage: FC = () => {
   // Task detail windows state - array to support multiple windows
   const [openTaskWindows, setOpenTaskWindows] = useState<TypesSpecTask[]>([]);
 
+  // Track newly created task ID for focusing "Start Planning" button
+  const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
+
   // Ref for task prompt text field to manually focus
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
   // Data hooks
   const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
 
-  // Sort apps: zed_external first, then others
+  // Sort apps: project default first, then zed_external, then others
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
     const zedExternalApps: IApp[] = [];
     const otherApps: IApp[] = [];
+    let defaultApp: IApp | null = null;
+    const projectDefaultId = project?.default_helix_app_id;
+
     apps.apps.forEach((app) => {
+      // Pull out the project's default agent to pin at top
+      if (projectDefaultId && app.id === projectDefaultId) {
+        defaultApp = app;
+        return;
+      }
+
       const hasZedExternal = app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
@@ -172,14 +189,26 @@ const SpecTasksPage: FC = () => {
         otherApps.push(app);
       }
     });
-    return [...zedExternalApps, ...otherApps];
-  }, [apps.apps]);
 
-  const isZedExternalApp = (app: IApp): boolean => {
-    return app.config?.helix?.assistants?.some(
-      (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
-  };
+    // Project default first, then zed_external, then others
+    const result: IApp[] = [];
+    if (defaultApp) result.push(defaultApp);
+    result.push(...zedExternalApps, ...otherApps);
+    return result;
+  }, [apps.apps, project?.default_helix_app_id]);
+
+  // Create a map of app ID -> app name for displaying agent names
+  const appNamesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (apps.apps) {
+      apps.apps.forEach((app) => {
+        if (app.id) {
+          map[app.id] = app.config?.helix?.name || 'Unnamed Agent';
+        }
+      });
+    }
+    return map;
+  }, [apps.apps]);
 
   // Auto-generate agent name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
@@ -417,6 +446,14 @@ const SpecTasksPage: FC = () => {
         setUserModifiedName(false);
         setAgentError('');
 
+        // Set focusTaskId to focus the Start Planning button on the new task
+        const newTaskId = response.data.id;
+        if (newTaskId) {
+          setFocusTaskId(newTaskId);
+          // Clear focus after a few seconds so it doesn't persist
+          setTimeout(() => setFocusTaskId(undefined), 5000);
+        }
+
         // Trigger immediate refresh of Kanban board
         setRefreshTrigger(prev => prev + 1);
       }
@@ -490,6 +527,34 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
+          {/* Project's default agent lozenge */}
+          {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
+            <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
+              <Chip
+                label={appNamesMap[project.default_helix_app_id]}
+                size="small"
+                onClick={() => {
+                  if (project.default_helix_app_id) {
+                    account.orgNavigate('app', { app_id: project.default_helix_app_id });
+                  }
+                }}
+                sx={{
+                  flexShrink: 0,
+                  cursor: 'pointer',
+                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500,
+                  fontSize: '0.75rem',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                  '&:hover': {
+                    background: 'linear-gradient(145deg, rgba(130, 130, 150, 0.95) 0%, rgba(100, 100, 120, 1) 50%, rgba(80, 80, 100, 0.95) 100%)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.25)',
+                  },
+                }}
+              />
+            </Tooltip>
+          )}
           {!exploratorySessionData ? (
             <Button
               variant="outlined"
@@ -611,6 +676,7 @@ const SpecTasksPage: FC = () => {
               }}
               refreshing={refreshing}
               refreshTrigger={refreshTrigger}
+              focusTaskId={focusTaskId}
             />
           </Box>
         </Box>
@@ -703,50 +769,75 @@ Examples:
                 inputRef={taskPromptRef}
               />
 
-              {/* Agent Selection (same UX as CreateProjectDialog) */}
+              {/* Agent Selection (same UX as AgentSelectionModal) */}
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                   Agent for Spec Tasks
                 </Typography>
                 {!showCreateAgentForm ? (
                   <>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Select Agent</InputLabel>
-                      <Select
-                        value={selectedHelixAgent}
-                        onChange={(e) => setSelectedHelixAgent(e.target.value)}
-                        label="Select Agent"
-                        renderValue={(value) => {
-                          const app = sortedApps.find(a => a.id === value);
-                          return app?.config?.helix?.name || 'Select Agent';
-                        }}
-                      >
-                        {sortedApps.map((app) => (
-                          <MenuItem key={app.id} value={app.id}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                              <span>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-                              {isZedExternalApp(app) && (
-                                <Chip
-                                  label="External Agent"
-                                  size="small"
-                                  color="primary"
-                                  sx={{ height: 18, fontSize: '0.65rem', ml: 'auto' }}
+                    {/* Existing agents list - same style as AgentSelectionModal */}
+                    {sortedApps.length > 0 ? (
+                      <List sx={{ pt: 0, maxHeight: 200, overflow: 'auto' }}>
+                        {sortedApps.map((app) => {
+                          const isSelected = selectedHelixAgent === app.id;
+
+                          return (
+                            <ListItem
+                              key={app.id}
+                              disablePadding
+                              secondaryAction={
+                                <Tooltip title="Edit agent">
+                                  <IconButton
+                                    edge="end"
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      account.orgNavigate('app', { app_id: app.id });
+                                    }}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              }
+                            >
+                              <ListItemButton
+                                selected={isSelected}
+                                onClick={() => setSelectedHelixAgent(app.id)}
+                                sx={{
+                                  borderRadius: 1,
+                                  mb: 0.5,
+                                  border: isSelected ? '2px solid' : '1px solid',
+                                  borderColor: isSelected ? 'primary.main' : 'divider',
+                                  pr: 6, // Make room for edit button
+                                }}
+                              >
+                                <ListItemIcon>
+                                  <Avatar
+                                    src={app.config?.helix?.avatar}
+                                    sx={{ width: 40, height: 40 }}
+                                  >
+                                    <SmartToyIcon />
+                                  </Avatar>
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={app.config?.helix?.name || 'Unnamed Agent'}
+                                  secondary={app.config?.helix?.description || 'No description'}
                                 />
-                              )}
-                            </Box>
-                          </MenuItem>
-                        ))}
-                        {sortedApps.length === 0 && (
-                          <MenuItem disabled value="">
-                            No agents available
-                          </MenuItem>
-                        )}
-                      </Select>
-                    </FormControl>
+                              </ListItemButton>
+                            </ListItem>
+                          );
+                        })}
+                      </List>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        No agents available. Create one below.
+                      </Typography>
+                    )}
                     <Button
                       size="small"
                       onClick={() => setShowCreateAgentForm(true)}
-                      sx={{ alignSelf: 'flex-start', mt: 0.5 }}
+                      sx={{ mt: 1 }}
                     >
                       + Create new agent
                     </Button>

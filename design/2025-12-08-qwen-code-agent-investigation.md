@@ -175,19 +175,29 @@ The UI has the real command because it reads from settings. External sync passes
 
 ### The Fix
 
-Add `HelixSessionID` when creating the ZedAgent request in `spec_task_orchestrator_handlers.go`:
+Add `HelixSessionID` when creating the ZedAgent request in **ALL** places where spec task agents are created:
 
-```go
-agentReq := &types.ZedAgent{
-    SessionID:           externalAgent.ID,
-    HelixSessionID:      task.PlanningSessionID,  // ADD THIS LINE
-    UserID:              task.CreatedBy,
-    // ... rest of fields ...
-}
-```
+**Files that needed fixing:**
 
-**File that needs fixing:**
-- `api/pkg/server/spec_task_orchestrator_handlers.go:448-460` - Add `HelixSessionID: task.PlanningSessionID`
+1. **`api/pkg/server/spec_task_orchestrator_handlers.go:448-460`** - Agent resurrection
+   ```go
+   HelixSessionID: task.PlanningSessionID,  // FIXED
+   ```
+
+2. **`api/pkg/services/spec_driven_task_service.go:351`** - Spec generation (planning phase)
+   ```go
+   HelixSessionID: session.ID,  // FIXED
+   ```
+
+3. **`api/pkg/services/spec_driven_task_service.go:566`** - Just Do It mode
+   ```go
+   HelixSessionID: session.ID,  // FIXED
+   ```
+
+4. **`api/pkg/services/spec_task_orchestrator.go:401`** - Orchestrator agent creation
+   ```go
+   HelixSessionID: task.PlanningSessionID,  // FIXED
+   ```
 
 ### Why This Fixes Everything
 
@@ -208,11 +218,37 @@ With `HelixSessionID` set correctly:
 
 **Fix:** Added `HelixSessionID: task.PlanningSessionID` to the agentReq in `spec_task_orchestrator_handlers.go:450`.
 
-### Issue 2: "Zed says talking to zed agent" - FIXED
+### Issue 2: "Zed says talking to zed agent" - FIXED (Two Parts)
 
-**Root cause:** Same as Issue 1 - without the correct session ID, the API couldn't look up the code agent runtime from the spec task's app configuration.
+**Part A - Settings sync not working:**
+Same as Issue 1 - without the correct session ID, the API couldn't look up the code agent runtime from the spec task's app configuration.
 
 **Fix:** Same fix as Issue 1.
+
+**Part B - UI label wrong even when qwen IS being used:**
+
+Even after Part A was fixed and qwen was actually being used as the agent, the UI still showed "chatting to Zed Agent" because:
+
+1. `from_existing_thread()` in `thread_view.rs` **always** created a `NativeAgent` server:
+   ```rust
+   // thread_view.rs:349 (before fix)
+   let agent = crate::ExternalAgent::NativeAgent.server(fs.clone(), history_store.clone());
+   ```
+
+2. `ThreadDisplayNotification` didn't include the agent name, so there was no way to know which agent created the thread.
+
+**Fix (in zed crate):**
+
+1. Added `agent_name: Option<String>` to `ThreadDisplayNotification`
+2. Updated `thread_service.rs` to pass `request.agent_name` through the notification
+3. Updated `from_existing_thread()` to accept and use the agent name:
+   ```rust
+   let agent = match external_agent_name.as_deref() {
+       Some("zed-agent") | None => crate::ExternalAgent::NativeAgent.server(...),
+       Some(name) => crate::ExternalAgent::Custom { name: name.into(), ... }.server(...),
+   };
+   ```
+4. Updated `agent_panel.rs` to pass the agent name from notification to `from_existing_thread()`
 
 ## Verification Steps
 
@@ -271,7 +307,32 @@ With `HelixSessionID` set correctly:
 
 ## Next Steps
 
-1. [ ] Add debug endpoint to inspect current session's agent configuration
-2. [ ] Add logs to trace agent_name from spec task → app → assistant config
-3. [ ] Verify language_models.anthropic.api_url is being set correctly
-4. [ ] Test end-to-end with explicit qwen_code configuration
+1. [x] ~~Add debug endpoint to inspect current session's agent configuration~~ - Not needed, flow works
+2. [x] ~~Add logs to trace agent_name from spec task → app → assistant config~~ - Flow verified working
+3. [x] ~~Verify language_models.anthropic.api_url is being set correctly~~ - Verified
+4. [x] **Test end-to-end with explicit qwen_code configuration** - VERIFIED WORKING!
+
+## Verification Results (2025-12-08)
+
+Successfully tested end-to-end with qwen_code runtime:
+
+1. **Task created with qwen_code app**: `spt_01kbyn1taf1jrjxqt4qs12mk5t` using `app_01kbyn1t5cb4mqtmjmb67aynfp`
+2. **StartZedAgent called successfully**: Container `zed-external-01kbynnbahjnk265f2e9k96sbq` launched
+3. **HelixSessionID correctly set**: `ses_01kbynnbahjnk265f2e9k96sbq`
+4. **settings-sync-daemon wrote correct config**:
+   ```json
+   {
+     "agent_servers": {
+       "qwen": {
+         "command": "qwen",
+         "args": ["--experimental-acp", "--no-telemetry"],
+         "env": {
+           "OPENAI_API_KEY": "...",
+           "OPENAI_BASE_URL": "http://api:8080/v1",
+           "OPENAI_MODEL": "nebius/Qwen/Qwen3-Coder-30B-A3B-Instruct"
+         }
+       }
+     }
+   }
+   ```
+5. **Zed is running and can use qwen agent**
