@@ -71,6 +71,13 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 	}
 
+	// Log TLS configuration prominently for debugging enterprise deployments
+	log.Info().
+		Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
+		Str("env_var", "TOOLS_TLS_SKIP_VERIFY").
+		Str("how_to_set", "set in .env for Docker Compose, or extraEnv in Helm chart").
+		Msg("Provider manager TLS configuration loaded")
+
 	if cfg.Providers.OpenAI.APIKey != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).

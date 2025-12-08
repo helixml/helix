@@ -2,6 +2,7 @@ package sharepoint
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -101,9 +102,18 @@ type DownloadedFile struct {
 }
 
 // NewClient creates a new SharePoint client with the given access token
-func NewClient(accessToken string) *Client {
+func NewClient(accessToken string, tlsSkipVerify bool) *Client {
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	return &Client{
-		httpClient:  &http.Client{},
+		httpClient:  httpClient,
 		accessToken: accessToken,
 	}
 }

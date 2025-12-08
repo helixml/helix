@@ -56,15 +56,41 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 
 	// Configure TLS skip verify if enabled
 	if cfg.Tools.TLSSkipVerify {
-		p.anthropicReverseProxy.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
+		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
+		// then add InsecureSkipVerify
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
 		}
+		p.anthropicReverseProxy.Transport = transport
+		log.Info().
+			Bool("tls_skip_verify", true).
+			Msg("Anthropic proxy configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
+	} else {
+		log.Debug().
+			Bool("tls_skip_verify", false).
+			Msg("Anthropic proxy using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
 	}
 
 	p.anthropicReverseProxy.ModifyResponse = p.anthropicAPIProxyModifyResponse
 	p.anthropicReverseProxy.Director = p.anthropicAPIProxyDirector
+
+	// Add error handler to log TLS errors clearly
+	p.anthropicReverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		errStr := err.Error()
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", r.URL.String()).
+				Msg("ANTHROPIC PROXY TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+		} else {
+			log.Error().
+				Err(err).
+				Str("url", r.URL.String()).
+				Msg("Anthropic proxy error")
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}
 
 	return p
 }
