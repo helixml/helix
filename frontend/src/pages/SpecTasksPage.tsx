@@ -308,6 +308,7 @@ const SpecTasksPage: FC = () => {
   }, [createDialogOpen]);
 
   // Keyboard shortcut: Ctrl/Cmd+Enter to submit task (when dialog is open)
+  // Note: dependencies include justDoItMode to ensure the handler captures the current value
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -322,7 +323,7 @@ const SpecTasksPage: FC = () => {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen, taskPrompt]);
+  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
 
   // Keyboard shortcut: ESC to close create task panel
   useEffect(() => {
