@@ -116,6 +116,37 @@ git push origin fix/descriptive-name
 
 **Exception:** User may explicitly grant permission to push to main for urgent fixes. Always confirm first.
 
+## 🚨 CRITICAL: NEVER AMEND COMMITS ON MAIN 🚨
+
+**NEVER use `git commit --amend` on commits that are on the main branch**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN on main branch
+git commit --amend                     # NEVER DO THIS ON MAIN
+git commit --amend -m "new message"    # OR THIS
+git commit --amend --no-edit           # OR THIS
+
+# ✅ CORRECT: Create a new commit instead
+git commit -m "fix: correct the previous change"
+```
+
+**Why this is forbidden:**
+- Amending rewrites history, which breaks other developers' work
+- Main branch is shared - rewriting it causes merge conflicts for everyone
+- User may have already pulled the commit you're amending
+- Force push would be required, which is also forbidden
+
+**What to do instead:**
+1. **Create a new commit** with the fix
+2. **If you made a mistake in a commit message**, create a new commit with a note
+3. **If the user asks you to amend**, confirm they understand the implications
+4. **Only amend on feature branches** before they're merged to main
+
+**If you accidentally committed to main:**
+- DON'T try to fix it with amend or reset
+- Create a new commit that corrects the mistake
+- Or ASK THE USER how they want to handle it
+
 ## 🚨 CRITICAL: NEVER USE git checkout/reset ON ENTIRE DIRECTORY 🚨
 
 **NEVER use `git checkout -- .` or `git reset` with `.` or without specific file paths**
