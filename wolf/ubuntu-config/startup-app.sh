@@ -388,15 +388,31 @@ echo "Firefox set as default browser for HTTP/HTTPS URLs"
 # Trying to load dconf here fails because D-Bus isn't available yet.
 # The desktop.sh script runs after xorg.sh starts Xwayland and D-Bus.
 
+# CRITICAL: Fix display resolution after GNOME/Mutter starts
+# Mutter resets the resolution to its preferred mode (5120x2880) after xorg.sh sets it.
+# This autostart entry runs after GNOME starts and sets the correct resolution.
+# The resolution must match GAMESCOPE_WIDTH x GAMESCOPE_HEIGHT for proper rendering.
+cat > ~/.config/autostart/helix-resolution.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Fix Display Resolution
+Exec=/bin/bash -c "sleep 1 && xrandr --output XWAYLAND0 --mode ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} && echo 'Resolution set to ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}' >> /tmp/ubuntu-startup-debug.log"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+
+echo "Resolution fix autostart entry created (${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080})"
+
 # Backup: Also set wallpaper via gsettings autostart entry
-# This runs after GNOME starts in case the initial load timing is wrong
+# This runs after GNOME starts AND after resolution is fixed
 cat > ~/.config/autostart/helix-background.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Set Ubuntu Background
-Exec=/bin/bash -c "sleep 2 && gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/warty-final-ubuntu.png' && gsettings set org.gnome.desktop.background picture-uri-dark 'file:///usr/share/backgrounds/warty-final-ubuntu.png'"
+Exec=/bin/bash -c "sleep 3 && gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/warty-final-ubuntu.png' && gsettings set org.gnome.desktop.background picture-uri-dark 'file:///usr/share/backgrounds/warty-final-ubuntu.png'"
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=1
+X-GNOME-Autostart-Delay=2
 NoDisplay=true
 EOF
 

@@ -155,18 +155,87 @@ ENABLE_REVDIAL="false"              # RevDial client for API communication
 
 ## Wallpaper Investigation
 
-### Current State
+### ROOT CAUSE FOUND: Resolution Mismatch
+
+The wallpaper not showing is caused by **Mutter resetting the display resolution after xorg.sh sets it**.
+
+**Timeline:**
+1. xorg.sh starts Xwayland at default resolution (5120x2880)
+2. xorg.sh calls `xrandr --mode 1920x1080` to set the target resolution
+3. GNOME Shell/Mutter starts and **resets resolution to 5120x2880** (its preferred mode)
+4. Wallpaper (3840x2160 PNG) fails to render correctly at the wrong resolution
+
+**Evidence:**
+```bash
+# Gamescope expects 1920x1080
+docker exec ... env | grep GAMESCOPE
+# GAMESCOPE_WIDTH=1920
+# GAMESCOPE_HEIGHT=1080
+
+# But Xwayland runs at 5120x2880
+docker exec -u retro <ID> bash -c "DISPLAY=:9 xrandr"
+# current 5120 x 2880  <-- WRONG!
+```
+
+**Fix:** Set resolution AFTER Mutter starts, or configure Mutter to use 1920x1080 by default via monitors.xml:
+```bash
+# Manual fix in running container:
+docker exec -u retro <ID> bash -c "DISPLAY=:9 xrandr --output XWAYLAND0 --mode 1920x1080"
+docker exec -u retro <ID> bash -c "DISPLAY=:9 gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/warty-final-ubuntu.png'"
+```
+
+### Proper Fix: Create monitors.xml for Mutter
+
+Create `~/.config/monitors.xml` BEFORE GNOME session starts to tell Mutter the correct resolution:
+
+```xml
+<monitors version="2">
+  <configuration>
+    <logicalmonitor>
+      <x>0</x>
+      <y>0</y>
+      <scale>1</scale>
+      <primary>yes</primary>
+      <monitor>
+        <monitorspec>
+          <connector>XWAYLAND0</connector>
+          <vendor>unknown</vendor>
+          <product>unknown</product>
+          <serial>unknown</serial>
+        </monitorspec>
+        <mode>
+          <width>1920</width>
+          <height>1080</height>
+          <rate>59.96</rate>
+        </mode>
+      </monitor>
+    </logicalmonitor>
+  </configuration>
+</monitors>
+```
+
+### Alternative Fix: Set resolution in autostart
+
+Create an autostart entry that runs AFTER GNOME Shell is ready:
+```bash
+# ~/.config/autostart/fix-resolution.desktop
+[Desktop Entry]
+Type=Application
+Name=Fix Resolution
+Exec=bash -c "sleep 2 && xrandr --output XWAYLAND0 --mode 1920x1080"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+```
+
+### Previous Investigation (for reference)
+
+#### Current State
 - gsettings shows correct picture-uri
 - PNG file exists and is valid (3840x2160)
 - GNOME renders solid purple (#2C001E) as fallback
 
-### Possible Causes
-1. GNOME background service not starting
-2. Timing issue - settings applied before service ready
-3. Xwayland/Gamescope rendering limitation
-4. File permission or path issue
-
-### Debug Steps
+#### Debug Steps
 ```bash
 # Check if gsd-background is running (it's not a separate process in GNOME 40+)
 docker exec helix-sandbox-nvidia-1 docker exec <ID> ps aux | grep gsd
@@ -187,13 +256,18 @@ docker exec helix-sandbox-nvidia-1 docker exec -u retro <ID> \
 |------|--------|--------|
 | 2025-12-08 | Added DISPLAY=:9 to position-windows.sh | wmctrl can connect |
 | 2025-12-08 | Changed wmctrl -l to wmctrl -lx | Zed found by class |
-| 2025-12-08 | TODO: Minimal startup | Pending |
+| 2025-12-08 | Added feature flags to startup-app.sh | Minimal mode works |
+| 2025-12-08 | Increased inotify max_user_instances to 1024 | Zed inotify error fixed |
+| 2025-12-08 | Found wallpaper root cause: resolution mismatch | Mutter resets to 5120x2880 |
+| 2025-12-08 | Added helix-resolution.desktop autostart | Fixes resolution after GNOME starts |
 
 ---
 
 ## Next Steps
 
-1. **IMMEDIATE**: Increase inotify limits on host
-2. Create minimal startup-app.sh that only launches GNOME
-3. Test wallpaper rendering with no other apps
-4. Incrementally add features back
+1. ~~**IMMEDIATE**: Increase inotify limits on host~~ ✅ DONE (set to 1024)
+2. ~~Create minimal startup-app.sh that only launches GNOME~~ ✅ DONE (feature flags)
+3. ~~Find wallpaper root cause~~ ✅ DONE (resolution mismatch - Mutter resets to 5120x2880)
+4. **Rebuild and test**: `git commit && ./stack build-ubuntu` and launch new container
+5. Verify wallpaper shows after resolution fix
+6. Incrementally enable feature flags one at a time
