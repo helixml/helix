@@ -33,6 +33,13 @@ type Project struct {
 	// New spec tasks inherit this agent; can be overridden per-task
 	DefaultHelixAppID string `json:"default_helix_app_id,omitempty" gorm:"type:varchar(255)"`
 
+	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
+	// Combined with organization guidelines when constructing prompts
+	Guidelines          string    `json:"guidelines" gorm:"type:text"`
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
+
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
 	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
@@ -134,6 +141,7 @@ type ProjectCreateRequest struct {
 	DefaultRepoID     string   `json:"default_repo_id,omitempty"`
 	StartupScript     string   `json:"startup_script,omitempty"`
 	DefaultHelixAppID string   `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
+	Guidelines        string   `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
 }
 
 // ProjectUpdateRequest represents a request to update a project
@@ -148,6 +156,7 @@ type ProjectUpdateRequest struct {
 	StartupScript         *string          `json:"startup_script,omitempty"`
 	AutoStartBacklogTasks *bool            `json:"auto_start_backlog_tasks,omitempty"`
 	DefaultHelixAppID     *string          `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
+	Guidelines            *string          `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
 	Metadata              *ProjectMetadata `json:"metadata,omitempty"`
 }
 
@@ -280,4 +289,18 @@ type WIPLimits struct {
 	Planning       int `json:"planning"`
 	Review         int `json:"review"`
 	Implementation int `json:"implementation"`
+}
+
+// GuidelinesHistory tracks versions of guidelines for organizations and projects
+type GuidelinesHistory struct {
+	ID             string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	OrganizationID string    `json:"organization_id,omitempty" gorm:"type:varchar(255);index"` // Set for org-level guidelines
+	ProjectID      string    `json:"project_id,omitempty" gorm:"type:varchar(255);index"`      // Set for project-level guidelines
+	Version        int       `json:"version"`
+	Guidelines     string    `json:"guidelines" gorm:"type:text"`
+	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"`  // User ID
+	UpdatedByName  string    `json:"updated_by_name" gorm:"-"`             // User display name (not persisted, populated at query time)
+	UpdatedByEmail string    `json:"updated_by_email" gorm:"-"`            // User email (not persisted, populated at query time)
+	UpdatedAt      time.Time `json:"updated_at"`
+	ChangeNote     string    `json:"change_note,omitempty" gorm:"type:text"` // Optional description of what changed
 }

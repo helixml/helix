@@ -3995,6 +3995,35 @@ definitions:
       workload_id:
         type: string
     type: object
+  types.GuidelinesHistory:
+    properties:
+      change_note:
+        description: Optional description of what changed
+        type: string
+      guidelines:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: Set for org-level guidelines
+        type: string
+      project_id:
+        description: Set for project-level guidelines
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        description: User ID
+        type: string
+      updated_by_email:
+        description: User email (not persisted, populated at query time)
+        type: string
+      updated_by_name:
+        description: User display name (not persisted, populated at query time)
+        type: string
+      version:
+        type: integer
+    type: object
   types.HelpRequest:
     properties:
       app_id:
@@ -5004,6 +5033,19 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       display_name:
         type: string
+      guidelines:
+        description: Guidelines for AI agents - style guides, conventions, and instructions
+          that apply to all projects
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       memberships:
@@ -5194,6 +5236,20 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      guidelines:
+        description: |-
+          Guidelines for AI agents - project-specific style guides, conventions, and instructions
+          Combined with organization guidelines when constructing prompts
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       metadata:
@@ -5231,6 +5287,9 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
+        type: string
       name:
         type: string
       organization_id:
@@ -5261,6 +5320,9 @@ definitions:
       description:
         type: string
       github_repo_url:
+        type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
         type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
@@ -7699,20 +7761,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -11403,6 +11465,43 @@ paths:
       summary: Update an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization guidelines history
+      tags:
+      - Organizations
   /api/v1/organizations/{id}/members:
     get:
       description: List members of an organization
@@ -11916,6 +12015,43 @@ paths:
       security:
       - BearerAuth: []
       summary: Start project exploratory session
+      tags:
+      - Projects
+  /api/v1/projects/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project guidelines history
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:

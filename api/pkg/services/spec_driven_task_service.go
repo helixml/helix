@@ -224,19 +224,35 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create Zed external agent session for spec generation
 	// Planning agent needs git access to commit design docs to helix-specs branch
-	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task)
 
-	// Get organization ID from the project
+	// Get project and organization for guidelines
 	orgID := ""
+	guidelines := ""
 	if task.ProjectID != "" {
 		project, err := s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
 		} else if project != nil {
 			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
 		}
 	}
+
+	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
+	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
@@ -452,14 +468,29 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	// Create Zed external agent session for implementation
 	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
 
-	// Get organization ID from the project
+	// Get organization ID and guidelines from the project
 	orgID := ""
+	guidelines := ""
 	if task.ProjectID != "" {
 		project, err := s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
 		} else if project != nil {
 			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
 		}
 	}
 
@@ -517,8 +548,21 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// In Just Do It mode, send the user's prompt with brief branch instructions
 	// Keep it minimal - no detailed spec generation instructions, just branch info
-	promptWithBranch := fmt.Sprintf(`%s
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = fmt.Sprintf(`
+## Guidelines
 
+Follow these guidelines when making changes:
+
+%s
+
+---
+`, guidelines)
+	}
+
+	promptWithBranch := fmt.Sprintf(`%s
+%s
 ---
 
 **Working in ~/work/:** All code repositories are in ~/work/. That's where you make changes.
@@ -529,7 +573,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 3. git push origin %s
 
 **For persistent installs:** Add commands to .helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, branchName, branchName)
+`, task.OriginalPrompt, guidelinesSection, branchName, branchName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),

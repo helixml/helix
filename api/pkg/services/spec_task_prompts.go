@@ -11,7 +11,8 @@ import (
 // This is the canonical planning prompt - used by both:
 // - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
-func BuildPlanningPrompt(task *types.SpecTask) string {
+// guidelines contains concatenated organization + project guidelines (can be empty)
+func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
 	// Generate task directory name
 	dateStr := time.Now().Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.Name)
@@ -20,7 +21,23 @@ func BuildPlanningPrompt(task *types.SpecTask) string {
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
+	// Build guidelines section if provided
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = fmt.Sprintf(`
+## Guidelines
+
+Follow these guidelines when creating specifications:
+
+%s
+
+---
+
+`, guidelines)
+	}
+
 	return fmt.Sprintf(`You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
+%[9]s
 
 ## CRITICAL: Where To Work
 
@@ -82,8 +99,9 @@ Tell the user the design is ready for review. The backend detects your push and 
 **Project ID:** %[2]s | **Type:** %[3]s | **Priority:** %[4]s | **SpecTask ID:** %[8]s
 `,
 		"```",
-		task.ProjectID, task.Type, task.Priority,  // [2], [3], [4]
-		taskDirName,                                // [5] - directory name
-		"", "", "",                                 // [6], [7] unused
-		task.ID)                                    // [8] - task ID
+		task.ProjectID, task.Type, task.Priority, // [2], [3], [4]
+		taskDirName,                              // [5] - directory name
+		"", "", "",                               // [6], [7] unused
+		task.ID,                                  // [8] - task ID
+		guidelinesSection)                        // [9] - guidelines
 }

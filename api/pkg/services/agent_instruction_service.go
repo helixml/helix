@@ -27,7 +27,8 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 
 // BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch string) string {
+// guidelines contains concatenated organization + project guidelines (can be empty)
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines string) string {
 	// Generate task directory name (same format as planning phase)
 	dateStr := task.CreatedAt.Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
@@ -36,7 +37,22 @@ func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
+	// Build guidelines section if provided
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = fmt.Sprintf(`
+## Guidelines
+
+Follow these guidelines when implementing:
+
+%s
+
+---
+`, guidelines)
+	}
+
 	return fmt.Sprintf(`# Design Approved - Begin Implementation
+%[8]s
 
 Your design has been approved. Implement the code changes now.
 
@@ -105,7 +121,7 @@ Example additions to design.md:
 
 **Original Request:**
 %[7]s
-`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt)
+`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt, guidelinesSection)
 }
 
 // BuildCommentPrompt builds a prompt for sending a design review comment to an agent
@@ -229,7 +245,9 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	branchName string,
 	baseBranch string,
 ) error {
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch)
+	// Fetch guidelines from project and organization
+	guidelines := s.getGuidelinesForTask(ctx, task)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -237,6 +255,38 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Msg("Sending approval instruction to agent")
 
 	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// getGuidelinesForTask fetches concatenated organization + project guidelines
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil || project == nil {
+		return ""
+	}
+
+	guidelines := ""
+
+	// Get organization guidelines
+	if project.OrganizationID != "" {
+		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err == nil && org != nil && org.Guidelines != "" {
+			guidelines = org.Guidelines
+		}
+	}
+
+	// Append project guidelines
+	if project.Guidelines != "" {
+		if guidelines != "" {
+			guidelines += "\n\n---\n\n"
+		}
+		guidelines += project.Guidelines
+	}
+
+	return guidelines
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review
