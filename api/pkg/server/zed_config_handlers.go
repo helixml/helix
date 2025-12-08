@@ -198,21 +198,22 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 
 		codeAgentConfig = buildCodeAgentConfig(specTaskApp, sandboxAPIURL)
 		if codeAgentConfig == nil {
-			log.Error().
+			// No zed_external assistant configured - Zed will use built-in agent with defaults
+			// from GenerateZedMCPConfig (language_models routing through Helix proxy)
+			log.Debug().
 				Str("session_id", sessionID).
 				Str("spec_task_id", session.Metadata.SpecTaskID).
 				Str("app_id", specTask.HelixAppID).
-				Msg("No zed_external assistant found in app, or assistant has no provider/model configured")
-			return nil, system.NewHTTPError500("no code agent configured: app must have a zed_external assistant with provider and model set")
+				Msg("No zed_external assistant found - using default Zed agent with Helix proxy")
+		} else {
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("spec_task_id", session.Metadata.SpecTaskID).
+				Str("provider", codeAgentConfig.Provider).
+				Str("model", codeAgentConfig.Model).
+				Str("api_type", codeAgentConfig.APIType).
+				Msg("Built code agent config from spec task")
 		}
-
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("spec_task_id", session.Metadata.SpecTaskID).
-			Str("provider", codeAgentConfig.Provider).
-			Str("model", codeAgentConfig.Model).
-			Str("api_type", codeAgentConfig.APIType).
-			Msg("Built code agent config from spec task")
 	}
 
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
