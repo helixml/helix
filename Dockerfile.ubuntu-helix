@@ -101,9 +101,11 @@ RUN apt-get update && apt-get install -y \
 
 # Install GNOME session and Ubuntu theming for vanilla Ubuntu experience
 # Also install x11-utils (xdpyinfo) and x11-xserver-utils (xrandr) for proper X startup
+# Include ubuntu-dock extension for the standard Ubuntu dock on left side
 RUN apt-get update && apt-get install -y \
     gnome-session \
     gnome-shell \
+    gnome-shell-extension-ubuntu-dock \
     gnome-terminal \
     gnome-control-center \
     nautilus \
