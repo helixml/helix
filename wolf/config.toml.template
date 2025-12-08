@@ -10,7 +10,7 @@ pin = []
 #   - {{HELIX_HOSTNAME}} → WOLF_INSTANCE_ID
 #   - uuid → auto-generated if empty
 #   - pin → MOONLIGHT_INTERNAL_PAIRING_PIN
-#   - gop-size=N → GOP_SIZE (only positive values; -1 preserved for nvav1enc/nvh265enc)
+#   - gop-size=N → GOP_SIZE (all encoders)
 #   - key-int-max=N → GOP_SIZE (for VA/AMD encoders)
 # =============================================================================
 
@@ -141,7 +141,7 @@ video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'nvav1enc', 'cudaconvertscale', 'cudaupload' ]
-    encoder_pipeline = '''nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    encoder_pipeline = '''nvav1enc gop-size=60 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'nvcodec'
@@ -220,7 +220,7 @@ video/x-h264, profile=high, stream-format=byte-stream'''
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'nvh265enc', 'cudaconvertscale', 'cudaupload' ]
-    encoder_pipeline = '''nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    encoder_pipeline = '''nvh265enc gop-size=60 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'nvcodec'
