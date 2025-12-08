@@ -86,35 +86,46 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	// ALWAYS use claude-sonnet-4-5-latest for Zed agents (ignore app database config)
-	// The Helix UI doesn't expose model selection for Zed agents yet
-	//
-	// TODO: When adding model selection UI for Zed agents:
-	// - Uncomment the code below to read from app.Config.Helix.Assistants[0]
-	// - Add UI validation to only allow models compatible with Zed
-	// - Zed supports: Anthropic, OpenAI, Google, etc - NOT all Helix models work
-	//
-	// var assistant types.AssistantConfig
-	// if len(app.Config.Helix.Assistants) > 0 {
-	// 	assistant = app.Config.Helix.Assistants[0]
-	// } else {
-	// 	assistant = types.AssistantConfig{
-	// 		Provider: "anthropic",
-	// 		Model:    "claude-sonnet-4-5-latest",
-	// 	}
-	// }
+	// Find the zed_external assistant configuration
+	var assistant *types.AssistantConfig
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			assistant = &app.Config.Helix.Assistants[i]
+			break
+		}
+	}
 
-	// Use Haiku 4.5 for faster, cheaper responses
-	assistant := types.AssistantConfig{
-		Provider: "anthropic",
-		Model:    "claude-haiku-4-5-latest",
+	// Fallback to first assistant if no zed_external found
+	if assistant == nil && len(app.Config.Helix.Assistants) > 0 {
+		assistant = &app.Config.Helix.Assistants[0]
+	}
+
+	// For zed_external agents, prefer GenerationModel fields (where UI stores the selection)
+	var provider, model string
+	if assistant != nil {
+		provider = assistant.GenerationModelProvider
+		if provider == "" {
+			provider = assistant.Provider
+		}
+		model = assistant.GenerationModel
+		if model == "" {
+			model = assistant.Model
+		}
+	}
+
+	// Default to anthropic/claude-sonnet if nothing is configured
+	if provider == "" {
+		provider = "anthropic"
+	}
+	if model == "" {
+		model = "claude-sonnet-4-5-latest"
 	}
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
 	config.Agent = &AgentConfig{
 		DefaultModel: &ModelConfig{
-			Provider: assistant.Provider,
-			Model:    assistant.Model,
+			Provider: provider,
+			Model:    model,
 		},
 		AlwaysAllowToolActions: true,
 		ShowOnboarding:         false,
@@ -140,7 +151,7 @@ func GenerateZedMCPConfig(
 	}
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
-	if hasNativeTools(assistant) {
+	if assistant != nil && hasNativeTools(*assistant) {
 		config.ContextServers["helix-native"] = ContextServerConfig{
 			Command: "helix-cli",
 			Args: []string{
@@ -157,9 +168,11 @@ func GenerateZedMCPConfig(
 	}
 
 	// 2. Pass-through external MCP servers
-	for _, mcp := range assistant.MCPs {
-		serverName := sanitizeName(mcp.Name)
-		config.ContextServers[serverName] = mcpToContextServer(mcp)
+	if assistant != nil {
+		for _, mcp := range assistant.MCPs {
+			serverName := sanitizeName(mcp.Name)
+			config.ContextServers[serverName] = mcpToContextServer(mcp)
+		}
 	}
 
 	return config, nil
