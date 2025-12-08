@@ -164,3 +164,51 @@ All agent selection UIs include plain text hint: "You can configure MCP servers 
 - `SpecTasksPage.tsx` - Pre-selects project's default agent
 - `AdvancedModelPicker` - Model selection with recommended models at top, auto-selects first available
 - `apps.tsx` - `CodeAgentRuntime` type, `generateAgentName()`, and `ICreateAgentParams`
+
+## Zed Model ID Compatibility
+
+**Problem:** Zed's `agent.default_model` only accepts model IDs from its built-in enum, not arbitrary upstream model IDs. For example, Zed accepts `claude-3-5-haiku-latest` but NOT `claude-3-5-haiku-20241022`.
+
+**Current Workaround:** `normalizeModelIDForZed()` in `api/pkg/external-agent/zed_config.go` converts dated Anthropic model IDs to their `-latest` equivalents before sending to Zed.
+
+**Better Solution (TODO):** Zed supports `available_models` in language_models settings:
+
+```json
+{
+  "language_models": {
+    "anthropic": {
+      "api_url": "http://api:8080",
+      "available_models": [
+        {
+          "name": "claude-3-5-haiku-20241022",
+          "display_name": "Claude 3.5 Haiku",
+          "max_tokens": 8192
+        }
+      ]
+    },
+    "openai": {
+      "api_url": "http://api:8080/v1",
+      "available_models": [
+        {
+          "name": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+          "display_name": "Qwen 3 Coder 480B",
+          "max_tokens": 32768
+        }
+      ]
+    }
+  },
+  "agent": {
+    "default_model": {
+      "provider": "openai",
+      "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+    }
+  }
+}
+```
+
+This would let us use any model ID and have it appear in Zed's model dropdown. We could populate `available_models` from Helix's provider configuration to expose all configured models to Zed.
+
+**Current Status:**
+- Anthropic models: Normalized to `-latest` format (works)
+- OpenAI-compatible models (Qwen, etc.): Pass through unchanged via OpenAI provider with custom api_url (should work)
+- Future: Consider using `available_models` to expose all Helix-configured models to Zed
