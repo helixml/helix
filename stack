@@ -38,6 +38,13 @@ function setup_runner_profile() {
     export RUNNER_PROFILE="--profile runner_gpu_amd"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
+  elif [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*(Intel|Iris)" &> /dev/null; then
+    # Intel GPU mode - video encoding supported (QSV), but no GPU compute for LLM inference
+    echo "🖥️ Intel GPU detected - sandbox/video encoding supported (QSV), external LLM recommended for AI inference"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   else
     # CPU mode (fallback)
     echo "❌ No supported GPU detected, running without GPU support"
@@ -285,8 +292,14 @@ function build-zed() {
     return 1
   fi
 
-  # Create output directory
+  # Create output directory and ensure we own it
+  # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
+  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable (likely created by Docker as root)"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
+  fi
 
   # Change to Zed source directory
   cd "$ZED_SOURCE_DIR"
@@ -1341,16 +1354,27 @@ function build-sandbox() {
   echo "📝 [6/7] Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+  # Get image IDs to bust Docker cache when upstream images change
+  # Without this, BuildKit caches the FROM layers even when wolf/moonlight-web are rebuilt
+  local WOLF_IMAGE_ID=$(docker images wolf:helix-fixed -q)
+  local MOONLIGHT_IMAGE_ID=$(docker images helix-moonlight-web:helix-fixed -q)
+  echo "📦 Wolf image ID: ${WOLF_IMAGE_ID:-not found}"
+  echo "📦 Moonlight Web image ID: ${MOONLIGHT_IMAGE_ID:-not found}"
+
   # Build sandbox with tarball embedded
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       .

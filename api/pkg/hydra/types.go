@@ -39,6 +39,10 @@ type DockerInstanceResponse struct {
 	DataRoot     string               `json:"data_root"`     // Path to Docker data directory
 	Status       DockerInstanceStatus `json:"status"`
 	Error        string               `json:"error,omitempty"`
+	// Network bridging info for desktop-to-dev-container communication
+	BridgeName string `json:"bridge_name,omitempty"` // Bridge interface name (e.g., "hydra3")
+	Subnet     string `json:"subnet,omitempty"`      // Subnet for this network (e.g., "10.200.3.0/24")
+	Gateway    string `json:"gateway,omitempty"`     // Gateway IP (e.g., "10.200.3.1")
 }
 
 // DeleteDockerInstanceResponse is the response when stopping a dockerd
@@ -91,8 +95,14 @@ type DockerInstance struct {
 	ConfigFile    string               `json:"config_file"`
 	MaxContainers int                  `json:"max_containers"`
 	StartedAt     time.Time            `json:"started_at"`
-	BridgeIndex   uint8                `json:"bridge_index"`   // Unique index for bridge IP range (1-254)
-	BridgeName    string               `json:"bridge_name"`    // Bridge interface name (e.g., "hydra1")
+	BridgeIndex   uint8                `json:"bridge_index"` // Unique index for bridge IP range (1-254)
+	BridgeName    string               `json:"bridge_name"`  // Bridge interface name (e.g., "hydra1")
+
+	// Desktop bridging state (for self-healing after container restarts)
+	DesktopBridged     bool   `json:"desktop_bridged"`      // Whether desktop is currently bridged
+	DesktopContainerID string `json:"desktop_container_id"` // Container ID/name that was bridged
+	DesktopPID         int    `json:"desktop_pid"`          // PID of bridged container (for detecting restart)
+	VethBridgeName     string `json:"veth_bridge_name"`     // Bridge-side veth name for cleanup
 }
 
 // InstanceKey returns a unique key for this instance
@@ -105,4 +115,19 @@ type HealthResponse struct {
 	Status          string `json:"status"`
 	ActiveInstances int    `json:"active_instances"`
 	Version         string `json:"version"`
+}
+
+// BridgeDesktopRequest is the request to bridge a desktop container to a Hydra network
+// This enables the desktop (on Wolf's dockerd) to access dev containers (on Hydra's dockerd)
+type BridgeDesktopRequest struct {
+	SessionID          string `json:"session_id"`           // Which Hydra dockerd to bridge to
+	DesktopContainerID string `json:"desktop_container_id"` // Container ID on Wolf's dockerd
+}
+
+// BridgeDesktopResponse is the response after bridging a desktop to Hydra network
+type BridgeDesktopResponse struct {
+	DesktopIP string `json:"desktop_ip"` // IP assigned to desktop on Hydra network (e.g., "10.200.3.254")
+	Gateway   string `json:"gateway"`    // Gateway/DNS server (e.g., "10.200.3.1")
+	Subnet    string `json:"subnet"`     // Subnet for this Hydra network (e.g., "10.200.3.0/24")
+	Interface string `json:"interface"`  // Interface name added to desktop (e.g., "eth1")
 }

@@ -185,9 +185,19 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
 func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
+	// Add panic recovery for debugging
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Str("task_id", task.ID).Msg("PANIC in StartSpecGeneration")
+		}
+	}()
+
+	log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("DEBUG: StartSpecGeneration entered")
+
 	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
 	if task.HelixAppID == "" {
 		task.HelixAppID = s.helixAgentID
+		log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("DEBUG: Set default HelixAppID")
 	}
 
 	log.Info().
@@ -214,19 +224,35 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create Zed external agent session for spec generation
 	// Planning agent needs git access to commit design docs to helix-specs branch
-	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task)
 
-	// Get organization ID from the project
+	// Get project and organization for guidelines
 	orgID := ""
+	guidelines := ""
 	if task.ProjectID != "" {
 		project, err := s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
 		} else if project != nil {
 			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
 		}
 	}
+
+	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
+	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: "",             // Don't override agent's system prompt
@@ -266,6 +292,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Update task with session ID
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: About to update task with session ID")
 	task.PlanningSessionID = session.ID
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
@@ -273,12 +300,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
 		return
 	}
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Task updated with session ID")
 
 	// Generate request_id for initial message and register the mapping
 	// This allows the WebSocket handler to find and send the initial message to Zed
 	requestID := system.GenerateRequestID()
+	log.Debug().Str("task_id", task.ID).Str("request_id", requestID).Msg("DEBUG: Generated request ID")
 	if s.RegisterRequestMapping != nil {
 		s.RegisterRequestMapping(requestID, session.ID)
+		log.Debug().Str("task_id", task.ID).Msg("DEBUG: Registered request mapping")
 	}
 
 	// Create initial interaction combining planning instructions with user's request
@@ -299,15 +329,18 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		State:         types.InteractionStateWaiting,
 	}
 
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
 	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
 		return
 	}
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Created initial interaction")
 
 	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
 	// Get parent project to access repository configuration
+	log.Debug().Str("task_id", task.ID).Str("project_id", task.ProjectID).Msg("DEBUG: About to get project")
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
@@ -348,8 +381,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
+	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
+		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
 		ProjectPath:         "workspace",        // Use relative path
@@ -361,8 +396,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
+
+	// Check if executor is nil
+	if s.externalAgentExecutor == nil {
+		log.Error().Str("task_id", task.ID).Msg("ERROR: externalAgentExecutor is nil!")
+		s.markTaskFailed(ctx, task, "externalAgentExecutor is nil")
+		return
+	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
 	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
@@ -424,14 +468,29 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	// Create Zed external agent session for implementation
 	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
 
-	// Get organization ID from the project
+	// Get organization ID and guidelines from the project
 	orgID := ""
+	guidelines := ""
 	if task.ProjectID != "" {
 		project, err := s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
 		} else if project != nil {
 			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
 		}
 	}
 
@@ -489,17 +548,32 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 
 	// In Just Do It mode, send the user's prompt with brief branch instructions
 	// Keep it minimal - no detailed spec generation instructions, just branch info
-	promptWithBranch := fmt.Sprintf(`%s
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = fmt.Sprintf(`
+## Guidelines
+
+Follow these guidelines when making changes:
+
+%s
 
 ---
+`, guidelines)
+	}
 
-**Important:** If you need to make any code changes or modifications to files in the repository, please:
-1. Create and checkout the feature branch: `+"`git checkout -b %s`"+`
+	promptWithBranch := fmt.Sprintf(`%s
+%s
+---
+
+**Working in ~/work/:** All code repositories are in ~/work/. That's where you make changes.
+
+**If making code changes:**
+1. git checkout -b %s
 2. Make your changes
-3. Commit and push when done: `+"`git push origin %s`"+`
+3. git push origin %s
 
-**Persistent installations:** If you need to install any software or dependencies, add the installation commands to `+"`.helix/startup.sh`"+` so they persist across session restarts. This script should be idempotent (safe to run multiple times). You can test it by running `+"`bash .helix/startup.sh`"+`.
-`, task.OriginalPrompt, branchName, branchName)
+**For persistent installs:** Add commands to .helix/startup.sh (runs at sandbox startup, must be idempotent).
+`, task.OriginalPrompt, guidelinesSection, branchName, branchName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -565,6 +639,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
+		HelixSessionID:      session.ID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment",
 		ProjectPath:         "workspace",        // Use relative path

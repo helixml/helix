@@ -59,7 +59,26 @@ const RECOMMENDED_MODELS = {
     'Qwen/Qwen2.5-7B-Instruct-Turbo',
   ],
   // No tool use required, can be any text generation model
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b'],
+  // Zed external agent - strong code generation models
+  zedExternal: [
+    // Anthropic
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5-20250929',
+    'claude-haiku-4-5-20251001',
+    // OpenAI
+    'openai/gpt-5.1-codex',
+    'openai/gpt-oss-120b',
+    // Google Gemini
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    // Zhipu GLM
+    'glm-4.6',
+    // Qwen (Coder + Large)
+    'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+    'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
+  ]
 };
 
 interface AppSettingsProps {
@@ -221,6 +240,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
+  const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
@@ -256,6 +276,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
+      setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
 
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
@@ -583,6 +604,72 @@ const AppSettings: FC<AppSettingsProps> = ({
                 ...app,
                 model: modelId,
                 provider: provider,
+              };
+              onUpdate(updatedApp);
+            }}
+            currentType="text"
+            displayMode="short"
+          />
+        </Box>
+      )}
+
+      {/* Zed External Agent Configuration */}
+      {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Runtime</Typography>
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Choose which code agent runtime to use inside Zed.
+          </Typography>
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <Select
+              value={code_agent_runtime}
+              onChange={(e) => {
+                const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                setCodeAgentRuntime(newRuntime);
+                const updatedApp: IAppFlatState = {
+                  ...app,
+                  code_agent_runtime: newRuntime,
+                };
+                onUpdate(updatedApp);
+              }}
+              disabled={readOnly}
+            >
+              <MenuItem value="zed_agent">
+                <Box>
+                  <Typography>Zed Agent (Built-in)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Uses Zed's native agent panel with direct API integration
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="qwen_code">
+                <Box>
+                  <Typography>Qwen Code</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Model</Typography>
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Select the LLM that will run inside Zed for agentic coding. This model handles code generation,
+            tool use, and iterative development within the Zed editor environment.
+          </Typography>
+          <AdvancedModelPicker
+            recommendedModels={RECOMMENDED_MODELS.zedExternal}
+            hint="Choose a capable model for agentic coding. Recommended models appear at the top of the list."
+            selectedProvider={generation_model_provider}
+            selectedModelId={generation_model}
+            onSelectModel={(provider, modelId) => {
+              setGenerationModel(modelId);
+              setGenerationModelProvider(provider);
+              const updatedApp: IAppFlatState = {
+                ...app,
+                generation_model: modelId,
+                generation_model_provider: provider,
               };
               onUpdate(updatedApp);
             }}

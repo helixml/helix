@@ -7,12 +7,14 @@ import {
 interface NewRepoFormProps {
   name: string
   onNameChange: (name: string) => void
-  description: string
-  onDescriptionChange: (description: string) => void
+  description?: string
+  onDescriptionChange?: (description: string) => void
   size?: 'small' | 'medium'
   autoFocus?: boolean
   /** Custom helper text for the name field */
   nameHelperText?: string
+  /** Whether to show the description field */
+  showDescription?: boolean
 }
 
 /**
@@ -22,11 +24,12 @@ interface NewRepoFormProps {
 const NewRepoForm: FC<NewRepoFormProps> = ({
   name,
   onNameChange,
-  description,
+  description = '',
   onDescriptionChange,
   size = 'small',
   autoFocus = false,
   nameHelperText = 'A new Helix-hosted repository will be created',
+  showDescription = true,
 }) => {
   return (
     <Stack spacing={2}>
@@ -40,13 +43,15 @@ const NewRepoForm: FC<NewRepoFormProps> = ({
         autoFocus={autoFocus}
         helperText={nameHelperText}
       />
-      <TextField
-        label="Repository Description"
-        fullWidth
-        size={size}
-        value={description}
-        onChange={(e) => onDescriptionChange(e.target.value)}
-      />
+      {showDescription && onDescriptionChange && (
+        <TextField
+          label="Repository Description"
+          fullWidth
+          size={size}
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+        />
+      )}
     </Stack>
   )
 }

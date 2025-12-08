@@ -465,7 +465,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	// Create the OAuth manager
-	oauthManager := oauth.NewManager(postgresStore)
+	oauthManager := oauth.NewManager(postgresStore, cfg.Tools.TLSSkipVerify)
 	err = oauthManager.LoadProviders(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load oauth providers")
@@ -487,7 +487,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)
+	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool, oauthManager)
 	if err != nil {
 		return err
 	}

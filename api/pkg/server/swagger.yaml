@@ -1239,6 +1239,22 @@ definitions:
       wolf_app_id:
         type: string
     type: object
+  server.SharePointSiteResolveRequest:
+    properties:
+      provider_id:
+        type: string
+      site_url:
+        type: string
+    type: object
+  server.SharePointSiteResolveResponse:
+    properties:
+      display_name:
+        type: string
+      site_id:
+        type: string
+      web_url:
+        type: string
+    type: object
   server.SimpleSampleProject:
     properties:
       category:
@@ -2695,6 +2711,13 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      code_agent_runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: |-
+          CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+          Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+          If empty, defaults to "zed_agent".
       context_limit:
         description: |-
           ContextLimit - the number of messages to include in the context for the AI assistant.
@@ -3040,6 +3063,41 @@ definitions:
         description: '"text" or "image"'
         type: string
     type: object
+  types.CodeAgentConfig:
+    properties:
+      agent_name:
+        description: AgentName is the name used in Zed's agent_servers config (e.g.,
+          "qwen", "claude-code")
+        type: string
+      api_type:
+        description: 'APIType specifies the API format: "anthropic", "openai", or
+          "azure_openai"'
+        type: string
+      base_url:
+        description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
+        type: string
+      model:
+        description: Model is the model identifier (e.g., "claude-sonnet-4-5-latest",
+          "gpt-4o")
+        type: string
+      provider:
+        description: Provider is the LLM provider name (e.g., "anthropic", "openai",
+          "openrouter")
+        type: string
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: 'Runtime specifies which code agent runtime to use: "zed_agent"
+          or "qwen_code"'
+    type: object
+  types.CodeAgentRuntime:
+    enum:
+    - zed_agent
+    - qwen_code
+    type: string
+    x-enum-varnames:
+    - CodeAgentRuntimeZedAgent
+    - CodeAgentRuntimeQwenCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3505,6 +3563,9 @@ definitions:
     properties:
       description:
         type: string
+      helix_app_id:
+        description: 'Optional: agent app to use for spec tasks (uses default if empty)'
+        type: string
       organization_id:
         description: 'Optional: if empty, project is personal'
         type: string
@@ -3934,6 +3995,35 @@ definitions:
       workload_id:
         type: string
     type: object
+  types.GuidelinesHistory:
+    properties:
+      change_note:
+        description: Optional description of what changed
+        type: string
+      guidelines:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: Set for org-level guidelines
+        type: string
+      project_id:
+        description: Set for project-level guidelines
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        description: User ID
+        type: string
+      updated_by_email:
+        description: User email (not persisted, populated at query time)
+        type: string
+      updated_by_name:
+        description: User display name (not persisted, populated at query time)
+        type: string
+      version:
+        type: integer
+    type: object
   types.HelpRequest:
     properties:
       app_id:
@@ -4294,6 +4384,8 @@ definitions:
         $ref: '#/definitions/types.KnowledgeSourceGCS'
       s3:
         $ref: '#/definitions/types.KnowledgeSourceS3'
+      sharepoint:
+        $ref: '#/definitions/types.KnowledgeSourceSharePoint'
       text:
         type: string
       web:
@@ -4318,6 +4410,34 @@ definitions:
       bucket:
         type: string
       path:
+        type: string
+    type: object
+  types.KnowledgeSourceSharePoint:
+    properties:
+      drive_id:
+        description: DriveID is the document library drive ID (optional, defaults
+          to the site's default drive)
+        type: string
+      filter_extensions:
+        description: FilterExtensions limits which file types to include (e.g., [".pdf",
+          ".docx", ".txt"])
+        items:
+          type: string
+        type: array
+      folder_path:
+        description: FolderPath is the path to a specific folder within the drive
+          (optional, defaults to root)
+        type: string
+      oauth_provider_id:
+        description: OAuthProviderID is the ID of the Microsoft OAuth provider to
+          use for authentication
+        type: string
+      recursive:
+        description: Recursive determines whether to include files in subfolders
+        type: boolean
+      site_id:
+        description: SiteID is the SharePoint site ID (can be obtained from Graph
+          API or site URL)
         type: string
     type: object
   types.KnowledgeSourceWeb:
@@ -4913,6 +5033,19 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       display_name:
         type: string
+      guidelines:
+        description: Guidelines for AI agents - style guides, conventions, and instructions
+          that apply to all projects
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       memberships:
@@ -5085,6 +5218,11 @@ definitions:
         type: string
       default_branch:
         type: string
+      default_helix_app_id:
+        description: |-
+          Default agent for spec tasks in this project (App ID)
+          New spec tasks inherit this agent; can be overridden per-task
+        type: string
       default_repo_id:
         description: |-
           Project-level repository management
@@ -5098,6 +5236,20 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      guidelines:
+        description: |-
+          Guidelines for AI agents - project-specific style guides, conventions, and instructions
+          Combined with organization guidelines when constructing prompts
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       metadata:
@@ -5126,11 +5278,17 @@ definitions:
     properties:
       default_branch:
         type: string
+      default_helix_app_id:
+        description: Default agent for spec tasks
+        type: string
       default_repo_id:
         type: string
       description:
         type: string
       github_repo_url:
+        type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
         type: string
       name:
         type: string
@@ -5154,11 +5312,17 @@ definitions:
         type: boolean
       default_branch:
         type: string
+      default_helix_app_id:
+        description: Default agent for spec tasks
+        type: string
       default_repo_id:
         type: string
       description:
         type: string
       github_repo_url:
+        type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
         type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
@@ -6892,6 +7056,9 @@ definitions:
     properties:
       description:
         type: string
+      helix_app_id:
+        description: Agent to use for this task
+        type: string
       just_do_it_mode:
         description: Pointer to allow explicit false
         type: boolean
@@ -7594,20 +7761,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -7952,6 +8119,10 @@ definitions:
       assistant:
         additionalProperties: true
         type: object
+      code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentConfig'
+        description: Code agent configuration for Zed agentic coding
       context_servers:
         additionalProperties: true
         type: object
@@ -11066,6 +11237,12 @@ paths:
     get:
       description: Returns active streaming sessions, client certificates, and WebSocket
         connection state from moonlight-web
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -11201,6 +11378,31 @@ paths:
       summary: Delete an OAuth provider
       tags:
       - oauth
+  /api/v1/oauth/sharepoint/resolve-site:
+    post:
+      consumes:
+      - application/json
+      description: Resolve a SharePoint site URL to its site ID using Microsoft Graph
+        API
+      parameters:
+      - description: Request body with site URL and provider ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SharePointSiteResolveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SharePointSiteResolveResponse'
+      security:
+      - BearerAuth: []
+      summary: Resolve SharePoint site URL to site ID
+      tags:
+      - oauth
   /api/v1/organizations:
     get:
       responses:
@@ -11263,6 +11465,43 @@ paths:
       summary: Update an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization guidelines history
+      tags:
+      - Organizations
   /api/v1/organizations/{id}/members:
     get:
       description: List members of an organization
@@ -11776,6 +12015,43 @@ paths:
       security:
       - BearerAuth: []
       summary: Start project exploratory session
+      tags:
+      - Projects
+  /api/v1/projects/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project guidelines history
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:

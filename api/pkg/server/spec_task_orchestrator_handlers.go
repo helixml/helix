@@ -447,6 +447,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           externalAgent.ID,
+		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
 		ProjectPath:         "backend",

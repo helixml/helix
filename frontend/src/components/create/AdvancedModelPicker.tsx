@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   DialogTitle,
   DialogContent,
@@ -158,6 +158,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
 
+  // Track the initially selected model when dialog opens (so it stays at top without jumping)
+  const initialSelectedModelRef = useRef<string | undefined>(undefined);
+
   const orgName = router.params.org_id  
 
   // Get org if orgName is set  
@@ -232,11 +235,16 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
   
-  // Determine tooltip title based on disabled state
+  // Determine tooltip title based on disabled state - include provider name
   const tooltipTitle = useMemo(() => {
     if (disabled) return "Model selection is disabled";
+    const selectedModel = allModels.find(model => model.id === selectedModelId);
+    const providerName = selectedModel?.provider?.name || selectedProvider;
+    if (providerName) {
+      return `${displayModelName} (${providerName})`;
+    }
     return displayModelName;
-  }, [disabled, displayModelName]);
+  }, [disabled, displayModelName, allModels, selectedModelId, selectedProvider]);
 
   // Check if monthly token limit is reached
   const isMonthlyLimitReached = useMemo(() => {
@@ -259,12 +267,21 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       models = models.filter(model => model.enabled);
     }
 
-    // Sort models to put recommended ones at the top
-    if (recommendedModels.length > 0) {
-      models.sort((a, b) => {
+    // Sort models: initially selected first, then recommended, then others
+    models.sort((a, b) => {
+      const initialModel = initialSelectedModelRef.current;
+
+      // Initially selected model always comes first
+      if (initialModel) {
+        if (a.id === initialModel && b.id !== initialModel) return -1;
+        if (b.id === initialModel && a.id !== initialModel) return 1;
+      }
+
+      // Then sort by recommended list
+      if (recommendedModels.length > 0) {
         const aIndex = recommendedModels.indexOf(a.id || '');
         const bIndex = recommendedModels.indexOf(b.id || '');
-        
+
         // If both are in recommended list, maintain their order in recommended list
         if (aIndex !== -1 && bIndex !== -1) {
           return aIndex - bIndex;
@@ -272,16 +289,19 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         // If only one is in recommended list, put it first
         if (aIndex !== -1) return -1;
         if (bIndex !== -1) return 1;
-        // If neither is in recommended list, maintain original order
-        return 0;
-      });
-    }
+      }
+
+      // If neither is in recommended list, maintain original order
+      return 0;
+    });
 
     return models;
-  }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels]);
+  }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels, dialogOpen]);
 
   const handleOpenDialog = () => {
     setSearchQuery('');
+    // Capture the initially selected model so we can pin it to the top without jumping
+    initialSelectedModelRef.current = selectedModelId;
     setDialogOpen(true);
   };
 
@@ -484,13 +504,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Typography>
                           {isRecommended && (
                             <Tooltip title="Recommended model">
-                              <StarIcon 
-                                sx={{ 
-                                  fontSize: '1rem', 
+                              <StarIcon
+                                sx={{
+                                  fontSize: '1rem',
                                   color: '#FFD700',
                                   ml: 0.5,
                                   verticalAlign: 'middle'
-                                }} 
+                                }}
                               />
                             </Tooltip>
                           )}
@@ -502,10 +522,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                             {model.provider.name}
                           </Typography>
                           {model.description && (
-                            <Typography 
-                              variant="caption" 
-                              component="span" 
-                              sx={{ 
+                            <Typography
+                              variant="caption"
+                              component="span"
+                              sx={{
                                 color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
                                 fontSize: '0.75rem',
                                 lineHeight: 1.2,
@@ -515,22 +535,24 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                             </Typography>
                           )}
                           <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
-                            {model.provider.name}                        
-                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}            
+                            {model.provider.name}
+                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}
                                 {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input tokens`}
                                 {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}                            
+                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}
                           </>)}
                            </Typography>
                         </Box>
                       }
                       primaryTypographyProps={{
+                        component: 'div',
                         sx: {
                           fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
                       }}
+                      secondaryTypographyProps={{ component: 'div' }}
                       sx={{ mr: 1 }}
                     />
                   </Box>
@@ -687,12 +709,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           </Box>
                         }
                         primaryTypographyProps={{
+                          component: 'div',
                           sx: {
                             fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                           }
                         }}
+                        secondaryTypographyProps={{ component: 'div' }}
                         sx={{ mr: 1 }}
                       />
                     </Box>

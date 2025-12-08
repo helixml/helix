@@ -100,7 +100,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 				EndpointType:   types.ProviderEndpointTypeGlobal,
 				Owner:          string(types.OwnerTypeSystem),
 				APIKey:         "",
-				BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+				BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
 			})
 		}
 
@@ -177,7 +177,18 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Build a set of existing provider names to avoid duplicates
+	existingProviderNames := make(map[string]bool)
+	for _, ep := range providerEndpoints {
+		existingProviderNames[ep.Name] = true
+	}
+
 	for _, provider := range globalProviderEndpoints {
+		// Skip if this provider already exists in the database
+		if existingProviderNames[string(provider)] {
+			continue
+		}
+
 		var baseURL string
 		switch provider {
 		case types.ProviderOpenAI:
@@ -198,7 +209,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			EndpointType:   types.ProviderEndpointTypeGlobal,
 			Owner:          string(types.OwnerTypeSystem),
 			APIKey:         "",
-			BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+			BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
 		})
 	}
 

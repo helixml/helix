@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -1130,8 +1131,11 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	branchName string,
 	baseBranch string,
 ) error {
+	// Fetch guidelines from project and organization
+	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
+
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
@@ -1144,4 +1148,36 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 		Msg("✅ Sent approval instruction to agent via WebSocket")
 
 	return nil
+}
+
+// getGuidelinesForSpecTask fetches concatenated organization + project guidelines
+func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil || project == nil {
+		return ""
+	}
+
+	guidelines := ""
+
+	// Get organization guidelines
+	if project.OrganizationID != "" {
+		org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err == nil && org != nil && org.Guidelines != "" {
+			guidelines = org.Guidelines
+		}
+	}
+
+	// Append project guidelines
+	if project.Guidelines != "" {
+		if guidelines != "" {
+			guidelines += "\n\n---\n\n"
+		}
+		guidelines += project.Guidelines
+	}
+
+	return guidelines
 }

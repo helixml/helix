@@ -399,7 +399,8 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
-		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
+		SessionID:           agentID,              // Agent-level session ID (not tied to specific Helix session)
+		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
 		ProjectPath:         "backend",          // Default primary repo path

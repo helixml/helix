@@ -1282,6 +1282,9 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	// Generate unique request ID for tracking
 	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
 
+	// Determine which agent to use based on the spec task's code agent config
+	agentName := s.getAgentNameForSession(ctx, session)
+
 	// Send chat message to external agent
 	// NEW PROTOCOL: Use acp_thread_id instead of zed_context_id
 	command := types.ExternalAgentCommand{
@@ -1289,7 +1292,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
 			"message":       userMessage,
-			"request_id":    requestID, // For correlation
+			"request_id":    requestID,    // For correlation
+			"agent_name":    agentName,    // Which agent to use (zed-agent or qwen)
 			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
 		},
 	}

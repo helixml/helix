@@ -104,7 +104,7 @@ var runProxyCmd = &cobra.Command{
 			return fmt.Errorf("HELIX_APP_ID is not set")
 		}
 
-		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
+		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey, cfg.TLSSkipVerify)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create api client")
 			return err

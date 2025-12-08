@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -274,6 +275,30 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	existingOrg.DisplayName = updatedOrganization.DisplayName
 	existingOrg.Name = updatedOrganization.Name
 
+	// Track guidelines changes with versioning
+	if updatedOrganization.Guidelines != existingOrg.Guidelines {
+		// Save current version to history before updating
+		if existingOrg.Guidelines != "" {
+			history := &types.GuidelinesHistory{
+				ID:             system.GenerateUUID(),
+				OrganizationID: orgID,
+				Version:        existingOrg.GuidelinesVersion,
+				Guidelines:     existingOrg.Guidelines,
+				UpdatedBy:      existingOrg.GuidelinesUpdatedBy,
+				UpdatedAt:      existingOrg.GuidelinesUpdatedAt,
+			}
+			if err := apiServer.Store.CreateGuidelinesHistory(r.Context(), history); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("failed to save guidelines history")
+			}
+		}
+
+		// Update guidelines with new version
+		existingOrg.Guidelines = updatedOrganization.Guidelines
+		existingOrg.GuidelinesVersion++
+		existingOrg.GuidelinesUpdatedAt = time.Now()
+		existingOrg.GuidelinesUpdatedBy = user.ID
+	}
+
 	existingOrg, err = apiServer.Store.UpdateOrganization(r.Context(), existingOrg)
 	if err != nil {
 		log.Err(err).Msg("error updating organization")
@@ -282,4 +307,66 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	}
 
 	writeResponse(rw, existingOrg, http.StatusOK)
+}
+
+// getOrganizationGuidelinesHistory returns the history of guidelines changes for an organization
+// @Summary Get organization guidelines history
+// @Description Get the version history of guidelines for an organization
+// @Tags Organizations
+// @Accept json
+// @Produce json
+// @Param id path string true "Organization ID"
+// @Success 200 {array} types.GuidelinesHistory
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/organizations/{id}/guidelines-history [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	orgID := vars["id"]
+
+	if orgID == "" {
+		http.Error(rw, "Organization ID is required", http.StatusBadRequest)
+		return
+	}
+
+	org, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{ID: orgID})
+	if err != nil {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if user is a member of the organization
+	_, err = apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: org.ID,
+		UserID:         user.ID,
+	})
+	if err != nil && !user.Admin {
+		http.Error(rw, "Not authorized to view organization guidelines history", http.StatusForbidden)
+		return
+	}
+
+	history, err := apiServer.Store.ListGuidelinesHistory(r.Context(), orgID, "")
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("org_id", orgID).
+			Msg("failed to get organization guidelines history")
+		http.Error(rw, "Failed to get guidelines history", http.StatusInternalServerError)
+		return
+	}
+
+	// Populate user display names and emails
+	for _, entry := range history {
+		if entry.UpdatedBy != "" {
+			if u, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: entry.UpdatedBy}); err == nil && u != nil {
+				entry.UpdatedByName = u.FullName
+				entry.UpdatedByEmail = u.Email
+			}
+		}
+	}
+
+	writeResponse(rw, history, http.StatusOK)
 }

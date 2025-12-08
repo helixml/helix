@@ -66,15 +66,29 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		log.Error().Err(err).Msg("failed to initialize billing logger")
 	}
 
+	// TLS options for all OpenAI-compatible clients
+	tlsOpts := openai.ClientOptions{
+		TLSSkipVerify: cfg.Tools.TLSSkipVerify,
+	}
+
+	// Log TLS configuration prominently for debugging enterprise deployments
+	log.Info().
+		Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
+		Str("env_var", "TOOLS_TLS_SKIP_VERIFY").
+		Str("how_to_set", "set in .env for Docker Compose, or extraEnv in Helm chart").
+		Msg("Provider manager TLS configuration loaded")
+
 	if cfg.Providers.OpenAI.APIKey != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).
+			Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
 			Msg("initializing OpenAI client")
 
-		openaiClient := openai.New(
+		openaiClient := openai.NewWithOptions(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
+			tlsOpts,
 			cfg.Providers.OpenAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, modelInfoProvider, billingLogger, logStores...)
@@ -87,10 +101,11 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
 			Msg("using TogetherAI provider for controller inference")
 
-		togetherAiClient := openai.New(
+		togetherAiClient := openai.NewWithOptions(
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
+			tlsOpts,
 			cfg.Providers.TogetherAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, modelInfoProvider, billingLogger, logStores...)
@@ -103,10 +118,11 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.Anthropic.BaseURL).
 			Msg("using Anthropic provider for controller inference")
 
-		anthropicClient := openai.New(
+		anthropicClient := openai.NewWithOptions(
 			cfg.Providers.Anthropic.APIKey,
 			cfg.Providers.Anthropic.BaseURL,
 			cfg.Stripe.BillingEnabled,
+			tlsOpts,
 			cfg.Providers.Anthropic.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
@@ -120,10 +136,11 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			Str("base_url", cfg.Providers.VLLM.BaseURL).
 			Msg("using VLLM provider for controller inference")
 
-		vllmClient := openai.New(
+		vllmClient := openai.NewWithOptions(
 			cfg.Providers.VLLM.APIKey,
 			cfg.Providers.VLLM.BaseURL,
 			cfg.Stripe.BillingEnabled,
+			tlsOpts,
 			cfg.Providers.VLLM.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, modelInfoProvider, billingLogger, logStores...)
@@ -247,7 +264,9 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	}
 
 	// Recreate the client with the new key
-	openaiClient := openai.New(newKey, baseURL, m.cfg.Stripe.BillingEnabled)
+	openaiClient := openai.NewWithOptions(newKey, baseURL, m.cfg.Stripe.BillingEnabled, openai.ClientOptions{
+		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
+	})
 
 	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.modelInfoProvider, m.billingLogger, m.logStores...)
 
@@ -358,7 +377,19 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		apiKey = strings.TrimSpace(string(bts))
 	}
 
-	openaiClient := openai.New(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, endpoint.Models...)
+	// Log TLS configuration for database-configured providers (user/org endpoints)
+	// This helps debug enterprise TLS issues with providers configured via web UI
+	log.Info().
+		Str("provider_id", endpoint.ID).
+		Str("provider_name", endpoint.Name).
+		Str("base_url", endpoint.BaseURL).
+		Str("endpoint_type", string(endpoint.EndpointType)).
+		Bool("tls_skip_verify", m.cfg.Tools.TLSSkipVerify).
+		Msg("Initializing client for database-configured provider with TLS config")
+
+	openaiClient := openai.NewWithOptions(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, openai.ClientOptions{
+		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
+	}, endpoint.Models...)
 
 	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger
 	billingLogger := m.billingLogger

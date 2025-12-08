@@ -95,6 +95,7 @@ type HelixAPIServer struct {
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
 	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
@@ -124,6 +125,9 @@ type HelixAPIServer struct {
 	gitHTTPServer               *services.GitHTTPServer
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
+	// Rate limiting for streaming connections (prevents Wolf deadlock from rapid reconnects)
+	streamingRateLimiter        map[string]time.Time // session_id -> last connection time
+	streamingRateLimiterMutex   sync.RWMutex
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
 	projectInternalRepoService  *services.ProjectInternalRepoService
@@ -226,19 +230,11 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
-	// Default QWEN_BASE_URL to SERVER_URL/v1 if not set
-	qwenBaseURL := cfg.ExternalAgents.QwenBaseURL
-	if qwenBaseURL == "" {
-		qwenBaseURL = cfg.WebServer.URL + "/v1"
-	}
-
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
-		qwenBaseURL,
-		cfg.ExternalAgents.QwenModel,
 		store,
 		connectionManager,
 	)
@@ -262,6 +258,7 @@ func NewServer(
 		sessionCommentQueue:        make(map[string][]string),
 		sessionCurrentComment:      make(map[string]string),
 		requestToCommenterMapping:  make(map[string]string),
+		streamingRateLimiter:       make(map[string]time.Time),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
@@ -768,6 +765,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/guidelines-history", apiServer.getOrganizationGuidelinesHistory).Methods(http.MethodGet)
 
 	// Teams
 	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
@@ -936,6 +934,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)

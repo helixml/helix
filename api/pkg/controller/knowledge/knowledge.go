@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -37,26 +39,37 @@ type Reconciler struct {
 	ragClient    rag.RAG                                   // Default server RAG client
 	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
 	newCrawler   func(k *types.Knowledge) (crawler.Crawler, error)
+	oauthManager *oauth.Manager // OAuth manager for SharePoint and other OAuth-based sources
 	progressMu   *sync.RWMutex
 	progress     map[string]types.KnowledgeProgress
 	cron         gocron.Scheduler
 	wg           sync.WaitGroup
 }
 
-func New(config *config.ServerConfig, store store.Store, filestore filestore.FileStore, extractor extract.Extractor, ragClient rag.RAG, b *browser.Browser) (*Reconciler, error) {
+func New(config *config.ServerConfig, store store.Store, filestore filestore.FileStore, extractor extract.Extractor, ragClient rag.RAG, b *browser.Browser, oauthManager *oauth.Manager) (*Reconciler, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if config.Tools.TLSSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	r := &Reconciler{
-		config:     config,
-		store:      store,
-		filestore:  filestore,
-		cron:       s,
-		extractor:  extractor,
-		httpClient: http.DefaultClient,
-		ragClient:  ragClient,
+		config:       config,
+		store:        store,
+		filestore:    filestore,
+		cron:         s,
+		extractor:    extractor,
+		httpClient:   httpClient,
+		ragClient:    ragClient,
+		oauthManager: oauthManager,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			// this is somewhat confusingly named, but it's only used for custom RAG
 			// servers (not our own llamaindex)

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,10 +128,10 @@ func NewClientFromEnv() (*HelixClient, error) {
 		return nil, err
 	}
 
-	return NewClient(cfg.URL, cfg.APIKey)
+	return NewClient(cfg.URL, cfg.APIKey, cfg.TLSSkipVerify)
 }
 
-func NewClient(url, apiKey string) (*HelixClient, error) {
+func NewClient(url, apiKey string, tlsSkipVerify bool) (*HelixClient, error) {
 	if url == "" {
 		url = DefaultURL
 	}
@@ -144,8 +145,17 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 		url = url + "/api/v1"
 	}
 
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	return &HelixClient{
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 		apiKey:     apiKey,
 		url:        url,
 	}, nil

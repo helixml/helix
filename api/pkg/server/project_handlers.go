@@ -168,17 +168,19 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	project := &types.Project{
-		OrganizationID: req.OrganizationID,
-		ID:             system.GenerateProjectID(),
-		Name:           req.Name,
-		Description:    req.Description,
-		UserID:         user.ID,
-		GitHubRepoURL:  req.GitHubRepoURL,
-		DefaultBranch:  req.DefaultBranch,
-		Technologies:   req.Technologies,
-		Status:         "active",
-		DefaultRepoID:  req.DefaultRepoID,
-		StartupScript:  req.StartupScript,
+		OrganizationID:    req.OrganizationID,
+		ID:                system.GenerateProjectID(),
+		Name:              req.Name,
+		Description:       req.Description,
+		UserID:            user.ID,
+		GitHubRepoURL:     req.GitHubRepoURL,
+		DefaultBranch:     req.DefaultBranch,
+		Technologies:      req.Technologies,
+		Status:            "active",
+		DefaultRepoID:     req.DefaultRepoID,
+		StartupScript:     req.StartupScript,
+		DefaultHelixAppID: req.DefaultHelixAppID,
+		Guidelines:        req.Guidelines,
 	}
 
 	created, err := s.Store.CreateProject(r.Context(), project)
@@ -307,6 +309,32 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
+	}
+	if req.DefaultHelixAppID != nil {
+		project.DefaultHelixAppID = *req.DefaultHelixAppID
+	}
+	// Track guidelines changes with versioning
+	if req.Guidelines != nil && *req.Guidelines != project.Guidelines {
+		// Save current version to history before updating
+		if project.Guidelines != "" {
+			history := &types.GuidelinesHistory{
+				ID:        system.GenerateUUID(),
+				ProjectID: projectID,
+				Version:   project.GuidelinesVersion,
+				Guidelines: project.Guidelines,
+				UpdatedBy: project.GuidelinesUpdatedBy,
+				UpdatedAt: project.GuidelinesUpdatedAt,
+			}
+			if err := s.Store.CreateGuidelinesHistory(r.Context(), history); err != nil {
+				log.Warn().Err(err).Str("project_id", projectID).Msg("failed to save guidelines history")
+			}
+		}
+
+		// Update guidelines with new version
+		project.Guidelines = *req.Guidelines
+		project.GuidelinesVersion++
+		project.GuidelinesUpdatedAt = time.Now()
+		project.GuidelinesUpdatedBy = user.ID
 	}
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata
@@ -1201,4 +1229,61 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 	}
 
 	return versions, nil
+}
+
+// getProjectGuidelinesHistory returns the history of guidelines changes for a project
+// @Summary Get project guidelines history
+// @Description Get the version history of guidelines for a project
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {array} types.GuidelinesHistory
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/projects/{id}/guidelines-history [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProjectGuidelinesHistory(_ http.ResponseWriter, r *http.Request) ([]*types.GuidelinesHistory, *system.HTTPError) {
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthorized")
+	}
+
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+	if projectID == "" {
+		return nil, system.NewHTTPError400("missing project ID")
+	}
+
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	history, err := s.Store.ListGuidelinesHistory(r.Context(), "", projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get project guidelines history")
+		return nil, system.NewHTTPError500("failed to get guidelines history")
+	}
+
+	// Populate user display names and emails
+	for _, entry := range history {
+		if entry.UpdatedBy != "" {
+			if u, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{ID: entry.UpdatedBy}); err == nil && u != nil {
+				entry.UpdatedByName = u.FullName
+				entry.UpdatedByEmail = u.Email
+			}
+		}
+	}
+
+	return history, nil
 }
