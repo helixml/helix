@@ -1,4 +1,4 @@
-import React, { FC, useState, useRef, useEffect } from 'react'
+import React, { FC, useState, useRef, useEffect, useCallback } from 'react'
 import {
   Paper,
   Box,
@@ -13,6 +13,9 @@ import {
   ListItemText,
   TextField,
   Button,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -99,6 +102,10 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
+
+  // Just Do It mode state (initialized from task, synced via API)
+  const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
+  const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
 
   // Poll for task updates to detect when spec_session_id is populated
   useEffect(() => {
@@ -315,6 +322,68 @@ I'll give you feedback and we can iterate on any changes needed.`
       snackbar.error('Failed to send message')
     }
   }
+
+  // Toggle Just Do It mode and persist to backend
+  const handleToggleJustDoIt = useCallback(async () => {
+    if (!task?.id || updatingJustDoIt) return
+
+    const newValue = !justDoItMode
+    setUpdatingJustDoIt(true)
+
+    try {
+      await api.getApiClient().v1SpecTasksUpdate(task.id, {
+        just_do_it_mode: newValue,
+      })
+      setJustDoItMode(newValue)
+      snackbar.success(newValue ? 'Just Do It mode enabled' : 'Just Do It mode disabled')
+    } catch (err) {
+      console.error('Failed to update Just Do It mode:', err)
+      snackbar.error('Failed to update Just Do It mode')
+    } finally {
+      setUpdatingJustDoIt(false)
+    }
+  }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
+
+  // Keyboard shortcuts for task actions
+  useEffect(() => {
+    if (!open || !displayTask) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      // 'j' - Toggle Just Do It mode (only for backlog tasks)
+      if (e.key === 'j' && displayTask.status === 'backlog') {
+        e.preventDefault()
+        handleToggleJustDoIt()
+      }
+
+      // 's' or Enter - Start Planning (only for backlog tasks)
+      if ((e.key === 's' || e.key === 'Enter') && displayTask.status === 'backlog') {
+        e.preventDefault()
+        handleStartPlanning()
+      }
+
+      // Escape - Close dialog
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, displayTask, handleToggleJustDoIt, handleStartPlanning, onClose])
+
+  // Sync justDoItMode when task changes
+  useEffect(() => {
+    if (displayTask?.just_do_it_mode !== undefined) {
+      setJustDoItMode(displayTask.just_do_it_mode)
+    }
+  }, [displayTask?.just_do_it_mode])
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isResizing) return // Don't allow dragging when resizing
@@ -596,16 +665,45 @@ I'll give you feedback and we can iterate on any changes needed.`
           {((activeSessionId && currentTab === 1) || (!activeSessionId && currentTab === 0)) && (
             <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
               {/* Action Buttons */}
-              <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 {displayTask.status === 'backlog' && (
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    startIcon={<PlayArrow />}
-                    onClick={handleStartPlanning}
-                  >
-                    Start Planning
-                  </Button>
+                  <>
+                    <Button
+                      variant="contained"
+                      color={justDoItMode ? 'success' : 'warning'}
+                      startIcon={<PlayArrow />}
+                      onClick={handleStartPlanning}
+                      endIcon={
+                        <Box component="span" sx={{ fontSize: '0.7rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                          S
+                        </Box>
+                      }
+                    >
+                      {justDoItMode ? 'Just Do It' : 'Start Planning'}
+                    </Button>
+                    <Tooltip title="Skip spec planning and start implementation immediately (keyboard: J)">
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={justDoItMode}
+                            onChange={handleToggleJustDoIt}
+                            disabled={updatingJustDoIt}
+                            color="warning"
+                            size="small"
+                          />
+                        }
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2">Just Do It</Typography>
+                            <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                              J
+                            </Box>
+                          </Box>
+                        }
+                        sx={{ ml: 1 }}
+                      />
+                    </Tooltip>
+                  </>
                 )}
                 {displayTask.status === 'spec_review' && (
                   <Button
