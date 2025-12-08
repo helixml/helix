@@ -388,17 +388,48 @@ echo "Firefox set as default browser for HTTP/HTTPS URLs"
 # Trying to load dconf here fails because D-Bus isn't available yet.
 # The desktop.sh script runs after xorg.sh starts Xwayland and D-Bus.
 
-# CRITICAL: Fix display resolution after GNOME/Mutter starts
-# Mutter resets the resolution to its preferred mode (5120x2880) after xorg.sh sets it.
-# This autostart entry runs after GNOME starts and sets the correct resolution.
-# The resolution must match GAMESCOPE_WIDTH x GAMESCOPE_HEIGHT for proper rendering.
+# CRITICAL: Create monitors.xml to configure Mutter's display resolution
+# This is the proper way to tell Mutter what resolution to use.
+# Without this, Mutter picks the highest available resolution (5120x2880)
+# which doesn't match Gamescope's expected resolution.
+mkdir -p ~/.config
+cat > ~/.config/monitors.xml <<EOF
+<monitors version="2">
+  <configuration>
+    <logicalmonitor>
+      <x>0</x>
+      <y>0</y>
+      <scale>1</scale>
+      <primary>yes</primary>
+      <monitor>
+        <monitorspec>
+          <connector>XWAYLAND0</connector>
+          <vendor>unknown</vendor>
+          <product>unknown</product>
+          <serial>unknown</serial>
+        </monitorspec>
+        <mode>
+          <width>${GAMESCOPE_WIDTH:-1920}</width>
+          <height>${GAMESCOPE_HEIGHT:-1080}</height>
+          <rate>59.96</rate>
+        </mode>
+      </monitor>
+    </logicalmonitor>
+  </configuration>
+</monitors>
+EOF
+
+echo "Created monitors.xml for ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
+
+# Also create an autostart entry that runs xrandr AFTER Mutter is fully initialized
+# The monitors.xml should work, but this is a backup that runs with longer delay
 cat > ~/.config/autostart/helix-resolution.desktop <<EOF
 [Desktop Entry]
 Type=Application
 Name=Fix Display Resolution
-Exec=/bin/bash -c "sleep 1 && xrandr --output XWAYLAND0 --mode ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} && echo 'Resolution set to ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}' >> /tmp/ubuntu-startup-debug.log"
+Exec=/bin/bash -c "sleep 5 && xrandr --output XWAYLAND0 --mode ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} && echo 'Resolution set to ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}' >> /tmp/ubuntu-startup-debug.log"
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=0
+X-GNOME-Autostart-Delay=3
 NoDisplay=true
 EOF
 
