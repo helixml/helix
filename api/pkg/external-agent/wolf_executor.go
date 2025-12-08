@@ -1387,19 +1387,83 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 }
 
 // GetSession implements the Executor interface
+// If session is not in memory but Wolf lobby is still running, it lazily reconstructs the session.
+// This enables surviving API restarts - Wolf containers keep running, we just need to rebuild the map.
 func (w *WolfExecutor) GetSession(sessionID string) (*ZedSession, error) {
+	// Check in-memory map first (fast path)
 	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-
 	session, exists := w.sessions[sessionID]
-	if !exists {
-		return nil, fmt.Errorf("session %s not found", sessionID)
+	w.mutex.RUnlock()
+
+	if exists {
+		// Update last access time
+		session.LastAccess = time.Now()
+		return session, nil
 	}
 
-	// Update last access time
-	session.LastAccess = time.Now()
+	// Session not in memory - try lazy reconstruction from Wolf
+	// This handles API restarts where Wolf containers keep running
+	ctx := context.Background()
 
-	return session, nil
+	// Look up session in database to get Wolf instance ID and lobby ID
+	dbSession, err := w.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("session %s not found in database: %w", sessionID, err)
+	}
+
+	// Check if this session has Wolf metadata
+	wolfInstanceID := dbSession.WolfInstanceID
+	wolfLobbyID := dbSession.Metadata.WolfLobbyID
+
+	if wolfInstanceID == "" || wolfLobbyID == "" {
+		return nil, fmt.Errorf("session %s has no Wolf metadata (not an external agent session)", sessionID)
+	}
+
+	// Verify the lobby still exists in Wolf
+	lobbies, err := w.getWolfClient(wolfInstanceID).ListLobbies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query Wolf for session %s: %w", sessionID, err)
+	}
+
+	lobbyExists := false
+	for _, lobby := range lobbies {
+		if lobby.ID == wolfLobbyID {
+			lobbyExists = true
+			break
+		}
+	}
+
+	if !lobbyExists {
+		return nil, fmt.Errorf("session %s lobby no longer exists in Wolf (container stopped)", sessionID)
+	}
+
+	// Lobby exists - reconstruct in-memory session
+	sessionIDPart := strings.TrimPrefix(sessionID, "ses_")
+	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+	reconstructedSession := &ZedSession{
+		SessionID:      sessionID,
+		HelixSessionID: sessionID, // For external agents, session ID is the Helix session ID
+		UserID:         dbSession.Owner,
+		Status:         "running",
+		StartTime:      dbSession.Created,
+		LastAccess:     time.Now(),
+		WolfLobbyID:    wolfLobbyID,
+		ContainerName:  containerHostname,
+	}
+
+	// Store in memory for future lookups
+	w.mutex.Lock()
+	w.sessions[sessionID] = reconstructedSession
+	w.mutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", wolfLobbyID).
+		Str("wolf_instance_id", wolfInstanceID).
+		Msg("🔄 Lazily reconstructed session from Wolf (API restart recovery)")
+
+	return reconstructedSession, nil
 }
 
 // CleanupExpiredSessions implements the Executor interface
