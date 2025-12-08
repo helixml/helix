@@ -40,14 +40,7 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIURL          string           `json:"api_url"`                    // Custom API URL (empty = use default provider URL)
-	AvailableModels []AvailableModel `json:"available_models,omitempty"` // Custom models to add
-}
-
-type AvailableModel struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	MaxTokens   int    `json:"max_tokens,omitempty"`
+	APIURL string `json:"api_url"` // Custom API URL (empty = use default provider URL)
 }
 
 type AssistantSettings struct {
