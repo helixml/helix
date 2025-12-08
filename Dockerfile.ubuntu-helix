@@ -228,6 +228,13 @@ export QT_AUTO_SCREEN_SCALE_FACTOR=1
 export QT_ENABLE_HIGHDPI_SCALING=1
 export LC_ALL="en_US.UTF-8"
 
+# CRITICAL: Disable accessibility bridge to prevent MIT-SHM crashes
+# The AT-SPI bridge can trigger BadMatch errors during window compositing on Xwayland
+export NO_AT_BRIDGE=1
+
+# Disable Clutter remote desktop features that can conflict with Gamescope
+export MUTTER_DEBUG_DISABLE_HW_CURSORS=1
+
 # Use the display we set up in xorg.sh (DISPLAY=:9 matches Zorin's working config)
 export DISPLAY=:9
 unset WAYLAND_DISPLAY
