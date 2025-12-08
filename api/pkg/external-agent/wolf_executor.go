@@ -238,7 +238,10 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		// CRITICAL: Use user API token for WebSocket auth, NOT runner token
+		// Runner tokens authenticate as "runner-system" which bypasses user-level RBAC
+		// User tokens ensure proper attribution and RBAC enforcement
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", userAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		"RUST_LOG=info", // Enable Rust logging for Zed
 		// Settings sync daemon configuration
