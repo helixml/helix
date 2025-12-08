@@ -489,7 +489,7 @@ const Projects: FC = () => {
           }}
           onSelect={handleAgentSelected}
           title="Select Agent for Project"
-          description="Choose an agent to use for code development tasks in this project. External Agent types are recommended."
+          description="Choose a default agent for this project. You can override this when creating individual tasks."
         />
     </Page>
   )

@@ -1003,6 +1003,23 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// Set the project's default agent if we have one
+	if agentApp != nil {
+		createdProject.DefaultHelixAppID = agentApp.ID
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("project_id", createdProject.ID).
+				Str("default_helix_app_id", agentApp.ID).
+				Msg("Failed to set project's default agent (continuing)")
+		} else {
+			log.Info().
+				Str("project_id", createdProject.ID).
+				Str("default_helix_app_id", agentApp.ID).
+				Msg("Set project's default agent")
+		}
+	}
+
 	// Create spec-driven tasks from the natural language prompts
 	// Iterate in reverse order so first task appears at top of backlog (newest CreatedAt)
 	tasksCreated := 0
