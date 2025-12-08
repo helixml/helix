@@ -60,13 +60,24 @@ const RECOMMENDED_MODELS = {
   ],
   // No tool use required, can be any text generation model
   smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b'],
-  // Zed external agent - strong code generation models, Anthropic models work best with Zed
+  // Zed external agent - strong code generation models
   zedExternal: [
+    // Anthropic
     'claude-opus-4-5-20251101',
     'claude-sonnet-4-5-20250929',
     'claude-haiku-4-5-20251001',
-    'gpt-4o',
-    'gpt-4o-mini',
+    // OpenAI
+    'openai/gpt-5.1-codex',
+    'openai/gpt-oss-120b',
+    // Google Gemini
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    // Zhipu GLM
+    'glm-4.6',
+    // Qwen (Coder + Large)
+    'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+    'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
   ]
 };
 

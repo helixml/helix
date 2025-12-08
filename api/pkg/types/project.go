@@ -29,6 +29,10 @@ type Project struct {
 	// Automation settings
 	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available
 
+	// Default agent for spec tasks in this project (App ID)
+	// New spec tasks inherit this agent; can be overridden per-task
+	DefaultHelixAppID string `json:"default_helix_app_id,omitempty" gorm:"type:varchar(255)"`
+
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
 	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
@@ -121,14 +125,15 @@ type ProjectTasksResponse struct {
 
 // ProjectCreateRequest represents a request to create a new project
 type ProjectCreateRequest struct {
-	OrganizationID string   `json:"organization_id"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	GitHubRepoURL  string   `json:"github_repo_url,omitempty"`
-	DefaultBranch  string   `json:"default_branch,omitempty"`
-	Technologies   []string `json:"technologies,omitempty"`
-	DefaultRepoID  string   `json:"default_repo_id,omitempty"`
-	StartupScript  string   `json:"startup_script,omitempty"`
+	OrganizationID    string   `json:"organization_id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	GitHubRepoURL     string   `json:"github_repo_url,omitempty"`
+	DefaultBranch     string   `json:"default_branch,omitempty"`
+	Technologies      []string `json:"technologies,omitempty"`
+	DefaultRepoID     string   `json:"default_repo_id,omitempty"`
+	StartupScript     string   `json:"startup_script,omitempty"`
+	DefaultHelixAppID string   `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
 }
 
 // ProjectUpdateRequest represents a request to update a project
@@ -142,6 +147,7 @@ type ProjectUpdateRequest struct {
 	DefaultRepoID         *string          `json:"default_repo_id,omitempty"`
 	StartupScript         *string          `json:"startup_script,omitempty"`
 	AutoStartBacklogTasks *bool            `json:"auto_start_backlog_tasks,omitempty"`
+	DefaultHelixAppID     *string          `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
 	Metadata              *ProjectMetadata `json:"metadata,omitempty"`
 }
 

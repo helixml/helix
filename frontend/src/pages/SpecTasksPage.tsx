@@ -151,19 +151,14 @@ const SpecTasksPage: FC = () => {
   // Auto-select default agent when dialog opens
   useEffect(() => {
     if (createDialogOpen) {
-      // Check if "Default Spec Agent" already exists
-      const defaultAgent = apps.apps.find(app =>
-        (app.config?.helix?.name || app.name) === 'Default Spec Agent'
-      );
-
-      if (defaultAgent) {
-        // Select the existing default agent
-        setSelectedHelixAgent(defaultAgent.id || '');
+      // First priority: use project's default agent if set
+      if (project?.default_helix_app_id) {
+        setSelectedHelixAgent(project.default_helix_app_id);
       } else if (apps.apps.length === 0) {
         // No agents exist, default to create option
         setSelectedHelixAgent('__create_default__');
       } else {
-        // Agents exist but no default agent, select first one
+        // Agents exist but project has no default, select first one
         setSelectedHelixAgent(apps.apps[0]?.id || '__create_default__');
       }
 
@@ -174,7 +169,7 @@ const SpecTasksPage: FC = () => {
         }
       }, 100);
     }
-  }, [createDialogOpen, apps.apps]);
+  }, [createDialogOpen, apps.apps, project?.default_helix_app_id]);
 
   // Handle URL parameters for opening dialog
   useEffect(() => {

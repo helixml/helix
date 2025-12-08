@@ -168,17 +168,18 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	project := &types.Project{
-		OrganizationID: req.OrganizationID,
-		ID:             system.GenerateProjectID(),
-		Name:           req.Name,
-		Description:    req.Description,
-		UserID:         user.ID,
-		GitHubRepoURL:  req.GitHubRepoURL,
-		DefaultBranch:  req.DefaultBranch,
-		Technologies:   req.Technologies,
-		Status:         "active",
-		DefaultRepoID:  req.DefaultRepoID,
-		StartupScript:  req.StartupScript,
+		OrganizationID:    req.OrganizationID,
+		ID:                system.GenerateProjectID(),
+		Name:              req.Name,
+		Description:       req.Description,
+		UserID:            user.ID,
+		GitHubRepoURL:     req.GitHubRepoURL,
+		DefaultBranch:     req.DefaultBranch,
+		Technologies:      req.Technologies,
+		Status:            "active",
+		DefaultRepoID:     req.DefaultRepoID,
+		StartupScript:     req.StartupScript,
+		DefaultHelixAppID: req.DefaultHelixAppID,
 	}
 
 	created, err := s.Store.CreateProject(r.Context(), project)
@@ -307,6 +308,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.AutoStartBacklogTasks != nil {
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
+	}
+	if req.DefaultHelixAppID != nil {
+		project.DefaultHelixAppID = *req.DefaultHelixAppID
 	}
 	if req.Metadata != nil {
 		project.Metadata = *req.Metadata

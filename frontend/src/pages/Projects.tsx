@@ -18,6 +18,7 @@ import CreateProjectButton from '../components/project/CreateProjectButton'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog'
 import LinkExternalRepositoryDialog from '../components/project/LinkExternalRepositoryDialog'
+import AgentSelectionModal from '../components/project/AgentSelectionModal'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
 import useAccount from '../hooks/useAccount'
@@ -69,6 +70,10 @@ const Projects: FC = () => {
   // Repository dialog states
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false)
   const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
+
+  // Agent selection modal state for sample project fork
+  const [agentModalOpen, setAgentModalOpen] = useState(false)
+  const [pendingSampleFork, setPendingSampleFork] = useState<{ sampleId: string; sampleName: string } | null>(null)
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string>('')
@@ -200,8 +205,21 @@ const Projects: FC = () => {
     setCreateDialogOpen(true)
   }
 
+  // Step 1: User clicks on sample project - show agent selection modal
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
     if (!checkLoginStatus()) return
+
+    // Store the pending fork request and show agent selection modal
+    setPendingSampleFork({ sampleId, sampleName })
+    setAgentModalOpen(true)
+  }
+
+  // Step 2: User selects an agent - proceed with fork
+  const handleAgentSelected = async (agentId: string) => {
+    if (!pendingSampleFork) return
+
+    const { sampleId, sampleName } = pendingSampleFork
+    setPendingSampleFork(null)
 
     try {
       snackbar.info(`Creating ${sampleName}...`)
@@ -211,6 +229,7 @@ const Projects: FC = () => {
         request: {
           project_name: sampleName,
           organization_id: account.organizationTools.organization?.id, // Pass current workspace context
+          helix_app_id: agentId, // Pass the selected agent
         },
       })
 
@@ -459,6 +478,18 @@ const Projects: FC = () => {
           onClose={() => setLinkRepoDialogOpen(false)}
           onSubmit={handleLinkExternalRepo}
           isCreating={creating}
+        />
+
+        {/* Agent Selection Modal for Sample Project Fork */}
+        <AgentSelectionModal
+          open={agentModalOpen}
+          onClose={() => {
+            setAgentModalOpen(false)
+            setPendingSampleFork(null)
+          }}
+          onSelect={handleAgentSelected}
+          title="Select Agent for Project"
+          description="Choose an agent to use for code development tasks in this project. External Agent types are recommended."
         />
     </Page>
   )
