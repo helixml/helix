@@ -78,6 +78,20 @@ func getRequestToken(r *http.Request) string {
 		return token
 	}
 
+	// Try x-api-key header (used by Anthropic SDK clients like Zed)
+	// When Zed is configured to use Helix as a proxy, it sends the Helix user token
+	// in the x-api-key header (since that's what Anthropic's API expects)
+	token = r.Header.Get("x-api-key")
+	if token != "" {
+		return token
+	}
+
+	// Try api-key header (used by Azure OpenAI SDK clients)
+	token = r.Header.Get("api-key")
+	if token != "" {
+		return token
+	}
+
 	// Then try to get from cookie
 	cookie, err := r.Cookie("access_token")
 	if err == nil && cookie != nil && cookie.Value != "" {

@@ -122,9 +122,18 @@ func GenerateZedMCPConfig(
 	}
 	config.Theme = "One Dark"
 
-	// Don't configure assistant or language_models sections
-	// Zed will use ANTHROPIC_API_KEY environment variable
-	// default_model goes in agent section!
+	// Configure language_models to route API calls through Helix proxy
+	// CRITICAL: Zed reads api_url from settings.json, NOT from ANTHROPIC_BASE_URL env var!
+	// The env vars set in wolf_executor.go are NOT used by Zed's language model providers.
+	// We must explicitly set api_url in language_models for each provider.
+	config.LanguageModels = map[string]LanguageModelConfig{
+		"anthropic": {
+			APIURL: helixAPIURL + "/v1", // Helix Anthropic proxy
+		},
+		"openai": {
+			APIURL: helixAPIURL + "/v1", // Helix OpenAI proxy
+		},
+	}
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
 	if hasNativeTools(assistant) {

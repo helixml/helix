@@ -92,12 +92,22 @@ func (s *Proxy) anthropicAPIProxyDirector(r *http.Request) {
 
 	r.Host = u.Host
 
+	// Remove incoming auth headers (user's Helix token, not the real provider API key)
+	r.Header.Del("Authorization")
+	r.Header.Del("x-api-key")
+	r.Header.Del("api-key")
+
+	// Set headers from provider endpoint (may include x-api-key)
 	for key, value := range endpoint.Headers {
 		r.Header.Set(key, value)
 	}
 
-	// Remove authorization header
-	r.Header.Del("Authorization")
+	// If x-api-key not explicitly set in Headers, use endpoint.APIKey
+	// This allows Anthropic providers to use the standard APIKey field
+	// instead of requiring manual Headers["x-api-key"] configuration
+	if r.Header.Get("x-api-key") == "" && endpoint.APIKey != "" {
+		r.Header.Set("x-api-key", endpoint.APIKey)
+	}
 }
 
 // anthropicAPIProxyModifyResponse - parses the response
