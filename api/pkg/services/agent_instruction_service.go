@@ -44,29 +44,35 @@ Your design has been approved. Implement the code changes now.
 
 1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
-3. **Update tasks.md** - Mark [~] when starting, [x] when done
+3. **Update tasks.md** - Mark [x] when you start each task, push immediately
 4. **Update design docs as you go** - Record discoveries, decisions, and blockers in design.md
+
+## Two Repositories - Don't Confuse Them
+
+1. **~/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
+2. **~/work/<repo-name>/** = Code changes (push to feature branch)
 
 ## Task Checklist
 
 Your checklist: ~/work/helix-specs/design/tasks/%[4]s/tasks.md
 
-- [ ] = pending
-- [~] = in progress (you are working on it)
-- [x] = completed
+- [ ] = not started
+- [x] = done
 
-After each status change, push immediately:
+When you START a task, change [ ] to [x] and push. Don't wait until "really done".
+Small frequent pushes are better than one big push at the end.
+
+After ANY checklist change:
 %[1]sbash
 cd ~/work/helix-specs && git add -A && git commit -m "Progress update" && git push origin helix-specs
 %[1]s
 
 ## Steps
 
-1. Create feature branch: %[1]sgit checkout -b %[2]s%[1]s
-2. Read your design docs: ~/work/helix-specs/design/tasks/%[4]s/
-3. Work through tasks.md one by one
-4. For each task: mark [~], do work, mark [x], push helix-specs
-5. When done: %[1]sgit push origin %[2]s%[1]s
+1. Read design docs: ~/work/helix-specs/design/tasks/%[4]s/
+2. In the CODE repo, create feature branch: %[1]sgit checkout -b %[2]s%[1]s
+3. For each task in tasks.md: mark [x], push helix-specs, then do the work
+4. When all tasks done, push code: %[1]sgit push origin %[2]s%[1]s
 
 ## Don't Over-Engineer
 
