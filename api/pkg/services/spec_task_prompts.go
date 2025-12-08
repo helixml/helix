@@ -110,6 +110,26 @@ git commit -m "Generated design documents for SpecTask %s"
 git push origin helix-specs
 `+"`"+`
 
+**⚠️  HANDLING CONCURRENT AGENTS (Multiple Agents Pushing to helix-specs):**
+Multiple agents may be working on different tasks and pushing to helix-specs concurrently.
+If your push is rejected because the remote has changes you don't have:
+
+`+"`"+`bash
+# If push fails with "rejected" or "non-fast-forward":
+cd ~/work/helix-specs
+git fetch origin helix-specs
+git merge origin/helix-specs -m "Merge remote helix-specs changes"
+
+# This is SAFE - other agents only modify THEIR task directories (design/tasks/<their-task-id>/)
+# Your task directory won't conflict with theirs since each task has a unique ID
+# After merging, push again:
+git push origin helix-specs
+`+"`"+`
+
+This is normal and expected behavior when multiple agents work in parallel. The merge is safe
+because each agent only creates/modifies files in their own task-specific directory.
+DO NOT give up if push fails - just pull, merge, and push again.
+
 **⚠️  CRITICAL: You ABSOLUTELY MUST push design docs immediately after creating them**
 - The backend watches for pushes to helix-specs and moves your task to review
 - WITHOUT pushing, the task stays STUCK in planning and review CANNOT begin

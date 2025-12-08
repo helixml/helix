@@ -14,7 +14,6 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
-  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -25,6 +24,7 @@ import {
   MenuItem,
   FormControlLabel,
   Checkbox,
+  Tooltip,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -41,6 +41,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
+import EditIcon from '@mui/icons-material/Edit'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
@@ -201,12 +202,6 @@ const ProjectSettings: FC = () => {
     })
     return [...zedExternalApps, ...otherApps]
   }, [apps])
-
-  const isZedExternalApp = (app: IApp): boolean => {
-    return app.config?.helix?.assistants?.some(
-      (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-  }
 
   // Load apps when component mounts
   useEffect(() => {
@@ -674,15 +669,19 @@ const ProjectSettings: FC = () => {
                       <MenuItem key={app.id} value={app.id}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
                           <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                          <span>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-                          {isZedExternalApp(app) && (
-                            <Chip
-                              label="External Agent"
+                          <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
+                          <Tooltip title="Edit agent">
+                            <IconButton
                               size="small"
-                              color="primary"
-                              sx={{ height: 18, fontSize: '0.65rem', ml: 'auto' }}
-                            />
-                          )}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                account.orgNavigate('app', { app_id: app.id })
+                              }}
+                              sx={{ ml: 'auto' }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </Box>
                       </MenuItem>
                     ))}

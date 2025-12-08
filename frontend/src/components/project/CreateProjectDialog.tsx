@@ -17,10 +17,12 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   CircularProgress,
-  Chip,
+  IconButton,
+  Tooltip,
 } from '@mui/material'
 import { FolderGit2, Link as LinkIcon, Plus } from 'lucide-react'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
+import EditIcon from '@mui/icons-material/Edit'
 import { TypesExternalRepositoryType } from '../../api/api'
 import type { TypesGitRepository, TypesAzureDevOps } from '../../api/api'
 import NewRepoForm from './forms/NewRepoForm'
@@ -155,12 +157,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     })
     return [...zedExternalApps, ...otherApps]
   }, [apps])
-
-  const isZedExternalApp = (app: IApp): boolean => {
-    return app.config?.helix?.assistants?.some(
-      (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
-    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-  }
 
   // Filter out internal repos - they're deprecated
   const codeRepos = repositories.filter(r => r.repo_type !== 'internal')
@@ -549,15 +545,19 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                     <MenuItem key={app.id} value={app.id}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
                         <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                        <span>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-                        {isZedExternalApp(app) && (
-                          <Chip
-                            label="External Agent"
+                        <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
+                        <Tooltip title="Edit agent">
+                          <IconButton
                             size="small"
-                            color="primary"
-                            sx={{ height: 18, fontSize: '0.65rem', ml: 'auto' }}
-                          />
-                        )}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              account.orgNavigate('app', { app_id: app.id })
+                            }}
+                            sx={{ ml: 'auto' }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     </MenuItem>
                   ))}
