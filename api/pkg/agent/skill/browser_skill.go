@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,7 +102,16 @@ var browserSkillParameters = jsonschema.Definition{
 }
 
 // NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner)
-func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string]) agent.Skill {
+func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string], tlsSkipVerify bool) agent.Skill {
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	return agent.Skill{
 		Name:          "Browser",
 		Description:   browserSkillDescription,
@@ -116,7 +126,7 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, 
 				llm:        llm,
 				parser:     readability.NewParser(), // TODO: add config for this
 				converter:  md.NewConverter("", true, nil),
-				httpClient: http.DefaultClient,
+				httpClient: httpClient,
 				cache:      cache,
 			},
 		},

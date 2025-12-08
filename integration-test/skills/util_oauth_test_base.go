@@ -128,7 +128,7 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	}
 
 	// Initialize OAuth manager
-	suite.oauth = oauth.NewManager(suite.store)
+	suite.oauth = oauth.NewManager(suite.store, cfg.Tools.TLSSkipVerify)
 
 	// Initialize server dependencies
 	err = suite.setupServerDependencies(cfg, webServerHost)
@@ -155,7 +155,7 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	}
 
 	suite.serverURL = cfg.WebServer.URL
-	suite.client, err = client.NewClient(suite.serverURL, apiKey)
+	suite.client, err = client.NewClient(suite.serverURL, apiKey, cfg.Tools.TLSSkipVerify)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}

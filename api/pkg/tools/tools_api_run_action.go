@@ -401,24 +401,38 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 	}
 
 	if c.cfg.Tools.TLSSkipVerify {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
+		// then add InsecureSkipVerify
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		// Log the HTTP error for debugging
-		log.Error().
-			Err(err).
-			Str("tool", tool.Name).
-			Str("action", action).
-			Str("method", req.Method).
-			Str("url", req.URL.String()).
-			Str("host", req.URL.Host).
-			Str("error_type", fmt.Sprintf("%T", err)).
-			Dur("time_taken", time.Since(started)).
-			Msg("HTTP request failed")
+		errStr := err.Error()
+		// Check for TLS certificate errors - these are common in enterprise environments
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("tool", tool.Name).
+				Str("action", action).
+				Str("url", req.URL.String()).
+				Bool("tls_skip_verify_configured", c.cfg.Tools.TLSSkipVerify).
+				Msg("API TOOL TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+		} else {
+			// Log the HTTP error for debugging
+			log.Error().
+				Err(err).
+				Str("tool", tool.Name).
+				Str("action", action).
+				Str("method", req.Method).
+				Str("url", req.URL.String()).
+				Str("host", req.URL.Host).
+				Str("error_type", fmt.Sprintf("%T", err)).
+				Dur("time_taken", time.Since(started)).
+				Msg("HTTP request failed")
+		}
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
 

@@ -68,11 +68,22 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 
 	// Configure TLS if skip verify is enabled
 	if opts.TLSSkipVerify {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
+		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
+		// then add InsecureSkipVerify
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
 		}
+		httpClient.Transport = transport
+		log.Info().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", true).
+			Msg("OpenAI client configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
+	} else {
+		log.Debug().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", false).
+			Msg("OpenAI client using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
 	}
 
 	// Use our interceptor with the custom timeout and universal rate limiter
@@ -166,23 +177,35 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
+			errStr := err.Error()
+
+			// Check for TLS certificate errors - these are common in enterprise environments
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(err).
+					Str("base_url", c.baseURL).
+					Str("model", request.Model).
+					Msg("TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+				return retry.Unrecoverable(err)
+			}
+
+			if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
 				return retry.Unrecoverable(err)
 			}
 
 			// Handle 429 and 529 errors with retries for all providers
-			if strings.Contains(err.Error(), "429") {
+			if strings.Contains(errStr, "429") {
 				log.Warn().
-					Str("error", err.Error()).
+					Str("error", errStr).
 					Str("base_url", c.baseURL).
 					Msg("Received 429 error, will retry with backoff")
 				return err // Allow retry
 			}
 
 			// Handle 529 (Overloaded) errors with retries for all providers
-			if strings.Contains(err.Error(), "529") {
+			if strings.Contains(errStr, "529") {
 				log.Warn().
-					Str("error", err.Error()).
+					Str("error", errStr).
 					Str("base_url", c.baseURL).
 					Msg("Received 529 overloaded error, will retry with backoff")
 				return err // Allow retry
