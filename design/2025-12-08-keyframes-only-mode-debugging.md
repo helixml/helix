@@ -18,12 +18,25 @@ The keyframes-only streaming approach was abandoned due to Moonlight protocol is
 
 **Quality modes:**
 - **Adaptive** (green icon): 60fps WebSocket stream + auto-enables screenshot overlay when RTT >150ms
+  - **Lock-in behavior**: Once adaptive mode falls back to screenshots, it stays there until user clicks to retry
+  - This prevents oscillation: when video is paused, latency drops, which would otherwise cause switching back
+  - Icon turns amber when locked to screenshots
+  - User can click the speed icon to retry video (unlocks and retries without changing modes)
 - **High** (white icon): 60fps WebSocket stream only (no screenshot fallback)
 - **Low** (orange icon): Screenshot-based video only (stream used only for input)
+
+**Video pause feature:**
+- When in screenshot mode (low or adaptive fallback), the frontend sends a `ControlMessage` to pause video
+- Server stops sending video frames, saving bandwidth (only screenshots are fetched)
+- Input continues to work via the WebSocket stream
+- Uses `WsMessageType::ControlMessage` (0x20) with JSON payload: `{"set_video_enabled": false}`
 
 **Key files:**
 - `api/cmd/screenshot-server/main.go` - Captures screenshots via grim, serves JPEG/PNG
 - `frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - Quality mode toggle and screenshot polling
+- `frontend/src/lib/moonlight-web-ts/stream/websocket-stream.ts` - WebSocket stream with `setVideoEnabled()` method
+- `moonlight-web-stream/moonlight-web/web-server/src/api/stream.rs` - Server-side video pause handling
+- `moonlight-web-stream/moonlight-web/common/src/ws_protocol.rs` - ControlMessage protocol definition
 - `Dockerfile.sway-helix` - Builds grim from source with libjpeg support
 
 This provides a working low-bandwidth fallback without the Moonlight protocol bugs.
