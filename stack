@@ -12,6 +12,40 @@ export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 
+# Configure host networking for Docker-in-Docker support
+function setup_dev_networking() {
+  echo "🌐 Configuring networking for Docker-in-Docker support..."
+
+  # Check if already configured
+  local NEEDS_SETUP=false
+
+  if [[ $(cat /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null) != "1" ]]; then
+    NEEDS_SETUP=true
+  fi
+
+  if [[ "$NEEDS_SETUP" == "true" ]]; then
+    # route_localnet: Allow 127.x.x.x addresses on non-loopback interfaces
+    # Required for localhost:PORT forwarding to container networks via DNAT
+    sudo sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    echo "✅ Docker-in-Docker networking configured (route_localnet, ip_forward)"
+  else
+    echo "✅ Docker-in-Docker networking already configured"
+  fi
+
+  # Also ensure inotify limits are sufficient for Zed file watching
+  local CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+  local TARGET_WATCHES=1048576
+
+  if [[ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ]]; then
+    echo "📁 Increasing inotify limits for Zed file watching..."
+    sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+    sudo sysctl -w fs.inotify.max_user_instances=8192 >/dev/null 2>&1 || true
+    echo "✅ inotify limits increased"
+  fi
+}
+
 # Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
@@ -447,6 +481,9 @@ function start() {
 
   export MANUALRUN=1
   export LOG_LEVEL=debug
+
+  # Configure host networking for Docker-in-Docker
+  setup_dev_networking
 
   echo "🐳 Starting docker compose"
 
