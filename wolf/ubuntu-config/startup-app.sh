@@ -343,38 +343,10 @@ echo "Zed autostart entry created"
 # would create duplicate windows.
 
 # ============================================================================
-# GNOME Session Startup (adapted from XFCE launch-comp.sh)
+# GNOME Session Startup (using Zorin-style GOW scripts)
 # ============================================================================
-# The GOW XFCE base image uses launch-comp.sh to start XFCE.
-# We adapt this approach for GNOME, using the same D-Bus and X11 infrastructure.
+# Launch GNOME using the properly configured xorg.sh script
+# This handles: Xwayland startup, D-Bus initialization, resolution setting, GNOME launch
 
-echo "Launching GNOME session..."
-
-# Source GOW utilities
-source /opt/gow/bash-lib/utils.sh
-
-# Set up environment (adapted from launch-comp.sh launcher() function)
-export XDG_DATA_DIRS=/var/lib/flatpak/exports/share:/home/retro/.local/share/flatpak/exports/share:/usr/local/share/:/usr/share/
-
-# Start D-Bus (required for GNOME)
-sudo /opt/gow/startdbus
-
-# Configure environment for GNOME on X11
-export DESKTOP_SESSION=gnome
-export XDG_CURRENT_DESKTOP=GNOME
-export XDG_SESSION_TYPE="x11"
-export _JAVA_AWT_WM_NONREPARENTING=1
-export GDK_BACKEND=x11
-export MOZ_ENABLE_WAYLAND=0
-export QT_QPA_PLATFORM="xcb"
-export QT_AUTO_SCREEN_SCALE_FACTOR=1
-export QT_ENABLE_HIGHDPI_SCALING=1
-export DISPLAY=:0
-export $(dbus-launch)
-export REAL_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
-unset WAYLAND_DISPLAY
-
-# Launch Xwayland and GNOME session
-# This mirrors the XFCE approach but uses gnome-session instead of startxfce4
-echo "Starting Xwayland and gnome-session..."
-exec dbus-run-session -- bash -E -c "WAYLAND_DISPLAY=\$REAL_WAYLAND_DISPLAY Xwayland :0 & sleep 2 && gnome-session"
+echo "Launching GNOME session via /opt/gow/xorg.sh..."
+exec /opt/gow/xorg.sh

@@ -100,6 +100,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GNOME session and Ubuntu theming for vanilla Ubuntu experience
+# Also install x11-utils (xdpyinfo) and x11-xserver-utils (xrandr) for proper X startup
 RUN apt-get update && apt-get install -y \
     gnome-session \
     gnome-shell \
@@ -113,6 +114,8 @@ RUN apt-get update && apt-get install -y \
     ubuntu-wallpapers \
     fonts-ubuntu \
     wmctrl \
+    x11-utils \
+    x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install devilspie2 for window positioning rules
@@ -145,6 +148,111 @@ RUN chmod +x /opt/gow/startup.sh
 # Copy GNOME dconf settings for vanilla Ubuntu appearance
 # These settings configure: Yaru theme, Ubuntu fonts, default wallpaper, no HiDPI scaling
 COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
+# ====================================================================
+# GOW X11/D-Bus Launch Scripts (adapted from Zorin)
+# ====================================================================
+# These scripts properly initialize Xwayland, D-Bus, and GNOME session
+# Using DISPLAY=:9 and proper wait functions (not sleep-based)
+
+# /opt/gow/xorg.sh - Launches Xwayland and waits for it to be ready
+RUN cat > /opt/gow/xorg.sh << 'XORG_EOF'
+#!/bin/bash
+export DISPLAY=:9
+
+function wait_for_x_display() {
+    local display=":9"
+    local max_attempts=100
+    local attempt=0
+    while ! xdpyinfo -display "$display" >/dev/null 2>&1; do
+        if (( attempt++ >= max_attempts )); then
+            echo "Xwayland failed to start on display $display"
+            exit 1
+        fi
+        sleep 0.1
+    done
+    echo "X display $display is ready"
+}
+
+function wait_for_dbus() {
+    local max_attempts=100
+    local attempt=0
+    while ! dbus-send --system --dest=org.freedesktop.DBus --type=method_call --print-reply \
+        /org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null 2>&1; do
+        if (( attempt++ >= max_attempts )); then
+            echo "DBus failed to start"
+            exit 1
+        fi
+        sleep 0.1
+    done
+    echo "D-Bus system bus is ready"
+}
+
+function launch_xorg() {
+    echo "Starting Xwayland on display :9..."
+    Xwayland :9 &
+    wait_for_x_display
+
+    echo "Configuring display resolution..."
+    XWAYLAND_OUTPUT=$(xrandr --display :9 | grep " connected" | awk '{print $1}')
+    if [ -n "$XWAYLAND_OUTPUT" ]; then
+        xrandr --output "$XWAYLAND_OUTPUT" --mode "${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
+        echo "Set resolution to ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} on $XWAYLAND_OUTPUT"
+    else
+        echo "Warning: Could not find connected output for xrandr"
+    fi
+}
+
+echo "=== GOW xorg.sh starting ==="
+launch_xorg
+sudo /opt/gow/dbus.sh
+wait_for_dbus
+exec /opt/gow/desktop.sh
+XORG_EOF
+
+# /opt/gow/dbus.sh - Starts system D-Bus
+RUN cat > /opt/gow/dbus.sh << 'DBUS_EOF'
+#!/bin/bash
+echo "Starting system D-Bus..."
+service dbus start
+DBUS_EOF
+
+# /opt/gow/desktop.sh - Launches GNOME session with proper environment
+RUN cat > /opt/gow/desktop.sh << 'DESKTOP_EOF'
+#!/bin/bash
+echo "=== GOW desktop.sh starting ==="
+
+# Set up environment for GNOME on X11
+export XDG_DATA_DIRS=/var/lib/flatpak/exports/share:/home/retro/.local/share/flatpak/exports/share:/usr/local/share/:/usr/share/
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+export DE=ubuntu
+export DESKTOP_SESSION=ubuntu
+export XDG_SESSION_TYPE=x11
+export XDG_SESSION_CLASS="user"
+export _JAVA_AWT_WM_NONREPARENTING=1
+export GDK_BACKEND=x11
+export MOZ_ENABLE_WAYLAND=0
+export QT_QPA_PLATFORM="xcb"
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+export QT_ENABLE_HIGHDPI_SCALING=1
+export LC_ALL="en_US.UTF-8"
+
+# Use the display we set up in xorg.sh
+export DISPLAY=:9
+unset WAYLAND_DISPLAY
+
+# Start a new D-Bus session for GNOME
+export $(dbus-launch)
+
+# Set vanilla Ubuntu scaling (no HiDPI)
+gsettings set org.gnome.desktop.interface scaling-factor 1 2>/dev/null || true
+
+echo "Launching GNOME session..."
+exec /usr/bin/dbus-launch /usr/bin/gnome-session
+DESKTOP_EOF
+
+# Make all GOW scripts executable
+RUN chmod +x /opt/gow/xorg.sh /opt/gow/dbus.sh /opt/gow/desktop.sh
 
 # Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
 # CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
