@@ -116,6 +116,59 @@ git push origin fix/descriptive-name
 
 **Exception:** User may explicitly grant permission to push to main for urgent fixes. Always confirm first.
 
+## 🚨 CRITICAL: NEVER USE git checkout/reset ON ENTIRE DIRECTORY 🚨
+
+**NEVER use `git checkout -- .` or `git reset` with `.` or without specific file paths**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Operations on entire directory
+git checkout HEAD -- .                 # DESTROYS ALL UNCOMMITTED CHANGES
+git checkout -- .                      # DESTROYS ALL UNCOMMITTED CHANGES
+git reset --hard                       # DESTROYS ALL UNCOMMITTED CHANGES
+git reset --hard HEAD                  # DESTROYS ALL UNCOMMITTED CHANGES
+git clean -fd                          # DELETES ALL UNTRACKED FILES
+
+# ✅ CORRECT: Always specify exact file paths
+git checkout HEAD -- path/to/specific/file.tsx
+git restore path/to/specific/file.tsx
+git checkout -- path/to/specific/file.go
+```
+
+**Why this is forbidden:**
+- Other agents or the user may have uncommitted work in progress
+- You only have visibility into files YOU modified in this session
+- Using `.` or omitting paths affects THE ENTIRE REPOSITORY
+- Lost uncommitted changes are nearly impossible to recover
+- This has caused significant data loss - see `design/2025-12-08-git-checkout-data-loss-incident.md`
+
+**Real incident that caused this rule:**
+1. Agent was fixing a single file (MoonlightStreamViewer.tsx)
+2. Attempted `git commit --amend` which failed (protected branch)
+3. Ran `git reset --soft HEAD~1 && git checkout HEAD -- .` to "recover"
+4. The `-- .` reverted ALL uncommitted files in the repo, not just the one being worked on
+5. Lost 7 files of uncommitted work from other sessions
+
+**What to do instead:**
+1. **Always specify exact file paths** in git checkout/reset commands
+2. **Run `git status` first** to see what other changes exist
+3. **If you need to discard YOUR changes**, only discard the specific files you modified
+4. **If unsure**, ASK THE USER before running any git reset/checkout commands
+5. **Never assume** you're the only one with uncommitted changes
+
+**Before any git checkout/reset, ALWAYS:**
+```bash
+# ✅ Check what uncommitted changes exist
+git status
+
+# ✅ If you see files YOU DIDN'T MODIFY, STOP and ask user
+# Those are someone else's work in progress!
+
+# ✅ Only then, restore SPECIFIC files you need to change
+git checkout HEAD -- frontend/src/components/specific/File.tsx
+```
+
+**NEVER use `.` or `--all` or omit paths in git checkout/reset commands.**
+
 ## 🚨 CRITICAL: NEVER RENAME CURRENT WORKING DIRECTORY 🚨
 
 **NEVER rename or move your present working directory - it breaks your shell session**
