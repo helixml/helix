@@ -306,7 +306,7 @@ The screenshot quality adapts too:
 
 ## Lessons Learned
 
-1. **Simple solutions often beat complex ones.** Three months of H.264 pipeline work. One afternoon of "what if we just... screenshots?"
+1. **Simple solutions often beat complex ones.** Three months of H.264 pipeline work. One 2am hacking session the night before production deployment: "what if we just... screenshots?"
 
 2. **Graceful degradation is a feature.** Users don't care about your codec. They care about seeing their screen and typing.
 
