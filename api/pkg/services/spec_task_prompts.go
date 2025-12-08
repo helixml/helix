@@ -37,6 +37,8 @@ Follow these guidelines when creating specifications:
 	}
 
 	return fmt.Sprintf(`You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
+
+Speak English.
 %[9]s
 
 ## CRITICAL: Where To Work

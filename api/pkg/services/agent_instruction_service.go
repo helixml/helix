@@ -52,6 +52,8 @@ Follow these guidelines when implementing:
 	}
 
 	return fmt.Sprintf(`# Design Approved - Begin Implementation
+
+Speak English.
 %[8]s
 
 Your design has been approved. Implement the code changes now.
@@ -148,7 +150,7 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 
 	// Build the prompt - keep it concise for smaller models
 	var promptBuilder string
-	promptBuilder = "# Review Comment\n\n"
+	promptBuilder = "# Review Comment\n\nSpeak English.\n\n"
 	promptBuilder += fmt.Sprintf("**Document:** %s\n", docLabel)
 
 	if comment.SectionPath != "" {
@@ -184,6 +186,8 @@ func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) st
 
 	return fmt.Sprintf(`# Implementation Ready for Review
 
+Speak English.
+
 Your code has been pushed. The user will now test your work.
 
 If this is a web app, please start the dev server and provide the URL.
@@ -206,6 +210,8 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 
 	return fmt.Sprintf(`# Changes Requested
 
+Speak English.
+
 Update your design based on this feedback:
 
 %[2]s
@@ -225,6 +231,8 @@ cd ~/work/helix-specs && git add -A && git commit -m "Address feedback" && git p
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
 	return fmt.Sprintf(`# Implementation Approved - Please Merge
+
+Speak English.
 
 Your implementation has been approved. Merge to %s:
 
