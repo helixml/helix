@@ -1149,6 +1149,33 @@ export class WebSocketStream {
   }
 
   /**
+   * Enable or disable video frame transmission from the server
+   * When disabled, server stops sending video frames (saves bandwidth in screenshot mode)
+   *
+   * @param enabled - true to enable video, false to disable (screenshot mode)
+   */
+  setVideoEnabled(enabled: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn("[WebSocketStream] Cannot set video enabled - WebSocket not connected")
+      return
+    }
+
+    console.log(`[WebSocketStream] Setting video enabled: ${enabled}`)
+
+    // Send control message to server
+    // Format: type(1) + JSON payload
+    const json = JSON.stringify({ set_video_enabled: enabled })
+    const encoder = new TextEncoder()
+    const jsonBytes = encoder.encode(json)
+
+    const message = new Uint8Array(1 + jsonBytes.length)
+    message[0] = WsMessageType.ControlMessage
+    message.set(jsonBytes, 1)
+
+    this.ws.send(message.buffer)
+  }
+
+  /**
    * Public method to force reconnection
    * Resets the attempt counter and initiates a fresh connection
    */

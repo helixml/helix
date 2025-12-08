@@ -117,6 +117,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const screenshotQualityRef = useRef(70); // Ref for use in async callback
   // Adaptive mode: auto-enable screenshot overlay when stream latency is high
   const [adaptiveScreenshotEnabled, setAdaptiveScreenshotEnabled] = useState(false);
+  // Lock-in behavior: once adaptive mode falls back to screenshots, stay there until user explicitly changes mode
+  // This prevents oscillation: when we stop sending video, latency drops, which would cause us to switch back
+  const [adaptiveLockedToScreenshots, setAdaptiveLockedToScreenshots] = useState(false);
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -605,6 +608,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       previousQualityModeRef.current = qualityMode;
       // Update fallback state immediately for UI feedback
       setIsOnFallback(qualityMode === 'low');
+      // Reset adaptive lock when user manually changes mode
+      // This allows adaptive mode to start fresh and evaluate latency again
+      setAdaptiveLockedToScreenshots(false);
+      setAdaptiveScreenshotEnabled(false);
       reconnect();
     }
   }, [qualityMode, reconnect]);
@@ -645,6 +652,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
   const shouldPollScreenshots = qualityMode === 'low' || (qualityMode === 'adaptive' && adaptiveScreenshotEnabled);
+
+  // Notify server to pause/resume video when entering/exiting screenshot mode
+  // This saves bandwidth by not sending video frames we won't display
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (!stream || !(stream instanceof WebSocketStream) || !isConnected) {
+      return;
+    }
+
+    if (shouldPollScreenshots) {
+      console.log('[MoonlightStreamViewer] Entering screenshot mode - pausing video stream');
+      stream.setVideoEnabled(false);
+    } else {
+      console.log('[MoonlightStreamViewer] Exiting screenshot mode - resuming video stream');
+      stream.setVideoEnabled(true);
+    }
+  }, [shouldPollScreenshots, isConnected]);
 
   useEffect(() => {
     // Only poll screenshots when needed
@@ -770,15 +794,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   }, [screenshotUrl]);
 
   // Adaptive mode: monitor RTT and auto-enable screenshot overlay when latency is high
-  // Thresholds: enable screenshot when RTT > 150ms, disable when RTT < 80ms
+  // Once locked to screenshots, stay there until user manually changes mode (prevents oscillation)
+  // When we stop sending video, latency drops, which would otherwise trigger switching back
   useEffect(() => {
     if (qualityMode !== 'adaptive' || !isConnected || !streamRef.current) {
       setAdaptiveScreenshotEnabled(false);
       return;
     }
 
+    // If already locked to screenshots, stay there (prevent oscillation)
+    if (adaptiveLockedToScreenshots) {
+      if (!adaptiveScreenshotEnabled) {
+        setAdaptiveScreenshotEnabled(true);
+      }
+      return;
+    }
+
     const ENABLE_THRESHOLD_MS = 150;  // Enable screenshot overlay when RTT > 150ms
-    const DISABLE_THRESHOLD_MS = 80;  // Disable screenshot overlay when RTT < 80ms
     const CHECK_INTERVAL_MS = 1000;   // Check every second
 
     const checkRtt = () => {
@@ -788,12 +820,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       const wsStats = stream.getStats();
       const rtt = wsStats.rttMs;
 
+      // Only check for enabling - once enabled, we lock in (user must manually switch back)
       if (rtt > ENABLE_THRESHOLD_MS && !adaptiveScreenshotEnabled) {
-        console.log(`[Adaptive] High latency detected (${rtt.toFixed(0)}ms > ${ENABLE_THRESHOLD_MS}ms), enabling screenshot fallback`);
+        console.log(`[Adaptive] High latency detected (${rtt.toFixed(0)}ms > ${ENABLE_THRESHOLD_MS}ms), locking to screenshot mode`);
+        console.log(`[Adaptive] To try video again, manually switch to High mode then back to Adaptive`);
         setAdaptiveScreenshotEnabled(true);
-      } else if (rtt < DISABLE_THRESHOLD_MS && adaptiveScreenshotEnabled) {
-        console.log(`[Adaptive] Latency recovered (${rtt.toFixed(0)}ms < ${DISABLE_THRESHOLD_MS}ms), disabling screenshot fallback`);
-        setAdaptiveScreenshotEnabled(false);
+        setAdaptiveLockedToScreenshots(true);  // Lock in - prevent oscillation
       }
     };
 
@@ -801,7 +833,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     checkRtt(); // Initial check
 
     return () => clearInterval(intervalId);
-  }, [qualityMode, isConnected, adaptiveScreenshotEnabled]);
+  }, [qualityMode, isConnected, adaptiveScreenshotEnabled, adaptiveLockedToScreenshots]);
 
   // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
@@ -1571,7 +1603,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               modeSwitchCooldown
                 ? 'Please wait...'
                 : qualityMode === 'adaptive'
-                ? 'Adaptive quality — Click for Force 60fps'
+                ? adaptiveLockedToScreenshots
+                  ? 'Adaptive (using screenshots) — Click to retry video'
+                  : 'Adaptive quality — Click for Force 60fps'
                 : qualityMode === 'high'
                 ? 'Force 60fps — Click for Screenshot mode'
                 : 'Screenshot mode — Click for Adaptive quality'
@@ -1584,6 +1618,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 size="small"
                 disabled={modeSwitchCooldown}
                 onClick={() => {
+                  // Special case: if adaptive is locked to screenshots, clicking unlocks and retries video
+                  // This is more intuitive than forcing user to cycle through all modes
+                  if (qualityMode === 'adaptive' && adaptiveLockedToScreenshots) {
+                    console.log('[MoonlightStreamViewer] Unlocking adaptive mode - retrying video');
+                    setModeSwitchCooldown(true);
+                    setAdaptiveLockedToScreenshots(false);
+                    setAdaptiveScreenshotEnabled(false);
+                    // No need to change mode - just unlock
+                    setTimeout(() => setModeSwitchCooldown(false), 3000);
+                    return;
+                  }
+
                   // Cycle through: adaptive -> high -> low -> adaptive
                   // With cooldown to prevent Wolf deadlock from rapid switching
                   setModeSwitchCooldown(true);
@@ -1595,7 +1641,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
                 }}
                 sx={{
-                  color: qualityMode === 'low' ? '#ff9800' : qualityMode === 'adaptive' ? '#4caf50' : 'white',
+                  // Orange for low mode, green for adaptive (normal), amber for adaptive (locked to screenshots), white for high
+                  color: qualityMode === 'low'
+                    ? '#ff9800'  // Orange - screenshot mode
+                    : qualityMode === 'adaptive'
+                    ? adaptiveLockedToScreenshots
+                      ? '#ffb74d'  // Amber - adaptive but locked to screenshots
+                      : '#4caf50'  // Green - adaptive normal
+                    : 'white',   // White - high mode
                 }}
               >
                 <Speed fontSize="small" />
@@ -1628,19 +1681,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             padding: '4px 16px',
             borderRadius: 1,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: 1,
+            gap: 0.5,
             fontFamily: 'monospace',
             fontSize: '0.75rem',
           }}
         >
-          <Wifi sx={{ fontSize: 16 }} />
-          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-            {qualityMode === 'adaptive'
-              ? `Adaptive fallback (${screenshotFps} FPS @ ${screenshotQuality}% JPEG)`
-              : `Screenshot mode (${screenshotFps} FPS @ ${screenshotQuality}% JPEG)`
-            }
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Wifi sx={{ fontSize: 16 }} />
+            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+              {qualityMode === 'adaptive'
+                ? `High latency detected — using screenshots (${screenshotFps} FPS)`
+                : `Screenshot mode (${screenshotFps} FPS @ ${screenshotQuality}% quality)`
+              }
+            </Typography>
+          </Box>
+          {qualityMode === 'adaptive' && adaptiveLockedToScreenshots && (
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+              Video paused to save bandwidth. Click speed icon to retry video.
+            </Typography>
+          )}
         </Box>
       )}
 
