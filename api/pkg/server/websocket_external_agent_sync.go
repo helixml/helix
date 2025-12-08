@@ -283,15 +283,20 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			Str("agent_session_id", agentID).
 			Str("helix_session_id", helixSessionID).
 			Msg("🚀 [HELIX] External agent connected with Helix session ID, checking for initial message")
-	} else if mappedHelixID, exists := apiServer.externalAgentSessionMapping[agentID]; exists {
-		// Agent session ID mapping - register connection with BOTH IDs for routing
-		helixSessionID = mappedHelixID
-		apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
-		defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
-		log.Info().
-			Str("agent_session_id", agentID).
-			Str("helix_session_id", helixSessionID).
-			Msg("🚀 [HELIX] External agent connected with agent session ID, registered with BOTH IDs for routing")
+	} else {
+		apiServer.contextMappingsMutex.RLock()
+		mappedHelixID, exists := apiServer.externalAgentSessionMapping[agentID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if exists {
+			// Agent session ID mapping - register connection with BOTH IDs for routing
+			helixSessionID = mappedHelixID
+			apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
+			defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
+			log.Info().
+				Str("agent_session_id", agentID).
+				Str("helix_session_id", helixSessionID).
+				Msg("🚀 [HELIX] External agent connected with agent session ID, registered with BOTH IDs for routing")
+		}
 	}
 
 	// Start goroutines for handling connection
@@ -309,7 +314,9 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// CRITICAL: Rebuild contextMappings from persisted ZedThreadID if present
 			// This ensures message routing works after API server restarts
 			if helixSession.Metadata.ZedThreadID != "" {
+				apiServer.contextMappingsMutex.Lock()
 				apiServer.contextMappings[helixSession.Metadata.ZedThreadID] = helixSessionID
+				apiServer.contextMappingsMutex.Unlock()
 				log.Info().
 					Str("helix_session_id", helixSessionID).
 					Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
@@ -344,12 +351,16 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 								fullMessage = interactions[i].SystemPrompt + "\n\n**User Request:**\n" + interactions[i].PromptMessage
 							}
 
+							// Determine which agent to use based on the spec task's code agent config
+							agentName := apiServer.getAgentNameForSession(ctx, helixSession)
+
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",
 								Data: map[string]interface{}{
 									"message":       fullMessage,
 									"request_id":    requestID,
-									"acp_thread_id": nil, // null = create new thread
+									"acp_thread_id": nil,        // null = create new thread
+									"agent_name":    agentName,  // Which agent to use (zed-agent or qwen)
 								},
 							}
 
@@ -578,7 +589,10 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	// PRIORITY 1: Check if request_id maps to an existing Helix session
 	// This handles the case where API sent chat_message to Zed with a request_id
 	if requestID != "" {
-		if mappedSessionID, exists := apiServer.requestToSessionMapping[requestID]; exists {
+		apiServer.contextMappingsMutex.RLock()
+		mappedSessionID, exists := apiServer.requestToSessionMapping[requestID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if exists {
 			log.Info().
 				Str("request_id", requestID).
 				Str("helix_session_id", mappedSessionID).
@@ -623,7 +637,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		}
 
 		// CRITICAL: Store the mapping so message_added can find the session
+		apiServer.contextMappingsMutex.Lock()
 		apiServer.contextMappings[contextID] = helixSessionID
+		apiServer.contextMappingsMutex.Unlock()
 
 		log.Info().
 			Str("helix_session_id", helixSessionID).
@@ -641,7 +657,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Msg("🆕 [HELIX] Creating NEW Helix session for user-initiated Zed context")
 
 	// Get the real user ID who created this external agent session
+	apiServer.contextMappingsMutex.RLock()
 	userID, exists := apiServer.externalAgentUserMapping[sessionID]
+	apiServer.contextMappingsMutex.RUnlock()
 	if !exists || userID == "" {
 		log.Warn().
 			Str("agent_session_id", sessionID).
@@ -685,10 +703,12 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Msg("Created Helix session for user-initiated Zed context")
 
 	// Store the context mapping for future message routing
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.contextMappings == nil {
 		apiServer.contextMappings = make(map[string]string)
 	}
 	apiServer.contextMappings[contextID] = createdSession.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	// CRITICAL: Create an interaction for this new session
 	// The request_id from thread_created contains the message that triggered this thread
@@ -722,10 +742,12 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 	}
 
 	// Store the session->interaction mapping
+	apiServer.contextMappingsMutex.Lock()
 	if apiServer.sessionToWaitingInteraction == nil {
 		apiServer.sessionToWaitingInteraction = make(map[string]string)
 	}
 	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("helix_session_id", createdSession.ID).
@@ -854,7 +876,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		Msg("External agent added message")
 
 	// Find the Helix session that corresponds to this Zed context
+	apiServer.contextMappingsMutex.RLock()
 	helixSessionID, exists := apiServer.contextMappings[contextID]
+	apiServer.contextMappingsMutex.RUnlock()
 	if !exists {
 		// FALLBACK: contextMappings may be empty after API restart
 		// Try to find session by ZedThreadID in database
@@ -868,7 +892,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 		helixSessionID = foundSession.ID
 		// Restore the mapping for future messages
+		apiServer.contextMappingsMutex.Lock()
 		apiServer.contextMappings[contextID] = helixSessionID
+		apiServer.contextMappingsMutex.Unlock()
 		log.Info().
 			Str("context_id", contextID).
 			Str("helix_session_id", helixSessionID).
@@ -901,7 +927,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// CRITICAL: Use session->interaction mapping to find the exact interaction
 		// This mapping was stored when we sent the chat_message command
 		var targetInteraction *types.Interaction
-		if interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]; exists {
+		apiServer.contextMappingsMutex.RLock()
+		interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]
+		apiServer.contextMappingsMutex.RUnlock()
+		if exists {
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("mapped_interaction_id", interactionID).
@@ -1084,7 +1113,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			Msg("💬 [HELIX] Created interaction for user message from Zed")
 
 		// CRITICAL: Map this interaction so the AI response goes to it!
+		apiServer.contextMappingsMutex.Lock()
 		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
+		apiServer.contextMappingsMutex.Unlock()
 		log.Info().
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", createdInteraction.ID).
@@ -1402,7 +1433,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	}
 
 	// Look up helix_session_id from context mapping
+	apiServer.contextMappingsMutex.RLock()
 	helixSessionID, ok := apiServer.contextMappings[acpThreadID]
+	apiServer.contextMappingsMutex.RUnlock()
 	if !ok {
 		log.Warn().
 			Str("acp_thread_id", acpThreadID).
@@ -1733,7 +1766,9 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	}
 
 	// Map Zed thread to Helix session (same as handleThreadCreated)
+	apiServer.contextMappingsMutex.Lock()
 	apiServer.contextMappings[acpThreadID] = session.ID
+	apiServer.contextMappingsMutex.Unlock()
 
 	log.Info().
 		Str("acp_thread_id", acpThreadID).
@@ -1764,7 +1799,9 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 	}
 
 	// Find corresponding Helix session (same as handleThreadCreated uses)
+	apiServer.contextMappingsMutex.RLock()
 	helixSessionID, exists := apiServer.contextMappings[acpThreadID]
+	apiServer.contextMappingsMutex.RUnlock()
 
 	if !exists {
 		log.Warn().

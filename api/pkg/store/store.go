@@ -153,6 +153,10 @@ type Store interface {
 	DeleteOrganization(ctx context.Context, id string) error
 	ListOrganizations(ctx context.Context, query *ListOrganizationsQuery) ([]*types.Organization, error)
 
+	// Guidelines history
+	CreateGuidelinesHistory(ctx context.Context, history *types.GuidelinesHistory) error
+	ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error)
+
 	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
 	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
 	UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)

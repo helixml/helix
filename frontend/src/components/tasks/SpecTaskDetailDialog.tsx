@@ -1,4 +1,4 @@
-import React, { FC, useState, useRef, useEffect } from 'react'
+import React, { FC, useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Paper,
   Box,
@@ -13,6 +13,13 @@ import {
   ListItemText,
   TextField,
   Button,
+  Checkbox,
+  FormControlLabel,
+  Tooltip,
+  Select,
+  FormControl,
+  InputLabel,
+  CircularProgress,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -27,9 +34,10 @@ import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
 import { useGetSession } from '../../services/sessionService'
-import { SESSION_TYPE_TEXT } from '../../types'
+import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 
@@ -51,6 +59,39 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const streaming = useStreaming()
+  const apps = useApps()
+
+  // Agent selection state
+  const [selectedAgent, setSelectedAgent] = useState(task?.helix_app_id || '')
+  const [updatingAgent, setUpdatingAgent] = useState(false)
+
+  // Sort apps: zed_external agents first, then others
+  const sortedApps = useMemo(() => {
+    if (!apps.apps) return []
+    const zedExternalApps = apps.apps.filter(app =>
+      app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) ||
+      app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+    )
+    const otherApps = apps.apps.filter(app =>
+      !app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) &&
+      app.config?.helix?.default_agent_type !== AGENT_TYPE_ZED_EXTERNAL
+    )
+    return [...zedExternalApps, ...otherApps]
+  }, [apps.apps])
+
+  // Sync selected agent when task changes
+  useEffect(() => {
+    if (task?.helix_app_id) {
+      setSelectedAgent(task.helix_app_id)
+    }
+  }, [task?.helix_app_id])
+
+  // Load apps on mount
+  useEffect(() => {
+    if (open) {
+      apps.loadApps()
+    }
+  }, [open])
 
   const [position, setPosition] = useState<WindowPosition>('center')
   const [isSnapped, setIsSnapped] = useState(false)
@@ -99,6 +140,10 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
+
+  // Just Do It mode state (initialized from task, synced via API)
+  const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
+  const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
 
   // Poll for task updates to detect when spec_session_id is populated
   useEffect(() => {
@@ -315,6 +360,86 @@ I'll give you feedback and we can iterate on any changes needed.`
       snackbar.error('Failed to send message')
     }
   }
+
+  // Toggle Just Do It mode and persist to backend
+  const handleToggleJustDoIt = useCallback(async () => {
+    if (!task?.id || updatingJustDoIt) return
+
+    const newValue = !justDoItMode
+    setUpdatingJustDoIt(true)
+
+    try {
+      await api.getApiClient().v1SpecTasksUpdate(task.id, {
+        just_do_it_mode: newValue,
+      })
+      setJustDoItMode(newValue)
+      snackbar.success(newValue ? 'Just Do It mode enabled' : 'Just Do It mode disabled')
+    } catch (err) {
+      console.error('Failed to update Just Do It mode:', err)
+      snackbar.error('Failed to update Just Do It mode')
+    } finally {
+      setUpdatingJustDoIt(false)
+    }
+  }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
+
+  // Handle agent change and persist to backend
+  const handleAgentChange = useCallback(async (newAgentId: string) => {
+    if (!task?.id || updatingAgent || newAgentId === selectedAgent) return
+
+    setUpdatingAgent(true)
+    const previousAgent = selectedAgent
+    setSelectedAgent(newAgentId) // Optimistic update
+
+    try {
+      await api.getApiClient().v1SpecTasksUpdate(task.id, {
+        helix_app_id: newAgentId,
+      } as any) // helix_app_id may need to be added to TypesSpecTaskUpdateRequest
+      snackbar.success('Agent updated')
+    } catch (err) {
+      console.error('Failed to update agent:', err)
+      snackbar.error('Failed to update agent')
+      setSelectedAgent(previousAgent) // Revert on error
+    } finally {
+      setUpdatingAgent(false)
+    }
+  }, [task?.id, selectedAgent, updatingAgent, api, snackbar])
+
+  // Keyboard shortcuts for task actions (with Ctrl/Cmd modifiers to work while typing)
+  useEffect(() => {
+    if (!open || !displayTask) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.ctrlKey || e.metaKey
+
+      // Ctrl/Cmd + J - Toggle Just Do It mode (only for backlog tasks)
+      if (isMod && e.key === 'j' && displayTask.status === 'backlog') {
+        e.preventDefault()
+        handleToggleJustDoIt()
+      }
+
+      // Ctrl/Cmd + Enter - Start Planning (only for backlog tasks)
+      if (isMod && e.key === 'Enter' && displayTask.status === 'backlog') {
+        e.preventDefault()
+        handleStartPlanning()
+      }
+
+      // Escape - Close dialog (no modifier needed)
+      if (e.key === 'Escape' && !isMod) {
+        e.preventDefault()
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, displayTask, handleToggleJustDoIt, handleStartPlanning, onClose])
+
+  // Sync justDoItMode when task changes
+  useEffect(() => {
+    if (displayTask?.just_do_it_mode !== undefined) {
+      setJustDoItMode(displayTask.just_do_it_mode)
+    }
+  }, [displayTask?.just_do_it_mode])
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isResizing) return // Don't allow dragging when resizing
@@ -596,16 +721,45 @@ I'll give you feedback and we can iterate on any changes needed.`
           {((activeSessionId && currentTab === 1) || (!activeSessionId && currentTab === 0)) && (
             <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
               {/* Action Buttons */}
-              <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 {displayTask.status === 'backlog' && (
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    startIcon={<PlayArrow />}
-                    onClick={handleStartPlanning}
-                  >
-                    Start Planning
-                  </Button>
+                  <>
+                    <Button
+                      variant="contained"
+                      color={justDoItMode ? 'success' : 'warning'}
+                      startIcon={<PlayArrow />}
+                      onClick={handleStartPlanning}
+                      endIcon={
+                        <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                          {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                        </Box>
+                      }
+                    >
+                      {justDoItMode ? 'Just Do It' : 'Start Planning'}
+                    </Button>
+                    <Tooltip title={`Skip spec planning and start implementation immediately (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={justDoItMode}
+                            onChange={handleToggleJustDoIt}
+                            disabled={updatingJustDoIt}
+                            color="warning"
+                            size="small"
+                          />
+                        }
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2">Just Do It</Typography>
+                            <Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                              {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                            </Box>
+                          </Box>
+                        }
+                        sx={{ ml: 1 }}
+                      />
+                    </Tooltip>
+                  </>
                 )}
                 {displayTask.status === 'spec_review' && (
                   <Button
@@ -704,14 +858,25 @@ I'll give you feedback and we can iterate on any changes needed.`
                 </Box>
               )}
 
-              {/* Assigned Agent */}
-              {displayTask.helix_app_id && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Assigned Agent: <strong>{displayTask.helix_app_id}</strong>
-                  </Typography>
-                </Box>
-              )}
+              {/* Assigned Agent - editable dropdown */}
+              <Box sx={{ mb: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Agent</InputLabel>
+                  <Select
+                    value={selectedAgent}
+                    onChange={(e) => handleAgentChange(e.target.value)}
+                    label="Agent"
+                    disabled={updatingAgent}
+                    endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
+                  >
+                    {sortedApps.map((app) => (
+                      <MenuItem key={app.id} value={app.id}>
+                        {app.config?.helix?.name || 'Unnamed Agent'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
 
               {/* Timestamps */}
               <Box sx={{ mt: 3 }}>

@@ -27,7 +27,8 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 
 // BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch string) string {
+// guidelines contains concatenated organization + project guidelines (can be empty)
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines string) string {
 	// Generate task directory name (same format as planning phase)
 	dateStr := task.CreatedAt.Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
@@ -36,133 +37,91 @@ func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`# Design Approved! 🎉
-
-Your design has been approved. Please begin implementation.
-
-## 🚨🚨🚨 #1 RULE - PUSH PROGRESS AFTER EVERY TASK 🚨🚨🚨
-
-The tasks.md file in helix-specs contains your task checklist. You MUST update it as you work:
-- [ ] Task description (pending)
-- [~] Task description (in progress - YOU mark this)
-- [x] Task description (completed - YOU mark this)
-
-**Before starting EACH task:**
-%[1]sbash
-cd ~/work/helix-specs/design/tasks/%[4]s
-# Edit tasks.md: change "- [ ] Task" to "- [~] Task"
-git add tasks.md && git commit -m "🤖 Started: Task name" && git push origin helix-specs
-%[1]s
-
-**After completing EACH task:**
-%[1]sbash
-cd ~/work/helix-specs/design/tasks/%[4]s
-# Edit tasks.md: change "- [~] Task" to "- [x] Task"
-git add tasks.md && git commit -m "🤖 Completed: Task name" && git push origin helix-specs
-%[1]s
-
-**WHY:** The UI shows your live progress by monitoring pushes to helix-specs. No push = user thinks you're stuck!
-
----
-
-## 🚨 CRITICAL: DO THE BARE MINIMUM - BE CONCISE 🚨
-
-- Only do what is STRICTLY NECESSARY to meet the requirements
-- DO NOT write code unless absolutely required - prefer existing tools, commands, or scripts
-- Simple tasks should have simple solutions (e.g., shell commands, not Python scripts)
-- Avoid over-engineering - no abstractions, helpers, or utilities unless explicitly needed
-- If a task can be done with a one-liner, use a one-liner
-- DO NOT add extra features, error handling, or edge cases beyond what's specified
-- Match solution complexity to task complexity - simple tasks get simple solutions
-
-**Don't over-engineer simple tasks:**
-- "Start a container" → docker-compose.yaml or docker run in .helix/startup.sh, NOT a Python framework
-- "Create sample data" → write data directly to files (unless it's too large or complex to write by hand)
-- "Run X at startup" → add to .helix/startup.sh (runs at sandbox startup), NOT a service wrapper
-
-**.helix/startup.sh - Startup Script:**
-- Located in the primary repo, runs automatically at sandbox startup
-- Use for: starting containers, background services, environment setup
-- MUST be idempotent (safe to run multiple times) - use "docker compose up -d" not "docker run"
-- After modifying, run it manually to start services for this session (changes apply to future sessions automatically)
-
----
-
-## Your Mission
-
-1. Create feature branch: %[1]sgit checkout -b %[2]s%[1]s
-2. Read design docs from ~/work/helix-specs/design/tasks/%[4]s/
-3. Read tasks.md to see your task checklist
-4. Work through tasks one by one (discrete, trackable)
-5. Mark each task [~] when starting, [x] when done
-6. **CRITICAL: Push progress updates to helix-specs after EACH task**
-7. Implement code in the main repository
-8. Create feature branch and push when all tasks complete: %[1]sgit push origin %[2]s%[1]s
-
+	// Build guidelines section if provided
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = fmt.Sprintf(`
 ## Guidelines
 
-- ALWAYS mark your progress in tasks.md with [~] and [x]
-- **CRITICAL: After ANY change to tasks.md, you MUST commit and push to helix-specs immediately**
-- The backend tracks your progress by monitoring pushes to helix-specs
-- Follow the technical design - don't add unnecessary complexity
-- Implement what's in the acceptance criteria
-- Write tests that verify core functionality
-- Handle edge cases sensibly, but don't over-engineer
+Follow these guidelines when implementing:
 
-## 📓 Use Design Docs as a Lab Notebook
+%s
 
-Update the design documents as you work - they're your living record of discoveries:
+---
+`, guidelines)
+	}
 
-**Update design.md when you:**
-- Discover something that changes the approach (e.g., "Found existing utility that handles this")
-- Hit a blocker or limitation not anticipated in the design
-- Make a design decision that differs from the original plan
-- Learn something about the codebase relevant to future work
+	return fmt.Sprintf(`# Design Approved - Begin Implementation
+%[8]s
 
-**Update requirements.md when:**
-- User changes their mind about requirements
-- You discover edge cases that need clarification
-- Original requirements were ambiguous and you made a decision
+Your design has been approved. Implement the code changes now.
 
-**Format for updates:**
-%[1]smarkdown
-## Implementation Notes (YYYY-MM-DD)
+## CRITICAL RULES
 
-### Discoveries
-- Found that X already exists in Y, reusing instead of building new
-- Database schema requires Z constraint not originally planned
+1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
+2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
+3. **Update tasks.md** - Mark [x] when you start each task, push immediately
+4. **Update design docs as you go** - Record discoveries, decisions, and blockers in design.md
 
-### Decisions Made
-- Chose approach A over B because [reason]
-- Simplified scope: skipping X as it's not needed for MVP
+## Two Repositories - Don't Confuse Them
 
-### Blockers Resolved
-- Issue: Could not access X
-- Resolution: Used Y instead
+1. **~/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
+2. **~/work/<repo-name>/** = Code changes (push to feature branch)
+
+## Task Checklist
+
+Your checklist: ~/work/helix-specs/design/tasks/%[4]s/tasks.md
+
+- [ ] = not started
+- [x] = done
+
+When you START a task, change [ ] to [x] and push. Don't wait until "really done".
+Small frequent pushes are better than one big push at the end.
+
+After ANY checklist change:
+%[1]sbash
+cd ~/work/helix-specs && git add -A && git commit -m "Progress update" && git push origin helix-specs
 %[1]s
 
-**⚠️ PUSH REQUIREMENTS:**
-- After completing each task: commit and push to helix-specs
-- After modifying requirements.md: commit and push to helix-specs
-- After modifying design.md: commit and push to helix-specs
-- After modifying tasks.md: commit and push to helix-specs
-- The orchestrator monitors these pushes to track your progress
+## Steps
 
-Start by reading the spec documents from the worktree, then work through the task list systematically.
+1. Read design docs: ~/work/helix-specs/design/tasks/%[4]s/
+2. In the CODE repo, create feature branch: %[1]sgit checkout -b %[2]s%[1]s
+3. For each task in tasks.md: mark [x], push helix-specs, then do the work
+4. When all tasks done, push code: %[1]sgit push origin %[2]s%[1]s
+
+## Don't Over-Engineer
+
+- "Start a container" → docker-compose.yaml, NOT a Python wrapper
+- "Create sample data" → write files directly, NOT a generator script
+- "Run X at startup" → .helix/startup.sh (idempotent), NOT a service framework
+- If it can be a one-liner, use a one-liner
+
+## Update Design Docs As You Go
+
+When you discover something new or make a decision:
+- Update design.md with what you learned or decided
+- Push to helix-specs so the record is saved
+
+Example additions to design.md:
+%[1]smarkdown
+## Implementation Notes
+
+- Found existing utility X, reusing instead of building new
+- Chose approach A over B because [reason]
+- Blocker: Y didn't work, used Z instead
+%[1]s
 
 ---
 
 **Task:** %[5]s
+**Feature Branch:** %[2]s (base: %[3]s)
+**Design Docs:** ~/work/helix-specs/design/tasks/%[4]s/
 **SpecTask ID:** %[6]s
-**Feature Branch:** %[2]s
-**Base Branch:** %[3]s
-**Design Documents:** ~/work/helix-specs/design/tasks/%[4]s/
 
-**Original User Request:**
+**Original Request:**
 %[7]s
-
-🚨 **REMEMBER:** Push to helix-specs after EVERY task change! The UI tracks your progress via git pushes. 🚨
-`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt)
+`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt, guidelinesSection)
 }
 
 // BuildCommentPrompt builds a prompt for sending a design review comment to an agent
@@ -187,10 +146,9 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 		docLabel = comment.DocumentType
 	}
 
-	// Build the prompt
+	// Build the prompt - keep it concise for smaller models
 	var promptBuilder string
-	promptBuilder = fmt.Sprintf("# Design Review Comment 📝\n\n")
-	promptBuilder += fmt.Sprintf("A reviewer has left a comment on your design documents.\n\n")
+	promptBuilder = "# Review Comment\n\n"
 	promptBuilder += fmt.Sprintf("**Document:** %s\n", docLabel)
 
 	if comment.SectionPath != "" {
@@ -200,21 +158,15 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 		promptBuilder += fmt.Sprintf("**Line:** %d\n", comment.LineNumber)
 	}
 
-	promptBuilder += "\n"
-
 	if comment.QuotedText != "" {
-		promptBuilder += fmt.Sprintf("**Regarding this text:**\n> %s\n\n", comment.QuotedText)
+		promptBuilder += fmt.Sprintf("\n> %s\n", comment.QuotedText)
 	}
 
-	promptBuilder += fmt.Sprintf("**Comment:**\n%s\n\n", comment.CommentText)
+	promptBuilder += fmt.Sprintf("\n**Comment:** %s\n\n", comment.CommentText)
 
-	promptBuilder += fmt.Sprintf("---\n\n")
-	promptBuilder += fmt.Sprintf("Please respond to this feedback. If changes are needed:\n")
-	promptBuilder += fmt.Sprintf("1. Update the relevant document in ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
-	promptBuilder += fmt.Sprintf("2. Commit and push your changes:\n")
-	promptBuilder += fmt.Sprintf("```bash\ncd ~/work/helix-specs\ngit add design/tasks/%s/\ngit commit -m \"📝 Address review comment\"\ngit push origin helix-specs\n```\n\n", taskDirName)
-	promptBuilder += fmt.Sprintf("**SpecTask ID:** %s\n", specTask.ID)
-	promptBuilder += fmt.Sprintf("**Design Documents:** ~/work/helix-specs/design/tasks/%s/\n", taskDirName)
+	promptBuilder += "---\n\n"
+	promptBuilder += fmt.Sprintf("If changes are needed, update ~/work/helix-specs/design/tasks/%s/ and push:\n", taskDirName)
+	promptBuilder += fmt.Sprintf("```bash\ncd ~/work/helix-specs && git add -A && git commit -m \"Address feedback\" && git push origin helix-specs\n```\n", taskDirName)
 
 	return promptBuilder
 }
@@ -230,22 +182,15 @@ func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) st
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`# Implementation Review 🔍
+	return fmt.Sprintf(`# Implementation Ready for Review
 
-Great work pushing your changes! The implementation is now ready for review.
+Your code has been pushed. The user will now test your work.
 
-The user will test your work. If this is a web application, please:
+If this is a web app, please start the dev server and provide the URL.
 
-1. Start the development server
-2. Provide the URL where the user can test the application
-3. Answer any questions about your implementation
-4. Reference the spec documents if needed to verify requirements are met
-
-**Branch:** %[1]s%[2]s%[1]s
-**Design Documents:** ~/work/helix-specs/design/tasks/%[3]s/
-
-I'm here to help with any feedback or iterations needed.
-`, "```", branchName, taskDirName)
+**Branch:** %s
+**Docs:** ~/work/helix-specs/design/tasks/%s/
+`, branchName, taskDirName)
 }
 
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
@@ -259,51 +204,33 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`# Changes Requested 📝
+	return fmt.Sprintf(`# Changes Requested
 
-The reviewer has requested changes to your design. Please update the spec documents based on the feedback below.
-
-## Reviewer Feedback
+Update your design based on this feedback:
 
 %[2]s
 
-## Your Task
+---
 
-1. Read the feedback carefully
-2. Update the relevant documents in ~/work/helix-specs/design/tasks/%[1]s/
-   - Update requirements.md if requirements need clarification
-   - Update design.md if the approach needs adjustment
-   - Update tasks.md if the implementation plan changes
-3. **CRITICAL: Commit and push your changes immediately after updating**
+**Your docs are in:** ~/work/helix-specs/design/tasks/%[1]s/
 
+After updating, push immediately:
 %[3]sbash
-cd ~/work/helix-specs
-git add design/tasks/%[1]s/
-git commit -m "📝 Address review feedback for SpecTask %[4]s"
-git push origin helix-specs
+cd ~/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
 %[3]s
-
-After pushing, let me know what changes you made in response to the feedback.
-
-**SpecTask ID:** %[4]s
-**Design Documents:** ~/work/helix-specs/design/tasks/%[1]s/
-`, taskDirName, comments, "```", task.ID)
+`, taskDirName, comments, "```")
 }
 
 // BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
-	return fmt.Sprintf(`# Implementation Approved! ✅
+	return fmt.Sprintf(`# Implementation Approved - Please Merge
 
-Your implementation has been approved. Please merge to main:
+Your implementation has been approved. Merge to %s:
 
-**Steps:**
-1. %[1]sgit checkout %[2]s%[1]s
-2. %[1]sgit pull origin %[2]s%[1]s (ensure up to date)
-3. %[1]sgit merge %[3]s%[1]s
-4. %[1]sgit push origin %[2]s%[1]s
-
-Let me know once the merge is complete!
+%[1]sbash
+git checkout %[2]s && git pull origin %[2]s && git merge %[3]s && git push origin %[2]s
+%[1]s
 `, "```", baseBranch, branchName)
 }
 
@@ -318,7 +245,9 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	branchName string,
 	baseBranch string,
 ) error {
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch)
+	// Fetch guidelines from project and organization
+	guidelines := s.getGuidelinesForTask(ctx, task)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines)
 
 	log.Info().
 		Str("session_id", sessionID).
@@ -326,6 +255,38 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Msg("Sending approval instruction to agent")
 
 	return s.sendMessage(ctx, sessionID, userID, message)
+}
+
+// getGuidelinesForTask fetches concatenated organization + project guidelines
+func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil || project == nil {
+		return ""
+	}
+
+	guidelines := ""
+
+	// Get organization guidelines
+	if project.OrganizationID != "" {
+		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err == nil && org != nil && org.Guidelines != "" {
+			guidelines = org.Guidelines
+		}
+	}
+
+	// Append project guidelines
+	if project.Guidelines != "" {
+		if guidelines != "" {
+			guidelines += "\n\n---\n\n"
+		}
+		guidelines += project.Guidelines
+	}
+
+	return guidelines
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review

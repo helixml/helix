@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,16 +40,18 @@ func (e *ScopeError) Error() string {
 
 // Manager handles OAuth provider registrations and connections
 type Manager struct {
-	store     store.Store
-	providers map[string]Provider
-	mutex     sync.RWMutex
+	store         store.Store
+	providers     map[string]Provider
+	mutex         sync.RWMutex
+	tlsSkipVerify bool
 }
 
 // NewManager creates a new OAuth manager
-func NewManager(store store.Store) *Manager {
+func NewManager(store store.Store, tlsSkipVerify bool) *Manager {
 	return &Manager{
-		store:     store,
-		providers: make(map[string]Provider),
+		store:         store,
+		providers:     make(map[string]Provider),
+		tlsSkipVerify: tlsSkipVerify,
 	}
 }
 
@@ -553,8 +556,15 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 	}
 
 	// Make a request to the GitHub API to list the user's repositories
+	// Create HTTP client with optional TLS skip verify for enterprise environments
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+	}
+	if m.tlsSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client.Transport = transport
 	}
 
 	// Create the request

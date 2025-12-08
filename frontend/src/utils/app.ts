@@ -79,7 +79,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.small_reasoning_model_effort = assistant.small_reasoning_model_effort
       flatState.small_generation_model = assistant.small_generation_model
       flatState.small_generation_model_provider = assistant.small_generation_model_provider
-      
+      flatState.code_agent_runtime = assistant.code_agent_runtime
+
       flatState.knowledge = assistant.knowledge || []
       flatState.apiTools = assistant.apis || []
       flatState.zapierTools = assistant.zapier || []
@@ -175,12 +176,9 @@ export const validateApp = (app: IApp): string[] => {
   // Validate assistants
   if (!app.config.helix.assistants || app.config.helix.assistants.length === 0) {
     errors.push('At least one assistant is required')
-  } else {
-    const assistant = app.config.helix.assistants[0]
-    if (!assistant.model || assistant.model.trim() === '') {
-      errors.push('Please select a model for the assistant')
-    }
   }
+  // Note: Model is optional - agents can be saved without a model selected initially
+  // and configured later. The model will be required at runtime when starting a session.
 
   errors = errors.concat(validateApiSchemas(app))
   errors = errors.concat(validateKnowledge(app))

@@ -110,6 +110,18 @@ func extractHostPortAndTLS(rawURL string) (hostPort string, useTLS bool) {
 	return hostPort, useTLS
 }
 
+// extractEnvVar extracts the value of a specific environment variable from a slice of "KEY=value" strings
+// Returns empty string if the key is not found
+func extractEnvVar(envVars []string, key string) string {
+	prefix := key + "="
+	for _, env := range envVars {
+		if strings.HasPrefix(env, prefix) {
+			return strings.TrimPrefix(env, prefix)
+		}
+	}
+	return ""
+}
+
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
 	lobbyID   string
@@ -128,10 +140,6 @@ type WolfExecutor struct {
 	zedImage      string
 	helixAPIURL   string
 	helixAPIToken string
-
-	// Qwen Code configuration (passed to sway containers)
-	qwenBaseURL string
-	qwenModel   string
 
 	// Workspace path configuration
 	// NOTE: API and sandbox do NOT share filesystems. The API just generates path strings
@@ -301,7 +309,12 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 	// Build base environment variables (common to all desktop types)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		// LLM proxy configuration: Zed's built-in agent uses these for Anthropic
+		// All LLM traffic goes through Helix's proxy (uses user's token for auth, Helix has provider credentials)
+		// Note: Zed reads api_url from settings.json, not env vars. These are for CLI tools.
+		// Anthropic SDK expects base URL without /v1 (appends /v1/messages)
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", userAPIToken),
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", w.helixAPIURL),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
@@ -459,13 +472,13 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 
 // NewWolfExecutor creates a Wolf executor using lobbies mode
 // Lobbies persist naturally across Wolf restarts, no keepalive needed
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, store store.Store, connmanInst connmanInterface) Executor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, connmanInst connmanInterface) Executor {
 	log.Info().Msg("Initializing Wolf executor (lobbies mode)")
-	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel, store, connmanInst)
+	return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, connmanInst)
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
-func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, qwenBaseURL, qwenModel string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
+func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
 	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
 	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
 	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
@@ -509,13 +522,11 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, 
 	}
 
 	executor := &WolfExecutor{
-		store:                       storeInst,
-		sessions:                    make(map[string]*ZedSession),
-		zedImage:                    zedImage,
-		helixAPIURL:                 helixAPIURL,
-		helixAPIToken:               helixAPIToken,
-		qwenBaseURL:                 qwenBaseURL,
-		qwenModel:                   qwenModel,
+		store:                        storeInst,
+		sessions:                     make(map[string]*ZedSession),
+		zedImage:                     zedImage,
+		helixAPIURL:                  helixAPIURL,
+		helixAPIToken:                helixAPIToken,
 		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
 		lobbyCache:                  make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:               5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
@@ -710,14 +721,6 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Pass API base URL for git cloning
 	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
-
-	// Qwen Code configuration for settings-sync-daemon
-	if w.qwenBaseURL != "" {
-		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_BASE_URL=%s", w.qwenBaseURL))
-	}
-	if w.qwenModel != "" {
-		extraEnv = append(extraEnv, fmt.Sprintf("QWEN_MODEL=%s", w.qwenModel))
-	}
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
@@ -1040,6 +1043,47 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("session_id", agent.SessionID).
 		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
+
+	// Step 3: Bridge desktop to Hydra network (if Hydra is enabled)
+	// This injects a veth pair connecting the desktop container to the Hydra network
+	// enabling Firefox/Zed in the desktop to access dev containers started via docker compose
+	if w.hydraEnabled && dockerSocket != "" {
+		// Wait for container to be running before bridging
+		// Wolf starts containers asynchronously after lobby creation
+		go func() {
+			bridgeCtx, bridgeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer bridgeCancel()
+
+			// Wait for container to be running (Wolf needs time to start it)
+			time.Sleep(5 * time.Second)
+
+			hydraRunnerID := fmt.Sprintf("hydra-%s", wolfInstance.ID)
+			hydraClient := hydra.NewRevDialClient(w.connman, hydraRunnerID)
+
+			// Call Hydra to bridge the desktop to the Hydra network
+			// Hydra will query Wolf's dockerd to get the container PID and inject the veth
+			bridgeResp, err := hydraClient.BridgeDesktop(bridgeCtx, &hydra.BridgeDesktopRequest{
+				SessionID:          agent.SessionID,
+				DesktopContainerID: containerHostname, // Container name (Hydra will query Docker for ID)
+			})
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", agent.SessionID).
+					Str("container_hostname", containerHostname).
+					Msg("Failed to bridge desktop to Hydra network - dev containers won't be accessible from desktop")
+				return
+			}
+
+			log.Info().
+				Str("session_id", agent.SessionID).
+				Str("desktop_ip", bridgeResp.DesktopIP).
+				Str("gateway", bridgeResp.Gateway).
+				Str("subnet", bridgeResp.Subnet).
+				Str("interface", bridgeResp.Interface).
+				Msg("Desktop bridged to Hydra network - dev containers now accessible from desktop")
+		}()
+	}
 
 	// Log resources AFTER lobby creation to see impact
 	go func() {
@@ -1451,19 +1495,83 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 }
 
 // GetSession implements the Executor interface
+// If session is not in memory but Wolf lobby is still running, it lazily reconstructs the session.
+// This enables surviving API restarts - Wolf containers keep running, we just need to rebuild the map.
 func (w *WolfExecutor) GetSession(sessionID string) (*ZedSession, error) {
+	// Check in-memory map first (fast path)
 	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-
 	session, exists := w.sessions[sessionID]
-	if !exists {
-		return nil, fmt.Errorf("session %s not found", sessionID)
+	w.mutex.RUnlock()
+
+	if exists {
+		// Update last access time
+		session.LastAccess = time.Now()
+		return session, nil
 	}
 
-	// Update last access time
-	session.LastAccess = time.Now()
+	// Session not in memory - try lazy reconstruction from Wolf
+	// This handles API restarts where Wolf containers keep running
+	ctx := context.Background()
 
-	return session, nil
+	// Look up session in database to get Wolf instance ID and lobby ID
+	dbSession, err := w.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("session %s not found in database: %w", sessionID, err)
+	}
+
+	// Check if this session has Wolf metadata
+	wolfInstanceID := dbSession.WolfInstanceID
+	wolfLobbyID := dbSession.Metadata.WolfLobbyID
+
+	if wolfInstanceID == "" || wolfLobbyID == "" {
+		return nil, fmt.Errorf("session %s has no Wolf metadata (not an external agent session)", sessionID)
+	}
+
+	// Verify the lobby still exists in Wolf
+	lobbies, err := w.getWolfClient(wolfInstanceID).ListLobbies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query Wolf for session %s: %w", sessionID, err)
+	}
+
+	lobbyExists := false
+	for _, lobby := range lobbies {
+		if lobby.ID == wolfLobbyID {
+			lobbyExists = true
+			break
+		}
+	}
+
+	if !lobbyExists {
+		return nil, fmt.Errorf("session %s lobby no longer exists in Wolf (container stopped)", sessionID)
+	}
+
+	// Lobby exists - reconstruct in-memory session
+	sessionIDPart := strings.TrimPrefix(sessionID, "ses_")
+	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+	reconstructedSession := &ZedSession{
+		SessionID:      sessionID,
+		HelixSessionID: sessionID, // For external agents, session ID is the Helix session ID
+		UserID:         dbSession.Owner,
+		Status:         "running",
+		StartTime:      dbSession.Created,
+		LastAccess:     time.Now(),
+		WolfLobbyID:    wolfLobbyID,
+		ContainerName:  containerHostname,
+	}
+
+	// Store in memory for future lookups
+	w.mutex.Lock()
+	w.sessions[sessionID] = reconstructedSession
+	w.mutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", wolfLobbyID).
+		Str("wolf_instance_id", wolfInstanceID).
+		Msg("🔄 Lazily reconstructed session from Wolf (API restart recovery)")
+
+	return reconstructedSession, nil
 }
 
 // CleanupExpiredSessions implements the Executor interface

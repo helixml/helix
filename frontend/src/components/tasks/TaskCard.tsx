@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Card,
   CardContent,
@@ -84,6 +84,7 @@ interface TaskCardProps {
   onTaskClick?: (task: SpecTaskWithExtras) => void
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
+  focusStartPlanning?: boolean // When true, focus the Start Planning button
 }
 
 // Interface for checklist items from API
@@ -316,23 +317,16 @@ const LiveAgentScreenshot: React.FC<{
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 60%, transparent 100%)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%)',
             color: 'white',
-            py: 1,
+            py: 0.75,
             px: 1.5,
             display: 'flex',
             alignItems: 'flex-end',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             pointerEvents: 'none',
-            minHeight: 36,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <CircleIcon sx={{ fontSize: 8, color: '#4ade80' }} />
-            <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
-              Agent Running
-            </Typography>
-          </Box>
           <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.65rem', opacity: 0.8 }}>
             Click to view
           </Typography>
@@ -351,10 +345,25 @@ export default function TaskCard({
   onTaskClick,
   onReviewDocs,
   projectId,
+  focusStartPlanning = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
+
+  // Ref for Start Planning button to enable keyboard focus
+  const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Focus the Start Planning button when requested
+  useEffect(() => {
+    if (focusStartPlanning && task.phase === 'backlog' && startPlanningButtonRef.current) {
+      // Small delay to ensure DOM is ready after render
+      const timer = setTimeout(() => {
+        startPlanningButtonRef.current?.focus()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [focusStartPlanning, task.phase])
 
   // Fetch checklist progress for active tasks (planning/implementation)
   const showProgress = task.phase === 'planning' || task.phase === 'implementation'
@@ -553,6 +562,7 @@ export default function TaskCard({
               </Box>
             )}
             <Button
+              ref={startPlanningButtonRef}
               size="small"
               variant="contained"
               color="warning"

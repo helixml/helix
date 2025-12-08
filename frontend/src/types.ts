@@ -655,6 +655,12 @@ export interface IAssistantConfig {
   small_generation_model?: string;
   small_generation_model_provider?: string;
   /**
+   * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+   * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+   * If empty, defaults to "zed_agent".
+   */
+  code_agent_runtime?: 'zed_agent' | 'qwen_code';
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -771,6 +777,14 @@ export interface IKnowledgeSource {
       };
     };
     text?: string;
+    sharepoint?: {
+      site_id: string;
+      drive_id?: string;
+      folder_path?: string;
+      oauth_provider_id: string;
+      filter_extensions?: string[];
+      recursive: boolean;
+    };
   };
   refresh_enabled?: boolean;
   refresh_schedule?: string;
@@ -869,6 +883,7 @@ export interface IAppFlatState {
   small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
+  code_agent_runtime?: 'zed_agent' | 'qwen_code'
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number

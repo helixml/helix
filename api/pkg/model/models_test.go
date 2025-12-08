@@ -6,6 +6,33 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+func TestParseProviderFromModel(t *testing.T) {
+	tests := []struct {
+		input        string
+		wantProvider string
+		wantModel    string
+	}{
+		{"openrouter/gpt-4", "openrouter", "gpt-4"},
+		{"openrouter/x-ai/glm-4.6", "openrouter", "x-ai/glm-4.6"},
+		{"helix/llama3:instruct", "helix", "llama3:instruct"},
+		{"gpt-4", "", "gpt-4"},
+		{"llama3:instruct", "", "llama3:instruct"},
+		{"meta-llama/Meta-Llama-3.1-8B", "meta-llama", "Meta-Llama-3.1-8B"},
+		{"", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			provider, model := ParseProviderFromModel(tt.input)
+			if provider != tt.wantProvider {
+				t.Errorf("ParseProviderFromModel() provider = %q, want %q", provider, tt.wantProvider)
+			}
+			if model != tt.wantModel {
+				t.Errorf("ParseProviderFromModel() model = %q, want %q", model, tt.wantModel)
+			}
+		})
+	}
+}
+
 func TestProcessModelName(t *testing.T) {
 	type args struct {
 		provider    string

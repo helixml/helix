@@ -33,8 +33,18 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 	}
 
 	// At least one knowledge source must be specified
-	if k.Source.Web == nil && k.Source.Filestore == nil && k.Source.Text == nil {
+	if k.Source.Web == nil && k.Source.Filestore == nil && k.Source.Text == nil && k.Source.SharePoint == nil {
 		return fmt.Errorf("at least one knowledge source must be specified")
+	}
+
+	// Validate SharePoint configuration
+	if k.Source.SharePoint != nil {
+		if k.Source.SharePoint.SiteID == "" {
+			return fmt.Errorf("sharepoint site_id is required")
+		}
+		if k.Source.SharePoint.OAuthProviderID == "" {
+			return fmt.Errorf("sharepoint oauth_provider_id is required")
+		}
 	}
 
 	if k.Source.Web != nil {

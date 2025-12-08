@@ -1,3 +1,6 @@
+// Stream transport mode
+export type StreamingMode = 'websocket' | 'webrtc';
+
 // Stream settings interface
 export interface StreamSettings {
   videoSize: '720p' | '1080p' | '1440p' | '4k' | 'native' | 'custom';
@@ -10,6 +13,8 @@ export interface StreamSettings {
   playAudioLocal: boolean;
   mouseScrollMode: string;
   controllerConfig: any;
+  // Transport mode: 'websocket' (L7-only, works everywhere) or 'webrtc' (requires TURN)
+  streamingMode: StreamingMode;
 }
 
 export const defaultStreamSettings = (): StreamSettings => ({
@@ -22,5 +27,6 @@ export const defaultStreamSettings = (): StreamSettings => ({
   audioSampleQueueSize: 10,
   playAudioLocal: false,
   mouseScrollMode: 'normal',
-  controllerConfig: {}
+  controllerConfig: {},
+  streamingMode: 'websocket',  // Default to WebSocket-only (works through L7 ingress)
 });

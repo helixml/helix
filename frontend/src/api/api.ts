@@ -783,6 +783,17 @@ export interface ServerSessionWolfAppStateResponse {
   wolf_app_id?: string;
 }
 
+export interface ServerSharePointSiteResolveRequest {
+  provider_id?: string;
+  site_url?: string;
+}
+
+export interface ServerSharePointSiteResolveResponse {
+  display_name?: string;
+  site_id?: string;
+  web_url?: string;
+}
+
 export interface ServerSimpleSampleProject {
   category?: string;
   default_branch?: string;
@@ -1559,6 +1570,12 @@ export interface TypesAssistantConfig {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
+   * CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+   * Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+   * If empty, defaults to "zed_agent".
+   */
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -1780,6 +1797,26 @@ export interface TypesClipboardData {
   data?: string;
   /** "text" or "image" */
   type?: string;
+}
+
+export interface TypesCodeAgentConfig {
+  /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
+  agent_name?: string;
+  /** APIType specifies the API format: "anthropic", "openai", or "azure_openai" */
+  api_type?: string;
+  /** BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1") */
+  base_url?: string;
+  /** Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o") */
+  model?: string;
+  /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
+  provider?: string;
+  /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
+  runtime?: TypesCodeAgentRuntime;
+}
+
+export enum TypesCodeAgentRuntime {
+  CodeAgentRuntimeZedAgent = "zed_agent",
+  CodeAgentRuntimeQwenCode = "qwen_code",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2066,6 +2103,8 @@ export interface TypesFlexibleEmbeddingResponse {
 
 export interface TypesForkSimpleProjectRequest {
   description?: string;
+  /** Optional: agent app to use for spec tasks (uses default if empty) */
+  helix_app_id?: string;
   /** Optional: if empty, project is personal */
   organization_id?: string;
   project_name?: string;
@@ -2312,6 +2351,25 @@ export interface TypesGlobalAllocationDecision {
   workload_id?: string;
 }
 
+export interface TypesGuidelinesHistory {
+  /** Optional description of what changed */
+  change_note?: string;
+  guidelines?: string;
+  id?: string;
+  /** Set for org-level guidelines */
+  organization_id?: string;
+  /** Set for project-level guidelines */
+  project_id?: string;
+  updated_at?: string;
+  /** User ID */
+  updated_by?: string;
+  /** User email (not persisted, populated at query time) */
+  updated_by_email?: string;
+  /** User display name (not persisted, populated at query time) */
+  updated_by_name?: string;
+  version?: number;
+}
+
 export interface TypesHelpRequest {
   app_id?: string;
   /** What the agent has already tried */
@@ -2528,6 +2586,7 @@ export interface TypesKnowledgeSource {
   filestore?: TypesKnowledgeSourceHelixFilestore;
   gcs?: TypesKnowledgeSourceGCS;
   s3?: TypesKnowledgeSourceS3;
+  sharepoint?: TypesKnowledgeSourceSharePoint;
   text?: string;
   web?: TypesKnowledgeSourceWeb;
 }
@@ -2545,6 +2604,21 @@ export interface TypesKnowledgeSourceHelixFilestore {
 export interface TypesKnowledgeSourceS3 {
   bucket?: string;
   path?: string;
+}
+
+export interface TypesKnowledgeSourceSharePoint {
+  /** DriveID is the document library drive ID (optional, defaults to the site's default drive) */
+  drive_id?: string;
+  /** FilterExtensions limits which file types to include (e.g., [".pdf", ".docx", ".txt"]) */
+  filter_extensions?: string[];
+  /** FolderPath is the path to a specific folder within the drive (optional, defaults to root) */
+  folder_path?: string;
+  /** OAuthProviderID is the ID of the Microsoft OAuth provider to use for authentication */
+  oauth_provider_id?: string;
+  /** Recursive determines whether to include files in subfolders */
+  recursive?: boolean;
+  /** SiteID is the SharePoint site ID (can be obtained from Graph API or site URL) */
+  site_id?: string;
 }
 
 export interface TypesKnowledgeSourceWeb {
@@ -2887,6 +2961,14 @@ export interface TypesOrganization {
   created_at?: string;
   deleted_at?: GormDeletedAt;
   display_name?: string;
+  /** Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects */
+  guidelines?: string;
+  /** When guidelines were last updated */
+  guidelines_updated_at?: string;
+  /** User ID who last updated guidelines */
+  guidelines_updated_by?: string;
+  /** Incremented on each update */
+  guidelines_version?: number;
   id?: string;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
@@ -2985,6 +3067,11 @@ export interface TypesProject {
   created_at?: string;
   default_branch?: string;
   /**
+   * Default agent for spec tasks in this project (App ID)
+   * New spec tasks inherit this agent; can be overridden per-task
+   */
+  default_helix_app_id?: string;
+  /**
    * Project-level repository management
    * DefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo
    */
@@ -2993,6 +3080,17 @@ export interface TypesProject {
   deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
+  /**
+   * Guidelines for AI agents - project-specific style guides, conventions, and instructions
+   * Combined with organization guidelines when constructing prompts
+   */
+  guidelines?: string;
+  /** When guidelines were last updated */
+  guidelines_updated_at?: string;
+  /** User ID who last updated guidelines */
+  guidelines_updated_by?: string;
+  /** Incremented on each update */
+  guidelines_version?: number;
   id?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
@@ -3008,9 +3106,13 @@ export interface TypesProject {
 
 export interface TypesProjectCreateRequest {
   default_branch?: string;
+  /** Default agent for spec tasks */
+  default_helix_app_id?: string;
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  /** Project-specific AI agent guidelines */
+  guidelines?: string;
   name?: string;
   organization_id?: string;
   startup_script?: string;
@@ -3024,9 +3126,13 @@ export interface TypesProjectMetadata {
 export interface TypesProjectUpdateRequest {
   auto_start_backlog_tasks?: boolean;
   default_branch?: string;
+  /** Default agent for spec tasks */
+  default_helix_app_id?: string;
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  /** Project-specific AI agent guidelines */
+  guidelines?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
   startup_script?: string;
@@ -4016,6 +4122,8 @@ export interface TypesSpecTaskProgressResponse {
 
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
+  /** Agent to use for this task */
+  helix_app_id?: string;
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
   name?: string;
@@ -4423,12 +4531,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4637,6 +4745,8 @@ export interface TypesWorkloadSummary {
 export interface TypesZedConfigResponse {
   agent?: Record<string, any>;
   assistant?: Record<string, any>;
+  /** Code agent configuration for Zed agentic coding */
+  code_agent_config?: TypesCodeAgentConfig;
   context_servers?: Record<string, any>;
   external_sync?: Record<string, any>;
   language_models?: Record<string, any>;
@@ -7254,10 +7364,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/moonlight/status
      * @secure
      */
-    v1MoonlightStatusList: (params: RequestParams = {}) =>
+    v1MoonlightStatusList: (
+      query: {
+        /** Wolf instance ID to query */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, any>, any>({
         path: `/api/v1/moonlight/status`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -7385,6 +7502,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Resolve a SharePoint site URL to its site ID using Microsoft Graph API
+     *
+     * @tags oauth
+     * @name V1OauthSharepointResolveSiteCreate
+     * @summary Resolve SharePoint site URL to site ID
+     * @request POST:/api/v1/oauth/sharepoint/resolve-site
+     * @secure
+     */
+    v1OauthSharepointResolveSiteCreate: (request: ServerSharePointSiteResolveRequest, params: RequestParams = {}) =>
+      this.request<ServerSharePointSiteResolveResponse, any>({
+        path: `/api/v1/oauth/sharepoint/resolve-site`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1OrganizationsList
@@ -7460,6 +7597,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of guidelines for an organization
+     *
+     * @tags Organizations
+     * @name V1OrganizationsGuidelinesHistoryDetail
+     * @summary Get organization guidelines history
+     * @request GET:/api/v1/organizations/{id}/guidelines-history
+     * @secure
+     */
+    v1OrganizationsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/organizations/${id}/guidelines-history`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -7872,6 +8028,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of guidelines for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsGuidelinesHistoryDetail
+     * @summary Get project guidelines history
+     * @request GET:/api/v1/projects/{id}/guidelines-history
+     * @secure
+     */
+    v1ProjectsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/guidelines-history`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

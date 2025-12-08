@@ -214,7 +214,7 @@ func (t *TeamsBot) handleMessageActivity(ctx context.Context, incomingActivity s
 	isNewConversation := err != nil || existingThread == nil
 
 	// Handle the message
-	response, err := t.handleMessage(ctx, existingThread, messageText, conversationID, channelID, teamID, isNewConversation)
+	response, documentIDs, err := t.handleMessage(ctx, existingThread, messageText, conversationID, channelID, teamID, isNewConversation)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", t.app.ID).Msg("failed to handle message")
 		errorResponse := fmt.Sprintf("Sorry, I encountered an error: %v", err)
@@ -224,8 +224,8 @@ func (t *TeamsBot) handleMessageActivity(ctx context.Context, incomingActivity s
 		return
 	}
 
-	// Convert markdown to Teams-compatible format and send
-	teamsFormattedResponse := convertMarkdownToTeamsFormat(response)
+	// Convert markdown to Teams-compatible format with clickable citation links
+	teamsFormattedResponse := convertMarkdownToTeamsFormatWithLinks(response, documentIDs)
 	if err := t.sendActivityDirect(ctx, incomingActivity, teamsFormattedResponse); err != nil {
 		log.Error().Err(err).Str("app_id", t.app.ID).Msg("failed to send response")
 	}
@@ -255,7 +255,7 @@ func (t *TeamsBot) handleConversationUpdateActivity(ctx context.Context, incomin
 	}
 }
 
-func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.TeamsThread, messageText, conversationID, channelID, teamID string, isNewConversation bool) (string, error) {
+func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.TeamsThread, messageText, conversationID, channelID, teamID string, isNewConversation bool) (string, map[string]string, error) {
 	log.Debug().
 		Str("app_id", t.app.ID).
 		Str("conversation_id", conversationID).
@@ -281,7 +281,7 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 		_, err = t.createNewThread(ctx, conversationID, channelID, teamID, session.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create new thread")
-			return "", fmt.Errorf("failed to create new thread: %w", err)
+			return "", nil, fmt.Errorf("failed to create new thread: %w", err)
 		}
 
 		log.Debug().
@@ -293,14 +293,14 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 		err = t.controller.WriteSession(ctx, session)
 		if err != nil {
 			log.Error().Err(err).Str("app_id", t.app.ID).Msg("failed to create session")
-			return "", fmt.Errorf("failed to create session: %w", err)
+			return "", nil, fmt.Errorf("failed to create session: %w", err)
 		}
 	} else {
 		// Continue existing conversation
 		session, err = t.store.GetSession(ctx, existingThread.SessionID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get session")
-			return "", fmt.Errorf("failed to get session: %w", err)
+			return "", nil, fmt.Errorf("failed to get session: %w", err)
 		}
 
 		log.Info().
@@ -316,7 +316,7 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 	})
 	if err != nil {
 		log.Error().Err(err).Str("app_id", t.app.ID).Str("user_id", t.app.Owner).Msg("failed to get user")
-		return "", fmt.Errorf("failed to get user: %w", err)
+		return "", nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	resp, err := t.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
@@ -327,10 +327,17 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to get response from inference API: %w", err)
+		return "", nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	return resp.ResponseMessage, nil
+	// Fetch updated session to get document_ids (populated during RAG)
+	updatedSession, err := t.store.GetSession(ctx, session.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to fetch updated session for document IDs")
+		return resp.ResponseMessage, nil, nil
+	}
+
+	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
 }
 
 func (t *TeamsBot) createNewThread(ctx context.Context, conversationID, channelID, teamID, sessionID string) (*types.TeamsThread, error) {
@@ -360,9 +367,18 @@ func (t *TeamsBot) removeBotMention(act schema.Activity) string {
 // convertMarkdownToTeamsFormat converts markdown to Teams-compatible format
 // Teams supports a subset of markdown, this function handles the conversion
 func convertMarkdownToTeamsFormat(markdown string) string {
+	return convertMarkdownToTeamsFormatWithLinks(markdown, nil)
+}
+
+// convertMarkdownToTeamsFormatWithLinks converts markdown to Teams-compatible format with clickable citation links
+func convertMarkdownToTeamsFormatWithLinks(markdown string, documentIDs map[string]string) string {
 	result := markdown
 
 	// Teams supports most standard markdown, but we need to handle a few edge cases
+
+	// Process citations: convert [DOC_ID:xxx] to [1], [2], remove XML excerpt blocks,
+	// and add clickable links in the Sources section
+	result = shared.ProcessCitationsForChatWithLinks(result, documentIDs, shared.LinkFormatMarkdown)
 
 	// Handle any triple newlines (reduce to double)
 	multipleNewlines := regexp.MustCompile(`\n{3,}`)

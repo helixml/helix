@@ -10,11 +10,15 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// Minimum time between streaming connections for the same session (prevents Wolf deadlock)
+const streamingRateLimitDuration = 3 * time.Second
 
 // proxyToMoonlightWeb reverse proxies requests to the moonlight-web service
 // Validates Helix user authentication and injects moonlight-web credentials
@@ -123,8 +127,20 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		Str("runner_id", moonlightRunnerID).
 		Msg("Connected to Moonlight Web via RevDial")
 
-	// Handle WebSocket upgrade (for WebRTC signaling)
+	// Handle WebSocket upgrade (for WebRTC signaling and WebSocket streaming)
 	if r.Header.Get("Upgrade") == "websocket" {
+		// Rate limit streaming connections to prevent Wolf deadlock from rapid reconnects
+		// This protects against both accidental (frontend bugs) and malicious (DOS) rapid connections
+		if sessionID != "" {
+			if !apiServer.checkStreamingRateLimit(sessionID) {
+				log.Warn().
+					Str("session_id", sessionID).
+					Str("user_id", user.ID).
+					Msg("Streaming connection rate limited (too frequent reconnects)")
+				http.Error(w, "Too many connection attempts - please wait a few seconds", http.StatusTooManyRequests)
+				return
+			}
+		}
 		apiServer.proxyWebSocketViaRevDial(w, r, conn, user)
 		return
 	}
@@ -631,6 +647,7 @@ func (apiServer *HelixAPIServer) canUserStreamSession(ctx context.Context, user 
 // @Summary Get moonlight-web internal state
 // @Description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
 // @Tags Moonlight
+// @Param wolf_instance_id query string true "Wolf instance ID to query"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/moonlight/status [get]
 // @Security ApiKeyAuth
@@ -643,9 +660,35 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 		return
 	}
 
-	// Fetch moonlight-web admin status (includes all clients + sessions)
-	moonlightURL := "http://moonlight-web:8080/api/admin/status"
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", moonlightURL, nil)
+	// Get wolf_instance_id from query params - required for RevDial routing
+	wolfInstanceID := req.URL.Query().Get("wolf_instance_id")
+	if wolfInstanceID == "" {
+		http.Error(res, "wolf_instance_id query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Build RevDial runner ID - moonlight-web registers as "moonlight-{wolfInstanceID}"
+	moonlightRunnerID := "moonlight-" + wolfInstanceID
+
+	log.Debug().
+		Str("wolf_instance_id", wolfInstanceID).
+		Str("runner_id", moonlightRunnerID).
+		Msg("Fetching moonlight-web status via RevDial")
+
+	// Dial Moonlight Web via RevDial
+	conn, err := apiServer.connman.Dial(ctx, moonlightRunnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", moonlightRunnerID).
+			Msg("Failed to dial Moonlight Web via RevDial for status")
+		http.Error(res, "Failed to connect to Moonlight Web - sandbox may not be running", http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	// Create HTTP request for admin status endpoint
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/admin/status", nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create request to moonlight-web")
 		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
@@ -656,11 +699,18 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 	moonlightCreds := apiServer.getMoonlightCredentials()
 	httpReq.Header.Set("Authorization", "Bearer "+moonlightCreds)
 
-	client := &http.Client{}
-	resp, err := client.Do(httpReq)
+	// Write HTTP request to RevDial connection
+	if err := httpReq.Write(conn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Read HTTP response from RevDial connection
+	resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to fetch moonlight-web status")
-		http.Error(res, "Failed to fetch moonlight-web status", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to read response from RevDial connection")
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
@@ -668,17 +718,45 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 	// Forward the response
 	res.Header().Set("Content-Type", "application/json")
 	res.WriteHeader(resp.StatusCode)
-	_, _ = res.Write([]byte{}) // Will be filled by copying response body
 
 	// Copy response body
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			res.Write(buf[:n])
-		}
-		if err != nil {
-			break
+	if _, err := io.Copy(res, resp.Body); err != nil {
+		log.Error().Err(err).Msg("Failed to copy moonlight-web status response body")
+		return
+	}
+}
+
+// checkStreamingRateLimit checks if a streaming connection is allowed for this session.
+// Returns true if allowed, false if rate limited.
+// Also updates the last connection time for the session.
+func (apiServer *HelixAPIServer) checkStreamingRateLimit(sessionID string) bool {
+	now := time.Now()
+
+	apiServer.streamingRateLimiterMutex.Lock()
+	defer apiServer.streamingRateLimiterMutex.Unlock()
+
+	lastConnection, exists := apiServer.streamingRateLimiter[sessionID]
+	if exists && now.Sub(lastConnection) < streamingRateLimitDuration {
+		// Too soon since last connection
+		log.Debug().
+			Str("session_id", sessionID).
+			Dur("since_last", now.Sub(lastConnection)).
+			Dur("required", streamingRateLimitDuration).
+			Msg("Streaming connection rate limited")
+		return false
+	}
+
+	// Update last connection time
+	apiServer.streamingRateLimiter[sessionID] = now
+
+	// Clean up old entries periodically (every 100 connections, remove entries older than 1 minute)
+	if len(apiServer.streamingRateLimiter) > 100 {
+		for id, t := range apiServer.streamingRateLimiter {
+			if now.Sub(t) > time.Minute {
+				delete(apiServer.streamingRateLimiter, id)
+			}
 		}
 	}
+
+	return true
 }

@@ -21,17 +21,19 @@ export {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useListSampleProjects,
-  useInstantiateSampleProject,  
+  useInstantiateSampleProject,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
+  useGetProjectGuidelinesHistory,
   projectsListQueryKey,
   projectQueryKey,
   projectRepositoriesQueryKey,
   sampleProjectsListQueryKey,
   sampleProjectQueryKey,
   projectExploratorySessionQueryKey,
+  projectGuidelinesHistoryQueryKey,
 } from './projectService';
 
 // Wolf Service
@@ -40,5 +42,11 @@ export {
   WOLF_HEALTH_QUERY_KEY,
 } from './wolfService';
 
+// Guidelines Service
+export {
+  useGetOrganizationGuidelinesHistory,
+  organizationGuidelinesHistoryQueryKey,
+} from './guidelinesService';
+
 // Re-export types for convenience
-export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesForkSimpleProjectRequest, TypesForkSimpleProjectResponse } from '../api/api';
+export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesForkSimpleProjectRequest, TypesForkSimpleProjectResponse, TypesGuidelinesHistory } from '../api/api';

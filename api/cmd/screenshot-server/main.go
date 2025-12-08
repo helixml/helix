@@ -16,6 +16,7 @@ import (
 )
 
 var cachedWaylandDisplay string
+var jpegSupported = true // Will be set to false if grim reports "jpeg support disabled"
 
 func main() {
 	port := os.Getenv("SCREENSHOT_PORT")
@@ -44,30 +45,92 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create temporary file for screenshot
-	tmpDir := os.TempDir()
-	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
-	defer os.Remove(filename)
+	// Check for format and quality query parameters
+	// ?format=jpeg&quality=60 for lower bandwidth (default: jpeg with quality 70)
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "jpeg" // Default to JPEG for smaller file sizes
+	}
+	// If JPEG not supported by grim, force PNG
+	if !jpegSupported && format == "jpeg" {
+		format = "png"
+	}
+	qualityStr := r.URL.Query().Get("quality")
+	quality := 70 // Default JPEG quality (good balance of size/quality)
+	if qualityStr != "" {
+		if q, err := fmt.Sscanf(qualityStr, "%d", &quality); err == nil && q > 0 {
+			if quality < 1 {
+				quality = 1
+			} else if quality > 100 {
+				quality = 100
+			}
+		}
+	}
 
 	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntimeDir == "" {
 		xdgRuntimeDir = "/tmp/sockets" // Wolf-UI uses /tmp/sockets not /run/user/wolf
 	}
 
-	// Try all available Wayland sockets until one works
-	// This handles race conditions where Wolf creates wayland-1 (capture only)
-	// and Sway creates wayland-2 (supports screencopy protocol)
+	// Capture screenshot with format fallback
+	data, actualFormat, err := captureScreenshot(xdgRuntimeDir, format, quality)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to capture screenshot: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Serve the image with correct content type
+	if actualFormat == "jpeg" {
+		w.Header().Set("Content-Type", "image/jpeg")
+	} else {
+		w.Header().Set("Content-Type", "image/png")
+	}
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+
+	log.Printf("Screenshot captured successfully (%d bytes, format=%s, quality=%d)", len(data), actualFormat, quality)
+}
+
+// captureScreenshot captures a screenshot using grim, with JPEG->PNG fallback if JPEG not supported
+func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, string, error) {
+	// Create temporary file for screenshot
+	tmpDir := os.TempDir()
+	ext := "jpg"
+	if format == "png" {
+		ext = "png"
+	}
+	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.%s", time.Now().UnixNano(), ext))
+	defer os.Remove(filename)
+
+	// Build grim arguments based on format and quality
+	// -c includes the cursor in the screenshot
+	grimArgs := []string{"-c"}
+	if format == "jpeg" {
+		grimArgs = append(grimArgs, "-t", "jpeg", "-q", fmt.Sprintf("%d", quality))
+	} else {
+		grimArgs = append(grimArgs, "-t", "png")
+	}
+	grimArgs = append(grimArgs, filename)
+
 	var output []byte
 	var err error
 
 	// Try cached display first if available
 	if cachedWaylandDisplay != "" {
-		cmd := exec.Command("grim", filename)
+		cmd := exec.Command("grim", grimArgs...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("WAYLAND_DISPLAY=%s", cachedWaylandDisplay),
 			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
 		)
 		output, err = cmd.CombinedOutput()
+
+		// Check for JPEG not supported error
+		if err != nil && strings.Contains(string(output), "jpeg support disabled") {
+			log.Printf("JPEG not supported by grim, falling back to PNG")
+			jpegSupported = false
+			return captureScreenshot(xdgRuntimeDir, "png", quality)
+		}
 	}
 
 	// If cached failed or doesn't exist, try all sockets
@@ -75,9 +138,7 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		// Find all wayland-* sockets
 		entries, readErr := os.ReadDir(xdgRuntimeDir)
 		if readErr != nil {
-			log.Printf("Failed to read XDG_RUNTIME_DIR: %v", readErr)
-			http.Error(w, "Failed to find Wayland sockets", http.StatusInternalServerError)
-			return
+			return nil, "", fmt.Errorf("failed to read XDG_RUNTIME_DIR: %v", readErr)
 		}
 
 		waylandSockets := []string{}
@@ -88,51 +149,44 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(waylandSockets) == 0 {
-			log.Printf("No Wayland sockets found in %s", xdgRuntimeDir)
-			http.Error(w, "No Wayland sockets available", http.StatusInternalServerError)
-			return
+			return nil, "", fmt.Errorf("no Wayland sockets found in %s", xdgRuntimeDir)
 		}
-
-		log.Printf("Trying Wayland sockets: %v", waylandSockets)
 
 		// Try each socket until one works
 		for _, socket := range waylandSockets {
-			cmd := exec.Command("grim", filename)
+			cmd := exec.Command("grim", grimArgs...)
 			cmd.Env = append(os.Environ(),
 				fmt.Sprintf("WAYLAND_DISPLAY=%s", socket),
 				fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
 			)
 			output, err = cmd.CombinedOutput()
+
+			// Check for JPEG not supported error
+			if err != nil && strings.Contains(string(output), "jpeg support disabled") {
+				log.Printf("JPEG not supported by grim, falling back to PNG")
+				jpegSupported = false
+				return captureScreenshot(xdgRuntimeDir, "png", quality)
+			}
+
 			if err == nil {
 				cachedWaylandDisplay = socket // Cache for next time
-				log.Printf("Successfully captured screenshot using %s", socket)
 				break
 			}
 			log.Printf("Failed to capture with %s: %v, output: %s", socket, err, string(output))
 		}
 
 		if err != nil {
-			log.Printf("Failed to capture screenshot with any Wayland socket")
-			http.Error(w, fmt.Sprintf("Failed to capture screenshot: %v", err), http.StatusInternalServerError)
-			return
+			return nil, "", fmt.Errorf("failed to capture with any Wayland socket: %v", err)
 		}
 	}
 
 	// Read the screenshot file
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		log.Printf("Failed to read screenshot file: %v", err)
-		http.Error(w, "Failed to read screenshot", http.StatusInternalServerError)
-		return
+		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
 	}
 
-	// Serve the PNG
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.WriteHeader(http.StatusOK)
-	w.Write(data)
-
-	log.Printf("Screenshot captured successfully (%d bytes)", len(data))
+	return data, format, nil
 }
 
 func handleClipboard(w http.ResponseWriter, r *http.Request) {

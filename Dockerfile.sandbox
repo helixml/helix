@@ -7,6 +7,13 @@
 # Use same base as Wolf (GOW gstreamer base-app with init system)
 ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
+# CACHE FIX: These ARGs are passed by build-sandbox script with current image IDs
+# When wolf:helix-fixed or moonlight-web is rebuilt, the image ID changes,
+# causing these ARG values to change, which busts the BuildKit cache for
+# the FROM stages that reference those images.
+ARG WOLF_IMAGE_ID
+ARG MOONLIGHT_IMAGE_ID
+
 # ====================================================================
 # Stage 1: Build Go binaries (revdial-client, hydra, sandbox-heartbeat)
 # ====================================================================
@@ -158,6 +165,8 @@ RUN apt-get update -y && \
     containerd.io \
     docker-buildx-plugin \
     docker-compose-plugin \
+    iproute2 \
+    iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # NVIDIA Container Toolkit (from wolf.Dockerfile lines 174-182)
@@ -198,8 +207,9 @@ COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib
 
 # Copy Wolf's init scripts and config template
 # Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
+# Config template is from helix (single source of truth), not wolf-upstream
 RUN mkdir -p /opt/wolf-defaults /etc/wolf/cfg
-COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
+COPY wolf/config.toml.template /opt/wolf-defaults/config.toml.template
 COPY --from=wolf-upstream /opt/wolf-defaults/pulse-lowmem.conf /opt/wolf-defaults/pulse-lowmem.conf
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh

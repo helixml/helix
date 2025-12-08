@@ -64,7 +64,7 @@ func (suite *OAuthTestSuite) SetupTest() {
 		AnyTimes()
 
 	// Now that we've setup store expectations, create the manager
-	suite.manager = NewManager(suite.store)
+	suite.manager = NewManager(suite.store, false)
 }
 
 // TestGetTokenForTool tests getting a token for a tool with OAuth provider

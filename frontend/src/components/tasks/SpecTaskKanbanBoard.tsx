@@ -121,6 +121,7 @@ interface SpecTaskKanbanBoardProps {
     review: number;
     implementation: number;
   };
+  focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   // repositories prop removed - repos are now managed at project level
 }
 
@@ -132,8 +133,9 @@ const DroppableColumn: React.FC<{
   onTaskClick?: (task: SpecTaskWithExtras) => void;
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
+  focusTaskId?: string;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -153,6 +155,7 @@ const DroppableColumn: React.FC<{
         onTaskClick={onTaskClick}
         onReviewDocs={onReviewDocs}
         projectId={projectId}
+        focusStartPlanning={task.id === focusTaskId}
       />
     );
   };
@@ -287,6 +290,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   refreshing = false,
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
+  focusTaskId,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -1242,6 +1246,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onTaskClick={onTaskClick}
             onReviewDocs={handleReviewDocs}
             projectId={projectId}
+            focusTaskId={focusTaskId}
             theme={theme}
           />
         ))}

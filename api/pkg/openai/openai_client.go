@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,15 +44,46 @@ type Client interface {
 	BillingEnabled() bool
 }
 
+// ClientOptions holds optional configuration for the OpenAI client
+type ClientOptions struct {
+	TLSSkipVerify bool
+}
+
 // New creates a new OpenAI client with the given API key and base URL.
 // If models are provided, models will be filtered to only include the provided models.
 func New(apiKey string, baseURL string, billingEnabled bool, models ...string) *RetryableClient {
+	return NewWithOptions(apiKey, baseURL, billingEnabled, ClientOptions{}, models...)
+}
+
+// NewWithOptions creates a new OpenAI client with the given API key, base URL, and options.
+// If models are provided, models will be filtered to only include the provided models.
+func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts ClientOptions, models ...string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 
 	// Create a custom HTTP client with increased timeout
 	httpClient := &http.Client{
 		Timeout: 5 * time.Minute, // 5 minute timeout for embedding requests
+	}
+
+	// Configure TLS if skip verify is enabled
+	if opts.TLSSkipVerify {
+		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
+		// then add InsecureSkipVerify
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		httpClient.Transport = transport
+		log.Info().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", true).
+			Msg("OpenAI client configured with TLS skip verify (TOOLS_TLS_SKIP_VERIFY=true) - will accept any TLS certificate")
+	} else {
+		log.Debug().
+			Str("base_url", baseURL).
+			Bool("tls_skip_verify", false).
+			Msg("OpenAI client using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
 	}
 
 	// Use our interceptor with the custom timeout and universal rate limiter
@@ -145,23 +177,35 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
+			errStr := err.Error()
+
+			// Check for TLS certificate errors - these are common in enterprise environments
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(err).
+					Str("base_url", c.baseURL).
+					Str("model", request.Model).
+					Msg("TLS CERTIFICATE ERROR - Set TOOLS_TLS_SKIP_VERIFY=true (in .env for Docker Compose, or extraEnv in Helm chart) for enterprise/internal TLS certificates")
+				return retry.Unrecoverable(err)
+			}
+
+			if strings.Contains(errStr, "401 Unauthorized") || strings.Contains(errStr, "404") || strings.Contains(errStr, "400") {
 				return retry.Unrecoverable(err)
 			}
 
 			// Handle 429 and 529 errors with retries for all providers
-			if strings.Contains(err.Error(), "429") {
+			if strings.Contains(errStr, "429") {
 				log.Warn().
-					Str("error", err.Error()).
+					Str("error", errStr).
 					Str("base_url", c.baseURL).
 					Msg("Received 429 error, will retry with backoff")
 				return err // Allow retry
 			}
 
 			// Handle 529 (Overloaded) errors with retries for all providers
-			if strings.Contains(err.Error(), "529") {
+			if strings.Contains(errStr, "529") {
 				log.Warn().
-					Str("error", err.Error()).
+					Str("error", errStr).
 					Str("base_url", c.baseURL).
 					Msg("Received 529 overloaded error, will retry with backoff")
 				return err // Allow retry
@@ -347,8 +391,38 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+	// Log Transport state for debugging TLS issues with database-configured providers
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.httpClient.Transport != nil {
+		if t, ok := c.httpClient.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.httpClient.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", url).
+		Str("base_url", c.baseURL).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("listOpenAIModels: Transport config for direct httpClient.Do request")
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", url).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("LISTMODELS TLS CERTIFICATE ERROR - If tls_skip_verify_configured=false, TOOLS_TLS_SKIP_VERIFY env var was not set or not applied to this client")
+		}
 		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
 	}
 	defer resp.Body.Close()
@@ -508,6 +582,27 @@ type openAIClientInterceptor struct {
 // Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
 // or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	// Log TLS configuration state for debugging enterprise deployments
+	// This helps diagnose when TOOLS_TLS_SKIP_VERIFY isn't being applied correctly
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.Client.Transport != nil {
+		if t, ok := c.Client.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.Client.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", req.URL.String()).
+		Str("host", req.URL.Host).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("OpenAI interceptor making request with Transport config")
+
 	// Handle rate limiting for all providers
 	if c.rateLimiter != nil {
 		// Estimate tokens needed for the request
@@ -554,12 +649,35 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		}
 		newReq.Header = req.Header
 
-		return c.Client.Do(newReq)
+		togetherResp, togetherErr := c.Client.Do(newReq)
+		if togetherErr != nil {
+			errStr := togetherErr.Error()
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(togetherErr).
+					Str("url", newReq.URL.String()).
+					Str("transport_type", transportType).
+					Bool("tls_skip_verify_configured", tlsSkipVerify).
+					Msg("TOGETHERAI INTERCEPTOR TLS CERTIFICATE ERROR")
+			}
+		}
+		return togetherResp, togetherErr
 	}
 
 	// Make the request
 	resp, err := c.Client.Do(req)
 	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors - these are common in enterprise environments
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", req.URL.String()).
+				Str("host", req.URL.Host).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("OPENAI INTERCEPTOR TLS CERTIFICATE ERROR - Transport state shows whether TOOLS_TLS_SKIP_VERIFY was applied. If tls_skip_verify_configured=false, the env var was not set correctly.")
+		}
 		return resp, err
 	}
 

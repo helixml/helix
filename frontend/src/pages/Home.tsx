@@ -31,6 +31,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useSnackbar from '../hooks/useSnackbar'
 import useApps from '../hooks/useApps'
+import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 import { useStreaming } from '../contexts/streaming'
 import { useListUserCronTriggers } from '../services/appService'
 import { useListProjects } from '../services'
@@ -104,6 +105,7 @@ const Home: FC = () => {
   const snackbar = useSnackbar()
   const account = useAccount()
   const apps = useApps()
+  const createBlankAgent = useCreateBlankAgent()
   const { NewInference } = useStreaming()
   const queryClient = useQueryClient()
   const [currentPrompt, setCurrentPrompt] = useState('')
@@ -1041,7 +1043,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={() => account.orgNavigate('new-agent')}
+                        onClick={createBlankAgent}
                       >
                         <Box
                           sx={{

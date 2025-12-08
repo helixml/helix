@@ -65,7 +65,10 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
   }, [knowledge]);
 
   // Source type determination
-  const sourceType = knowledge.source.filestore ? 'filestore' : 'web';
+  const sourceType = knowledge.source.filestore ? 'filestore'
+    : knowledge.source.sharepoint ? 'sharepoint'
+    : knowledge.source.text ? 'text'
+    : 'web';
 
   return (
     <>
@@ -232,6 +235,35 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
             </Tooltip>
           </Box>
         </>
+      )}
+
+      {sourceType === 'sharepoint' && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+            <strong>SharePoint Configuration</strong>
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            Site ID: {knowledge.source.sharepoint?.site_id}
+          </Typography>
+          {knowledge.source.sharepoint?.drive_id && (
+            <Typography variant="body2" color="textSecondary">
+              Drive ID: {knowledge.source.sharepoint.drive_id}
+            </Typography>
+          )}
+          {knowledge.source.sharepoint?.folder_path && (
+            <Typography variant="body2" color="textSecondary">
+              Folder Path: {knowledge.source.sharepoint.folder_path}
+            </Typography>
+          )}
+          {knowledge.source.sharepoint?.filter_extensions && knowledge.source.sharepoint.filter_extensions.length > 0 && (
+            <Typography variant="body2" color="textSecondary">
+              Extensions: {knowledge.source.sharepoint.filter_extensions.join(', ')}
+            </Typography>
+          )}
+          <Typography variant="body2" color="textSecondary">
+            Recursive: {knowledge.source.sharepoint?.recursive ? 'Yes' : 'No'}
+          </Typography>
+        </Box>
       )}
 
       <FormControl fullWidth sx={{ mb: 2 }}>

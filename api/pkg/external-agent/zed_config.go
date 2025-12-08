@@ -40,14 +40,7 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIURL          string           `json:"api_url"`                    // Custom API URL (empty = use default provider URL)
-	AvailableModels []AvailableModel `json:"available_models,omitempty"` // Custom models to add
-}
-
-type AvailableModel struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	MaxTokens   int    `json:"max_tokens,omitempty"`
+	APIURL string `json:"api_url"` // Custom API URL (empty = use default provider URL)
 }
 
 type AssistantSettings struct {
@@ -86,35 +79,69 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	// ALWAYS use claude-sonnet-4-5-latest for Zed agents (ignore app database config)
-	// The Helix UI doesn't expose model selection for Zed agents yet
-	//
-	// TODO: When adding model selection UI for Zed agents:
-	// - Uncomment the code below to read from app.Config.Helix.Assistants[0]
-	// - Add UI validation to only allow models compatible with Zed
-	// - Zed supports: Anthropic, OpenAI, Google, etc - NOT all Helix models work
-	//
-	// var assistant types.AssistantConfig
-	// if len(app.Config.Helix.Assistants) > 0 {
-	// 	assistant = app.Config.Helix.Assistants[0]
-	// } else {
-	// 	assistant = types.AssistantConfig{
-	// 		Provider: "anthropic",
-	// 		Model:    "claude-sonnet-4-5-latest",
-	// 	}
-	// }
-
-	// Use Haiku 4.5 for faster, cheaper responses
-	assistant := types.AssistantConfig{
-		Provider: "anthropic",
-		Model:    "claude-haiku-4-5-latest",
+	// Find the zed_external assistant configuration
+	var assistant *types.AssistantConfig
+	for i := range app.Config.Helix.Assistants {
+		if app.Config.Helix.Assistants[i].AgentType == types.AgentTypeZedExternal {
+			assistant = &app.Config.Helix.Assistants[i]
+			break
+		}
 	}
+
+	// Fallback to first assistant if no zed_external found
+	if assistant == nil && len(app.Config.Helix.Assistants) > 0 {
+		assistant = &app.Config.Helix.Assistants[0]
+	}
+
+	// For zed_external agents, prefer GenerationModel fields (where UI stores the selection)
+	var provider, model string
+	if assistant != nil {
+		provider = assistant.GenerationModelProvider
+		if provider == "" {
+			provider = assistant.Provider
+		}
+		model = assistant.GenerationModel
+		if model == "" {
+			model = assistant.Model
+		}
+		log.Info().
+			Str("app_id", app.ID).
+			Str("session_id", sessionID).
+			Str("assistant_name", assistant.Name).
+			Str("assistant_agent_type", string(assistant.AgentType)).
+			Str("assistant_provider", assistant.Provider).
+			Str("assistant_model", assistant.Model).
+			Str("assistant_gen_provider", assistant.GenerationModelProvider).
+			Str("assistant_gen_model", assistant.GenerationModel).
+			Str("resolved_provider", provider).
+			Str("resolved_model", model).
+			Msg("GenerateZedMCPConfig: resolved assistant model")
+	} else {
+		log.Info().
+			Str("app_id", app.ID).
+			Str("session_id", sessionID).
+			Int("num_assistants", len(app.Config.Helix.Assistants)).
+			Msg("GenerateZedMCPConfig: no assistant found, using defaults")
+	}
+
+	// Default to anthropic/claude-sonnet if nothing is configured
+	if provider == "" {
+		provider = "anthropic"
+	}
+	if model == "" {
+		model = "claude-sonnet-4-5-latest"
+	}
+
+	// Normalize model ID to the format Zed expects (strip dates, use -latest aliases)
+	// Zed's serde config only recognizes specific aliases like "claude-3-5-haiku-latest",
+	// not dated versions like "claude-3-5-haiku-20241022"
+	model = normalizeModelIDForZed(model)
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
 	config.Agent = &AgentConfig{
 		DefaultModel: &ModelConfig{
-			Provider: assistant.Provider,
-			Model:    assistant.Model,
+			Provider: provider,
+			Model:    model,
 		},
 		AlwaysAllowToolActions: true,
 		ShowOnboarding:         false,
@@ -122,12 +149,25 @@ func GenerateZedMCPConfig(
 	}
 	config.Theme = "One Dark"
 
-	// Don't configure assistant or language_models sections
-	// Zed will use ANTHROPIC_API_KEY environment variable
-	// default_model goes in agent section!
+	// Configure language_models to route API calls through Helix proxy
+	// CRITICAL: Zed reads api_url from settings.json, NOT from ANTHROPIC_BASE_URL env var!
+	// The env vars set in wolf_executor.go are NOT used by Zed's language model providers.
+	// We must explicitly set api_url in language_models for each provider.
+	//
+	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:
+	// - Anthropic: base URL only (Zed appends /v1/messages)
+	// - OpenAI: base URL + /v1 (Zed appends /chat/completions)
+	config.LanguageModels = map[string]LanguageModelConfig{
+		"anthropic": {
+			APIURL: helixAPIURL, // Zed appends /v1/messages
+		},
+		"openai": {
+			APIURL: helixAPIURL + "/v1", // Zed appends /chat/completions
+		},
+	}
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
-	if hasNativeTools(assistant) {
+	if assistant != nil && hasNativeTools(*assistant) {
 		config.ContextServers["helix-native"] = ContextServerConfig{
 			Command: "helix-cli",
 			Args: []string{
@@ -144,9 +184,11 @@ func GenerateZedMCPConfig(
 	}
 
 	// 2. Pass-through external MCP servers
-	for _, mcp := range assistant.MCPs {
-		serverName := sanitizeName(mcp.Name)
-		config.ContextServers[serverName] = mcpToContextServer(mcp)
+	if assistant != nil {
+		for _, mcp := range assistant.MCPs {
+			serverName := sanitizeName(mcp.Name)
+			config.ContextServers[serverName] = mcpToContextServer(mcp)
+		}
 	}
 
 	return config, nil
@@ -247,6 +289,60 @@ func getAPIKeyForProvider(provider string) string {
 	default:
 		return ""
 	}
+}
+
+// normalizeModelIDForZed converts model IDs to the format Zed expects.
+// Zed's serde config only recognizes specific model aliases (e.g., "claude-3-5-haiku-latest"),
+// not dated versions (e.g., "claude-3-5-haiku-20241022"). This function strips dates
+// and converts to the -latest format.
+func normalizeModelIDForZed(modelID string) string {
+	// Already has -latest suffix, return as-is
+	if strings.HasSuffix(modelID, "-latest") {
+		return modelID
+	}
+
+	// Claude 4.5 models (new naming: claude-opus-4-5, claude-sonnet-4-5, claude-haiku-4-5)
+	if strings.HasPrefix(modelID, "claude-opus-4-5") {
+		return "claude-opus-4-5-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-sonnet-4-5") {
+		return "claude-sonnet-4-5-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
+		return "claude-haiku-4-5-latest"
+	}
+
+	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)
+	if strings.HasPrefix(modelID, "claude-3-7-sonnet") {
+		return "claude-3-7-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-5-sonnet") {
+		return "claude-3-5-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-5-haiku") {
+		return "claude-3-5-haiku-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-opus") {
+		return "claude-3-opus-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-sonnet") {
+		return "claude-3-sonnet-latest"
+	}
+	if strings.HasPrefix(modelID, "claude-3-haiku") {
+		return "claude-3-haiku-latest"
+	}
+
+	// OpenAI models - these typically don't have date suffixes in settings
+	// but normalize common patterns just in case
+	if strings.HasPrefix(modelID, "gpt-4o-") && !strings.HasPrefix(modelID, "gpt-4o-mini") {
+		return "gpt-4o"
+	}
+	if strings.HasPrefix(modelID, "gpt-4o-mini-") {
+		return "gpt-4o-mini"
+	}
+
+	// Return unchanged for other models (Gemini, Qwen, etc. - these go through OpenAI provider)
+	return modelID
 }
 
 // GetZedConfigForSession retrieves Zed MCP config for a session
