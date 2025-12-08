@@ -117,9 +117,6 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		modelConfig := map[string]interface{}{
 			"api_url": config.APIURL, // Empty string = use default provider URL
 		}
-		if len(config.AvailableModels) > 0 {
-			modelConfig["available_models"] = config.AvailableModels
-		}
 		languageModels[provider] = modelConfig
 	}
 
