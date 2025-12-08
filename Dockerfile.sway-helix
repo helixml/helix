@@ -322,7 +322,10 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     DISABLE_AUTOUPDATER=1 \
     # Skip TLS certificate verification for Node.js (Qwen Code, Claude Code)
     # Required for enterprise deployments with internal CAs
-    NODE_TLS_REJECT_UNAUTHORIZED=0
+    NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    # Skip TLS certificate verification for Zed HTTP clients (Anthropic, OpenAI APIs)
+    # Required for enterprise deployments with internal CAs
+    ZED_HTTP_INSECURE_TLS=1
 
 # ====================================================================
 # Configure Git - Disable TLS verification (self-signed certs in dev)
