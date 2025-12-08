@@ -102,14 +102,18 @@ RUN apt-get update && apt-get install -y \
 # Install GNOME session and Ubuntu theming for vanilla Ubuntu experience
 # Also install x11-utils (xdpyinfo) and x11-xserver-utils (xrandr) for proper X startup
 # Include ubuntu-dock extension for the standard Ubuntu dock on left side
+# Include appindicator extension for system tray icons in top panel
+# Include xdg-utils for xdg-open command (browser launching)
 RUN apt-get update && apt-get install -y \
     gnome-session \
     gnome-shell \
     gnome-shell-extension-ubuntu-dock \
+    gnome-shell-extension-appindicator \
     gnome-terminal \
     gnome-control-center \
     nautilus \
     dbus-x11 \
+    xdg-utils \
     yaru-theme-gtk \
     yaru-theme-icon \
     yaru-theme-sound \
