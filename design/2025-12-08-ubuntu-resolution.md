@@ -3,6 +3,43 @@
 **Date:** 2025-12-08
 **Status:** In Progress - Fundamental incompatibility identified
 
+---
+
+## Decision Summary (2025-12-08)
+
+**Goal:** A solidly working Ubuntu desktop experience. The look and feel of Ubuntu is more important than using the latest Ubuntu version.
+
+**Decision:** Choose ONE of these approaches:
+
+### Option A: Ubuntu 22.04 + GNOME 42/43 (Recommended)
+- Use Ubuntu 22.04 LTS as base
+- GNOME 42/43 is proven stable with Xwayland/Gamescope
+- Classic Ubuntu look - users will recognize it
+- "Ubuntu 22.04" is a perfectly acceptable product
+- Similar to what Zorin uses (based on Ubuntu 22.04)
+
+### Option B: XFCE with Ubuntu Theming
+- Use the existing GOW XFCE base image
+- Apply Yaru theme (GTK theme, icons, cursors)
+- Ubuntu fonts and wallpaper
+- **Yes, XFCE can look like Ubuntu:**
+  - Yaru-dark GTK theme works on XFCE
+  - Yaru icon theme works on XFCE
+  - Ubuntu fonts work on XFCE
+  - Panel can be configured to match Ubuntu layout
+- Faster, lighter, proven stable with Gamescope
+
+### Recommendation
+**Option A (Ubuntu 22.04 + GNOME 42/43)** is recommended because:
+- Authentic GNOME experience
+- Ubuntu 22.04 LTS is well-supported until 2027
+- Users expect GNOME on Ubuntu
+- Zorin's GOW image already proves this works
+
+**Next Step:** Test with Zorin's base image or create Ubuntu 22.04 + GNOME image.
+
+---
+
 ## Executive Summary
 
 Ubuntu 25.04 with GNOME Shell 48 running on Xwayland under Gamescope has a fundamental incompatibility with MIT-SHM (X11 Shared Memory). This causes crashes when performing various window operations (dragging to edges, resizing, screenshots). The crashes also reset the display resolution from 1920x1080 to 5120x2880.
