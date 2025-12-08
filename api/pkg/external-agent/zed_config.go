@@ -358,7 +358,14 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	}
 
 	// Get Helix API URL from environment
-	helixAPIURL := os.Getenv("HELIX_API_URL")
+	// For production, use SANDBOX_API_URL if set, else SERVER_URL, else fallback
+	helixAPIURL := os.Getenv("SANDBOX_API_URL")
+	if helixAPIURL == "" {
+		helixAPIURL = os.Getenv("SERVER_URL")
+	}
+	if helixAPIURL == "" {
+		helixAPIURL = os.Getenv("HELIX_API_URL")
+	}
 	if helixAPIURL == "" {
 		helixAPIURL = "http://api:8080"
 	}

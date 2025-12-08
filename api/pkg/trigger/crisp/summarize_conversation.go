@@ -40,6 +40,11 @@ func (c *CrispBot) summarizeConversation(user *types.User, session *types.Sessio
 
 	conversationHistory := buildConversationHistory(messages)
 
+	// Check for assistants before accessing
+	if len(c.app.Config.Helix.Assistants) == 0 {
+		return "", fmt.Errorf("app %s has no assistants configured", c.app.ID)
+	}
+
 	var (
 		provider string
 		model    string

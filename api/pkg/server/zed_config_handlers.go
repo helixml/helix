@@ -77,11 +77,15 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		helixAPIURL = "http://api:8080"
 	}
 
-	// Use SANDBOX_API_URL for sandbox containers (internal Docker network)
+	// Use SANDBOX_API_URL for sandbox containers
 	// This is the URL that Zed inside the sandbox uses to call the Helix API
+	// If not explicitly set, use the external-facing URL (SERVER_URL) so that
+	// remote Wolf sandboxes can reach the API. Only use http://api:8080 in
+	// development where sandboxes run in the same Docker network.
 	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if sandboxAPIURL == "" {
-		sandboxAPIURL = "http://api:8080" // Default Docker internal address
+		// Default to external URL so remote sandboxes work out of the box
+		sandboxAPIURL = helixAPIURL
 	}
 
 	helixToken := apiServer.Cfg.WebServer.RunnerToken
@@ -89,8 +93,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		log.Warn().Msg("RUNNER_TOKEN not configured")
 	}
 
-	// Use sandboxAPIURL for Zed config since Zed runs inside the sandbox container
-	// and needs to reach the API via Docker internal network, not external URL
+	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
+	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
+	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
 	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
@@ -337,10 +342,14 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		}
 	}
 
-	// Use SANDBOX_API_URL for internal Docker network (what Zed inside sandbox uses)
+	// Use SANDBOX_API_URL for what Zed inside sandbox uses
+	// If not explicitly set, default to external-facing URL (SERVER_URL)
 	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if helixAPIURL == "" {
-		helixAPIURL = "http://api:8080"
+		helixAPIURL = apiServer.Cfg.WebServer.URL
+		if helixAPIURL == "" {
+			helixAPIURL = "http://api:8080"
+		}
 	}
 
 	helixToken := apiServer.Cfg.WebServer.RunnerToken
@@ -388,10 +397,14 @@ func (apiServer *HelixAPIServer) getAgentNameForSession(ctx context.Context, ses
 		return agentName
 	}
 
-	// Use SANDBOX_API_URL for internal Docker network
+	// Use SANDBOX_API_URL for sandbox containers
+	// If not explicitly set, default to external-facing URL (SERVER_URL)
 	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if sandboxAPIURL == "" {
-		sandboxAPIURL = "http://api:8080"
+		sandboxAPIURL = apiServer.Cfg.WebServer.URL
+		if sandboxAPIURL == "" {
+			sandboxAPIURL = "http://api:8080"
+		}
 	}
 
 	codeAgentConfig := buildCodeAgentConfig(specTaskApp, sandboxAPIURL)

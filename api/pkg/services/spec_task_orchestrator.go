@@ -459,6 +459,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 // createPlanningSession creates a Helix session for the planning phase
 func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		return nil, fmt.Errorf("app %s has no assistants configured", app.ID)
+	}
+
 	// Build system prompt for planning phase
 	systemPrompt := o.buildPlanningPrompt(task, app)
 
