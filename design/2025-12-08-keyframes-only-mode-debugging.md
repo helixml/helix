@@ -8,11 +8,23 @@
 
 The keyframes-only streaming approach was abandoned due to Moonlight protocol issues (only one frame ever received). Instead, we implemented a **screenshot-based fallback mode**:
 
-- Uses `grim` to capture JPEG screenshots at adaptive quality
+- Uses `grim` (built from source with JPEG support) to capture screenshots
+- Includes mouse cursor in screenshots (`-c` flag)
 - Polls screenshots as fast as possible (capped at 10 FPS max)
 - Dynamically adjusts JPEG quality (10-90%) to maintain ≥2 FPS target
 - Mouse/keyboard input continues working via the WebSocket stream
 - Quality increases when frames are fast (<300ms), decreases when slow (>500ms)
+- Fallback to PNG if JPEG not supported (safety net)
+
+**Quality modes:**
+- **Adaptive** (green icon): 60fps WebSocket stream + auto-enables screenshot overlay when RTT >150ms
+- **High** (white icon): 60fps WebSocket stream only (no screenshot fallback)
+- **Low** (orange icon): Screenshot-based video only (stream used only for input)
+
+**Key files:**
+- `api/cmd/screenshot-server/main.go` - Captures screenshots via grim, serves JPEG/PNG
+- `frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - Quality mode toggle and screenshot polling
+- `Dockerfile.sway-helix` - Builds grim from source with libjpeg support
 
 This provides a working low-bandwidth fallback without the Moonlight protocol bugs.
 
