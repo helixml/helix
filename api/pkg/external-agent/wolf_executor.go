@@ -243,6 +243,10 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		// User tokens ensure proper attribution and RBAC enforcement
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", userAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
+		// CRITICAL: Skip TLS certificate verification for enterprise internal CAs
+		// Enterprise deployments use internal CAs that Zed's rustls won't recognize
+		// This allows connections to internal HTTPS URLs without certificate errors
+		"ZED_HELIX_SKIP_TLS_VERIFY=true",
 		"RUST_LOG=info", // Enable Rust logging for Zed
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
