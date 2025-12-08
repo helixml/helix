@@ -343,10 +343,44 @@ echo "Zed autostart entry created"
 # would create duplicate windows.
 
 # ============================================================================
-# GNOME Session Startup (using Zorin-style GOW scripts)
+# GNOME Session Startup (matching GOW launch-comp.sh pattern)
 # ============================================================================
-# Launch GNOME using the properly configured xorg.sh script
-# This handles: Xwayland startup, D-Bus initialization, resolution setting, GNOME launch
+# Use the same approach as the XFCE base image's launch-comp.sh but for GNOME
 
-echo "Launching GNOME session via /opt/gow/xorg.sh..."
-exec /opt/gow/xorg.sh
+echo "Launching GNOME session..."
+
+# Source GOW utilities
+source /opt/gow/bash-lib/utils.sh
+
+# Set up environment (same as launch-comp.sh)
+export XDG_DATA_DIRS=/var/lib/flatpak/exports/share:/home/retro/.local/share/flatpak/exports/share:/usr/local/share/:/usr/share/
+
+# Start D-Bus (required for GNOME)
+sudo /opt/gow/startdbus
+
+# Configure environment for GNOME on X11 (matching launch-comp.sh pattern)
+export DESKTOP_SESSION=ubuntu
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+export XDG_SESSION_TYPE="x11"
+export _JAVA_AWT_WM_NONREPARENTING=1
+export GDK_BACKEND=x11
+export MOZ_ENABLE_WAYLAND=0
+export QT_QPA_PLATFORM="xcb"
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+export QT_ENABLE_HIGHDPI_SCALING=1
+export DISPLAY=:0
+export $(dbus-launch)
+export REAL_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
+unset WAYLAND_DISPLAY
+
+# Force software rendering for Mutter - needed because Xwayland nested in Gamescope
+# doesn't expose direct GPU access via EGL/GLX
+export LIBGL_ALWAYS_SOFTWARE=1
+export MUTTER_DEBUG_FORCE_FALLBACK_GLES=1
+export MUTTER_DEBUG_FORCE_EGL_STREAM=0
+export COGL_DRIVER=gl
+export CLUTTER_DRIVER=gl
+
+# Launch Xwayland and GNOME session (exactly like launch-comp.sh does for XFCE)
+echo "Starting Xwayland and gnome-session..."
+exec dbus-run-session -- bash -E -c "WAYLAND_DISPLAY=\$REAL_WAYLAND_DISPLAY Xwayland :0 & sleep 2 && gnome-session"
