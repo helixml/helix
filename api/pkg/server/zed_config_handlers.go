@@ -422,28 +422,46 @@ func buildCodeAgentConfig(app *types.App, helixURL string) *types.CodeAgentConfi
 }
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
-// For zed_external agents, it prefers Provider/Model but falls back to GenerationModelProvider/GenerationModel.
+// For zed_external agents with qwen_code runtime, use GenerationModelProvider/GenerationModel.
+// For zed_agent runtime, prefer Provider/Model with fallback to generation fields.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
 func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixURL string) *types.CodeAgentConfig {
-	// Get provider and model, falling back to generation model fields if primary fields are empty
-	providerName := assistant.Provider
-	if providerName == "" {
-		providerName = assistant.GenerationModelProvider
+	// Get the code agent runtime first - it affects which provider/model fields we use
+	runtime := assistant.CodeAgentRuntime
+	if runtime == "" {
+		runtime = types.CodeAgentRuntimeZedAgent
 	}
-	modelName := assistant.Model
-	if modelName == "" {
+
+	var providerName, modelName string
+
+	// For qwen_code runtime, prefer generation model fields (qwen uses a different model than Zed's built-in agent)
+	// For zed_agent runtime, prefer primary provider/model with fallback to generation fields
+	if runtime == types.CodeAgentRuntimeQwenCode {
+		// Qwen Code: Use generation model settings
+		providerName = assistant.GenerationModelProvider
 		modelName = assistant.GenerationModel
+		// Fall back to primary fields if generation fields are empty
+		if providerName == "" {
+			providerName = assistant.Provider
+		}
+		if modelName == "" {
+			modelName = assistant.Model
+		}
+	} else {
+		// Zed Agent: Use primary provider/model, fall back to generation fields
+		providerName = assistant.Provider
+		if providerName == "" {
+			providerName = assistant.GenerationModelProvider
+		}
+		modelName = assistant.Model
+		if modelName == "" {
+			modelName = assistant.GenerationModel
+		}
 	}
 
 	// If still no provider/model, return nil (can't configure code agent without these)
 	if providerName == "" || modelName == "" {
 		return nil
-	}
-
-	// Get the code agent runtime, default to zed_agent
-	runtime := assistant.CodeAgentRuntime
-	if runtime == "" {
-		runtime = types.CodeAgentRuntimeZedAgent
 	}
 
 	provider := strings.ToLower(providerName)
