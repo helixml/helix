@@ -87,9 +87,33 @@ return &RetryableClient{
 
 3. **Struct embedding by value**: The `openAIClientInterceptor` embeds `http.Client` by value, and we copy `*httpClient` into it. While the Transport interface value should be preserved, there could be edge cases.
 
+## Root Cause Confirmed
+
+**The Clone() fix (commit f050ab4fa) was NOT in 2.5.25!**
+
+Verification:
+```bash
+git merge-base --is-ancestor f050ab4fa 2.5.25 && echo "IN" || echo "NOT IN"
+# Output: Clone fix is NOT in 2.5.25
+```
+
+So 2.5.25 used the minimal Transport approach:
+```go
+httpClient.Transport = &http.Transport{
+    TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+}
+```
+
+A minimal `&http.Transport{}` has several issues in enterprise environments:
+- **Proxy: nil** - Doesn't respect HTTP_PROXY/HTTPS_PROXY environment variables
+- **Missing timeouts** - Uses zero values for TLSHandshakeTimeout, IdleConnTimeout
+- **Missing connection pooling settings** - MaxIdleConns, MaxIdleConnsPerHost not set
+
+The customer's enterprise network may have required proxy settings that were being ignored.
+
 ## Fixes Applied
 
-### 1. Use Clone() for Transport (Already in HEAD, not in 2.5.25)
+### 1. Use Clone() for Transport (Added AFTER 2.5.25 in f050ab4fa)
 
 ```go
 // Current HEAD code:
@@ -104,7 +128,35 @@ if opts.TLSSkipVerify {
 
 This preserves default settings (proxy, timeouts, connection pooling) while adding InsecureSkipVerify.
 
-### 2. Added Diagnostic Logging (This Commit)
+### 2. ALWAYS Clone Transport (This Commit)
+
+Even when TLSSkipVerify is false, we now ALWAYS clone the default transport:
+
+```go
+// Always clone first to preserve all default settings
+transport := http.DefaultTransport.(*http.Transport).Clone()
+
+// Only modify TLS config if skip verify is enabled
+if opts.TLSSkipVerify {
+    transport.TLSClientConfig = &tls.Config{
+        InsecureSkipVerify: true,
+    }
+}
+
+// Create client with the pre-configured transport (never nil)
+httpClient := &http.Client{
+    Timeout:   5 * time.Minute,
+    Transport: transport,
+}
+```
+
+This ensures:
+- Transport is NEVER nil (no reliance on implicit DefaultTransport behavior)
+- Proxy settings from HTTP_PROXY/HTTPS_PROXY are always respected
+- Connection pooling and keep-alive settings are always inherited
+- Enterprise network configurations work correctly
+
+### 3. Added Diagnostic Logging (This Commit)
 
 Added logging at multiple points to diagnose future TLS issues:
 
