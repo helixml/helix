@@ -1,4 +1,4 @@
--- Helix window positioning rules for XFCE
+-- Helix window positioning rules for Ubuntu GNOME
 -- Automatically positions windows in 3 columns like Sway's tiling
 --
 -- Screen layout at 1920x1080:
@@ -6,15 +6,14 @@
 --   Column 2 (Middle): Zed Editor  - x=640,  width=640
 --   Column 3 (Right):  Firefox     - x=1280, width=640
 --
--- Note: For HiDPI (2x scaling), coordinates are halved but this script
--- uses physical pixel coordinates which work correctly.
+-- Using vanilla Ubuntu with no custom scaling.
 
 -- Screen dimensions (matches GAMESCOPE_WIDTH/HEIGHT defaults)
 local SCREEN_WIDTH = 1920
 local SCREEN_HEIGHT = 1080
 local COLUMN_WIDTH = SCREEN_WIDTH / 3  -- 640 pixels
 
--- Panel height (XFCE panel at top)
+-- Panel height (GNOME top bar)
 local PANEL_HEIGHT = 30
 local WINDOW_HEIGHT = SCREEN_HEIGHT - PANEL_HEIGHT
 
@@ -38,9 +37,10 @@ elseif win_class == "Zed" or win_class == "zed" or string.find(tostring(win_clas
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
 
 -- Terminal windows -> Left column (column 1)
--- Match various terminal emulators: xfce4-terminal, gnome-terminal, kitty, etc.
-elseif win_class == "Xfce4-terminal" or win_class == "xfce4-terminal"
-       or win_class == "Gnome-terminal" or win_class == "gnome-terminal"
+-- Match various terminal emulators: gnome-terminal, xfce4-terminal, kitty, etc.
+elseif win_class == "Gnome-terminal" or win_class == "gnome-terminal"
+       or win_class == "gnome-terminal-server"
+       or win_class == "Xfce4-terminal" or win_class == "xfce4-terminal"
        or win_class == "kitty" or win_class == "Kitty"
        or win_class == "XTerm" or win_class == "xterm"
        or win_class == "Terminator" or win_class == "terminator" then

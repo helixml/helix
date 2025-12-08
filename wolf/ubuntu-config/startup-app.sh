@@ -1,6 +1,6 @@
 #!/bin/bash
-# GOW XFCE startup script for Helix Personal Dev Environment (Ubuntu)
-# Simplified from Zorin - XFCE is lighter than GNOME and doesn't need systemd workarounds
+# GOW GNOME startup script for Helix Personal Dev Environment (Ubuntu)
+# This version uses vanilla Ubuntu GNOME with NO custom HiDPI scaling
 
 # ============================================================================
 # CRITICAL DEBUG SECTION - MUST BE FIRST (before set -e)
@@ -11,7 +11,7 @@ DEBUG_LOG=/tmp/ubuntu-startup-debug.log
 exec 1> >(tee -a "$DEBUG_LOG")
 exec 2>&1
 
-echo "=== UBUNTU/XFCE STARTUP DEBUG START $(date) ==="
+echo "=== UBUNTU GNOME STARTUP DEBUG START $(date) ==="
 echo "User: $(whoami)"
 echo "UID: $(id -u)"
 echo "Home: $HOME"
@@ -28,6 +28,7 @@ echo "=== CRITICAL FILE CHECKS ==="
 echo "Zed binary exists: $([ -f /zed-build/zed ] && echo YES || echo NO)"
 echo "Workspace mount exists: $([ -d /home/retro/work ] && echo YES || echo NO)"
 echo "GOW xorg script exists: $([ -f /opt/gow/xorg.sh ] && echo YES || echo NO)"
+echo "dconf settings exist: $([ -f /opt/gow/dconf-settings.ini ] && echo YES || echo NO)"
 
 # Trap EXIT to show exit code
 trap 'EXIT_CODE=$?; echo ""; echo "=== SCRIPT EXITING WITH CODE $EXIT_CODE at $(date) ===" ' EXIT
@@ -39,8 +40,8 @@ echo "=== DEBUG SETUP COMPLETE - NOW ENABLING STRICT ERROR CHECKING ==="
 set -e
 
 echo ""
-echo "=== UBUNTU/XFCE STARTUP BEGINS ==="
-echo "Starting Helix Ubuntu/XFCE environment..."
+echo "=== UBUNTU GNOME STARTUP BEGINS ==="
+echo "Starting Helix Ubuntu GNOME environment (vanilla, no custom scaling)..."
 
 # ============================================================================
 # CRITICAL: Fix home directory ownership FIRST
@@ -106,6 +107,9 @@ mkdir -p $ZED_STATE_DIR/config
 mkdir -p $ZED_STATE_DIR/local-share
 mkdir -p $ZED_STATE_DIR/cache
 
+# Fix ownership of common home subdirectories (GOW base image may have root-owned dirs)
+sudo chown -R retro:retro ~/.config ~/.cache ~/.local 2>/dev/null || true
+
 # Create symlinks BEFORE desktop starts
 rm -rf ~/.config/zed
 mkdir -p ~/.config
@@ -125,7 +129,7 @@ echo "Zed state symlinks created"
 # RevDial Client for API Communication
 # ============================================================================
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
-# CRITICAL: Starts BEFORE desktop so API can reach sandbox immediately
+# CRITICAL: Starts BEFORE GNOME so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
     REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
@@ -152,6 +156,26 @@ else
 fi
 
 # ============================================================================
+# Disable GNOME Screensaver Proxy
+# ============================================================================
+# Prevent gsd-screensaver-proxy from showing "screen lock disabled" notification
+# This daemon detects absence of GDM and shows persistent notification
+# We don't need screen locking in containers, so disable it entirely
+echo "Disabling GNOME screensaver proxy..."
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/org.gnome.SettingsDaemon.ScreensaverProxy.desktop <<'SCREENSAVER_EOF'
+[Desktop Entry]
+Type=Application
+Name=GNOME FreeDesktop screensaver
+Exec=/bin/true
+OnlyShowIn=GNOME;
+NoDisplay=true
+Hidden=true
+SCREENSAVER_EOF
+
+echo "Screensaver proxy disabled"
+
+# ============================================================================
 # Disable IBus Input Method Framework
 # ============================================================================
 # IBus can interfere with keyboard input in remote streaming environments
@@ -163,61 +187,81 @@ export XMODIFIERS=@im=none
 echo "IBus disabled (using simple input context)"
 
 # ============================================================================
-# Devilspie2 Window Positioning Setup
+# Window Management (devilspie2 + wmctrl)
 # ============================================================================
-# Devilspie2 auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
-# Copy config from /etc/skel to user home (skel only used for new user creation)
-echo "Setting up devilspie2 window positioning..."
+# devilspie2 daemon watches for new windows and applies geometry rules
+# This positions Firefox (launched by startup script via xdg-open) in the right third
+# wmctrl is used by position-windows.sh to tile Terminal and Zed
+
+# Copy devilspie2 config from /etc/skel to user home
 mkdir -p ~/.config/devilspie2
 if [ -f /etc/skel/.config/devilspie2/helix-tiling.lua ]; then
     cp /etc/skel/.config/devilspie2/helix-tiling.lua ~/.config/devilspie2/
-    echo "✅ Devilspie2 config copied to ~/.config/devilspie2/"
-else
-    echo "⚠️  Devilspie2 config not found at /etc/skel/.config/devilspie2/helix-tiling.lua"
+    echo "Devilspie2 config copied to ~/.config/devilspie2/"
 fi
 
-# ============================================================================
-# XFCE HiDPI Configuration
-# ============================================================================
-# Configure XFCE for 2x HiDPI scaling to match remote streaming resolution
-# This ensures consistent font/UI sizing across all components
-echo "Configuring XFCE HiDPI settings..."
+# Firefox window rule - position in right third of screen
+cat > ~/.config/devilspie2/firefox.lua << 'DEVILSPIE_EOF'
+-- Position Firefox windows in right third of screen
+-- Right third: x=1280, width=640, full height
+if (get_application_name() == "Firefox" or get_class_instance_name() == "firefox") then
+    set_window_geometry(1280, 0, 640, 1080)
+end
+DEVILSPIE_EOF
 
-# Create script to apply XFCE settings after desktop starts (needs xfconf-query)
-cat > /tmp/configure-xfce-hidpi.sh <<'XFCE_HIDPI_EOF'
+echo "devilspie2 Firefox rule created"
+
+# Create window positioning script (positions Terminal and Zed after they launch)
+cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
-# Wait for XFCE to be fully started
-sleep 3
+# Tile windows in thirds after they appear
+# Screen: 1920x1080 (no HiDPI scaling - vanilla Ubuntu)
+# Left third (0-639): Terminal
+# Middle third (640-1279): Zed
+# Right third (1280-1919): Firefox (handled by devilspie2)
 
-# Set DPI for XFCE (96 * 2 = 192 for 2x scaling)
-xfconf-query -c xsettings -p /Xft/DPI -s 192 2>/dev/null || true
+sleep 8  # Wait for Zed and Terminal to launch
 
-# Set GTK window scaling factor
-xfconf-query -c xsettings -p /Gdk/WindowScalingFactor -s 2 2>/dev/null || true
+# Position Terminal (gnome-terminal) - left third
+TERMINAL_WID=$(wmctrl -l | grep -i "terminal\|startup" | head -1 | awk '{print $1}')
+if [ -n "$TERMINAL_WID" ]; then
+    wmctrl -i -r "$TERMINAL_WID" -e 0,0,0,640,1080
+    echo "Positioned terminal: $TERMINAL_WID"
+fi
 
-# Set cursor size for HiDPI
-xfconf-query -c xsettings -p /Gtk/CursorThemeSize -s 48 2>/dev/null || true
+# Position Zed - middle third
+ZED_WID=$(wmctrl -l | grep -i "zed" | head -1 | awk '{print $1}')
+if [ -n "$ZED_WID" ]; then
+    wmctrl -i -r "$ZED_WID" -e 0,640,0,640,1080
+    echo "Positioned Zed: $ZED_WID"
+fi
 
-# Configure panel for HiDPI - set panel height
-xfconf-query -c xfce4-panel -p /panels/panel-1/size -s 48 2>/dev/null || true
+echo "Window positioning complete"
+POSITION_EOF
 
-# Set Helix wallpaper
-xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -s /usr/share/backgrounds/helix-hero.png 2>/dev/null || true
-
-echo "✅ XFCE HiDPI settings applied"
-XFCE_HIDPI_EOF
-
-sudo mv /tmp/configure-xfce-hidpi.sh /usr/local/bin/configure-xfce-hidpi.sh
-sudo chmod +x /usr/local/bin/configure-xfce-hidpi.sh
-echo "✅ XFCE HiDPI configuration script created"
+chmod +x /tmp/position-windows.sh
+echo "Window positioning script created"
 
 # ============================================================================
-# XFCE Autostart Entries Configuration
+# GNOME Autostart Entries Configuration
 # ============================================================================
-# Create XFCE autostart directory
+# Create GNOME autostart directory
 mkdir -p ~/.config/autostart
 
-echo "Creating XFCE autostart entries for Helix services..."
+echo "Creating GNOME autostart entries for Helix services..."
+
+# Create autostart entry for dconf settings loading (runs first, before other services)
+cat > ~/.config/autostart/helix-dconf-settings.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Helix GNOME Settings
+Exec=/bin/bash -c "dconf load / < /opt/gow/dconf-settings.ini"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+
+echo "dconf settings autostart entry created"
 
 # Create autostart entry for screenshot server (starts immediately for fast screenshots)
 cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
@@ -225,12 +269,38 @@ cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
 Type=Application
 Name=Screenshot Server
 Exec=/usr/local/bin/screenshot-server
-Hidden=false
-NoDisplay=true
 X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
 EOF
 
 echo "screenshot-server autostart entry created"
+
+# Autostart devilspie2 (window rule daemon - must start early, before Firefox)
+cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Devilspie2 Window Rules
+Exec=devilspie2
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+
+echo "devilspie2 autostart entry created"
+
+# Autostart window positioning (runs after Zed and Terminal have launched)
+cat > ~/.config/autostart/position-windows.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Position Windows
+Exec=/tmp/position-windows.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=12
+NoDisplay=true
+EOF
+
+echo "Window positioning autostart entry created"
 
 # Create autostart entry for settings-sync-daemon
 # Pass environment variables via script wrapper
@@ -246,9 +316,9 @@ cat > ~/.config/autostart/settings-sync-daemon.desktop <<'EOF'
 Type=Application
 Name=Settings Sync Daemon
 Exec=/usr/local/bin/start-settings-sync-daemon.sh
-Hidden=false
-NoDisplay=true
 X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3
+NoDisplay=true
 EOF
 
 echo "settings-sync-daemon autostart entry created"
@@ -259,47 +329,25 @@ cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
 Type=Application
 Name=Zed Helix Editor
 Exec=/usr/local/bin/start-zed-helix.sh
-Hidden=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5
 NoDisplay=false
 Icon=zed
 EOF
 
 echo "Zed autostart entry created"
 
-# Create autostart entry for devilspie2 window positioning
-# Devilspie2 watches for new windows and positions them in 3 columns
-cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Devilspie2 Window Manager
-Exec=devilspie2
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-EOF
-
-echo "✅ devilspie2 autostart entry created"
-
-# Create autostart entry for XFCE HiDPI configuration
-cat > ~/.config/autostart/xfce-hidpi.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=XFCE HiDPI Configuration
-Exec=/usr/local/bin/configure-xfce-hidpi.sh
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-EOF
-
-echo "✅ XFCE HiDPI autostart entry created"
+# NOTE: Firefox is NOT auto-started here - the project's startup script
+# (from .helix/startup.sh in the cloned repo) handles opening Firefox
+# with the correct app URL via xdg-open. Adding Firefox autostart here
+# would create duplicate windows.
 
 # ============================================================================
-# XFCE Session Startup via GOW launch-comp.sh
+# GNOME Session Startup via GOW xorg.sh
 # ============================================================================
-# Launch XFCE via GOW's launcher() function from launch-comp.sh
-# This handles: Xwayland startup -> D-Bus -> XFCE session
-# The XFCE base image uses launch-comp.sh (not xorg.sh like Zorin)
+# Launch GNOME via GOW's proven xorg.sh script
+# This handles: Xwayland startup -> D-Bus -> GNOME session
+# Note: dconf settings are loaded via autostart entry AFTER GNOME starts
 
-echo "Launching XFCE via GOW launcher..."
-source /opt/gow/launch-comp.sh
-launcher
+echo "Launching GNOME via GOW xorg.sh..."
+exec /opt/gow/xorg.sh
