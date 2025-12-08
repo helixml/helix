@@ -150,28 +150,27 @@ RUN chmod +x /opt/gow/startup.sh
 COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
 
 # ====================================================================
-# GOW X11/D-Bus Launch Scripts (adapted from Zorin)
+# GOW X11/D-Bus Launch Scripts (replicated from Zorin)
 # ====================================================================
 # These scripts properly initialize Xwayland, D-Bus, and GNOME session
-# Using DISPLAY=:0 (matching GOW base) and proper wait functions (not sleep-based)
+# Using DISPLAY=:9 (matching Zorin's working GNOME configuration)
 
 # /opt/gow/xorg.sh - Launches Xwayland and waits for it to be ready
+# Using DISPLAY=:9 to match Zorin's working GNOME configuration
 RUN cat > /opt/gow/xorg.sh << 'XORG_EOF'
 #!/bin/bash
-export DISPLAY=:0
+export DISPLAY=:9
 
 function wait_for_x_display() {
-    local display=":0"
     local max_attempts=100
     local attempt=0
-    while ! xdpyinfo -display "$display" >/dev/null 2>&1; do
+    while ! xdpyinfo -display ":9" >/dev/null 2>&1; do
         if (( attempt++ >= max_attempts )); then
-            echo "Xwayland failed to start on display $display"
+            echo "Xwayland failed to start on display :9"
             exit 1
         fi
         sleep 0.1
     done
-    echo "X display $display is ready"
 }
 
 function wait_for_dbus() {
@@ -185,26 +184,12 @@ function wait_for_dbus() {
         fi
         sleep 0.1
     done
-    echo "D-Bus system bus is ready"
 }
 
-function launch_xorg() {
-    echo "Starting Xwayland on display :0..."
-    Xwayland :0 &
-    wait_for_x_display
-
-    echo "Configuring display resolution..."
-    XWAYLAND_OUTPUT=$(xrandr --display :0 | grep " connected" | awk '{print $1}')
-    if [ -n "$XWAYLAND_OUTPUT" ]; then
-        xrandr --output "$XWAYLAND_OUTPUT" --mode "${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
-        echo "Set resolution to ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} on $XWAYLAND_OUTPUT"
-    else
-        echo "Warning: Could not find connected output for xrandr"
-    fi
-}
-
-echo "=== GOW xorg.sh starting ==="
-launch_xorg
+Xwayland :9 &
+wait_for_x_display
+XWAYLAND_OUTPUT=$(xrandr --display :9 | grep " connected" | awk '{print $1}')
+xrandr --output "$XWAYLAND_OUTPUT" --mode "${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
 sudo /opt/gow/dbus.sh
 wait_for_dbus
 exec /opt/gow/desktop.sh
@@ -237,8 +222,8 @@ export QT_AUTO_SCREEN_SCALE_FACTOR=1
 export QT_ENABLE_HIGHDPI_SCALING=1
 export LC_ALL="en_US.UTF-8"
 
-# Use the display we set up in xorg.sh
-export DISPLAY=:0
+# Use the display we set up in xorg.sh (DISPLAY=:9 matches Zorin's working config)
+export DISPLAY=:9
 unset WAYLAND_DISPLAY
 
 # Start a new D-Bus session for GNOME
