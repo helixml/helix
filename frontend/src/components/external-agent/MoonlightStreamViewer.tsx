@@ -101,14 +101,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
-  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force ~1fps keyframes-only)
-  // Low mode uses keyframes-only for corruption-free video at very low bandwidth (~1fps at GOP=60)
-  // DISABLED: Both 'adaptive' and 'low' modes are disabled until keyframes-only mode bug is fixed
-  // See design/2025-12-08-keyframes-only-mode-debugging.md for details
-  // To re-enable: uncomment the quality toggle button section below and restore the cycle logic
+  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
+  // Low mode uses rapid screenshot polling for video while keeping input via the stream
+  // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
   const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
+
+  // Screenshot-based low-quality mode state
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Adaptive JPEG quality control - targets 2 FPS (500ms max per frame)
+  const [screenshotQuality, setScreenshotQuality] = useState(70); // JPEG quality 10-90
+  const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
+  const screenshotQualityRef = useRef(70); // Ref for use in async callback
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -653,6 +659,132 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       containerRef.current.focus();
     }
   }, [isConnected]);
+
+  // Screenshot polling for low-quality mode with adaptive JPEG quality
+  // Targets 2 FPS minimum (500ms max per frame)
+  // Dynamically adjusts JPEG quality based on fetch time
+  useEffect(() => {
+    // Only poll screenshots in low quality mode when connected
+    if (qualityMode !== 'low' || !isConnected || !sessionId) {
+      // Clean up old screenshot URL when exiting low mode
+      if (screenshotUrl) {
+        URL.revokeObjectURL(screenshotUrl);
+        setScreenshotUrl(null);
+      }
+      // Reset quality to default when exiting
+      screenshotQualityRef.current = 70;
+      setScreenshotQuality(70);
+      setScreenshotFps(0);
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Starting adaptive screenshot polling for low-quality mode');
+
+    let isPolling = true;
+    let lastFrameTime = Date.now();
+    let frameCount = 0;
+    let fpsStartTime = Date.now();
+
+    const fetchScreenshot = async () => {
+      if (!isPolling) return;
+
+      const startTime = Date.now();
+      const currentQuality = screenshotQualityRef.current;
+
+      try {
+        // Pass quality parameter to screenshot endpoint
+        const endpoint = `/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=${currentQuality}`;
+        const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          console.warn('[MoonlightStreamViewer] Screenshot fetch failed:', response.status);
+          // Schedule next fetch after a short delay on error
+          if (isPolling) setTimeout(fetchScreenshot, 200);
+          return;
+        }
+
+        const blob = await response.blob();
+        const fetchTime = Date.now() - startTime;
+        const newUrl = URL.createObjectURL(blob);
+
+        // Update FPS counter
+        frameCount++;
+        const elapsedSinceStart = Date.now() - fpsStartTime;
+        if (elapsedSinceStart >= 1000) {
+          const fps = frameCount / (elapsedSinceStart / 1000);
+          setScreenshotFps(Math.round(fps * 10) / 10);
+          frameCount = 0;
+          fpsStartTime = Date.now();
+        }
+
+        // Adaptive quality control: target 500ms max per frame (2 FPS minimum)
+        // - If fetch took > 500ms: decrease quality to speed up (min 10)
+        // - If fetch took < 300ms: increase quality for better image (max 90)
+        // - Between 300-500ms: keep current quality (sweet spot)
+        let newQuality = currentQuality;
+        if (fetchTime > 500) {
+          // Too slow - decrease quality aggressively
+          newQuality = Math.max(10, currentQuality - 10);
+          console.log(`[Screenshot] Slow fetch (${fetchTime}ms), decreasing quality: ${currentQuality} → ${newQuality}`);
+        } else if (fetchTime < 300 && currentQuality < 90) {
+          // Fast enough - increase quality slightly
+          newQuality = Math.min(90, currentQuality + 5);
+          // Only log quality increases occasionally to reduce spam
+          if (newQuality % 10 === 0) {
+            console.log(`[Screenshot] Fast fetch (${fetchTime}ms), increasing quality: ${currentQuality} → ${newQuality}`);
+          }
+        }
+
+        if (newQuality !== currentQuality) {
+          screenshotQualityRef.current = newQuality;
+          setScreenshotQuality(newQuality);
+        }
+
+        // Preload image before displaying
+        const img = new Image();
+        img.onload = () => {
+          setScreenshotUrl((oldUrl) => {
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+            return newUrl;
+          });
+          // Schedule next frame with rate limiting
+          if (isPolling) {
+            // Cap at 10 FPS max (100ms minimum interval) to prevent CPU hammering from forking grim
+            // If fetch took less than 100ms, wait the remainder; otherwise fetch immediately
+            const minInterval = 100; // 10 FPS max
+            const delay = Math.max(0, minInterval - fetchTime);
+            setTimeout(fetchScreenshot, delay);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(newUrl);
+          // Retry on error
+          if (isPolling) setTimeout(fetchScreenshot, 200);
+        };
+        img.src = newUrl;
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Screenshot fetch error:', err);
+        // Schedule next fetch after a short delay on error
+        if (isPolling) setTimeout(fetchScreenshot, 200);
+      }
+    };
+
+    // Start continuous polling
+    fetchScreenshot();
+
+    return () => {
+      isPolling = false;
+    };
+  }, [qualityMode, isConnected, sessionId]);
+
+  // Cleanup screenshot URL on unmount
+  useEffect(() => {
+    return () => {
+      if (screenshotUrl) {
+        URL.revokeObjectURL(screenshotUrl);
+      }
+    };
+  }, [screenshotUrl]);
 
   // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
@@ -1415,19 +1547,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        {/* DISABLED: Quality mode toggle disabled until keyframes-only mode bug is fixed
-            See design/2025-12-08-keyframes-only-mode-debugging.md for details
-            To re-enable: uncomment this block and restore the cycle logic (adaptive -> high -> low -> adaptive)
+        {/* Quality mode toggle: high (60fps video) or low (screenshot-based ~10fps) */}
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
               modeSwitchCooldown
                 ? 'Please wait...'
-                : qualityMode === 'adaptive'
-                ? 'Adaptive Quality — Click for Force 60fps'
                 : qualityMode === 'high'
-                ? 'Force 60fps — Click for ~1fps (keyframes-only)'
-                : 'Force ~1fps (keyframes-only) — Click for Adaptive'
+                ? 'Force 60fps — Click for Screenshot mode (~10fps, lower bandwidth)'
+                : 'Screenshot mode (~10fps) — Click for Force 60fps'
             }
             arrow
             slotProps={{ popper: { sx: { zIndex: 10000 } } }}
@@ -1437,16 +1565,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 size="small"
                 disabled={modeSwitchCooldown}
                 onClick={() => {
-                  // Cycle: adaptive -> high -> low -> adaptive
+                  // Toggle between high and low (screenshot-based)
                   // With cooldown to prevent Wolf deadlock from rapid switching
                   setModeSwitchCooldown(true);
-                  setQualityMode(prev =>
-                    prev === 'adaptive' ? 'high' : prev === 'high' ? 'low' : 'adaptive'
-                  );
+                  setQualityMode(prev => prev === 'high' ? 'low' : 'high');
                   setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
                 }}
                 sx={{
-                  color: qualityMode === 'adaptive' ? 'primary.main' : qualityMode === 'low' ? '#ff9800' : 'white',
+                  color: qualityMode === 'low' ? '#ff9800' : 'white',
                 }}
               >
                 <Speed fontSize="small" />
@@ -1454,7 +1580,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </span>
           </Tooltip>
         )}
-        */}
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
@@ -1489,7 +1614,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <Wifi sx={{ fontSize: 16 }} />
           <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
             {qualityMode === 'low'
-              ? '~1fps keyframes-only mode (manually selected)'
+              ? `Screenshot mode (${screenshotFps} FPS @ ${screenshotQuality}% JPEG)`
               : isOnFallback
               ? `Slow connection - reduced to ~1fps (${stats?.video?.primaryRttMs?.toFixed(0) || stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
               : `High network latency detected (${stats?.video?.rttMs?.toFixed(0) || '?'}ms RTT)`
@@ -1626,9 +1751,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
           display: streamingMode === 'websocket' ? 'block' : 'none',
-          // Orange border when on low-quality fallback stream
-          border: isOnFallback ? '4px solid #ff9800' : 'none',
-          boxSizing: 'border-box',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -1637,6 +1759,26 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           }
         }}
       />
+
+      {/* Screenshot overlay for low-quality mode */}
+      {/* Shows rapidly-updated screenshots instead of video stream while keeping input working */}
+      {qualityMode === 'low' && screenshotUrl && streamingMode === 'websocket' && (
+        <img
+          src={screenshotUrl}
+          alt="Remote Desktop Screenshot"
+          style={{
+            width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
+            height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            objectFit: 'contain',
+            pointerEvents: 'none', // Allow clicks to pass through to canvas for input
+            zIndex: 10, // Above canvas but below UI elements
+          }}
+        />
+      )}
 
       {/* Custom cursor dot to show local mouse position */}
       <Box
@@ -1661,7 +1803,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       {/* Input Hint - removed since auto-focus handles keyboard input */}
 
       {/* Stats for Nerds Overlay */}
-      {showStats && stats && (
+      {showStats && (stats || qualityMode === 'low') && (
         <Box
           sx={{
             position: 'absolute',
@@ -1684,7 +1826,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
             <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'}</div>
-            {stats.video.codec && (
+            {stats?.video?.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
@@ -1719,7 +1861,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 )}
               </>
             )}
-            {!stats.video.codec && <div>Waiting for video data...</div>}
+            {!stats?.video?.codec && qualityMode !== 'low' && <div>Waiting for video data...</div>}
+            {/* Screenshot mode stats */}
+            {qualityMode === 'low' && (
+              <>
+                <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                  <strong style={{ color: '#ff9800' }}>📸 Screenshot Mode</strong>
+                </div>
+                <div><strong>FPS:</strong> {screenshotFps} <span style={{ color: '#888' }}>target: ≥2</span></div>
+                <div>
+                  <strong>JPEG Quality:</strong> {screenshotQuality}%
+                  <span style={{ color: '#888' }}> (adaptive 10-90)</span>
+                </div>
+              </>
+            )}
           </Box>
         </Box>
       )}

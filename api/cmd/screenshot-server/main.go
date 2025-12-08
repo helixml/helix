@@ -44,9 +44,31 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for format and quality query parameters
+	// ?format=jpeg&quality=60 for lower bandwidth (default: jpeg with quality 70)
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "jpeg" // Default to JPEG for smaller file sizes
+	}
+	qualityStr := r.URL.Query().Get("quality")
+	quality := 70 // Default JPEG quality (good balance of size/quality)
+	if qualityStr != "" {
+		if q, err := fmt.Sscanf(qualityStr, "%d", &quality); err == nil && q > 0 {
+			if quality < 1 {
+				quality = 1
+			} else if quality > 100 {
+				quality = 100
+			}
+		}
+	}
+
 	// Create temporary file for screenshot
 	tmpDir := os.TempDir()
-	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	ext := "jpg"
+	if format == "png" {
+		ext = "png"
+	}
+	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.%s", time.Now().UnixNano(), ext))
 	defer os.Remove(filename)
 
 	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
@@ -60,9 +82,19 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	var output []byte
 	var err error
 
+	// Build grim arguments based on format and quality
+	// -c includes the cursor in the screenshot
+	grimArgs := []string{"-c"}
+	if format == "jpeg" {
+		grimArgs = append(grimArgs, "-t", "jpeg", "-q", fmt.Sprintf("%d", quality))
+	} else {
+		grimArgs = append(grimArgs, "-t", "png")
+	}
+	grimArgs = append(grimArgs, filename)
+
 	// Try cached display first if available
 	if cachedWaylandDisplay != "" {
-		cmd := exec.Command("grim", filename)
+		cmd := exec.Command("grim", grimArgs...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("WAYLAND_DISPLAY=%s", cachedWaylandDisplay),
 			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
@@ -97,7 +129,7 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 
 		// Try each socket until one works
 		for _, socket := range waylandSockets {
-			cmd := exec.Command("grim", filename)
+			cmd := exec.Command("grim", grimArgs...)
 			cmd.Env = append(os.Environ(),
 				fmt.Sprintf("WAYLAND_DISPLAY=%s", socket),
 				fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
@@ -126,13 +158,17 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve the PNG
-	w.Header().Set("Content-Type", "image/png")
+	// Serve the image with correct content type
+	if format == "jpeg" {
+		w.Header().Set("Content-Type", "image/jpeg")
+	} else {
+		w.Header().Set("Content-Type", "image/png")
+	}
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 
-	log.Printf("Screenshot captured successfully (%d bytes)", len(data))
+	log.Printf("Screenshot captured successfully (%d bytes, format=%s, quality=%d)", len(data), format, quality)
 }
 
 func handleClipboard(w http.ResponseWriter, r *http.Request) {

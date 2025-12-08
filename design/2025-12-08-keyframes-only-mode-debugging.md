@@ -1,8 +1,24 @@
 # Keyframes-Only Mode Debugging
 
 **Date:** 2025-12-08
-**Status:** DISABLED - Pending investigation
-**Feature:** Low-bandwidth fallback (~1fps) streaming mode
+**Status:** REPLACED with screenshot-based fallback
+**Feature:** Low-bandwidth fallback streaming mode
+
+## Resolution
+
+The keyframes-only streaming approach was abandoned due to Moonlight protocol issues (only one frame ever received). Instead, we implemented a **screenshot-based fallback mode**:
+
+- Uses `grim` to capture JPEG screenshots at adaptive quality
+- Polls screenshots as fast as possible (capped at 10 FPS max)
+- Dynamically adjusts JPEG quality (10-90%) to maintain ≥2 FPS target
+- Mouse/keyboard input continues working via the WebSocket stream
+- Quality increases when frames are fast (<300ms), decreases when slow (>500ms)
+
+This provides a working low-bandwidth fallback without the Moonlight protocol bugs.
+
+---
+
+## Original Investigation (Historical)
 
 ## Overview
 
