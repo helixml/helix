@@ -88,6 +88,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   // New repo creation fields
   const [newRepoName, setNewRepoName] = useState('')
   const [newRepoDescription, setNewRepoDescription] = useState('')
+  const [userModifiedRepoName, setUserModifiedRepoName] = useState(false)
 
   // External repo linking fields
   const [externalUrl, setExternalUrl] = useState('')
@@ -118,6 +119,24 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
     }
   }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+
+  // Convert project name to lowercase hyphenated repo name
+  const toRepoName = (projectName: string): string => {
+    return projectName
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '') // Remove special chars except spaces and hyphens
+      .replace(/\s+/g, '-')          // Replace spaces with hyphens
+      .replace(/-+/g, '-')           // Collapse multiple hyphens
+      .replace(/^-|-$/g, '')         // Remove leading/trailing hyphens
+  }
+
+  // Auto-sync repo name from project name (if user hasn't modified it)
+  useEffect(() => {
+    if (!userModifiedRepoName && repoMode === 'create') {
+      setNewRepoName(toRepoName(name))
+    }
+  }, [name, userModifiedRepoName, repoMode])
 
   // Sort apps: zed_external first, then others
   const sortedApps = useMemo(() => {
@@ -162,6 +181,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setRepoMode('create')
       setNewRepoName('')
       setNewRepoDescription('')
+      setUserModifiedRepoName(false)
       setExternalUrl('')
       setExternalName('')
       setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
@@ -422,10 +442,6 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             onChange={(_, v) => {
               if (v) {
                 setRepoMode(v)
-                // When switching to "create" mode, default repo name to project name
-                if (v === 'create' && name.trim() && !newRepoName) {
-                  setNewRepoName(name.trim())
-                }
               }
             }}
             size="small"
@@ -472,7 +488,10 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           {repoMode === 'create' && (
             <NewRepoForm
               name={newRepoName}
-              onNameChange={setNewRepoName}
+              onNameChange={(value) => {
+                setNewRepoName(value)
+                setUserModifiedRepoName(true)
+              }}
               size="small"
               showDescription={false}
             />
