@@ -1547,15 +1547,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        {/* Quality mode toggle: high (60fps video) or low (screenshot-based ~10fps) */}
+        {/* Quality mode toggle: adaptive -> high -> low -> adaptive */}
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
               modeSwitchCooldown
                 ? 'Please wait...'
+                : qualityMode === 'adaptive'
+                ? 'Adaptive quality — Click for Force 60fps'
                 : qualityMode === 'high'
-                ? 'Force 60fps — Click for Screenshot mode (~10fps, lower bandwidth)'
-                : 'Screenshot mode (~10fps) — Click for Force 60fps'
+                ? 'Force 60fps — Click for Screenshot mode'
+                : 'Screenshot mode — Click for Adaptive quality'
             }
             arrow
             slotProps={{ popper: { sx: { zIndex: 10000 } } }}
@@ -1565,14 +1567,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 size="small"
                 disabled={modeSwitchCooldown}
                 onClick={() => {
-                  // Toggle between high and low (screenshot-based)
+                  // Cycle through: adaptive -> high -> low -> adaptive
                   // With cooldown to prevent Wolf deadlock from rapid switching
                   setModeSwitchCooldown(true);
-                  setQualityMode(prev => prev === 'high' ? 'low' : 'high');
+                  setQualityMode(prev => {
+                    if (prev === 'adaptive') return 'high';
+                    if (prev === 'high') return 'low';
+                    return 'adaptive';
+                  });
                   setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
                 }}
                 sx={{
-                  color: qualityMode === 'low' ? '#ff9800' : 'white',
+                  color: qualityMode === 'low' ? '#ff9800' : qualityMode === 'adaptive' ? '#4caf50' : 'white',
                 }}
               >
                 <Speed fontSize="small" />
