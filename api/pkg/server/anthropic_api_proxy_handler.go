@@ -80,8 +80,10 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 }
 
 func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User, orgID, provider string) (*types.ProviderEndpoint, error) {
+	// Default to "anthropic" provider if not specified
+	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
 	if provider == "" {
-		return nil, fmt.Errorf("provider ID is required")
+		provider = "anthropic"
 	}
 
 	if orgID != "" {
