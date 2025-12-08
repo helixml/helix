@@ -235,6 +235,14 @@ export NO_AT_BRIDGE=1
 # Disable Clutter remote desktop features that can conflict with Gamescope
 export MUTTER_DEBUG_DISABLE_HW_CURSORS=1
 
+# CRITICAL: Disable MIT-SHM (X11 shared memory) to prevent BadMatch crashes
+# GNOME Shell 48 on Xwayland crashes with MIT-SHM when windows are moved/resized
+# This forces software rendering for X11 pixmaps instead of shared memory
+export MUTTER_DEBUG_FORCE_FALLBACK=1
+
+# Disable XShm extension usage in GTK apps
+export GDK_DISABLE=vulkan
+
 # Use the display we set up in xorg.sh (DISPLAY=:9 matches Zorin's working config)
 export DISPLAY=:9
 unset WAYLAND_DISPLAY
