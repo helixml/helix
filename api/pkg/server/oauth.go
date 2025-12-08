@@ -718,7 +718,7 @@ func (s *HelixAPIServer) handleResolveSharePointSite(_ http.ResponseWriter, r *h
 	}
 
 	// Create SharePoint client with the access token
-	spClient := sharepoint.NewClient(connection.AccessToken)
+	spClient := sharepoint.NewClient(connection.AccessToken, s.Cfg.Tools.TLSSkipVerify)
 
 	// Resolve the site URL to a site object
 	site, err := spClient.GetSiteByURL(ctx, req.SiteURL)

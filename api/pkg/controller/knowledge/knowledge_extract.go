@@ -453,7 +453,7 @@ func (r *Reconciler) extractDataFromSharePoint(ctx context.Context, k *types.Kno
 	}
 
 	// Create SharePoint client with the access token
-	spClient := sharepoint.NewClient(connection.AccessToken)
+	spClient := sharepoint.NewClient(connection.AccessToken, r.config.Tools.TLSSkipVerify)
 
 	// List files from SharePoint
 	files, err := spClient.ListFiles(ctx, spConfig)

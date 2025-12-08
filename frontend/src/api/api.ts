@@ -2351,6 +2351,25 @@ export interface TypesGlobalAllocationDecision {
   workload_id?: string;
 }
 
+export interface TypesGuidelinesHistory {
+  /** Optional description of what changed */
+  change_note?: string;
+  guidelines?: string;
+  id?: string;
+  /** Set for org-level guidelines */
+  organization_id?: string;
+  /** Set for project-level guidelines */
+  project_id?: string;
+  updated_at?: string;
+  /** User ID */
+  updated_by?: string;
+  /** User email (not persisted, populated at query time) */
+  updated_by_email?: string;
+  /** User display name (not persisted, populated at query time) */
+  updated_by_name?: string;
+  version?: number;
+}
+
 export interface TypesHelpRequest {
   app_id?: string;
   /** What the agent has already tried */
@@ -2942,6 +2961,14 @@ export interface TypesOrganization {
   created_at?: string;
   deleted_at?: GormDeletedAt;
   display_name?: string;
+  /** Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects */
+  guidelines?: string;
+  /** When guidelines were last updated */
+  guidelines_updated_at?: string;
+  /** User ID who last updated guidelines */
+  guidelines_updated_by?: string;
+  /** Incremented on each update */
+  guidelines_version?: number;
   id?: string;
   /** Memberships in the organization */
   memberships?: TypesOrganizationMembership[];
@@ -3053,6 +3080,17 @@ export interface TypesProject {
   deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
+  /**
+   * Guidelines for AI agents - project-specific style guides, conventions, and instructions
+   * Combined with organization guidelines when constructing prompts
+   */
+  guidelines?: string;
+  /** When guidelines were last updated */
+  guidelines_updated_at?: string;
+  /** User ID who last updated guidelines */
+  guidelines_updated_by?: string;
+  /** Incremented on each update */
+  guidelines_version?: number;
   id?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
@@ -3073,6 +3111,8 @@ export interface TypesProjectCreateRequest {
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  /** Project-specific AI agent guidelines */
+  guidelines?: string;
   name?: string;
   organization_id?: string;
   startup_script?: string;
@@ -3091,6 +3131,8 @@ export interface TypesProjectUpdateRequest {
   default_repo_id?: string;
   description?: string;
   github_repo_url?: string;
+  /** Project-specific AI agent guidelines */
+  guidelines?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
   startup_script?: string;
@@ -4489,12 +4531,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -7559,6 +7601,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the version history of guidelines for an organization
+     *
+     * @tags Organizations
+     * @name V1OrganizationsGuidelinesHistoryDetail
+     * @summary Get organization guidelines history
+     * @request GET:/api/v1/organizations/{id}/guidelines-history
+     * @secure
+     */
+    v1OrganizationsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/organizations/${id}/guidelines-history`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List members of an organization
      *
      * @tags organizations
@@ -7967,6 +8028,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of guidelines for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsGuidelinesHistoryDetail
+     * @summary Get project guidelines history
+     * @request GET:/api/v1/projects/{id}/guidelines-history
+     * @secure
+     */
+    v1ProjectsGuidelinesHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/guidelines-history`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

@@ -25,6 +25,7 @@ import {
   FormControlLabel,
   Checkbox,
   Tooltip,
+  Chip,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -42,6 +43,8 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import EditIcon from '@mui/icons-material/Edit'
+import HistoryIcon from '@mui/icons-material/History'
+import DescriptionIcon from '@mui/icons-material/Description'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
@@ -89,6 +92,7 @@ import {
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
   projectExploratorySessionQueryKey,
+  useGetProjectGuidelinesHistory,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import {
@@ -157,6 +161,7 @@ const ProjectSettings: FC = () => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
+  const [guidelines, setGuidelines] = useState('')
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
   const [showTestSession, setShowTestSession] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -166,6 +171,10 @@ const ProjectSettings: FC = () => {
   const [savingProject, setSavingProject] = useState(false)
   const [testingStartupScript, setTestingStartupScript] = useState(false)
   const [isSessionRestart, setIsSessionRestart] = useState(false)
+  const [guidelinesHistoryDialogOpen, setGuidelinesHistoryDialogOpen] = useState(false)
+
+  // Guidelines history
+  const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(projectId, guidelinesHistoryDialogOpen)
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
@@ -222,6 +231,7 @@ const ProjectSettings: FC = () => {
       setName(project.name || '')
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
+      setGuidelines(project.guidelines || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
       setSelectedAgentId(project.default_helix_app_id || '')
 
@@ -266,6 +276,7 @@ const ProjectSettings: FC = () => {
         name,
         description,
         startup_script: startupScript,
+        guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
         default_helix_app_id: selectedAgentId || undefined,
         metadata: {
@@ -858,6 +869,51 @@ const ProjectSettings: FC = () => {
             />
           </Paper>
 
+          {/* Project Guidelines */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <DescriptionIcon sx={{ mr: 1 }} />
+                <Typography variant="h6">
+                  Project Guidelines
+                </Typography>
+              </Box>
+              {project.guidelines_version && project.guidelines_version > 0 && (
+                <Button
+                  size="small"
+                  startIcon={<HistoryIcon />}
+                  onClick={() => setGuidelinesHistoryDialogOpen(true)}
+                >
+                  History (v{project.guidelines_version})
+                </Button>
+              )}
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Guidelines specific to this project. These are combined with organization guidelines and sent to AI agents during planning, implementation, and exploratory sessions.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+            <TextField
+              fullWidth
+              multiline
+              minRows={4}
+              maxRows={12}
+              placeholder="Example:
+- Use React Query for all API calls
+- Follow the existing component patterns in src/components
+- Always add unit tests for new features
+- Use MUI components for UI elements"
+              value={guidelines}
+              onChange={(e) => setGuidelines(e.target.value)}
+              onBlur={handleFieldBlur}
+            />
+            {project.guidelines_updated_at && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                Last updated: {new Date(project.guidelines_updated_at).toLocaleDateString()}
+                {project.guidelines_version ? ` (v${project.guidelines_version})` : ''}
+              </Typography>
+            )}
+          </Paper>
+
           {/* Members & Access Control */}
           {project?.organization_id ? (
           <Paper sx={{ p: 3 }}>
@@ -1095,6 +1151,76 @@ const ProjectSettings: FC = () => {
             startIcon={deleteProjectMutation.isPending ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
           >
             {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Guidelines History Dialog */}
+      <Dialog
+        open={guidelinesHistoryDialogOpen}
+        onClose={() => setGuidelinesHistoryDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HistoryIcon />
+            Guidelines Version History
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {guidelinesHistory.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+              No previous versions found. History is created when guidelines are modified.
+            </Typography>
+          ) : (
+            <List>
+              {guidelinesHistory.map((entry, index) => (
+                <ListItem
+                  key={entry.id}
+                  sx={{
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    borderBottom: index < guidelinesHistory.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                    py: 2,
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, width: '100%' }}>
+                    <Chip label={`v${entry.version}`} size="small" color="primary" variant="outlined" />
+                    <Typography variant="body2" color="text.secondary">
+                      {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : 'Unknown date'}
+                    </Typography>
+                    {(entry.updated_by_name || entry.updated_by_email) && (
+                      <Typography variant="caption" color="text.secondary">
+                        by {entry.updated_by_name || 'Unknown'}{entry.updated_by_email ? ` (${entry.updated_by_email})` : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      whiteSpace: 'pre-wrap',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      backgroundColor: 'action.hover',
+                      p: 1.5,
+                      borderRadius: 1,
+                      width: '100%',
+                      maxHeight: 200,
+                      overflow: 'auto',
+                    }}
+                  >
+                    {entry.guidelines || '(empty)'}
+                  </Typography>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGuidelinesHistoryDialogOpen(false)}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

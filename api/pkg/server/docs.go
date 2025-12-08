@@ -4983,6 +4983,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/guidelines-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the version history of guidelines for an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Organizations"
+                ],
+                "summary": "Get organization guidelines history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GuidelinesHistory"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -5786,6 +5844,64 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/guidelines-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the version history of guidelines for a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project guidelines history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GuidelinesHistory"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -18415,6 +18531,47 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GuidelinesHistory": {
+            "type": "object",
+            "properties": {
+                "change_note": {
+                    "description": "Optional description of what changed",
+                    "type": "string"
+                },
+                "guidelines": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Set for org-level guidelines",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Set for project-level guidelines",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "description": "User ID",
+                    "type": "string"
+                },
+                "updated_by_email": {
+                    "description": "User email (not persisted, populated at query time)",
+                    "type": "string"
+                },
+                "updated_by_name": {
+                    "description": "User display name (not persisted, populated at query time)",
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.HelpRequest": {
             "type": "object",
             "properties": {
@@ -19845,6 +20002,22 @@ const docTemplate = `{
                 "display_name": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects",
+                    "type": "string"
+                },
+                "guidelines_updated_at": {
+                    "description": "When guidelines were last updated",
+                    "type": "string"
+                },
+                "guidelines_updated_by": {
+                    "description": "User ID who last updated guidelines",
+                    "type": "string"
+                },
+                "guidelines_version": {
+                    "description": "Incremented on each update",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -20122,6 +20295,22 @@ const docTemplate = `{
                 "github_repo_url": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines for AI agents - project-specific style guides, conventions, and instructions\nCombined with organization guidelines when constructing prompts",
+                    "type": "string"
+                },
+                "guidelines_updated_at": {
+                    "description": "When guidelines were last updated",
+                    "type": "string"
+                },
+                "guidelines_updated_by": {
+                    "description": "User ID who last updated guidelines",
+                    "type": "string"
+                },
+                "guidelines_version": {
+                    "description": "Incremented on each update",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -20175,6 +20364,10 @@ const docTemplate = `{
                 "github_repo_url": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Project-specific AI agent guidelines",
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20220,6 +20413,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "github_repo_url": {
+                    "type": "string"
+                },
+                "guidelines": {
+                    "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
                 "metadata": {
@@ -23678,20 +23875,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

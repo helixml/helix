@@ -21,6 +21,7 @@ import LinkExternalRepositoryDialog from '../components/project/LinkExternalRepo
 import AgentSelectionModal from '../components/project/AgentSelectionModal'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
+import GuidelinesView from '../components/project/GuidelinesView'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -382,9 +383,21 @@ const Projects: FC = () => {
     )
   }
 
+  // Get breadcrumb title based on current view
+  const getBreadcrumbTitle = () => {
+    switch (currentView) {
+      case 'repositories':
+        return 'Repositories'
+      case 'guidelines':
+        return 'Guidelines'
+      default:
+        return 'Projects'
+    }
+  }
+
   return (
     <Page
-      breadcrumbTitle={currentView === 'repositories' ? 'Repositories' : 'Projects'}
+      breadcrumbTitle={getBreadcrumbTitle()}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (
@@ -457,6 +470,11 @@ const Projects: FC = () => {
             totalPages={reposTotalPages}
             onViewRepository={handleViewRepository}
           />
+        )}
+
+        {/* Guidelines View */}
+        {currentView === 'guidelines' && (
+          <GuidelinesView organization={currentOrg} />
         )}
       </Container>
 

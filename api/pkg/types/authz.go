@@ -39,6 +39,12 @@ type Organization struct {
 	Teams       []Team                   `json:"teams" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Teams in the organization
 	Memberships []OrganizationMembership `json:"memberships" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"` // Memberships in the organization
 	Roles       []Role                   `json:"roles" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`       // Roles in the organization
+
+	// Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects
+	Guidelines          string    `json:"guidelines" gorm:"type:text"`
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`          // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                        // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
 }
 
 type Team struct {

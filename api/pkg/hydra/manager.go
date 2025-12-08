@@ -1300,32 +1300,17 @@ func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string)
 	// This catches outgoing connections to 127.0.0.1 and rewrites destination to gateway
 	//
 	// We only redirect TCP (HTTP/HTTPS/websockets) - UDP localhost is rare for dev servers
-	// We exclude some well-known localhost-only ports to avoid breaking things:
-	// - 6000-6063: X11 display
-	// - 631: CUPS printing
-	// - 53: Local DNS (though we configure DNS separately)
 
-	// First, ensure iptables nat module is available and delete any existing rules
-	// (idempotent - allows re-bridging without duplicate rules)
+	// First, delete any existing rule (idempotent - allows re-bridging without duplicate rules)
 	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
 		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
-		"--dport", "1:5999", "-j", "DNAT", "--to-destination", gateway)
-	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
-		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
-		"--dport", "6064:65535", "-j", "DNAT", "--to-destination", gateway)
+		"-j", "DNAT", "--to-destination", gateway)
 
-	// Add DNAT rules for ports 1-5999 (below X11)
+	// Add DNAT rule for all TCP ports
 	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
 		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
-		"--dport", "1:5999", "-j", "DNAT", "--to-destination", gateway); err != nil {
-		return fmt.Errorf("failed to add localhost DNAT rule (1:5999): %w", err)
-	}
-
-	// Add DNAT rules for ports 6064-65535 (above X11)
-	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
-		"-o", "lo", "-d", "127.0.0.1", "-p", "tcp",
-		"--dport", "6064:65535", "-j", "DNAT", "--to-destination", gateway); err != nil {
-		return fmt.Errorf("failed to add localhost DNAT rule (6064:65535): %w", err)
+		"-j", "DNAT", "--to-destination", gateway); err != nil {
+		return fmt.Errorf("failed to add localhost DNAT rule: %w", err)
 	}
 
 	log.Info().
