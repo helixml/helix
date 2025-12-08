@@ -4,10 +4,11 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 
 import {
+  IAgentType,
   IApp,
   IAppUpdate,
   IKnowledgeSource,
-  SESSION_TYPE_TEXT,  
+  SESSION_TYPE_TEXT,
 } from '../types'
 
 // Apps context interface that mirrors the return value of the useApps hook
@@ -111,7 +112,7 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
-  agentType?: string; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
+  agentType?: IAgentType; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
 
   // Code agent runtime for zed_external agents
   codeAgentRuntime?: CodeAgentRuntime;
