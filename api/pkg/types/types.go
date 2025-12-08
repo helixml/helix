@@ -2900,6 +2900,7 @@ type ForkSimpleProjectRequest struct {
 	ProjectName     string `json:"project_name"`
 	Description     string `json:"description,omitempty"`
 	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
 }
 
 // ForkSimpleProjectResponse represents the fork response

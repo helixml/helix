@@ -4618,6 +4618,15 @@ const docTemplate = `{
                     "Moonlight"
                 ],
                 "summary": "Get moonlight-web internal state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4825,6 +4834,45 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/oauth/sharepoint/resolve-site": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolve a SharePoint site URL to its site ID using Microsoft Graph API",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Resolve SharePoint site URL to site ID",
+                "parameters": [
+                    {
+                        "description": "Request body with site URL and provider ID",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SharePointSiteResolveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SharePointSiteResolveResponse"
+                        }
                     }
                 }
             }
@@ -14344,6 +14392,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.SharePointSiteResolveRequest": {
+            "type": "object",
+            "properties": {
+                "provider_id": {
+                    "type": "string"
+                },
+                "site_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SharePointSiteResolveResponse": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "web_url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SimpleSampleProject": {
             "type": "object",
             "properties": {
@@ -16501,6 +16574,14 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "code_agent_runtime": {
+                    "description": "CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).\nOptions: \"zed_agent\" (Zed's built-in agent) or \"qwen_code\" (qwen command as custom agent).\nIf empty, defaults to \"zed_agent\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                },
                 "context_limit": {
                     "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
                     "type": "integer"
@@ -16961,6 +17042,50 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.CodeAgentConfig": {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "description": "AgentName is the name used in Zed's agent_servers config (e.g., \"qwen\", \"claude-code\")",
+                    "type": "string"
+                },
+                "api_type": {
+                    "description": "APIType specifies the API format: \"anthropic\", \"openai\", or \"azure_openai\"",
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
+                    "type": "string"
+                },
+                "model": {
+                    "description": "Model is the model identifier (e.g., \"claude-sonnet-4-5-latest\", \"gpt-4o\")",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
+                    "type": "string"
+                },
+                "runtime": {
+                    "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.CodeAgentRuntime": {
+            "type": "string",
+            "enum": [
+                "zed_agent",
+                "qwen_code"
+            ],
+            "x-enum-varnames": [
+                "CodeAgentRuntimeZedAgent",
+                "CodeAgentRuntimeQwenCode"
+            ]
         },
         "types.CommentQueueStatusResponse": {
             "type": "object",
@@ -17653,6 +17778,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "Optional: agent app to use for spec tasks (uses default if empty)",
                     "type": "string"
                 },
                 "organization_id": {
@@ -18785,6 +18914,9 @@ const docTemplate = `{
                 "s3": {
                     "$ref": "#/definitions/types.KnowledgeSourceS3"
                 },
+                "sharepoint": {
+                    "$ref": "#/definitions/types.KnowledgeSourceSharePoint"
+                },
                 "text": {
                     "type": "string"
                 },
@@ -18822,6 +18954,38 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSourceSharePoint": {
+            "type": "object",
+            "properties": {
+                "drive_id": {
+                    "description": "DriveID is the document library drive ID (optional, defaults to the site's default drive)",
+                    "type": "string"
+                },
+                "filter_extensions": {
+                    "description": "FilterExtensions limits which file types to include (e.g., [\".pdf\", \".docx\", \".txt\"])",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "folder_path": {
+                    "description": "FolderPath is the path to a specific folder within the drive (optional, defaults to root)",
+                    "type": "string"
+                },
+                "oauth_provider_id": {
+                    "description": "OAuthProviderID is the ID of the Microsoft OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "recursive": {
+                    "description": "Recursive determines whether to include files in subfolders",
+                    "type": "boolean"
+                },
+                "site_id": {
+                    "description": "SiteID is the SharePoint site ID (can be obtained from Graph API or site URL)",
                     "type": "string"
                 }
             }
@@ -19936,6 +20100,10 @@ const docTemplate = `{
                 "default_branch": {
                     "type": "string"
                 },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks in this project (App ID)\nNew spec tasks inherit this agent; can be overridden per-task",
+                    "type": "string"
+                },
                 "default_repo_id": {
                     "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
@@ -19994,6 +20162,10 @@ const docTemplate = `{
                 "default_branch": {
                     "type": "string"
                 },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks",
+                    "type": "string"
+                },
                 "default_repo_id": {
                     "type": "string"
                 },
@@ -20035,6 +20207,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "default_branch": {
+                    "type": "string"
+                },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks",
                     "type": "string"
                 },
                 "default_repo_id": {
@@ -23498,20 +23674,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -24026,6 +24202,14 @@ const docTemplate = `{
                 "assistant": {
                     "type": "object",
                     "additionalProperties": true
+                },
+                "code_agent_config": {
+                    "description": "Code agent configuration for Zed agentic coding",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentConfig"
+                        }
+                    ]
                 },
                 "context_servers": {
                     "type": "object",

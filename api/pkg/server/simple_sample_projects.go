@@ -979,12 +979,28 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// Get user's default external agent app for spec tasks
-	defaultApp, err := s.getUserDefaultExternalAgentApp(ctx, user.ID)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("user_id", user.ID).
-			Msg("Failed to get default external agent app, spec tasks may fail to start")
+	// Get external agent app for spec tasks
+	// Use the explicitly provided app ID, or fall back to user's default
+	var agentApp *types.App
+	if req.HelixAppID != "" {
+		// User explicitly selected an agent
+		agentApp, err = s.Store.GetApp(ctx, req.HelixAppID)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("user_id", user.ID).
+				Str("helix_app_id", req.HelixAppID).
+				Msg("Failed to get specified agent app, falling back to default")
+			agentApp = nil
+		}
+	}
+	// Fall back to user's default if no explicit app specified or if lookup failed
+	if agentApp == nil {
+		agentApp, err = s.getUserDefaultExternalAgentApp(ctx, user.ID)
+		if err != nil {
+			log.Warn().Err(err).
+				Str("user_id", user.ID).
+				Msg("Failed to get default external agent app, spec tasks may fail to start")
+		}
 	}
 
 	// Create spec-driven tasks from the natural language prompts
@@ -1013,9 +1029,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			UpdatedAt:      time.Now(),
 		}
 
-		// Set HelixAppID if we found a default app
-		if defaultApp != nil {
-			task.HelixAppID = defaultApp.ID
+		// Set HelixAppID if we found an agent app
+		if agentApp != nil {
+			task.HelixAppID = agentApp.ID
 		}
 
 		// Store labels directly (GORM serializer handles JSON conversion)

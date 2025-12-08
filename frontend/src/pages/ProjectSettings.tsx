@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef } from 'react'
+import React, { FC, useState, useEffect, useRef, useContext, useMemo } from 'react'
 import {
   Container,
   Box,
@@ -40,10 +40,34 @@ import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
+import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
+import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../contexts/apps'
+import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
+
+// Recommended models for zed_external agents (state-of-the-art coding models)
+const RECOMMENDED_MODELS = [
+  // Anthropic
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5-20250929',
+  'claude-haiku-4-5-20251001',
+  // OpenAI
+  'openai/gpt-5.1-codex',
+  'openai/gpt-oss-120b',
+  // Google Gemini
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  // Zhipu GLM
+  'glm-4.6',
+  // Qwen (Coder + Large)
+  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+  'Qwen/Qwen3-235B-A22B-fp8-tput',
+]
 import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
 import MoonlightStreamViewer from '../components/external-agent/MoonlightStreamViewer'
 import useAccount from '../hooks/useAccount'
@@ -80,6 +104,7 @@ const ProjectSettings: FC = () => {
   const projectId = params.id as string
   const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
+  const { apps, loadApps, createAgent } = useContext(AppsContext)
 
   const { data: project, isLoading, error } = useGetProject(projectId)
   const { data: repositories = [] } = useGetProjectRepositories(projectId)
@@ -148,6 +173,53 @@ const ProjectSettings: FC = () => {
     implementation: 5,
   })
 
+  // Default agent state
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
+  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [newAgentName, setNewAgentName] = useState('-')
+  const [userModifiedName, setUserModifiedName] = useState(false)
+  const [creatingAgent, setCreatingAgent] = useState(false)
+  const [agentError, setAgentError] = useState('')
+
+  // Sort apps: zed_external first, then others
+  const sortedApps = useMemo(() => {
+    if (!apps) return []
+    const zedExternalApps: IApp[] = []
+    const otherApps: IApp[] = []
+    apps.forEach((app) => {
+      const hasZedExternal = app.config?.helix?.assistants?.some(
+        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
+      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+      if (hasZedExternal) {
+        zedExternalApps.push(app)
+      } else {
+        otherApps.push(app)
+      }
+    })
+    return [...zedExternalApps, ...otherApps]
+  }, [apps])
+
+  const isZedExternalApp = (app: IApp): boolean => {
+    return app.config?.helix?.assistants?.some(
+      (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
+    ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+  }
+
+  // Load apps when component mounts
+  useEffect(() => {
+    loadApps()
+  }, [loadApps])
+
+  // Auto-generate name when model or runtime changes (if user hasn't modified it)
+  useEffect(() => {
+    if (!userModifiedName && showCreateAgentForm) {
+      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+    }
+  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
   useEffect(() => {
@@ -156,6 +228,7 @@ const ProjectSettings: FC = () => {
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      setSelectedAgentId(project.default_helix_app_id || '')
 
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
@@ -199,6 +272,7 @@ const ProjectSettings: FC = () => {
         description,
         startup_script: startupScript,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        default_helix_app_id: selectedAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
@@ -223,6 +297,53 @@ const ProjectSettings: FC = () => {
 
   const handleFieldBlur = () => {
     handleSave(false) // Auto-save without showing success message
+  }
+
+  const handleCreateAgent = async () => {
+    if (!newAgentName.trim()) {
+      setAgentError('Please enter a name for the agent')
+      return
+    }
+    if (!selectedModel) {
+      setAgentError('Please select a model')
+      return
+    }
+
+    setCreatingAgent(true)
+    setAgentError('')
+
+    try {
+      const params: ICreateAgentParams = {
+        name: newAgentName.trim(),
+        description: 'Code development agent for spec tasks',
+        agentType: AGENT_TYPE_ZED_EXTERNAL,
+        codeAgentRuntime,
+        model: selectedModel,
+        generationModelProvider: selectedProvider,
+        generationModel: selectedModel,
+        reasoningModelProvider: '',
+        reasoningModel: '',
+        reasoningModelEffort: 'none',
+        smallReasoningModelProvider: '',
+        smallReasoningModel: '',
+        smallReasoningModelEffort: 'none',
+        smallGenerationModelProvider: '',
+        smallGenerationModel: '',
+      }
+
+      const newApp = await createAgent(params)
+      if (newApp) {
+        setSelectedAgentId(newApp.id)
+        setShowCreateAgentForm(false)
+        // Auto-save project with new agent
+        await handleSave(true)
+      }
+    } catch (err) {
+      console.error('Failed to create agent:', err)
+      setAgentError(err instanceof Error ? err.message : 'Failed to create agent')
+    } finally {
+      setCreatingAgent(false)
+    }
   }
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -516,6 +637,158 @@ const ProjectSettings: FC = () => {
                 setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
                 detachRepoPending={detachRepoMutation.isPending}
               />
+            )}
+          </Paper>
+
+          {/* Default Agent */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <SmartToyIcon sx={{ mr: 1 }} />
+              <Typography variant="h6">
+                Default Agent
+              </Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Select the default agent for spec tasks in this project. You can configure MCP servers in the agent settings.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+
+            {!showCreateAgentForm ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Select Agent</InputLabel>
+                  <Select
+                    value={selectedAgentId}
+                    label="Select Agent"
+                    onChange={(e) => {
+                      setSelectedAgentId(e.target.value)
+                      // Defer save to avoid state race
+                      setTimeout(() => handleSave(false), 0)
+                    }}
+                    renderValue={(value) => {
+                      const app = sortedApps.find(a => a.id === value)
+                      return app?.config?.helix?.name || 'Select Agent'
+                    }}
+                  >
+                    {sortedApps.map((app) => (
+                      <MenuItem key={app.id} value={app.id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                          <span>{app.config?.helix?.name || 'Unnamed Agent'}</span>
+                          {isZedExternalApp(app) && (
+                            <Chip
+                              label="External Agent"
+                              size="small"
+                              color="primary"
+                              sx={{ height: 18, fontSize: '0.65rem', ml: 'auto' }}
+                            />
+                          )}
+                        </Box>
+                      </MenuItem>
+                    ))}
+                    {sortedApps.length === 0 && (
+                      <MenuItem disabled value="">
+                        No agents available
+                      </MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setShowCreateAgentForm(true)}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  Create new agent
+                </Button>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Typography variant="subtitle2">Create New Agent</Typography>
+
+                <Typography variant="body2" color="text.secondary">
+                  Code Agent Runtime
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <Select
+                    value={codeAgentRuntime}
+                    onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
+                    disabled={creatingAgent}
+                  >
+                    <MenuItem value="zed_agent">
+                      <Box>
+                        <Typography variant="body2">Zed Agent (Built-in)</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Uses Zed's native agent panel with direct API integration
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="qwen_code">
+                      <Box>
+                        <Typography variant="body2">Qwen Code</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+
+                <Typography variant="body2" color="text.secondary">
+                  Code Agent Model
+                </Typography>
+                <AdvancedModelPicker
+                  recommendedModels={RECOMMENDED_MODELS}
+                  hint="Choose a capable model for agentic coding."
+                  selectedProvider={selectedProvider}
+                  selectedModelId={selectedModel}
+                  onSelectModel={(provider, model) => {
+                    setSelectedProvider(provider)
+                    setSelectedModel(model)
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                  disabled={creatingAgent}
+                />
+
+                <Typography variant="body2" color="text.secondary">
+                  Agent Name
+                </Typography>
+                <TextField
+                  value={newAgentName}
+                  onChange={(e) => {
+                    setNewAgentName(e.target.value)
+                    setUserModifiedName(true)
+                  }}
+                  size="small"
+                  fullWidth
+                  disabled={creatingAgent}
+                  helperText="Auto-generated from model and runtime. Edit to customize."
+                />
+
+                {agentError && (
+                  <Alert severity="error">{agentError}</Alert>
+                )}
+
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleCreateAgent}
+                    disabled={creatingAgent || !newAgentName.trim() || !selectedModel}
+                    startIcon={creatingAgent ? <CircularProgress size={16} /> : undefined}
+                  >
+                    {creatingAgent ? 'Creating...' : 'Create Agent'}
+                  </Button>
+                  {sortedApps.length > 0 && (
+                    <Button
+                      onClick={() => setShowCreateAgentForm(false)}
+                      disabled={creatingAgent}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </Box>
+              </Box>
             )}
           </Paper>
 

@@ -26,6 +26,83 @@ export interface IAppsQuery {
   org_id?: string,
 }
 
+// Code agent runtime options for zed_external agents
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code'
+
+// Display names for code agent runtimes (maintainable for future additions)
+export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
+  'zed_agent': 'Zed Agent',
+  'qwen_code': 'Qwen Code',
+}
+
+// Generate a nice display name from a model ID
+export function getModelDisplayName(modelId: string): string {
+  // Known model patterns with nice names
+  const modelPatterns: [RegExp, string][] = [
+    // Anthropic Claude models
+    [/claude-opus-4-5/, 'Opus 4.5'],
+    [/claude-sonnet-4-5/, 'Sonnet 4.5'],
+    [/claude-haiku-4-5/, 'Haiku 4.5'],
+    [/claude-opus-4/, 'Opus 4'],
+    [/claude-sonnet-4/, 'Sonnet 4'],
+    [/claude-haiku-4/, 'Haiku 4'],
+    [/claude-3-5-sonnet/, 'Sonnet 3.5'],
+    [/claude-3-5-haiku/, 'Haiku 3.5'],
+    [/claude-3-opus/, 'Opus 3'],
+    [/claude-3-sonnet/, 'Sonnet 3'],
+    [/claude-3-haiku/, 'Haiku 3'],
+    // OpenAI models
+    [/gpt-5\.1/, 'GPT-5.1'],
+    [/gpt-5/, 'GPT-5'],
+    [/gpt-4\.5/, 'GPT-4.5'],
+    [/gpt-4o-mini/, 'GPT-4o Mini'],
+    [/gpt-4o/, 'GPT-4o'],
+    [/gpt-4-turbo/, 'GPT-4 Turbo'],
+    [/gpt-4/, 'GPT-4'],
+    [/o4-mini/, 'o4-mini'],
+    [/o3-mini/, 'o3-mini'],
+    [/o3/, 'o3'],
+    [/o1-preview/, 'o1 Preview'],
+    [/o1-mini/, 'o1-mini'],
+    [/o1/, 'o1'],
+    // Google Gemini models
+    [/gemini-3-pro/, 'Gemini 3 Pro'],
+    [/gemini-2\.5-pro/, 'Gemini 2.5 Pro'],
+    [/gemini-2\.5-flash/, 'Gemini 2.5 Flash'],
+    [/gemini-2\.0-flash/, 'Gemini 2.0 Flash'],
+    // Zhipu GLM models
+    [/glm-4\.6/, 'GLM 4.6'],
+    [/glm-4\.5/, 'GLM 4.5'],
+    // Qwen models (order matters - more specific first)
+    [/Qwen3-Coder-480B/, 'Qwen 3 Coder 480B'],
+    [/Qwen3-Coder-30B/, 'Qwen 3 Coder 30B'],
+    [/Qwen3-Coder/, 'Qwen 3 Coder'],
+    [/Qwen3-235B/, 'Qwen 3 235B'],
+    [/Qwen2\.5-72B/, 'Qwen 2.5 72B'],
+    [/Qwen2\.5-7B/, 'Qwen 2.5 7B'],
+    // Llama models
+    [/Llama-4-Scout/, 'Llama 4 Scout'],
+    [/Llama-4-Maverick/, 'Llama 4 Maverick'],
+  ]
+
+  for (const [pattern, displayName] of modelPatterns) {
+    if (pattern.test(modelId)) {
+      return displayName
+    }
+  }
+
+  // Fallback: return the model ID as-is
+  return modelId
+}
+
+// Generate an agent name from model and runtime
+export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
+  if (!modelId) return '-'  // Show dash when model not yet selected
+  const modelName = getModelDisplayName(modelId)
+  const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
+  return `${modelName} in ${runtimeName}`
+}
+
 // Add new interface for agent creation parameters
 export interface ICreateAgentParams {
   name: string;
@@ -35,6 +112,9 @@ export interface ICreateAgentParams {
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
   agentType?: string; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
+
+  // Code agent runtime for zed_external agents
+  codeAgentRuntime?: CodeAgentRuntime;
 
   // Default model for basic chat mode (non-agent mode)
   model?: string;
@@ -134,6 +214,7 @@ export const useAppsContext = (): IAppsContext => {
               description: '',
               agent_mode: false,
               agent_type: params.agentType || 'helix_basic',
+              code_agent_runtime: params.codeAgentRuntime || 'zed_agent',
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,
