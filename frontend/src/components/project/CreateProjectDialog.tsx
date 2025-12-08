@@ -159,7 +159,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setName('')
       setDescription('')
       setSelectedRepoId('')
-      setRepoMode('select')
+      setRepoMode('create')
       setNewRepoName('')
       setNewRepoDescription('')
       setExternalUrl('')
