@@ -238,6 +238,11 @@ export $(dbus-launch)
 # Set vanilla Ubuntu scaling (no HiDPI)
 gsettings set org.gnome.desktop.interface scaling-factor 1 2>/dev/null || true
 
+# Load dconf settings NOW (D-Bus is available after dbus-launch above)
+# This sets wallpaper, theme, fonts etc BEFORE GNOME session starts
+echo "Loading dconf settings..."
+dconf load / < /opt/gow/dconf-settings.ini 2>/dev/null || true
+
 echo "Launching GNOME session..."
 exec /usr/bin/dbus-launch /usr/bin/gnome-session
 DESKTOP_EOF

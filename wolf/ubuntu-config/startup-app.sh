@@ -344,13 +344,11 @@ xdg-mime default firefox.desktop text/html
 echo "Firefox set as default browser for HTTP/HTTPS URLs"
 
 # ============================================================================
-# Load dconf Settings BEFORE GNOME Starts
+# dconf Settings Loaded in desktop.sh
 # ============================================================================
-# Load dconf settings immediately to ensure wallpaper and theme are set
-# before GNOME renders the desktop (not via autostart which is too late)
-echo "Loading dconf settings..."
-dconf load / < /opt/gow/dconf-settings.ini
-echo "dconf settings loaded"
+# NOTE: dconf load is now done in /opt/gow/desktop.sh AFTER D-Bus is started.
+# Trying to load dconf here fails because D-Bus isn't available yet.
+# The desktop.sh script runs after xorg.sh starts Xwayland and D-Bus.
 
 # Backup: Also set wallpaper via gsettings autostart entry
 # This runs after GNOME starts in case the initial load timing is wrong
