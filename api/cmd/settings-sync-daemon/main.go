@@ -82,9 +82,11 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	switch d.codeAgentConfig.Runtime {
 	case "qwen_code":
 		// Qwen Code: Uses the qwen command as a custom agent_server
+		// Rewrite localhost URLs for container networking (dev mode fix)
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
-			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
+			"OPENAI_BASE_URL":          baseURL,
 		}
 
 		if d.userAPIKey != "" {
@@ -95,7 +97,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
-			d.codeAgentConfig.BaseURL, d.codeAgentConfig.Model)
+			baseURL, d.codeAgentConfig.Model)
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
@@ -197,9 +199,6 @@ func main() {
 		sessionID:  sessionID,
 		userAPIKey: userAPIKey,
 	}
-
-	// Rewrite qwenBaseURL if it contains localhost (fix for dev mode)
-	daemon.qwenBaseURL = daemon.rewriteLocalhostURL(daemon.qwenBaseURL)
 
 	// Initial sync from Helix → local
 	if err := daemon.syncFromHelix(); err != nil {
