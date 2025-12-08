@@ -1,4 +1,4 @@
-import React, { FC, useState, useRef, useEffect, useCallback } from 'react'
+import React, { FC, useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Paper,
   Box,
@@ -16,6 +16,10 @@ import {
   Checkbox,
   FormControlLabel,
   Tooltip,
+  Select,
+  FormControl,
+  InputLabel,
+  CircularProgress,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -30,9 +34,10 @@ import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
 import { useGetSession } from '../../services/sessionService'
-import { SESSION_TYPE_TEXT } from '../../types'
+import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 
@@ -54,6 +59,39 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const api = useApi()
   const snackbar = useSnackbar()
   const streaming = useStreaming()
+  const apps = useApps()
+
+  // Agent selection state
+  const [selectedAgent, setSelectedAgent] = useState(task?.helix_app_id || '')
+  const [updatingAgent, setUpdatingAgent] = useState(false)
+
+  // Sort apps: zed_external agents first, then others
+  const sortedApps = useMemo(() => {
+    if (!apps.apps) return []
+    const zedExternalApps = apps.apps.filter(app =>
+      app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) ||
+      app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+    )
+    const otherApps = apps.apps.filter(app =>
+      !app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) &&
+      app.config?.helix?.default_agent_type !== AGENT_TYPE_ZED_EXTERNAL
+    )
+    return [...zedExternalApps, ...otherApps]
+  }, [apps.apps])
+
+  // Sync selected agent when task changes
+  useEffect(() => {
+    if (task?.helix_app_id) {
+      setSelectedAgent(task.helix_app_id)
+    }
+  }, [task?.helix_app_id])
+
+  // Load apps on mount
+  useEffect(() => {
+    if (open) {
+      apps.loadApps()
+    }
+  }, [open])
 
   const [position, setPosition] = useState<WindowPosition>('center')
   const [isSnapped, setIsSnapped] = useState(false)
@@ -343,6 +381,28 @@ I'll give you feedback and we can iterate on any changes needed.`
       setUpdatingJustDoIt(false)
     }
   }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
+
+  // Handle agent change and persist to backend
+  const handleAgentChange = useCallback(async (newAgentId: string) => {
+    if (!task?.id || updatingAgent || newAgentId === selectedAgent) return
+
+    setUpdatingAgent(true)
+    const previousAgent = selectedAgent
+    setSelectedAgent(newAgentId) // Optimistic update
+
+    try {
+      await api.getApiClient().v1SpecTasksUpdate(task.id, {
+        helix_app_id: newAgentId,
+      } as any) // helix_app_id may need to be added to TypesSpecTaskUpdateRequest
+      snackbar.success('Agent updated')
+    } catch (err) {
+      console.error('Failed to update agent:', err)
+      snackbar.error('Failed to update agent')
+      setSelectedAgent(previousAgent) // Revert on error
+    } finally {
+      setUpdatingAgent(false)
+    }
+  }, [task?.id, selectedAgent, updatingAgent, api, snackbar])
 
   // Keyboard shortcuts for task actions (with Ctrl/Cmd modifiers to work while typing)
   useEffect(() => {
@@ -798,14 +858,25 @@ I'll give you feedback and we can iterate on any changes needed.`
                 </Box>
               )}
 
-              {/* Assigned Agent */}
-              {displayTask.helix_app_id && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Assigned Agent: <strong>{displayTask.helix_app_id}</strong>
-                  </Typography>
-                </Box>
-              )}
+              {/* Assigned Agent - editable dropdown */}
+              <Box sx={{ mb: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Agent</InputLabel>
+                  <Select
+                    value={selectedAgent}
+                    onChange={(e) => handleAgentChange(e.target.value)}
+                    label="Agent"
+                    disabled={updatingAgent}
+                    endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
+                  >
+                    {sortedApps.map((app) => (
+                      <MenuItem key={app.id} value={app.id}>
+                        {app.config?.helix?.name || 'Unnamed Agent'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
 
               {/* Timestamps */}
               <Box sx={{ mt: 3 }}>
