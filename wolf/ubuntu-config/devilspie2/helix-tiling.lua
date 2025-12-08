@@ -31,8 +31,11 @@ if win_class == "firefox" or win_class == "Firefox" or win_class == "Navigator" 
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
 
 -- Zed editor -> Middle column (column 2)
-elseif win_class == "Zed" or win_class == "zed" or string.find(tostring(win_class) or "", "zed") then
-    debug_print("Positioning Zed in middle column")
+-- Zed reports class as "dev.zed.Zed-Dev" for dev builds, "dev.zed.Zed" for release
+elseif win_class == "dev.zed.Zed-Dev" or win_class == "dev.zed.Zed"
+       or win_class == "Zed" or win_class == "zed"
+       or string.find(string.lower(tostring(win_class) or ""), "zed") then
+    debug_print("Positioning Zed in middle column: " .. tostring(win_class))
     set_window_position(COLUMN_WIDTH, PANEL_HEIGHT)  -- x=640
     set_window_size(COLUMN_WIDTH, WINDOW_HEIGHT)
 
