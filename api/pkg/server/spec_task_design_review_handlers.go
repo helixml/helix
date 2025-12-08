@@ -922,25 +922,71 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		Msg("✅ Finalized comment response (cleared request_id)")
 
 	// Response complete - process next comment in queue
+	// CRITICAL: We MUST clear sessionCurrentComment and trigger processNextCommentInQueue
+	// even if we can't look up the review/specTask. Otherwise the queue gets permanently stuck.
+	var sessionID string
+
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
-	if err == nil {
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", comment.ID).
+			Str("review_id", comment.ReviewID).
+			Msg("⚠️ Failed to get design review - will try to find sessionID from queue state")
+	} else {
 		specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-		if err == nil && specTask.PlanningSessionID != "" {
-			sessionID := specTask.PlanningSessionID
-
-			// Clear the current comment and process next
-			s.sessionCommentMutex.Lock()
-			delete(s.sessionCurrentComment, sessionID)
-			s.sessionCommentMutex.Unlock()
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("completed_comment", comment.ID).
-				Msg("Comment response complete, checking for next in queue")
-
-			go s.processNextCommentInQueue(ctx, sessionID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", review.SpecTaskID).
+				Msg("⚠️ Failed to get spec task - will try to find sessionID from queue state")
+		} else if specTask.PlanningSessionID == "" {
+			log.Warn().
+				Str("spec_task_id", specTask.ID).
+				Msg("⚠️ SpecTask has empty PlanningSessionID - will try to find sessionID from queue state")
+		} else {
+			sessionID = specTask.PlanningSessionID
 		}
 	}
+
+	// If we couldn't get sessionID from the spec task, try to find it from the current comment mappings
+	// by checking which session has this comment as the current one
+	if sessionID == "" {
+		s.sessionCommentMutex.RLock()
+		for sessID, currentCommentID := range s.sessionCurrentComment {
+			if currentCommentID == comment.ID {
+				sessionID = sessID
+				log.Info().
+					Str("session_id", sessionID).
+					Str("comment_id", comment.ID).
+					Msg("Found sessionID from sessionCurrentComment mapping")
+				break
+			}
+		}
+		s.sessionCommentMutex.RUnlock()
+	}
+
+	// If we still don't have a sessionID, we can't clear the queue properly
+	// Log an error but don't block - the response was still processed
+	if sessionID == "" {
+		log.Error().
+			Str("comment_id", comment.ID).
+			Str("review_id", comment.ReviewID).
+			Msg("❌ Could not determine sessionID to clear queue - queue may be stuck!")
+		return nil
+	}
+
+	// Clear the current comment and process next
+	s.sessionCommentMutex.Lock()
+	delete(s.sessionCurrentComment, sessionID)
+	s.sessionCommentMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("completed_comment", comment.ID).
+		Msg("Comment response complete, checking for next in queue")
+
+	go s.processNextCommentInQueue(ctx, sessionID)
 
 	return nil
 }
