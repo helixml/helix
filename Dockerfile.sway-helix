@@ -1,4 +1,21 @@
 # ====================================================================
+# Build grim from source with JPEG support
+# ====================================================================
+# Ubuntu's grim package is compiled without libjpeg, so we build from source
+# to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
+FROM ubuntu:25.04 AS grim-build
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
+    wayland-protocols scdoc \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://git.sr.ht/~emersion/grim /grim && \
+    cd /grim && \
+    meson setup build -Djpeg=enabled -Dman-pages=enabled && \
+    ninja -C build && \
+    cp build/grim /grim-bin
+
+# ====================================================================
 # Go build stage for screenshot-server and settings-sync-daemon
 # ====================================================================
 FROM golang:1.24 AS go-build-env
@@ -131,9 +148,9 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
 
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
-    # Screenshot tool for Wayland and debugging utilities
-    # libjpeg-turbo8 enables JPEG output in grim for smaller screenshots
-    grim lsof libjpeg-turbo8 \
+    # Debugging utilities (grim is built from source with JPEG support)
+    # libjpeg-turbo8 is runtime dependency for our custom grim
+    lsof libjpeg-turbo8 \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
     # Input device testing tools for keyboard state observability
@@ -228,6 +245,8 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+# grim built from source with JPEG support (Ubuntu's package lacks it)
+COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # Copy Zed binary (built with ./stack build-zed before Docker build)
 # CRITICAL: Must be built with --features external_websocket_sync
