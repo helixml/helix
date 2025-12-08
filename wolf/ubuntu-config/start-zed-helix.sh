@@ -1,5 +1,5 @@
 #!/bin/bash
-# Startup script for Zed editor connected to Helix controlplane (Ubuntu/XFCE version)
+# Startup script for Zed editor connected to Helix controlplane (Ubuntu GNOME version)
 set -e
 
 # Redirect all output to log file AND stdout (using tee)
@@ -7,7 +7,7 @@ STARTUP_LOG="$HOME/.helix-startup.log"
 exec > >(tee "$STARTUP_LOG") 2>&1
 
 echo "========================================="
-echo "Helix Agent Startup (Ubuntu/XFCE) - $(date)"
+echo "Helix Agent Startup (Ubuntu GNOME) - $(date)"
 echo "========================================="
 echo ""
 
@@ -387,10 +387,10 @@ WRAPPER_EOF
     chmod +x "$WRAPPER_SCRIPT"
 
     # Launch terminal in background to run the wrapper script
-    # Use xfce4-terminal for XFCE (vs gnome-terminal for Zorin)
-    xfce4-terminal --title="Project Startup Script" \
+    # Use gnome-terminal for Ubuntu GNOME desktop
+    gnome-terminal --title="Project Startup Script" \
             --working-directory="$WORK_DIR" \
-            --command="bash $WRAPPER_SCRIPT" &
+            -- bash "$WRAPPER_SCRIPT" &
 
     echo "Startup script terminal launched (check for new terminal window)"
 else
@@ -439,14 +439,8 @@ if [ -f "$HOME/.local/share/zed/db/0-stable.db" ]; then
     rm -f "$HOME/.local/share/zed/db/0-stable.db"
 fi
 
-# WORKAROUND: Force X11 backend for proper HiDPI scaling
-# Zed's Wayland backend doesn't respect text scaling
-# X11 backend with GPUI_X11_SCALE_FACTOR works correctly
-export GDK_BACKEND=x11
-export GPUI_X11_SCALE_FACTOR=2  # 200% scaling for HiDPI
-
-# Request native window decorations (titlebar with minimize/maximize/close buttons)
-export ZED_WINDOW_DECORATIONS=server
+# Note: No HiDPI scaling - using vanilla Ubuntu with native resolution
+# If you need scaling, configure it in GNOME Settings > Displays
 
 # Determine which folders to open in Zed
 # Open ALL repositories as multi-folder workspace: primary, design docs, then other repos
@@ -505,8 +499,7 @@ fi
 # When you close Zed (click X), it auto-restarts with the latest binary
 # Perfect for testing rebuilds without recreating the entire container
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
-echo "Using X11 backend with 200% HiDPI scaling (GDK_BACKEND=x11, GPUI_X11_SCALE_FACTOR=2)"
-echo "Window decorations: native (ZED_WINDOW_DECORATIONS=server)"
+echo "Using vanilla Ubuntu settings (no custom HiDPI scaling)"
 
 while true; do
     echo "Launching Zed..."

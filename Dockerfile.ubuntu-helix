@@ -14,11 +14,25 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
-# Ubuntu/XFCE Personal Dev Environment
+# Ubuntu GNOME Personal Dev Environment
 # ====================================================================
 # Using XFCE base image from GOW - already has X11/Xwayland infrastructure
-# XFCE is simpler than GNOME and doesn't require systemd workarounds
+# We install GNOME on top and configure it to run instead of XFCE
 FROM ghcr.io/games-on-whales/xfce:edge
+
+# ====================================================================
+# CRITICAL: Disable systemd-logind for GNOME in containers
+# ====================================================================
+# GNOME session manager tries to connect to systemd-logind for session
+# management. Containers don't have systemd, so this causes GNOME to fail.
+# Solution: Rename/disable all login1-related files to prevent the lookup.
+# This is the same workaround used by Zorin desktop.
+RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
+    mv -v "$file" "$file.back" 2>/dev/null || true; \
+    done
+
+# Enable bubblewrap SUID for GNOME sandboxing (required by some GNOME apps)
+RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 
 # CRITICAL FIX: GOW images may not set XDG_RUNTIME_DIR
 # This is required for many applications and D-Bus
@@ -85,9 +99,20 @@ RUN apt-get update && apt-get install -y \
     git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install XFCE terminal (for startup script)
+# Install GNOME session and Ubuntu theming for vanilla Ubuntu experience
 RUN apt-get update && apt-get install -y \
-    xfce4-terminal \
+    gnome-session \
+    gnome-shell \
+    gnome-terminal \
+    gnome-control-center \
+    nautilus \
+    dbus-x11 \
+    yaru-theme-gtk \
+    yaru-theme-icon \
+    yaru-theme-sound \
+    ubuntu-wallpapers \
+    fonts-ubuntu \
+    wmctrl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install devilspie2 for window positioning rules
@@ -117,14 +142,17 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create
 ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh
 RUN chmod +x /opt/gow/startup.sh
 
+# Copy GNOME dconf settings for vanilla Ubuntu appearance
+# These settings configure: Yaru theme, Ubuntu fonts, default wallpaper, no HiDPI scaling
+COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
 # Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
 # CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
-# Copy Helix background image for desktop wallpaper
-RUN mkdir -p /usr/share/backgrounds
-COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
+# Note: Ubuntu wallpapers are installed via ubuntu-wallpapers package above
+# The default Ubuntu wallpaper is set via dconf settings in /opt/gow/dconf-settings.ini
 
 # Copy devilspie2 window positioning config
 # This script auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
