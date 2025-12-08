@@ -89,7 +89,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		log.Warn().Msg("RUNNER_TOKEN not configured")
 	}
 
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+	// Use sandboxAPIURL for Zed config since Zed runs inside the sandbox container
+	// and needs to reach the API via Docker internal network, not external URL
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
