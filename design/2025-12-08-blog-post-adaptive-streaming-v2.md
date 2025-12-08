@@ -87,7 +87,7 @@ We tried everything:
 
 This was our big brain moment. H.264 keyframes (IDR frames) are self-contained. No dependencies on previous frames. Just drop all the P-frames on the server side, send only keyframes, get ~1fps of corruption-free video. Perfect for low-bandwidth fallback!
 
-We spent a week on this. We added a `keyframes_only` flag. We modified the video decoder to check `FrameType::Idr`. We set GOP to 60 (one keyframe per second at 60fps). We tested.
+We added a `keyframes_only` flag. We modified the video decoder to check `FrameType::Idr`. We set GOP to 60 (one keyframe per second at 60fps). We tested.
 
 We got exactly ONE frame.
 
@@ -107,15 +107,9 @@ One single, beautiful, 1080p IDR frame. Then silence. Forever.
 
 *checks Moonlight protocol layer* — **nothing coming through**
 
-Turns out, the Moonlight protocol (which we forked from) has some undocumented flow control mechanism. When you drop P-frames, *something* upstream decides you're not consuming frames fast enough and just... stops sending them. We never figured out what. The protocol is reverse-engineered from NVIDIA GameStream. Documentation is "read the source code and pray."
+We're using [Wolf](https://games-on-whales.github.io/wolf/stable/), an excellent open-source game streaming server (seriously, the documentation is great). But our WebSocket streaming layer sits on top of the Moonlight protocol, which is reverse-engineered from NVIDIA GameStream. Somewhere in that protocol stack, *something* decides that if you're not consuming P-frames, you're not ready for more frames. Period.
 
-We tried:
-- Different GOP settings
-- Different encoder configurations
-- Sending ACK-like responses
-- Staring at the code for hours
-
-Nothing worked. The protocol wanted all its frames, or no frames at all.
+We poked around for an hour or two, but without diving deep into the Moonlight protocol internals, we weren't going to fix this. The protocol wanted all its frames, or no frames at all.
 
 **"What if we implement proper congestion control?"**
 
