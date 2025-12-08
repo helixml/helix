@@ -341,6 +341,23 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen]);
 
+  // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
+        if (createDialogOpen) {
+          e.preventDefault();
+          setJustDoItMode(prev => !prev);
+        }
+      }
+    };
+
+    if (createDialogOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [createDialogOpen]);
+
   // Handle inline agent creation (same pattern as CreateProjectDialog)
   const handleCreateAgent = async (): Promise<string | null> => {
     if (!newAgentName.trim()) {
@@ -924,7 +941,7 @@ Examples:
 
               {/* Just Do It Mode Checkbox */}
               <FormControl fullWidth>
-                <Tooltip title="Skip writing a spec and just get the agent to immediately start doing what you ask" placement="top">
+                <Tooltip title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`} placement="top">
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -935,9 +952,14 @@ Examples:
                     }
                     label={
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          Just Do It
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Just Do It
+                          </Typography>
+                          <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                            {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                          </Box>
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
                           Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
                         </Typography>
