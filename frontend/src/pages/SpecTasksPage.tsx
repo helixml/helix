@@ -743,10 +743,10 @@ const SpecTasksPage: FC = () => {
           </Box>
 
           {/* Content */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-            <Stack spacing={3}>
+          <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+            <Stack spacing={2}>
               {/* Priority Selector */}
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Priority</InputLabel>
                 <Select
                   value={taskPriority}
@@ -760,13 +760,13 @@ const SpecTasksPage: FC = () => {
                 </Select>
               </FormControl>
 
-              {/* Single large text box for everything */}
+              {/* Single text box for everything */}
               <TextField
                 label="Describe what you want to get done"
                 fullWidth
                 required
                 multiline
-                rows={12}
+                rows={6}
                 value={taskPrompt}
                 onChange={(e) => setTaskPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -776,26 +776,22 @@ const SpecTasksPage: FC = () => {
                     setCreateDialogOpen(false)
                   }
                 }}
-                placeholder="Dump everything you know here - the AI will parse this into requirements, design, and implementation plan.
-
-Examples:
-- Add dark mode toggle to settings page
-- Fix the user registration bug where emails aren't validated properly
-- Refactor the payment processing to use Stripe instead of PayPal"
-                helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
+                placeholder="Describe the task - the AI will generate specs from this."
+                helperText="Planning agent extracts task name, description, and generates specifications"
                 inputRef={taskPromptRef}
+                size="small"
               />
 
-              {/* Agent Selection (same UX as AgentSelectionModal) */}
+              {/* Agent Selection (compact) */}
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                  Agent for Spec Tasks
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                  Agent
                 </Typography>
                 {!showCreateAgentForm ? (
                   <>
-                    {/* Existing agents list - same style as AgentSelectionModal */}
+                    {/* Existing agents list - compact style */}
                     {sortedApps.length > 0 ? (
-                      <List sx={{ pt: 0, maxHeight: 200, overflow: 'auto' }}>
+                      <List dense sx={{ pt: 0, maxHeight: 120, overflow: 'auto' }}>
                         {sortedApps.map((app) => {
                           const isSelected = selectedHelixAgent === app.id;
 
@@ -804,42 +800,43 @@ Examples:
                               key={app.id}
                               disablePadding
                               secondaryAction={
-                                <Tooltip title="Edit agent">
-                                  <IconButton
-                                    edge="end"
-                                    size="small"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      account.orgNavigate('app', { app_id: app.id });
-                                    }}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
+                                <IconButton
+                                  edge="end"
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    account.orgNavigate('app', { app_id: app.id });
+                                  }}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  <EditIcon sx={{ fontSize: 14 }} />
+                                </IconButton>
                               }
                             >
                               <ListItemButton
                                 selected={isSelected}
                                 onClick={() => setSelectedHelixAgent(app.id)}
                                 sx={{
-                                  borderRadius: 1,
-                                  mb: 0.5,
-                                  border: isSelected ? '2px solid' : '1px solid',
-                                  borderColor: isSelected ? 'primary.main' : 'divider',
-                                  pr: 6, // Make room for edit button
+                                  borderRadius: 0.5,
+                                  py: 0.5,
+                                  minHeight: 36,
+                                  border: isSelected ? '1px solid' : '1px solid transparent',
+                                  borderColor: isSelected ? 'primary.main' : 'transparent',
+                                  bgcolor: isSelected ? 'action.selected' : 'transparent',
+                                  pr: 4,
                                 }}
                               >
-                                <ListItemIcon>
+                                <ListItemIcon sx={{ minWidth: 32 }}>
                                   <Avatar
                                     src={app.config?.helix?.avatar}
-                                    sx={{ width: 40, height: 40 }}
+                                    sx={{ width: 24, height: 24, fontSize: 12 }}
                                   >
-                                    <SmartToyIcon />
+                                    <SmartToyIcon sx={{ fontSize: 14 }} />
                                   </Avatar>
                                 </ListItemIcon>
                                 <ListItemText
                                   primary={app.config?.helix?.name || 'Unnamed Agent'}
-                                  secondary={app.config?.helix?.description || 'No description'}
+                                  primaryTypographyProps={{ variant: 'body2', noWrap: true }}
                                 />
                               </ListItemButton>
                             </ListItem>
@@ -847,14 +844,14 @@ Examples:
                         })}
                       </List>
                     ) : (
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        No agents available. Create one below.
+                      <Typography variant="caption" color="text.secondary">
+                        No agents. Create one below.
                       </Typography>
                     )}
                     <Button
                       size="small"
                       onClick={() => setShowCreateAgentForm(true)}
-                      sx={{ mt: 1 }}
+                      sx={{ mt: 0.5, fontSize: '0.75rem' }}
                     >
                       + Create new agent
                     </Button>
