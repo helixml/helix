@@ -306,6 +306,9 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
 
+	// Extract USER_API_TOKEN from extra env vars (for LLM proxy authentication)
+	userAPIToken := extractEnvVar(config.ExtraEnv, "USER_API_TOKEN")
+
 	// Build base environment variables (common to all desktop types)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
