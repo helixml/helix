@@ -22667,6 +22667,10 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "helix_app_id": {
+                    "description": "Agent to use for this task",
+                    "type": "string"
+                },
                 "just_do_it_mode": {
                     "description": "Pointer to allow explicit false",
                     "type": "boolean"
@@ -23674,20 +23678,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

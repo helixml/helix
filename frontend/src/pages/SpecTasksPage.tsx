@@ -766,7 +766,7 @@ const SpecTasksPage: FC = () => {
                 fullWidth
                 required
                 multiline
-                rows={6}
+                rows={9}
                 value={taskPrompt}
                 onChange={(e) => setTaskPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -776,8 +776,14 @@ const SpecTasksPage: FC = () => {
                     setCreateDialogOpen(false)
                   }
                 }}
-                placeholder="Describe the task - the AI will generate specs from this."
-                helperText="Planning agent extracts task name, description, and generates specifications"
+                placeholder={justDoItMode
+                  ? "Describe what you want the agent to do. It will start immediately without planning."
+                  : "Describe the task - the AI will generate specs from this."
+                }
+                helperText={justDoItMode
+                  ? "Agent will start working immediately"
+                  : "Planning agent extracts task name, description, and generates specifications"
+                }
                 inputRef={taskPromptRef}
                 size="small"
               />

@@ -533,6 +533,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.JustDoItMode != nil {
 		task.JustDoItMode = *updateReq.JustDoItMode
 	}
+	if updateReq.HelixAppID != "" {
+		task.HelixAppID = updateReq.HelixAppID
+	}
 
 	// Update in store
 	err = s.Store.UpdateSpecTask(r.Context(), task)

@@ -139,6 +139,7 @@ type SpecTaskUpdateRequest struct {
 	Name         string `json:"name,omitempty"`
 	Description  string `json:"description,omitempty"`
 	JustDoItMode *bool  `json:"just_do_it_mode,omitempty"` // Pointer to allow explicit false
+	HelixAppID   string `json:"helix_app_id,omitempty"`    // Agent to use for this task
 }
 
 // Two-phase workflow status constants
