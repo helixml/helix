@@ -226,16 +226,18 @@ export DISPLAY=:9
 sleep 8  # Wait for Zed and Terminal to launch
 
 # Position Terminal (gnome-terminal) - left third
-TERMINAL_WID=$(wmctrl -l | grep -i "terminal\|startup" | head -1 | awk '{print $1}')
+# Use wmctrl -lx to match by window class (more reliable than title)
+TERMINAL_WID=$(wmctrl -lx | grep -i "gnome-terminal\|terminal" | head -1 | awk '{print $1}')
 if [ -n "$TERMINAL_WID" ]; then
-    wmctrl -i -r "$TERMINAL_WID" -e 0,0,0,640,1080
+    wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
     echo "Positioned terminal: $TERMINAL_WID"
 fi
 
 # Position Zed - middle third
-ZED_WID=$(wmctrl -l | grep -i "zed" | head -1 | awk '{print $1}')
+# Zed class is "dev.zed.Zed-Dev" (dev) or "dev.zed.Zed" (release)
+ZED_WID=$(wmctrl -lx | grep -i "zed" | head -1 | awk '{print $1}')
 if [ -n "$ZED_WID" ]; then
-    wmctrl -i -r "$ZED_WID" -e 0,640,0,640,1080
+    wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
     echo "Positioned Zed: $ZED_WID"
 fi
 
