@@ -1540,7 +1540,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           gap: 1,
         }}
       >
-        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setAudioEnabled(!audioEnabled)}
@@ -1549,7 +1549,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
               size="small"
@@ -1561,7 +1561,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setShowStats(!showStats)}
@@ -1570,7 +1570,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <BarChart fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
@@ -1579,7 +1579,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title={modeSwitchCooldown ? 'Please wait...' : streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title={modeSwitchCooldown ? 'Please wait...' : streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
               size="small"
@@ -1597,6 +1597,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </span>
         </Tooltip>
         {/* Quality mode toggle: adaptive -> high -> low -> adaptive */}
+        {/* DISABLED: Adaptive mode is commented out until the underlying streaming quality issues are resolved
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
@@ -1656,7 +1657,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </span>
           </Tooltip>
         )}
-        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        */}
+        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={toggleFullscreen}
