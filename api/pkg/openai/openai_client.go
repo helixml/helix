@@ -391,8 +391,38 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+	// Log Transport state for debugging TLS issues with database-configured providers
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.httpClient.Transport != nil {
+		if t, ok := c.httpClient.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.httpClient.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", url).
+		Str("base_url", c.baseURL).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("listOpenAIModels: Transport config for direct httpClient.Do request")
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", url).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("LISTMODELS TLS CERTIFICATE ERROR - If tls_skip_verify_configured=false, TOOLS_TLS_SKIP_VERIFY env var was not set or not applied to this client")
+		}
 		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
 	}
 	defer resp.Body.Close()
@@ -552,6 +582,27 @@ type openAIClientInterceptor struct {
 // Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
 // or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	// Log TLS configuration state for debugging enterprise deployments
+	// This helps diagnose when TOOLS_TLS_SKIP_VERIFY isn't being applied correctly
+	tlsSkipVerify := false
+	transportType := "nil (using DefaultTransport)"
+	if c.Client.Transport != nil {
+		if t, ok := c.Client.Transport.(*http.Transport); ok {
+			transportType = "*http.Transport"
+			if t.TLSClientConfig != nil {
+				tlsSkipVerify = t.TLSClientConfig.InsecureSkipVerify
+			}
+		} else {
+			transportType = fmt.Sprintf("%T", c.Client.Transport)
+		}
+	}
+	log.Debug().
+		Str("url", req.URL.String()).
+		Str("host", req.URL.Host).
+		Str("transport_type", transportType).
+		Bool("tls_skip_verify", tlsSkipVerify).
+		Msg("OpenAI interceptor making request with Transport config")
+
 	// Handle rate limiting for all providers
 	if c.rateLimiter != nil {
 		// Estimate tokens needed for the request
@@ -598,12 +649,35 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		}
 		newReq.Header = req.Header
 
-		return c.Client.Do(newReq)
+		togetherResp, togetherErr := c.Client.Do(newReq)
+		if togetherErr != nil {
+			errStr := togetherErr.Error()
+			if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+				log.Error().
+					Err(togetherErr).
+					Str("url", newReq.URL.String()).
+					Str("transport_type", transportType).
+					Bool("tls_skip_verify_configured", tlsSkipVerify).
+					Msg("TOGETHERAI INTERCEPTOR TLS CERTIFICATE ERROR")
+			}
+		}
+		return togetherResp, togetherErr
 	}
 
 	// Make the request
 	resp, err := c.Client.Do(req)
 	if err != nil {
+		errStr := err.Error()
+		// Check for TLS certificate errors - these are common in enterprise environments
+		if strings.Contains(errStr, "x509") || strings.Contains(errStr, "certificate") || strings.Contains(errStr, "tls:") {
+			log.Error().
+				Err(err).
+				Str("url", req.URL.String()).
+				Str("host", req.URL.Host).
+				Str("transport_type", transportType).
+				Bool("tls_skip_verify_configured", tlsSkipVerify).
+				Msg("OPENAI INTERCEPTOR TLS CERTIFICATE ERROR - Transport state shows whether TOOLS_TLS_SKIP_VERIFY was applied. If tls_skip_verify_configured=false, the env var was not set correctly.")
+		}
 		return resp, err
 	}
 
