@@ -290,6 +290,27 @@ kubectl exec -it sandbox-pod -- cat /etc/resolv.conf
 3. **Host Docker Socket**: If using host Docker socket, need to ensure host Docker has proper DNS config
 4. **Service Mesh**: If using Istio/Linkerd, DNS interception may require additional configuration
 
+## Wolf Container Naming Convention
+
+Wolf adds a UUID suffix to container names, which affects how Hydra looks up containers for bridging.
+
+**Container name format:**
+- Helix passes: `zed-external-{session_id}`
+- Wolf creates: `zed-external-{session_id}_{uuid}`
+
+Example:
+- Requested: `zed-external-01kbyzs1ttmtmtwf19xeh51ed0`
+- Actual: `zed-external-01kbyzs1ttmtmtwf19xeh51ed0_edf14aa9-9027-492a-a275-d7216b92d7a4`
+
+**Fix implemented (2025-12-08):**
+
+`getContainerPID()` in `manager.go` now:
+1. First tries exact name match via `docker inspect`
+2. If that fails, uses `docker ps --filter "name={prefix}"` to find containers by prefix
+3. Inspects the matched container
+
+This ensures `BridgeDesktop` can find containers regardless of Wolf's UUID suffix.
+
 ## References
 
 - `api/pkg/hydra/manager.go` - Hydra manager and bridge creation
