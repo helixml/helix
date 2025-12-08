@@ -134,6 +134,9 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 // getBuiltInProviderEndpoint returns a ProviderEndpoint for the built-in Anthropic provider
 // configured via environment variables (ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE).
 // This allows the Anthropic proxy to work without requiring database configuration.
+//
+// To enable usage tracking/billing for this built-in provider, set PROVIDERS_BILLING_ENABLED=true.
+// This is separate from STRIPE_BILLING_ENABLED which controls the platform-level Stripe integration.
 func (s *HelixAPIServer) getBuiltInProviderEndpoint(provider string) (*types.ProviderEndpoint, error) {
 	if provider != string(types.ProviderAnthropic) {
 		return nil, fmt.Errorf("provider %q not found", provider)
