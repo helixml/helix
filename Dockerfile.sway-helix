@@ -132,7 +132,8 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities
-    grim lsof \
+    # libjpeg-turbo8 enables JPEG output in grim for smaller screenshots
+    grim lsof libjpeg-turbo8 \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
     # Input device testing tools for keyboard state observability

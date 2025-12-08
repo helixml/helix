@@ -286,8 +286,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           qualitySessionId
         );
 
-        // Set canvas for WebSocket stream rendering
-        if (canvasRef.current) {
+        // Set canvas for WebSocket stream rendering (skip in low mode - screenshots provide video)
+        // In low mode, stream is only used for input, not video rendering
+        if (canvasRef.current && qualityMode !== 'low') {
           stream.setCanvas(canvasRef.current);
         }
       } else if (moonlightWebMode === 'multi') {
