@@ -194,10 +194,51 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("DEBUG: StartSpecGeneration entered")
 
-	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
+	// Get project first - needed for agent inheritance and guidelines
+	var project *types.Project
+	orgID := ""
+	guidelines := ""
+	if task.ProjectID != "" {
+		var err error
+		project, err = s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project")
+		} else if project != nil {
+			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
+		}
+	}
+
+	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
+	helixAppIDChanged := false
 	if task.HelixAppID == "" {
-		task.HelixAppID = s.helixAgentID
-		log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("DEBUG: Set default HelixAppID")
+		// First try project's default agent
+		if project != nil && project.DefaultHelixAppID != "" {
+			task.HelixAppID = project.DefaultHelixAppID
+			helixAppIDChanged = true
+			log.Info().
+				Str("task_id", task.ID).
+				Str("helix_app_id", project.DefaultHelixAppID).
+				Msg("Inherited HelixAppID from project default")
+		} else {
+			// Fall back to system default
+			task.HelixAppID = s.helixAgentID
+			helixAppIDChanged = true
+			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+		}
 	}
 
 	log.Info().
@@ -222,33 +263,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Create Zed external agent session for spec generation
-	// Planning agent needs git access to commit design docs to helix-specs branch
-
-	// Get project and organization for guidelines
-	orgID := ""
-	guidelines := ""
-	if task.ProjectID != "" {
-		project, err := s.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
-		} else if project != nil {
-			orgID = project.OrganizationID
-			// Get organization guidelines
-			if orgID != "" {
-				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
-				if orgErr == nil && org != nil && org.Guidelines != "" {
-					guidelines = org.Guidelines
-				}
-			}
-			// Append project guidelines
-			if project.Guidelines != "" {
-				if guidelines != "" {
-					guidelines += "\n\n---\n\n"
-				}
-				guidelines += project.Guidelines
-			}
-		}
+	// If we inherited the agent ID, it's now persisted via the UpdateSpecTask above
+	if helixAppIDChanged {
+		log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("HelixAppID persisted to task")
 	}
 
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
@@ -339,14 +356,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Created initial interaction")
 
 	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
-	// Get parent project to access repository configuration
-	log.Debug().Str("task_id", task.ID).Str("project_id", task.ProjectID).Msg("DEBUG: About to get project")
-	project, err := s.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get project: %v", err))
-		return
-	}
+	// Project already fetched earlier for agent inheritance
 
 	// Get all project repositories - repos are now managed entirely at project level
 	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
@@ -426,9 +436,48 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
 func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
-	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
+	// Get project first - needed for agent inheritance and guidelines
+	var project *types.Project
+	orgID := ""
+	guidelines := ""
+	if task.ProjectID != "" {
+		var err error
+		project, err = s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project")
+		} else if project != nil {
+			orgID = project.OrganizationID
+			// Get organization guidelines
+			if orgID != "" {
+				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
+				if orgErr == nil && org != nil && org.Guidelines != "" {
+					guidelines = org.Guidelines
+				}
+			}
+			// Append project guidelines
+			if project.Guidelines != "" {
+				if guidelines != "" {
+					guidelines += "\n\n---\n\n"
+				}
+				guidelines += project.Guidelines
+			}
+		}
+	}
+
+	// Ensure HelixAppID is set - inherit from project default, then fall back to system default
 	if task.HelixAppID == "" {
-		task.HelixAppID = s.helixAgentID
+		// First try project's default agent
+		if project != nil && project.DefaultHelixAppID != "" {
+			task.HelixAppID = project.DefaultHelixAppID
+			log.Info().
+				Str("task_id", task.ID).
+				Str("helix_app_id", project.DefaultHelixAppID).
+				Msg("Inherited HelixAppID from project default")
+		} else {
+			// Fall back to system default
+			task.HelixAppID = s.helixAgentID
+			log.Debug().Str("task_id", task.ID).Str("helix_app_id", s.helixAgentID).Msg("Set system default HelixAppID")
+		}
 	}
 
 	log.Info().
@@ -453,6 +502,7 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	branchName = sanitizeBranchName(branchName)
 
 	// Update task status directly to implementation (skip all spec phases)
+	// NOTE: If HelixAppID was inherited from project, it will be persisted here
 	task.Status = types.TaskStatusImplementation
 	task.BranchName = branchName
 	task.UpdatedAt = time.Now()
@@ -463,35 +513,6 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task status for Just Do It mode")
 		return
-	}
-
-	// Create Zed external agent session for implementation
-	// In Just Do It mode, we use the user's prompt directly without spec generation instructions
-
-	// Get organization ID and guidelines from the project
-	orgID := ""
-	guidelines := ""
-	if task.ProjectID != "" {
-		project, err := s.store.GetProject(ctx, task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for org ID")
-		} else if project != nil {
-			orgID = project.OrganizationID
-			// Get organization guidelines
-			if orgID != "" {
-				org, orgErr := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: orgID})
-				if orgErr == nil && org != nil && org.Guidelines != "" {
-					guidelines = org.Guidelines
-				}
-			}
-			// Append project guidelines
-			if project.Guidelines != "" {
-				if guidelines != "" {
-					guidelines += "\n\n---\n\n"
-				}
-				guidelines += project.Guidelines
-			}
-		}
 	}
 
 	sessionMetadata := types.SessionMetadata{
@@ -596,13 +617,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Launch the external agent (Zed) via Wolf executor
-	// Get parent project to access repository configuration
-	project, err := s.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for Just Do It task")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get project: %v", err))
-		return
-	}
+	// Project already fetched earlier for agent inheritance
 
 	// Get all project repositories
 	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
@@ -728,6 +743,28 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to get project: %w", err)
 		}
 
+		// Ensure HelixAppID is set - inherit from project default for old tasks
+		if task.HelixAppID == "" && project.DefaultHelixAppID != "" {
+			task.HelixAppID = project.DefaultHelixAppID
+			log.Info().
+				Str("task_id", task.ID).
+				Str("helix_app_id", project.DefaultHelixAppID).
+				Msg("[ApproveSpecs] Inherited HelixAppID from project default")
+
+			// Also update the planning session's ParentApp if it was empty
+			if task.PlanningSessionID != "" {
+				session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
+				if sessionErr == nil && session != nil && session.ParentApp == "" {
+					session.ParentApp = task.HelixAppID
+					if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
+						log.Warn().Err(updateErr).Str("session_id", session.ID).Msg("Failed to update session ParentApp (continuing)")
+					} else {
+						log.Info().Str("session_id", session.ID).Str("parent_app", task.HelixAppID).Msg("[ApproveSpecs] Updated session ParentApp")
+					}
+				}
+			}
+		}
+
 		var baseBranch string
 		if project.DefaultRepoID != "" {
 			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
@@ -803,6 +840,31 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		// Specs need revision
 		task.Status = types.TaskStatusSpecRevision
 		task.SpecRevisionCount++
+
+		// Ensure HelixAppID is set - inherit from project default for old tasks
+		if task.HelixAppID == "" {
+			project, projErr := s.store.GetProject(ctx, task.ProjectID)
+			if projErr == nil && project != nil && project.DefaultHelixAppID != "" {
+				task.HelixAppID = project.DefaultHelixAppID
+				log.Info().
+					Str("task_id", task.ID).
+					Str("helix_app_id", project.DefaultHelixAppID).
+					Msg("[RequestRevision] Inherited HelixAppID from project default")
+
+				// Also update the planning session's ParentApp if it was empty
+				if task.PlanningSessionID != "" {
+					session, sessionErr := s.store.GetSession(ctx, task.PlanningSessionID)
+					if sessionErr == nil && session != nil && session.ParentApp == "" {
+						session.ParentApp = task.HelixAppID
+						if _, updateErr := s.store.UpdateSession(ctx, *session); updateErr != nil {
+							log.Warn().Err(updateErr).Str("session_id", session.ID).Msg("Failed to update session ParentApp (continuing)")
+						} else {
+							log.Info().Str("session_id", session.ID).Str("parent_app", task.HelixAppID).Msg("[RequestRevision] Updated session ParentApp")
+						}
+					}
+				}
+			}
+		}
 
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
