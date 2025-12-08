@@ -317,41 +317,43 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	var zedConfig *external_agent.ZedMCPConfig
-
-	// If session has no parent app (e.g., exploratory sessions), return empty config
-	if session.ParentApp == "" {
-		log.Debug().Str("session_id", sessionID).Msg("Session has no parent app - returning empty Zed config")
-		zedConfig = &external_agent.ZedMCPConfig{
-			ContextServers: make(map[string]external_agent.ContextServerConfig),
-		}
-	} else {
-		// Get Helix config for app-based sessions
-		app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+	// Get app config - fall back to default if not found or not set
+	var app *types.App
+	if session.ParentApp != "" {
+		var err error
+		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
-			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - falling back to empty config")
-			// Fall back to empty config if app doesn't exist
-			zedConfig = &external_agent.ZedMCPConfig{
-				ContextServers: make(map[string]external_agent.ContextServerConfig),
-			}
-		} else {
-			helixAPIURL := apiServer.Cfg.WebServer.URL
-			if helixAPIURL == "" {
-				helixAPIURL = "http://api:8080"
-			}
-
-			helixToken := apiServer.Cfg.WebServer.RunnerToken
-			if helixToken == "" {
-				log.Warn().Msg("RUNNER_TOKEN not configured")
-			}
-
-			generatedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to generate Zed config")
-				return nil, system.NewHTTPError500("failed to generate Zed config")
-			}
-			zedConfig = generatedConfig
+			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - using default config")
+			app = nil
 		}
+	}
+
+	// If no app found, use a default app with sensible defaults
+	if app == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No parent app - using default Zed config with claude-sonnet")
+		app = &types.App{
+			ID:     "default-agent",
+			Config: types.AppConfig{},
+		}
+	}
+
+	// Use SANDBOX_API_URL for internal Docker network (what Zed inside sandbox uses)
+	helixAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
+	if helixAPIURL == "" {
+		helixAPIURL = "http://api:8080"
+	}
+
+	helixToken := apiServer.Cfg.WebServer.RunnerToken
+	if helixToken == "" {
+		log.Warn().Msg("RUNNER_TOKEN not configured")
+	}
+
+	// Always generate config - GenerateZedMCPConfig has sensible defaults
+	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate Zed config")
+		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
 
 	// Get user overrides
