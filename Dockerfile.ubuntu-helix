@@ -228,20 +228,8 @@ export QT_AUTO_SCREEN_SCALE_FACTOR=1
 export QT_ENABLE_HIGHDPI_SCALING=1
 export LC_ALL="en_US.UTF-8"
 
-# CRITICAL: Disable accessibility bridge to prevent MIT-SHM crashes
-# The AT-SPI bridge can trigger BadMatch errors during window compositing on Xwayland
+# Disable accessibility bridge (not needed in containers, reduces overhead)
 export NO_AT_BRIDGE=1
-
-# Disable Clutter remote desktop features that can conflict with Gamescope
-export MUTTER_DEBUG_DISABLE_HW_CURSORS=1
-
-# CRITICAL: Disable MIT-SHM (X11 shared memory) to prevent BadMatch crashes
-# GNOME Shell 48 on Xwayland crashes with MIT-SHM when windows are moved/resized
-# This forces software rendering for X11 pixmaps instead of shared memory
-export MUTTER_DEBUG_FORCE_FALLBACK=1
-
-# Disable XShm extension usage in GTK apps
-export GDK_DISABLE=vulkan
 
 # Use the display we set up in xorg.sh (DISPLAY=:9 matches Zorin's working config)
 export DISPLAY=:9
