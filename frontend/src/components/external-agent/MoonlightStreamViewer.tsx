@@ -103,9 +103,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (force ~1fps keyframes-only)
   // Low mode uses keyframes-only for corruption-free video at very low bandwidth (~1fps at GOP=60)
-  // Default to 'high' until DualStreamManager is fully tested
+  // DISABLED: Both 'adaptive' and 'low' modes are disabled until keyframes-only mode bug is fixed
+  // See design/2025-12-08-keyframes-only-mode-debugging.md for details
+  // To re-enable: uncomment the quality toggle button section below and restore the cycle logic
   const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
+  const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -1395,23 +1398,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title={streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
-          <IconButton
-            size="small"
-            onClick={() => {
-              // Toggle mode - the useEffect below will handle reconnection
-              setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
-            }}
-            sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
-          >
-            {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
-          </IconButton>
+        <Tooltip title={modeSwitchCooldown ? 'Please wait...' : streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+          <span>
+            <IconButton
+              size="small"
+              disabled={modeSwitchCooldown}
+              onClick={() => {
+                // Toggle mode with cooldown to prevent Wolf deadlock from rapid switching
+                setModeSwitchCooldown(true);
+                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+                setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
+              }}
+              sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
+            >
+              {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
+            </IconButton>
+          </span>
         </Tooltip>
+        {/* DISABLED: Quality mode toggle disabled until keyframes-only mode bug is fixed
+            See design/2025-12-08-keyframes-only-mode-debugging.md for details
+            To re-enable: uncomment this block and restore the cycle logic (adaptive -> high -> low -> adaptive)
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
-              qualityMode === 'adaptive'
-                ? 'Adaptive Quality — Auto-switches based on network'
+              modeSwitchCooldown
+                ? 'Please wait...'
+                : qualityMode === 'adaptive'
+                ? 'Adaptive Quality — Click for Force 60fps'
                 : qualityMode === 'high'
                 ? 'Force 60fps — Click for ~1fps (keyframes-only)'
                 : 'Force ~1fps (keyframes-only) — Click for Adaptive'
@@ -1419,22 +1432,29 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             arrow
             slotProps={{ popper: { sx: { zIndex: 10000 } } }}
           >
-            <IconButton
-              size="small"
-              onClick={() => {
-                // Cycle: adaptive -> high -> low -> adaptive
-                setQualityMode(prev =>
-                  prev === 'adaptive' ? 'high' : prev === 'high' ? 'low' : 'adaptive'
-                );
-              }}
-              sx={{
-                color: qualityMode === 'adaptive' ? 'primary.main' : qualityMode === 'low' ? '#ff9800' : 'white',
-              }}
-            >
-              <Speed fontSize="small" />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                disabled={modeSwitchCooldown}
+                onClick={() => {
+                  // Cycle: adaptive -> high -> low -> adaptive
+                  // With cooldown to prevent Wolf deadlock from rapid switching
+                  setModeSwitchCooldown(true);
+                  setQualityMode(prev =>
+                    prev === 'adaptive' ? 'high' : prev === 'high' ? 'low' : 'adaptive'
+                  );
+                  setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
+                }}
+                sx={{
+                  color: qualityMode === 'adaptive' ? 'primary.main' : qualityMode === 'low' ? '#ff9800' : 'white',
+                }}
+              >
+                <Speed fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
         )}
+        */}
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"

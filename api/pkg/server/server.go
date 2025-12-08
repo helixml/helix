@@ -125,6 +125,9 @@ type HelixAPIServer struct {
 	gitHTTPServer               *services.GitHTTPServer
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
+	// Rate limiting for streaming connections (prevents Wolf deadlock from rapid reconnects)
+	streamingRateLimiter        map[string]time.Time // session_id -> last connection time
+	streamingRateLimiterMutex   sync.RWMutex
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
 	projectInternalRepoService  *services.ProjectInternalRepoService
@@ -255,6 +258,7 @@ func NewServer(
 		sessionCommentQueue:        make(map[string][]string),
 		sessionCurrentComment:      make(map[string]string),
 		requestToCommenterMapping:  make(map[string]string),
+		streamingRateLimiter:       make(map[string]time.Time),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
