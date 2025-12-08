@@ -1084,7 +1084,9 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash string) ([]string, error) {
 	// Get the changed files in this commit on helix-specs branch
 	// Use diff-tree to see what files changed in the latest commit to helix-specs
-	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "helix-specs")
+	// The -m flag is CRITICAL for merge commits: without it, diff-tree only shows changes
+	// relative to the first parent, missing files merged from other branches
+	cmd := exec.Command("git", "diff-tree", "-m", "--no-commit-id", "--name-only", "-r", "helix-specs")
 	cmd.Dir = repoPath
 
 	output, err := cmd.CombinedOutput()
