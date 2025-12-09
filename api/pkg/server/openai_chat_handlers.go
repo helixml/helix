@@ -289,12 +289,28 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 	if err == nil {
 		return true
 	}
-	// Check for user-defined providers
+	// Check for user-defined providers (user's own)
 	_, err = s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
 		Name:  providerName,
 		Owner: ownerID,
 	})
-	return err == nil
+	if err == nil {
+		return true
+	}
+	// Check for admin-created global endpoints (owned by other users but endpoint_type = 'global')
+	// These are visible to all users but owned by the admin who created them
+	providers, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	})
+	if err == nil {
+		for _, p := range providers {
+			if p.Name == providerName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // findProviderWithModel searches all accessible providers for one that has the given model
