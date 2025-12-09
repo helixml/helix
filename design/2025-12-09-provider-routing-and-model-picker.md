@@ -33,10 +33,6 @@ if providerFromModel != "" {
 2. **System-owned providers**: Stored in DB with `owner=system` (from env vars)
 3. **User-defined providers**: Custom endpoints owned by the requesting user
 
-### Key Finding
-
-The provider lookup is **case-sensitive**. If the model prefix is `Nebius` but the provider is stored as `nebius`, it won't match. This could cause routing failures.
-
 ---
 
 ## Provider Endpoint Types (Architecture)
@@ -382,12 +378,65 @@ Updated the provider edit dialog to allow name changes. This required both backe
 
 ---
 
+## Issue 5: Background Model Cache Refresh
+
+### Problem
+
+The `findProviderWithModel()` function relies on cached model lists to correctly handle HuggingFace-style model IDs. However, the cache was only populated when:
+1. A user opened the model picker in the UI (calls `/api/v1/provider-endpoints?with_models=true`)
+2. The cache hadn't expired (TTL: 1 minute by default)
+
+This created a gap for:
+- **API-only clients** (like Qwen Coder hitting the Helix OpenAI endpoint directly) - never triggered cache population
+- **Server restarts** - cache would be empty until a UI user opened the model picker
+- **Providers coming back online** - if a provider was down at startup, its models wouldn't be cached
+
+### Implemented Fix
+
+Added `StartModelCacheRefresh()` function that runs as a background goroutine:
+
+```go
+// Runs immediately on startup, then periodically based on ModelsCacheTTL
+func (s *HelixAPIServer) StartModelCacheRefresh(ctx context.Context)
+
+// Called by StartModelCacheRefresh to refresh all provider model lists
+func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context)
+```
+
+**Behavior:**
+1. Runs immediately on server startup
+2. Runs periodically (interval = max(ModelsCacheTTL, 30s))
+3. Fetches model lists from all providers (global env-var providers + database providers)
+4. Caches results with TTL
+5. Handles errors gracefully (logs and continues if a provider is down)
+6. Logs success/error counts for monitoring
+
+**Log output example:**
+```
+starting background model cache refresh                    refresh_interval=1m0s
+completed model cache refresh                              success_count=3 error_count=1 duration=2.5s
+```
+
+### Files Modified
+
+- `api/pkg/server/provider_handlers.go` - Added `StartModelCacheRefresh()` and `refreshAllProviderModels()`
+- `api/pkg/server/server.go` - Call `StartModelCacheRefresh()` on server startup
+
+---
+
+## Summary
+
+All issues have been addressed:
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| Issue 1 | `isKnownProvider` didn't check admin-created global providers | ✅ Fixed |
+| Issue 2 | Model picker shows duplicate model names without provider distinction | ✅ Fixed (provider chip added) |
+| Issue 3 | HuggingFace model IDs incorrectly parsed as provider prefixes | ✅ Fixed (`findProviderWithModel()`) |
+| Issue 4 | Provider edit dialog cannot change name | ✅ Fixed |
+| Issue 5 | Model cache only populated on UI access | ✅ Fixed (background refresh) |
+
 ## Next Steps
 
-1. [x] ~~Investigate provider access control in model routing (Issue 1)~~ - Clarified: issue was HF model ID collision, not visibility
-2. [x] ~~Fix HF model ID prefix collision (Issue 3)~~ - Implemented `findProviderWithModel()` to check cached model lists first
-3. [x] ~~Audit `isKnownProvider` for case sensitivity issues~~ - Not needed, case sensitivity is intentional
-4. [x] ~~Design model picker UI changes (Issue 2)~~ - Added provider chip to model list items
-5. [x] ~~Ensure model list API returns provider information~~ - Already returns provider info via `available_models`
-6. [x] ~~Fix provider edit dialog to allow name changes (Issue 4)~~ - Added editable name field with duplicate validation
-7. [ ] Deploy `feature/clone-task-across-projects` after testing
+1. [ ] Deploy and test changes in staging
+2. [ ] Monitor logs for `completed model cache refresh` to verify background task is running
