@@ -29,6 +29,8 @@ import GitHubIcon from '@mui/icons-material/GitHub'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
 import CommentIcon from '@mui/icons-material/Comment'
+import ShareIcon from '@mui/icons-material/Share'
+import CheckIcon from '@mui/icons-material/Check'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -135,6 +137,7 @@ export default function DesignReviewViewer({
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(new Set(['requirements']))
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(new Map())
 
   // Refs for positioning
@@ -207,6 +210,15 @@ export default function DesignReviewViewer({
     if (documentRef.current) {
       documentRef.current.scrollTop = 0
     }
+  }
+
+  // Handle share link - copy shareable URL to clipboard
+  const handleShareLink = () => {
+    const shareUrl = `${window.location.origin}/design-doc/${specTaskId}/${reviewId}`
+    navigator.clipboard.writeText(shareUrl)
+    setShareLinkCopied(true)
+    setTimeout(() => setShareLinkCopied(false), 2000)
+    snackbar.success('Share link copied to clipboard')
   }
 
   // Debug logging
@@ -1049,6 +1061,13 @@ export default function DesignReviewViewer({
           </Box>
 
           <Box display="flex" alignItems="center" gap={1}>
+            {/* Share Link Button */}
+            <Tooltip title={shareLinkCopied ? 'Link copied!' : 'Copy shareable link'}>
+              <IconButton size="small" onClick={handleShareLink}>
+                {shareLinkCopied ? <CheckIcon color="success" /> : <ShareIcon />}
+              </IconButton>
+            </Tooltip>
+
             {/* Comment Log Toggle */}
             <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)}>
               <Badge badgeContent={activeDocComments.length} color="primary">
