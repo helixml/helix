@@ -28,6 +28,8 @@ import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
+import SaveIcon from '@mui/icons-material/Save'
+import CancelIcon from '@mui/icons-material/Cancel'
 import { TypesSpecTask } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -40,26 +42,34 @@ import { useGetSession } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
+import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
 interface SpecTaskDetailDialogProps {
   task: TypesSpecTask | null
   open: boolean
-  onClose: () => void
-  onEdit?: (task: TypesSpecTask) => void
+  onClose: () => void  
 }
 
 const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   task,
   open,
-  onClose,
-  onEdit,
+  onClose,  
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const streaming = useStreaming()
   const apps = useApps()
+  const updateSpecTask = useUpdateSpecTask()
+
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    description: '',
+    priority: '',
+  })
 
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState(task?.helix_app_id || '')
@@ -103,7 +113,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
-  const [refreshedTask, setRefreshedTask] = useState<TypesSpecTask | null>(task)
   const nodeRef = useRef(null)
 
   // Resize hook for window resizing
@@ -145,37 +154,25 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
 
-  // Poll for task updates to detect when spec_session_id is populated
-  useEffect(() => {
-    if (!task?.id) return
-
-    const pollTask = async () => {
-      try {
-        const response = await api.getApiClient().v1SpecTasksDetail(task.id!)
-        if (response.data) {
-          console.log('[SpecTaskDetailDialog] Polled task:', {
-            id: response.data.id,
-            status: response.data.status,
-            planning_session_id: response.data.planning_session_id,
-            has_session: !!response.data.planning_session_id
-          })
-          setRefreshedTask(response.data)
-        }
-      } catch (err) {
-        console.error('Failed to poll task:', err)
-      }
-    }
-
-    // Initial fetch
-    pollTask()
-
-    // Poll every 2 seconds
-    const interval = setInterval(pollTask, 2000)
-    return () => clearInterval(interval)
-  }, [task?.id])
+  // Use useSpecTask hook with auto-refresh, but disable when in edit mode
+  const { data: refreshedTask } = useSpecTask(task?.id || '', {
+    enabled: !!task?.id && open,
+    refetchInterval: isEditMode ? false : 2000,
+  })
 
   // Use refreshed task data for rendering
   const displayTask = refreshedTask || task
+
+  // Initialize edit form data when task changes or edit mode is enabled
+  useEffect(() => {
+    if (displayTask && isEditMode) {
+      setEditFormData({
+        name: displayTask.name || '',
+        description: displayTask.description || displayTask.original_prompt || '',
+        priority: displayTask.priority || 'medium',
+      })
+    }
+  }, [displayTask, isEditMode])
 
   // Get the active session ID (single session used for entire workflow)
   const activeSessionId = displayTask?.planning_session_id
@@ -369,8 +366,11 @@ I'll give you feedback and we can iterate on any changes needed.`
     setUpdatingJustDoIt(true)
 
     try {
-      await api.getApiClient().v1SpecTasksUpdate(task.id, {
-        just_do_it_mode: newValue,
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          just_do_it_mode: newValue,
+        },
       })
       setJustDoItMode(newValue)
       snackbar.success(newValue ? 'Just Do It mode enabled' : 'Just Do It mode disabled')
@@ -380,7 +380,7 @@ I'll give you feedback and we can iterate on any changes needed.`
     } finally {
       setUpdatingJustDoIt(false)
     }
-  }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
+  }, [task?.id, justDoItMode, updatingJustDoIt, updateSpecTask, snackbar])
 
   // Handle agent change and persist to backend
   const handleAgentChange = useCallback(async (newAgentId: string) => {
@@ -391,9 +391,12 @@ I'll give you feedback and we can iterate on any changes needed.`
     setSelectedAgent(newAgentId) // Optimistic update
 
     try {
-      await api.getApiClient().v1SpecTasksUpdate(task.id, {
-        helix_app_id: newAgentId,
-      } as any) // helix_app_id may need to be added to TypesSpecTaskUpdateRequest
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          helix_app_id: newAgentId,
+        },
+      })
       snackbar.success('Agent updated')
     } catch (err) {
       console.error('Failed to update agent:', err)
@@ -402,7 +405,45 @@ I'll give you feedback and we can iterate on any changes needed.`
     } finally {
       setUpdatingAgent(false)
     }
-  }, [task?.id, selectedAgent, updatingAgent, api, snackbar])
+  }, [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar])
+
+  // Handle edit mode toggle
+  const handleEditToggle = useCallback(() => {
+    setIsEditMode(true)
+  }, [])
+
+  // Handle cancel edit
+  const handleCancelEdit = useCallback(() => {
+    setIsEditMode(false)
+    if (displayTask) {
+      setEditFormData({
+        name: displayTask.name || '',
+        description: displayTask.description || displayTask.original_prompt || '',
+        priority: displayTask.priority || 'medium',
+      })
+    }
+  }, [displayTask])
+
+  // Handle save edit
+  const handleSaveEdit = useCallback(async () => {
+    if (!task?.id) return
+
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          name: editFormData.name,
+          description: editFormData.description,
+          priority: editFormData.priority,
+        },
+      })
+      setIsEditMode(false)
+      snackbar.success('Task updated successfully')
+    } catch (err) {
+      console.error('Failed to update task:', err)
+      snackbar.error('Failed to update task')
+    }
+  }, [task?.id, editFormData, updateSpecTask, snackbar])
 
   // Keyboard shortcuts for task actions (with Ctrl/Cmd modifiers to work while typing)
   useEffect(() => {
@@ -619,7 +660,7 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle">
+              <Typography variant="subtitle1">
                 {displayTask.name}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
@@ -653,11 +694,14 @@ I'll give you feedback and we can iterate on any changes needed.`
             >
               <GridViewOutlined sx={{ fontSize: 16 }} />
             </IconButton>
-            {onEdit && (
-              <IconButton size="small" onClick={() => onEdit(displayTask)} sx={{ padding: '4px' }}>
-                <EditIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            )}
+            <IconButton 
+              size="small" 
+              onClick={handleEditToggle} 
+              sx={{ padding: '4px' }}
+              title="Edit task"
+            >
+              <EditIcon sx={{ fontSize: 16 }} />
+            </IconButton>
             <IconButton size="small" onClick={onClose} sx={{ padding: '4px' }}>
               <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
@@ -681,7 +725,7 @@ I'll give you feedback and we can iterate on any changes needed.`
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <ExternalAgentDesktopViewer
                   sessionId={activeSessionId}
-                  height="100%"
+                  height={600}
                   mode="stream"
                   onClientIdCalculated={setClientUniqueId}
                 />
@@ -784,11 +828,11 @@ I'll give you feedback and we can iterate on any changes needed.`
                           setDesignReviewViewerOpen(true)
                         } else {
                           console.error('No design reviews found for task:', task.id)
-                          setSnackbar({ message: 'No design review found', severity: 'error' })
+                          snackbar.error('No design review found')
                         }
                       } catch (error) {
                         console.error('Failed to fetch design reviews:', error)
-                        setSnackbar({ message: 'Failed to load design review', severity: 'error' })
+                        snackbar.error('Failed to load design review')
                       }
                     }}
                   >
@@ -799,14 +843,68 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               <Divider sx={{ mb: 3 }} />
 
-              {/* Full Description/Prompt */}
+              {/* Edit Mode Controls */}
+              {isEditMode && (
+                <Box sx={{ mb: 3, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<CancelIcon />}
+                    onClick={handleCancelEdit}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<SaveIcon />}
+                    onClick={handleSaveEdit}
+                    disabled={updateSpecTask.isPending}
+                  >
+                    {updateSpecTask.isPending ? 'Saving...' : 'Save'}
+                  </Button>
+                </Box>
+              )}
+
+              {/* Task Name - Editable */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Name
+                </Typography>
+                {isEditMode ? (
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Task name"
+                  />
+                ) : (
+                  <Typography variant="body1">
+                    {displayTask.name || 'Unnamed task'}
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Full Description/Prompt - Editable */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description
                 </Typography>
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {displayTask.description || displayTask.original_prompt || 'No description provided'}
-                </Typography>
+                {isEditMode ? (
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Task description"
+                  />
+                ) : (
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {displayTask.description || displayTask.original_prompt || 'No description provided'}
+                  </Typography>
+                )}
               </Box>
 
               {/* Context (from metadata) */}
@@ -834,6 +932,32 @@ I'll give you feedback and we can iterate on any changes needed.`
               )}
 
               <Divider sx={{ my: 2 }} />
+
+              {/* Priority - Editable */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Priority
+                </Typography>
+                {isEditMode ? (
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={editFormData.priority}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                    >
+                      <MenuItem value="critical">Critical</MenuItem>
+                      <MenuItem value="high">High</MenuItem>
+                      <MenuItem value="medium">Medium</MenuItem>
+                      <MenuItem value="low">Low</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : (
+                  <Chip
+                    label={displayTask.priority || 'Medium'}
+                    color={getPriorityColor(displayTask.priority)}
+                    size="small"
+                  />
+                )}
+              </Box>
 
               {/* Labels */}
               {displayTask.labels && displayTask.labels.length > 0 && (
@@ -902,9 +1026,9 @@ I'll give you feedback and we can iterate on any changes needed.`
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Active Session ID: {activeSessionId}
                     </Typography>
-                    {displayTask.planning_session_id && displayTask.spec_session_id && (
+                    {displayTask.planning_session_id && (
                       <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', display: 'block', fontStyle: 'italic' }}>
-                        (using planning_session_id, spec_session_id also available)
+                        (using planning_session_id)
                       </Typography>
                     )}
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
@@ -979,7 +1103,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         }}
         taskId={task?.id || ''}
         taskName={task?.name || ''}
-        sessionId={task?.spec_session_id}
+        sessionId={task?.planning_session_id}
         onApprove={async () => {
           if (!task) return
           await api.getApiClient().v1SpecTasksApproveSpecsCreate(task.id!, {

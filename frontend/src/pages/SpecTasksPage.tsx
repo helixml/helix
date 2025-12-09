@@ -69,7 +69,6 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useSpecTasks } from '../hooks/useSpecTasks';
 import { useFloatingModal } from '../contexts/floatingModal';
 import EditIcon from '@mui/icons-material/Edit';
 import {
@@ -162,9 +161,6 @@ const SpecTasksPage: FC = () => {
   // Ref for task prompt text field to manually focus
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Data hooks
-  const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
-
   // Sort apps: project default first, then zed_external, then others
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
@@ -219,17 +215,7 @@ const SpecTasksPage: FC = () => {
 
   // Load tasks and apps on mount
   useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        const result = await api.getApiClient().v1SpecTasksList();
-        // The hook will handle updating the data automatically
-      } catch (error) {
-        console.error('Error loading spec tasks:', error);
-      }
-    };
-
     if (account.user?.id) {
-      loadTasks();
       apps.loadApps(); // Load available agents
     }
   }, []);
