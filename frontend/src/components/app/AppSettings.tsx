@@ -1182,25 +1182,6 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
       )}
-
-      {isAdmin && (
-        <Tooltip title="Make this app available to all users">
-          <FormGroup>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={global}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                    handleCheckboxChange('global', event.target.checked)
-                  }}
-                // Never disable global checkbox -- required for github apps and normal apps
-                />
-              }
-              label="Global?"
-            />
-          </FormGroup>
-        </Tooltip>
-      )}
     </Box>
   )
 }
