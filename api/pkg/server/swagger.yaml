@@ -1161,8 +1161,9 @@ definitions:
           type: string
         type: array
       priority:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPriority'
         description: '"low", "medium", "high", "critical"'
-        type: string
       prompt:
         description: Natural language request
         type: string
@@ -1371,7 +1372,7 @@ definitions:
       spec_revision_count:
         type: integer
       status:
-        type: string
+        $ref: '#/definitions/types.SpecTaskStatus'
       task_id:
         type: string
       technical_design:
@@ -1556,28 +1557,6 @@ definitions:
     - CoordinationEventTypeBroadcast
     - CoordinationEventTypeCompletion
     - CoordinationEventTypeSpawn
-  services.CreateTaskRequest:
-    properties:
-      app_id:
-        description: 'Optional: Helix agent to use for spec generation'
-        type: string
-      just_do_it_mode:
-        description: 'Optional: Skip spec planning, go straight to implementation'
-        type: boolean
-      priority:
-        type: string
-      project_id:
-        type: string
-      prompt:
-        type: string
-      type:
-        type: string
-      use_host_docker:
-        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
-        type: boolean
-      user_id:
-        type: string
-    type: object
   services.DocumentHandoffConfig:
     properties:
       auto_merge_approved_specs:
@@ -3250,6 +3229,28 @@ definitions:
       owner_id:
         type: string
       sample_type:
+        type: string
+    type: object
+  types.CreateTaskRequest:
+    properties:
+      app_id:
+        description: 'Optional: Helix agent to use for spec generation'
+        type: string
+      just_do_it_mode:
+        description: 'Optional: Skip spec planning, go straight to implementation'
+        type: boolean
+      priority:
+        $ref: '#/definitions/types.SpecTaskPriority'
+      project_id:
+        type: string
+      prompt:
+        type: string
+      type:
+        type: string
+      use_host_docker:
+        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
+        type: boolean
+      user_id:
         type: string
     type: object
   types.CreateTeamRequest:
@@ -6590,8 +6591,9 @@ definitions:
           The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       priority:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPriority'
         description: '"low", "medium", "high", "critical"'
-        type: string
       project_id:
         type: string
       project_path:
@@ -6610,8 +6612,9 @@ definitions:
       started_at:
         type: string
       status:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
-        type: string
       technical_design:
         description: Design document (markdown)
         type: string
@@ -7023,6 +7026,18 @@ definitions:
     - SpecTaskPhasePlanning
     - SpecTaskPhaseImplementation
     - SpecTaskPhaseValidation
+  types.SpecTaskPriority:
+    enum:
+    - low
+    - medium
+    - high
+    - critical
+    type: string
+    x-enum-varnames:
+    - SpecTaskPriorityLow
+    - SpecTaskPriorityMedium
+    - SpecTaskPriorityHigh
+    - SpecTaskPriorityCritical
   types.SpecTaskProgressResponse:
     properties:
       active_work_sessions:
@@ -7052,6 +7067,44 @@ definitions:
       spec_task:
         $ref: '#/definitions/types.SpecTask'
     type: object
+  types.SpecTaskStatus:
+    enum:
+    - backlog
+    - spec_generation
+    - spec_review
+    - spec_revision
+    - spec_approved
+    - implementation_queued
+    - implementation
+    - implementation_review
+    - done
+    - spec_failed
+    - implementation_failed
+    type: string
+    x-enum-comments:
+      TaskStatusBacklog: Initial state, waiting for spec generation
+      TaskStatusDone: Task completed
+      TaskStatusImplementation: Zed agent coding
+      TaskStatusImplementationFailed: Implementation failed
+      TaskStatusImplementationQueued: Waiting for Zed agent pickup
+      TaskStatusImplementationReview: Code review (PR created)
+      TaskStatusSpecApproved: Specs approved, ready for implementation
+      TaskStatusSpecFailed: Spec generation failed
+      TaskStatusSpecGeneration: Helix agent generating specs
+      TaskStatusSpecReview: Human reviewing generated specs
+      TaskStatusSpecRevision: Human requested spec changes
+    x-enum-varnames:
+    - TaskStatusBacklog
+    - TaskStatusSpecGeneration
+    - TaskStatusSpecReview
+    - TaskStatusSpecRevision
+    - TaskStatusSpecApproved
+    - TaskStatusImplementationQueued
+    - TaskStatusImplementation
+    - TaskStatusImplementationReview
+    - TaskStatusDone
+    - TaskStatusSpecFailed
+    - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
       description:
@@ -7065,9 +7118,9 @@ definitions:
       name:
         type: string
       priority:
-        type: string
+        $ref: '#/definitions/types.SpecTaskPriority'
       status:
-        type: string
+        $ref: '#/definitions/types.SpecTaskStatus'
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -7761,20 +7814,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -15001,7 +15054,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/services.CreateTaskRequest'
+          $ref: '#/definitions/types.CreateTaskRequest'
       produces:
       - application/json
       responses:
