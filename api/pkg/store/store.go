@@ -473,6 +473,13 @@ type Store interface {
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
 
+	// Clone Group methods
+	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
+	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
+	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
+	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+
 	// External Agent Activity methods (idle detection)
 	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
 	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)

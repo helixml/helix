@@ -697,6 +697,11 @@ export interface ServerPushPullResponse {
   success?: boolean;
 }
 
+export interface ServerQuickCreateProjectRequest {
+  name?: string;
+  repo_id?: string;
+}
+
 export interface ServerSampleProject {
   /** "web", "api", "mobile", "data", "ai" */
   category?: string;
@@ -1797,6 +1802,80 @@ export interface TypesClipboardData {
   data?: string;
   /** "text" or "image" */
   type?: string;
+}
+
+export interface TypesCloneGroup {
+  created_at?: string;
+  created_by?: string;
+  id?: string;
+  source_project_id?: string;
+  source_prompt?: string;
+  source_requirements_spec?: string;
+  source_task_id?: string;
+  source_task_name?: string;
+  source_technical_spec?: string;
+  total_targets?: number;
+}
+
+export interface TypesCloneGroupProgress {
+  clone_group_id?: string;
+  completed_tasks?: number;
+  progress_pct?: number;
+  source_task?: TypesCloneGroupSourceTask;
+  /** status -> count */
+  status_breakdown?: Record<string, number>;
+  tasks?: TypesCloneGroupTaskProgress[];
+  total_tasks?: number;
+}
+
+export interface TypesCloneGroupSourceTask {
+  name?: string;
+  project_id?: string;
+  project_name?: string;
+  task_id?: string;
+}
+
+export interface TypesCloneGroupTaskProgress {
+  name?: string;
+  project_id?: string;
+  project_name?: string;
+  status?: string;
+  task_id?: string;
+}
+
+export interface TypesCloneTaskCreateProjectSpec {
+  /** Optional, will use repo name if not provided */
+  name?: string;
+  repo_id?: string;
+}
+
+export interface TypesCloneTaskError {
+  error?: string;
+  project_id?: string;
+  repo_id?: string;
+}
+
+export interface TypesCloneTaskRequest {
+  /** Auto-start cloned tasks */
+  auto_start?: boolean;
+  /** Create new projects for repos */
+  create_projects?: TypesCloneTaskCreateProjectSpec[];
+  target_project_ids?: string[];
+}
+
+export interface TypesCloneTaskResponse {
+  clone_group_id?: string;
+  cloned_tasks?: TypesCloneTaskResult[];
+  errors?: TypesCloneTaskError[];
+  total_cloned?: number;
+  total_failed?: number;
+}
+
+export interface TypesCloneTaskResult {
+  project_id?: string;
+  /** "created", "started", "failed" */
+  status?: string;
+  task_id?: string;
 }
 
 export interface TypesCodeAgentConfig {
@@ -3827,6 +3906,12 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Git tracking */
   branch_name?: string;
+  /** Groups tasks from same clone operation */
+  clone_group_id?: string;
+  /** Clone tracking */
+  cloned_from_id?: string;
+  /** Original project */
+  cloned_from_project_id?: string;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
@@ -4531,12 +4616,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6047,6 +6132,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Get status breakdown and progress of all cloned tasks
+     *
+     * @tags CloneGroups
+     * @name V1CloneGroupsProgressDetail
+     * @summary Get progress of all tasks in a clone group
+     * @request GET:/api/v1/clone-groups/{groupId}/progress
+     * @secure
+     */
+    v1CloneGroupsProgressDetail: (groupId: string, params: RequestParams = {}) =>
+      this.request<TypesCloneGroupProgress, TypesAPIError>({
+        path: `/api/v1/clone-groups/${groupId}/progress`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -8145,6 +8248,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create a minimal project for a repository that doesn't have one
+     *
+     * @tags Projects
+     * @name V1ProjectsQuickCreateCreate
+     * @summary Quick-create a project for a repository
+     * @request POST:/api/v1/projects/quick-create
+     * @secure
+     */
+    v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, TypesAPIError>({
+        path: `/api/v1/projects/quick-create`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -8464,6 +8587,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get all repositories that don't have an associated project
+     *
+     * @tags Repositories
+     * @name V1RepositoriesWithoutProjectsList
+     * @summary List repositories without projects
+     * @request GET:/api/v1/repositories/without-projects
+     * @secure
+     */
+    v1RepositoriesWithoutProjectsList: (
+      query?: {
+        /** Filter by organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitRepository[], any>({
+        path: `/api/v1/repositories/without-projects`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -9596,6 +9744,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clone a spec task (with its prompt, spec, and plan) to other projects
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksCloneCreate
+     * @summary Clone a spec task to multiple projects
+     * @request POST:/api/v1/spec-tasks/{taskId}/clone
+     * @secure
+     */
+    v1SpecTasksCloneCreate: (taskId: string, request: TypesCloneTaskRequest, params: RequestParams = {}) =>
+      this.request<TypesCloneTaskResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/clone`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all clone groups where this task was the source
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksCloneGroupsDetail
+     * @summary List clone groups for a task
+     * @request GET:/api/v1/spec-tasks/{taskId}/clone-groups
+     * @secure
+     */
+    v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesCloneGroup[], any>({
+        path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
