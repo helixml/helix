@@ -592,7 +592,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 
 	// Check if design docs were pushed and extract which task IDs
-	pushedTaskIDs, err := s.getTaskIDsFromPushedDesignDocs(repoPath, latestCommitHash)
+	pushedTaskIDs, err := s.getTaskIDsFromPushedDesignDocs(ctx, repoPath, latestCommitHash)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
 		return
@@ -1117,7 +1117,8 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 
 // getTaskIDsFromPushedDesignDocs extracts task IDs from design docs that were pushed in this commit
 // Returns only the task IDs that actually had design docs pushed, not all tasks in the project
-func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash string) ([]string, error) {
+// Supports both old format (task ID in directory name) and new format (task number with DB lookup)
+func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(ctx context.Context, repoPath, commitHash string) ([]string, error) {
 	// Get the changed files in this commit on helix-specs branch
 	// Use diff-tree to see what files changed in the latest commit to helix-specs
 	// The -m flag is CRITICAL for merge commits: without it, diff-tree only shows changes
@@ -1133,10 +1134,13 @@ func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash stri
 
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
 	taskIDSet := make(map[string]bool)
+	// Track directory names that need DB lookup (new format with task numbers)
+	dirNamesNeedingLookup := make(map[string]bool)
 
 	// Parse task IDs from file paths
-	// Expected format: design/tasks/2025-11-12_task-name_<taskid>/requirements.md
-	// Task ID is the last component before the slash, typically 8-4-4-4-12 UUID format
+	// Supported formats:
+	// - Old format: design/tasks/2025-11-12_task-name_<taskid>/requirements.md (taskid is UUID or spt_*)
+	// - New format: design/tasks/2025-12-09_install-uv_1/requirements.md (ends with task NUMBER, not ID)
 	for _, file := range files {
 		if !strings.Contains(file, "design/tasks/") && !strings.Contains(file, "tasks/") {
 			continue
@@ -1158,41 +1162,80 @@ func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash stri
 			continue
 		}
 
-		taskID := dirName[lastUnderscore+1:]
+		lastPart := dirName[lastUnderscore+1:]
 
-		// Validate it looks like a valid task ID
+		// Validate it looks like a valid task ID (old format)
 		// Supported formats:
 		// 1. Current format: "spt_<ulid>", e.g., "spt_01jdfg5h2k3m4n5p6q7r8s9t0u"
 		//    Directory: 2025-11-12_task-name_spt_01jdfg5h2k3m4n5p6q7r8s9t0u
 		//    After last underscore we get just the ULID, need to look for "spt_" in dirName
 		// 2. Legacy UUID format: 8-4-4-4-12 (36 chars with dashes), e.g., "014930c9-3031-4bd0-b0cc-19741947665c"
 		// 3. Legacy timestamp format: "task_<nanoseconds>", e.g., "task_1764170879478485974"
-		isValidUUID := len(taskID) == 36 && strings.Count(taskID, "-") == 4
+		isValidUUID := len(lastPart) == 36 && strings.Count(lastPart, "-") == 4
+
+		taskID := lastPart
+		foundOldFormat := false
 
 		// For spt_ prefixed IDs, the directory name is like "2025-11-12_name_spt_<ulid>"
 		// After last underscore we get just the ULID, so we need to extract "spt_<ulid>" from dirName
-		if !isValidUUID && strings.Contains(dirName, "_spt_") {
+		if strings.Contains(dirName, "_spt_") {
 			sptIdx := strings.LastIndex(dirName, "_spt_")
 			if sptIdx != -1 {
 				taskID = dirName[sptIdx+1:] // +1 to skip the leading underscore, get "spt_<ulid>"
+				foundOldFormat = true
 			}
 		}
 
 		// For legacy task_ prefix format, extract the full task ID from directory name
-		if !isValidUUID && !strings.HasPrefix(taskID, "spt_") && strings.Contains(dirName, "task_") {
+		if !foundOldFormat && strings.Contains(dirName, "task_") {
 			taskPrefixIdx := strings.LastIndex(dirName, "task_")
 			if taskPrefixIdx != -1 {
 				taskID = dirName[taskPrefixIdx:]
+				foundOldFormat = true
 			}
 		}
 
-		// Accept current spt_ format, legacy UUID format, or legacy task_ prefix format
-		if strings.HasPrefix(taskID, "spt_") || isValidUUID || strings.HasPrefix(taskID, "task_") {
+		// Check if it's a valid old format
+		if foundOldFormat || isValidUUID {
 			taskIDSet[taskID] = true
 			log.Debug().
 				Str("file", file).
 				Str("task_id", taskID).
-				Msg("Extracted task ID from design doc path")
+				Msg("Extracted task ID from design doc path (old format)")
+		} else {
+			// New format: directory name ends with task number, not task ID
+			// Need to look up task by DesignDocPath
+			dirNamesNeedingLookup[dirName] = true
+			log.Debug().
+				Str("file", file).
+				Str("dir_name", dirName).
+				Msg("Directory needs DB lookup (new format with task number)")
+		}
+	}
+
+	// Look up tasks by DesignDocPath for new-format directories
+	for dirName := range dirNamesNeedingLookup {
+		tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			DesignDocPath:   dirName,
+			IncludeArchived: true, // Include all tasks
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("design_doc_path", dirName).
+				Msg("Failed to look up task by DesignDocPath")
+			continue
+		}
+		if len(tasks) > 0 {
+			taskIDSet[tasks[0].ID] = true
+			log.Debug().
+				Str("design_doc_path", dirName).
+				Str("task_id", tasks[0].ID).
+				Msg("Found task ID via DesignDocPath lookup")
+		} else {
+			log.Warn().
+				Str("design_doc_path", dirName).
+				Msg("No task found for DesignDocPath")
 		}
 	}
 
