@@ -35,7 +35,7 @@ type Client struct {
 // NewClient creates a new RevDial client
 func NewClient(config *ClientConfig) *Client {
 	if config.ReconnectDelay == 0 {
-		config.ReconnectDelay = 5 * time.Second
+		config.ReconnectDelay = 1 * time.Second
 	}
 	return &Client{config: config}
 }
@@ -134,7 +134,7 @@ func (c *Client) runConnection(ctx context.Context) error {
 
 	// Start ping keepalive goroutine to keep connection alive through proxies/load balancers
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
