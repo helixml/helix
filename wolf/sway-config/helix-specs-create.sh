@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# helix-specs-create.sh - Create helix-specs orphan branch in a Git repository
+# helix-specs-create.sh - Git helper functions for Helix workspace setup
 #
 # This script is sourced by start-zed-helix.sh and tested by test-helix-specs-creation.sh.
 # The logic handles various edge cases:
@@ -8,18 +8,56 @@
 # - Detached HEAD state
 # - Dirty working directory (uncommitted changes)
 # - Non-standard default branches (main vs master)
+# - Azure DevOps repos that don't set refs/remotes/origin/HEAD
 #
 # Usage:
 #   source helix-specs-create.sh
+#   DEFAULT_BRANCH=$(get_default_branch "/path/to/repo")
 #   create_helix_specs_branch "/path/to/repo"
 #
 # Returns:
-#   Sets HELIX_SPECS_BRANCH_EXISTS=true if branch exists or was created
-#   Sets HELIX_SPECS_BRANCH_EXISTS=false if creation failed
+#   get_default_branch: Outputs the default branch name to stdout
+#   create_helix_specs_branch: Sets HELIX_SPECS_BRANCH_EXISTS=true/false
 #
 # Testing:
 #   Run tests with: ./test-helix-specs-creation.sh
 #   Tests verify all edge cases work correctly.
+
+# Get the default branch for a repository
+# Handles Azure DevOps repos that don't set refs/remotes/origin/HEAD
+# Arguments:
+#   $1 - Path to the git repository
+# Output:
+#   Prints the default branch name to stdout
+get_default_branch() {
+    local REPO_PATH="$1"
+    local BRANCH=""
+
+    if [ -z "$REPO_PATH" ] || [ ! -d "$REPO_PATH/.git" ]; then
+        echo "main"
+        return
+    fi
+
+    # Try to get default branch from symbolic ref (GitHub sets this)
+    BRANCH=$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+
+    # If that fails (Azure DevOps often doesn't set this), check for common branch names
+    if [ -z "$BRANCH" ]; then
+        if git -C "$REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
+            BRANCH="main"
+        elif git -C "$REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
+            BRANCH="master"
+        else
+            # Check current branch as fallback (for empty repos)
+            BRANCH=$(git -C "$REPO_PATH" branch --show-current 2>/dev/null)
+            if [ -z "$BRANCH" ]; then
+                BRANCH="main"  # Last resort
+            fi
+        fi
+    fi
+
+    echo "$BRANCH"
+}
 
 # Create helix-specs orphan branch if it doesn't exist
 # Arguments:
@@ -82,21 +120,8 @@ create_helix_specs_branch() {
     fi
 
     # Detect the default branch from remote (could be main or master)
-    # For empty repos, there may be no remote branches yet
-    local REPO_DEFAULT_BRANCH=$(git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    if [ -z "$REPO_DEFAULT_BRANCH" ]; then
-        # Fallback: try main first, then master on remote
-        if git -C "$REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
-            REPO_DEFAULT_BRANCH="main"
-        elif git -C "$REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
-            REPO_DEFAULT_BRANCH="master"
-        elif [ -n "$CURRENT_BRANCH" ]; then
-            # Empty repo - use current branch (what git clone created)
-            REPO_DEFAULT_BRANCH="$CURRENT_BRANCH"
-        else
-            REPO_DEFAULT_BRANCH="main"  # Last resort fallback
-        fi
-    fi
+    # Uses shared get_default_branch function that handles Azure DevOps repos
+    local REPO_DEFAULT_BRANCH=$(get_default_branch "$REPO_PATH")
 
     echo "  Current branch: ${CURRENT_BRANCH:-detached}, will return to: $REPO_DEFAULT_BRANCH"
 
