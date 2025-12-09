@@ -61,6 +61,8 @@ import CommentLogSidebar from './CommentLogSidebar'
 import ReviewActionFooter from './ReviewActionFooter'
 import ReviewSubmitDialog from './ReviewSubmitDialog'
 import RejectDesignDialog from './RejectDesignDialog'
+import { useSpecTask } from '../../services/specTaskService'
+import { TypesSpecTaskStatus } from '../../api/api'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -144,6 +146,10 @@ export default function DesignReviewViewer({
   const documentRef = useRef<HTMLDivElement>(null)
   const markdownRef = useRef<HTMLDivElement>(null)
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const { data: task } = useSpecTask(specTaskId, {
+    enabled: !!specTaskId && open,    
+  })
 
   // First fetch comments to know if we should poll for review updates
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId, {
@@ -1386,7 +1392,7 @@ export default function DesignReviewViewer({
         </Box>
 
         {/* Global Review Actions Footer */}
-        {review && (
+        {review && task?.status !== TypesSpecTaskStatus.TaskStatusDone && (
           <ReviewActionFooter
             reviewStatus={review.status}
             unresolvedCount={unresolvedCount}
