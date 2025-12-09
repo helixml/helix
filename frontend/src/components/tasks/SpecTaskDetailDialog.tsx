@@ -30,7 +30,7 @@ import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
-import { TypesSpecTask } from '../../api/api'
+import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
@@ -434,7 +434,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         updates: {
           name: editFormData.name,
           description: editFormData.description,
-          priority: editFormData.priority,
+          priority: editFormData.priority as TypesSpecTaskPriority,
         },
       })
       setIsEditMode(false)
@@ -719,7 +719,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                 >
                   <GridViewOutlined sx={{ fontSize: 16 }} />
                 </IconButton>
-                {displayTask.status === 'backlog' && (
+                {displayTask.status === TypesSpecTaskStatus.TaskStatusBacklog && (
                   <IconButton 
                     size="small" 
                     onClick={handleEditToggle} 
@@ -941,32 +941,39 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               {/* Priority - Editable */}
               <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Priority
-                </Typography>
                 {isEditMode ? (
                   <FormControl fullWidth size="small">
+                    <InputLabel>Priority</InputLabel>
                     <Select
                       value={editFormData.priority}
                       onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                      label="Priority"
+                      MenuProps={{ sx: { zIndex: 100001 } }}
                     >
-                      <MenuItem value="critical">Critical</MenuItem>
-                      <MenuItem value="high">High</MenuItem>
-                      <MenuItem value="medium">Medium</MenuItem>
-                      <MenuItem value="low">Low</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>Critical</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>High</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>Medium</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>Low</MenuItem>
                     </Select>
                   </FormControl>
                 ) : (
-                  <Chip
-                    label={displayTask.priority || 'Medium'}
-                    color={getPriorityColor(displayTask.priority)}
-                    size="small"
-                  />
+                  <>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Priority
+                    </Typography>
+                    <Chip
+                      label={displayTask.priority || 'Medium'}
+                      color={getPriorityColor(displayTask.priority)}
+                      size="small"
+                    />
+                  </>
                 )}
               </Box>
 
-              {/* Labels */}
-              {displayTask.labels && displayTask.labels.length > 0 && (
+              {/* Labels 
+              TODO: show once we can create/update them
+              */}
+              {/* {displayTask.labels && displayTask.labels.length > 0 && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                     Labels
@@ -977,7 +984,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                     ))}
                   </Box>
                 </Box>
-              )}
+              )} */}
 
               {/* Estimated Hours */}
               {displayTask.estimated_hours && (
@@ -998,6 +1005,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                     label="Agent"
                     disabled={updatingAgent}
                     endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
+                    MenuProps={{ sx: { zIndex: 100001 } }}
                   >
                     {sortedApps.map((app) => (
                       <MenuItem key={app.id} value={app.id}>
