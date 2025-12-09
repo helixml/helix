@@ -96,6 +96,24 @@ If the provider needs to be globally available:
 
 The error message was misleading - it only listed static global clients (`helix`), not database providers. Fixed in commit `23564fb13` to include all providers that were actually checked.
 
+### Critical Bug: `isKnownProvider` Didn't Check Admin-Created Global Providers
+
+**Root Cause Found:** The `isKnownProvider` function only checked:
+1. Static global providers (openai, togetherai, anthropic, helix, vllm)
+2. System-owned providers (`Owner = 'system'`)
+3. User's OWN providers (`Owner = current_user_id`)
+
+It did NOT check for admin-created global providers where `Owner = other_user_id` and `endpoint_type = 'global'`.
+
+**Why "enqueuing" error occurred:**
+1. Request with model `Qwen/Qwen3-Coder-30B...`
+2. `isKnownProvider("Qwen", achraf_user_id)` returned FALSE (Issam's global provider not found)
+3. Provider defaulted to `helix` (local scheduler)
+4. Helix scheduler tried to look up `Qwen/...` in local model store
+5. Model not found → "error enqueuing request: error getting model: not found"
+
+**Fix:** Updated `isKnownProvider` to also check `ListProviderEndpoints` with `WithGlobal: true`, which includes admin-created global providers regardless of owner.
+
 ---
 
 ## Issue 2: Advanced Model Picker - Duplicate Model Names
