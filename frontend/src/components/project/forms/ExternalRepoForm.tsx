@@ -78,12 +78,12 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
       />
 
       <TextField
-        label="Repository Name (optional)"
+        label="Display Name in Helix (optional)"
         fullWidth
         size={size}
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
-        helperText="Leave empty to auto-detect from URL"
+        helperText="Name shown in Helix. Leave empty to use the repository name from the URL."
       />
 
       {type === TypesExternalRepositoryType.ExternalRepositoryTypeADO ? (

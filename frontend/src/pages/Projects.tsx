@@ -200,9 +200,11 @@ const Projects: FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       return response.data
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to link repository:', error)
-      return null
+      // Re-throw with the actual error message so the dialog can display it
+      const message = error?.response?.data?.message || error?.response?.data || error?.message || 'Failed to link repository'
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
     }
   }
 
