@@ -78,7 +78,7 @@ import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
 import { TypesExternalRepositoryType } from '../api/api'
 
-const TAB_NAMES = ['code-intelligence', 'code', 'settings', 'access', 'commits', 'pull-requests'] as const
+const TAB_NAMES = ['code', 'code-intelligence', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -646,19 +646,19 @@ const GitRepoDetail: FC = () => {
               const tabName = newValue as TabName
               setCurrentTab(tabName)
               router.mergeParams({ tab: tabName })
-            }}>
-              <Tab
-                value="code-intelligence"
-                icon={<Brain size={16} />}
-                iconPosition="start"
-                label="Code Intelligence"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
+            }}>              
               <Tab
                 value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                value="code-intelligence"
+                icon={<Brain size={16} />}
+                iconPosition="start"
+                label="Code Intelligence"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
