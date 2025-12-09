@@ -141,7 +141,7 @@ export function useListRepositoryCommits(
   });
 }
 
-export function useListRepositoryPullRequests(repositoryId: string) {
+export function useListRepositoryPullRequests(repositoryId: string, options?: { enabled?: boolean }) {
   const api = useApi();
 
   return useQuery({
@@ -150,7 +150,7 @@ export function useListRepositoryPullRequests(repositoryId: string) {
       const response = await api.getApiClient().listGitRepositoryPullRequests(repositoryId);
       return response.data;
     },
-    enabled: !!repositoryId,
+    enabled: options?.enabled !== false && !!repositoryId,
   });
 }
 
