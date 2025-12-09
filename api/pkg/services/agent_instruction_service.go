@@ -168,7 +168,7 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 
 	promptBuilder += "---\n\n"
 	promptBuilder += fmt.Sprintf("If changes are needed, update /home/retro/work/helix-specs/design/tasks/%s/ and push:\n", taskDirName)
-	promptBuilder += fmt.Sprintf("```bash\ncd /home/retro/work/helix-specs && git add -A && git commit -m \"Address feedback\" && git push origin helix-specs\n```\n", taskDirName)
+	promptBuilder += "```bash\ncd /home/retro/work/helix-specs && git add -A && git commit -m \"Address feedback\" && git push origin helix-specs\n```\n"
 
 	return promptBuilder
 }

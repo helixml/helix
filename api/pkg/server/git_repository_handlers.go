@@ -1191,6 +1191,16 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return
 	}
 
+	err = s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false)
+	if err != nil {
+		log.Error().Err(err).
+			Str("repo_id", repoID).
+			Str("branch", request.SourceBranch).
+			Msg("Failed to push branch to remote")
+		http.Error(w, fmt.Sprintf("Failed to push branch to remote: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
 	if err != nil {
 		log.Error().Err(err).
