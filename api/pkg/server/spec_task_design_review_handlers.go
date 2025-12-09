@@ -227,12 +227,14 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
 
-		// Get base branch for implementation
+		// Get base branch and primary repo name for implementation
 		var baseBranch string
+		var primaryRepoName string
 		if project.DefaultRepoID != "" {
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
 				baseBranch = repo.DefaultBranch
+				primaryRepoName = repo.Name
 			}
 		}
 		if baseBranch == "" {
@@ -263,7 +265,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// Send implementation instruction to agent via WebSocket
 		// This sends the detailed prompt with tasks.md progress tracking instructions
 		go func() {
-			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch)
+			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch, primaryRepoName)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -1176,12 +1178,13 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	specTask *types.SpecTask,
 	branchName string,
 	baseBranch string,
+	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
 	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
 
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {

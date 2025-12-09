@@ -43,12 +43,12 @@ Speak English.
 
 ## CRITICAL: Where To Work
 
-ALL work happens in ~/work/. No other paths.
+ALL work happens in /home/retro/work/. No other paths.
 
-- ~/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
-- ~/work/<repo>/ = Code repos (don't touch these - implementation happens later)
+- /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
+- /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 
-Your task directory: ~/work/helix-specs/design/tasks/%[5]s/
+Your task directory: /home/retro/work/helix-specs/design/tasks/%[5]s/
 
 ## CRITICAL: What To Create
 
@@ -67,13 +67,13 @@ Match solution complexity to task complexity:
 ## Git Workflow
 
 %[1]sbash
-cd ~/work/helix-specs
+cd /home/retro/work/helix-specs
 mkdir -p design/tasks/%[5]s
 cd design/tasks/%[5]s
 
 # Create requirements.md, design.md, tasks.md here
 
-cd ~/work/helix-specs
+cd /home/retro/work/helix-specs
 git add -A && git commit -m "Design docs for %[8]s" && git push origin helix-specs
 %[1]s
 

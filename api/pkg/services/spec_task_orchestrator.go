@@ -528,7 +528,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	if len(projectRepos) > 0 {
 		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
 		for _, repo := range projectRepos {
-			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repo.Name)
+			repoInstructions += fmt.Sprintf("- `%s` at `/home/retro/work/%s`\n", repo.Name, repo.Name)
 		}
 		repoInstructions += "\n"
 	}
@@ -560,15 +560,15 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("Understand the current architecture, patterns, and conventions before designing new features.\n\n")
 	promptBuilder.WriteString("**Step 2: Navigate to the design docs directory**\n\n")
 	promptBuilder.WriteString("The helix-specs git worktree is already set up at:\n")
-	promptBuilder.WriteString("`~/work/helix-specs`\n\n")
+	promptBuilder.WriteString("`/home/retro/work/helix-specs`\n\n")
 	promptBuilder.WriteString("Create a dated task directory and navigate to it:\n\n")
 	promptBuilder.WriteString("```bash\n")
-	promptBuilder.WriteString("cd ~/work/helix-specs/tasks\n")
+	promptBuilder.WriteString("cd /home/retro/work/helix-specs/tasks\n")
 	promptBuilder.WriteString(fmt.Sprintf("mkdir -p %s\n", taskDirName))
 	promptBuilder.WriteString(fmt.Sprintf("cd %s\n", taskDirName))
 	promptBuilder.WriteString("```\n\n")
 	promptBuilder.WriteString("**Step 3: Create design documents**\n\n")
-	promptBuilder.WriteString("Write these markdown files in `~/work/helix-specs/tasks/` (the current directory):\n\n")
+	promptBuilder.WriteString("Write these markdown files in `/home/retro/work/helix-specs/tasks/` (the current directory):\n\n")
 	promptBuilder.WriteString("1. **requirements.md** - User stories + EARS acceptance criteria\n")
 	promptBuilder.WriteString("2. **design.md** - Architecture, diagrams, data models\n")
 	promptBuilder.WriteString("3. **tasks.md** - Implementation tasks with [ ]/[~]/[x] markers\n")
@@ -582,7 +582,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("```\n\n")
 	promptBuilder.WriteString("The helix-specs branch is **forward-only** (never rolled back).\n")
 	promptBuilder.WriteString("Pushing to upstream is how the Helix UI retrieves your design docs to display to the user.\n\n")
-	promptBuilder.WriteString("**All work persists in `~/work/` across sessions.**")
+	promptBuilder.WriteString("**All work persists in `/home/retro/work/` across sessions.**")
 
 	return promptBuilder.String()
 }
