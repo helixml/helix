@@ -79,7 +79,7 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
-import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../api/api';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -418,9 +418,9 @@ const SpecTasksPage: FC = () => {
 
       // Create SpecTask with simplified single-field approach
       // Repository configuration is managed at the project level - no task-level repo selection
-      const createTaskRequest: ServicesCreateTaskRequest = {
+      const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt, // Just the raw user input!
-        priority: taskPriority,
+        priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
