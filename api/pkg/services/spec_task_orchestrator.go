@@ -533,13 +533,11 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 		repoInstructions += "\n"
 	}
 
-	// Generate task directory name
-	dateStr := time.Now().Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
+	// Use DesignDocPath if set (new human-readable format), fall back to task ID
+	taskDirName := task.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = task.ID // Backwards compatibility for old tasks
 	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
 	// Build planning prompt using string builder to avoid nested backticks
 	var promptBuilder strings.Builder
@@ -577,7 +575,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("This is **CRITICAL** - you must commit and then push to get design docs back to Helix:\n\n")
 	promptBuilder.WriteString("```bash\n")
 	promptBuilder.WriteString("git add .\n")
-	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", sanitizedName))
+	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", task.Name))
 	promptBuilder.WriteString("git push origin helix-specs\n")
 	promptBuilder.WriteString("```\n\n")
 	promptBuilder.WriteString("The helix-specs branch is **forward-only** (never rolled back).\n")

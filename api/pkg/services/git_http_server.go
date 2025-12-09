@@ -686,6 +686,13 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		Str("commit", commitHash).
 		Msg("Auto-creating/updating design review for pushed design docs")
 
+	// Get task to find DesignDocPath for directory lookup
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get task for design review")
+		return
+	}
+
 	// List all files in helix-specs branch to find task directory
 	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
 	cmd.Dir = repoPath
@@ -698,16 +705,33 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		return
 	}
 
-	// Find task directory by searching for task ID in file paths
+	// Find task directory - first try DesignDocPath, then fall back to specTaskID
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var taskDir string
-	for _, file := range files {
-		if strings.Contains(file, specTaskID) {
-			// Extract directory path (e.g., design/tasks/2025-11-11_..._taskid/)
-			parts := strings.Split(file, "/")
-			if len(parts) >= 3 {
-				taskDir = strings.Join(parts[:len(parts)-1], "/")
-				break
+
+	// First try DesignDocPath (new human-readable format)
+	if task.DesignDocPath != "" {
+		for _, file := range files {
+			if strings.Contains(file, task.DesignDocPath) {
+				parts := strings.Split(file, "/")
+				if len(parts) >= 3 {
+					taskDir = strings.Join(parts[:len(parts)-1], "/")
+					break
+				}
+			}
+		}
+	}
+
+	// Fall back to specTaskID for backwards compatibility
+	if taskDir == "" {
+		for _, file := range files {
+			if strings.Contains(file, specTaskID) {
+				// Extract directory path (e.g., design/tasks/2025-11-11_..._taskid/)
+				parts := strings.Split(file, "/")
+				if len(parts) >= 3 {
+					taskDir = strings.Join(parts[:len(parts)-1], "/")
+					break
+				}
 			}
 		}
 	}

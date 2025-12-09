@@ -40,6 +40,10 @@ type Project struct {
 	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
 
+	// Auto-incrementing task number for human-readable directory names
+	// Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
+	NextTaskNumber int `json:"next_task_number" gorm:"default:1"`
+
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
 	DeletedAt gorm.DeletedAt  `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp

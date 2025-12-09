@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -13,13 +12,11 @@ import (
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
 func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
-	// Generate task directory name
-	dateStr := time.Now().Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.Name)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
+	// Use DesignDocPath if set (new human-readable format), fall back to task ID
+	taskDirName := task.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = task.ID // Backwards compatibility for old tasks
 	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
 	// Build guidelines section if provided
 	guidelinesSection := ""

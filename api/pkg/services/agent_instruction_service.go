@@ -25,18 +25,20 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 	}
 }
 
+// getTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
+func getTaskDirName(task *types.SpecTask) string {
+	if task.DesignDocPath != "" {
+		return task.DesignDocPath
+	}
+	return task.ID // Backwards compatibility for old tasks
+}
+
 // BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
 // guidelines contains concatenated organization + project guidelines (can be empty)
 // primaryRepoName is the name of the primary project repository (e.g., "my-app")
 func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
 	guidelinesSection := ""
@@ -132,13 +134,7 @@ Example additions to design.md:
 // BuildCommentPrompt builds a prompt for sending a design review comment to an agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := specTask.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(specTask.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, specTask.ID)
+	taskDirName := getTaskDirName(specTask)
 
 	// Map document types to readable labels
 	documentTypeLabels := map[string]string{
@@ -179,13 +175,7 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 // BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+	taskDirName := getTaskDirName(task)
 
 	return fmt.Sprintf(`# Implementation Ready for Review
 
@@ -203,13 +193,7 @@ If this is a web app, please start the dev server and provide the URL.
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+	taskDirName := getTaskDirName(task)
 
 	return fmt.Sprintf(`# Changes Requested
 

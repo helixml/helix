@@ -548,6 +548,22 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 	return nil
 }
 
+// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+// Uses raw SQL with RETURNING for database-level atomicity - no race conditions
+func (s *PostgresStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
+	var newNumber int
+	err := s.gdb.WithContext(ctx).Raw(`
+		UPDATE projects
+		SET next_task_number = next_task_number + 1
+		WHERE id = ?
+		RETURNING next_task_number
+	`, projectID).Scan(&newNumber).Error
+	if err != nil {
+		return 0, fmt.Errorf("error incrementing project task number: %w", err)
+	}
+	return newNumber, nil
+}
+
 // ListProjects lists all projects for a given user
 func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
 	var projects []*types.Project

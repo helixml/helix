@@ -247,6 +247,23 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting spec generation")
 
+	// Assign task number and design doc path if not already set
+	if task.TaskNumber == 0 && task.ProjectID != "" {
+		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			// Fallback: use a hash of task ID for uniqueness
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		log.Info().
+			Str("task_id", task.ID).
+			Int("task_number", taskNumber).
+			Str("design_doc_path", task.DesignDocPath).
+			Msg("Assigned task number and design doc path")
+	}
+
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
 		delete(task.Metadata, "error")
@@ -492,6 +509,22 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Str("original_prompt", task.OriginalPrompt).
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting Just Do It mode - skipping spec generation")
+
+	// Assign task number and design doc path if not already set
+	if task.TaskNumber == 0 && task.ProjectID != "" {
+		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		log.Info().
+			Str("task_id", task.ID).
+			Int("task_number", taskNumber).
+			Str("design_doc_path", task.DesignDocPath).
+			Msg("Assigned task number and design doc path")
+	}
 
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
