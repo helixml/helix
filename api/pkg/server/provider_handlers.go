@@ -517,6 +517,24 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	// Preserve ID and ownership information
+	// Update name if provided and different from existing
+	if updatedEndpoint.Name != "" && updatedEndpoint.Name != existingEndpoint.Name {
+		newName := strings.TrimSpace(updatedEndpoint.Name)
+		// Check for duplicate names with other providers
+		existingProviders, err := s.providerManager.ListProviders(ctx, existingEndpoint.Owner)
+		if err != nil {
+			log.Err(err).Msg("error listing providers for name validation")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, provider := range existingProviders {
+			if string(provider) == newName {
+				http.Error(rw, fmt.Sprintf("Provider with name '%s' already exists", newName), http.StatusBadRequest)
+				return
+			}
+		}
+		existingEndpoint.Name = newName
+	}
 	existingEndpoint.Description = updatedEndpoint.Description
 	existingEndpoint.Models = updatedEndpoint.Models
 	existingEndpoint.BaseURL = strings.TrimSpace(updatedEndpoint.BaseURL)

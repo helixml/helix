@@ -140,11 +140,36 @@ This makes it visually unambiguous which field is the provider and which is the 
 3. **Selection value** - Store both provider and model in the selection
 4. **Backwards compatibility** - Existing saved selections without provider prefix
 
-### Files to Investigate
+### Implemented Fix
 
-- Frontend model picker component
-- `api/pkg/server/provider_handlers.go` - Model list endpoints
-- `api/pkg/types/models.go` - Model types
+**Commit:** `feature/clone-task-across-projects` branch
+
+Modified `AdvancedModelPicker.tsx` to show provider as a prominent chip/badge next to the model name:
+
+**Before:**
+```
+[Provider Icon] gpt-4o
+               openai (small secondary text)
+```
+
+**After:**
+```
+[Provider Icon] [openai] gpt-4o
+                description (if any)
+                pricing info (if available)
+```
+
+Changes:
+1. Added a `<Chip>` component displaying `model.provider.name` in the primary text row
+2. Removed duplicate provider name from secondary text (was shown twice)
+3. Moved pricing info to secondary text (previously had provider name + pricing)
+4. Added left margin to secondary text to align with model name
+
+This makes it immediately clear which provider each model comes from, even when the same model name appears from multiple providers.
+
+### Files Modified
+
+- `frontend/src/components/create/AdvancedModelPicker.tsx` - Added provider chip to model list items
 
 ---
 
@@ -316,11 +341,26 @@ The provider edit dialog in the frontend does not allow changing the provider na
 
 ### Resolution
 
-Update the provider edit dialog to allow name changes. This is a frontend-only fix.
+Updated the provider edit dialog to allow name changes. This required both backend and frontend changes.
 
-### Files to Investigate
+### Implemented Fix
 
-- Frontend provider edit/create dialog component
+**Backend changes:**
+1. Added `Name` field to `UpdateProviderEndpoint` struct in `api/pkg/types/provider.go`
+2. Added name update logic with duplicate validation in `api/pkg/server/provider_handlers.go`
+   - Only updates name if provided and different from existing
+   - Checks for duplicate names among user's accessible providers
+
+**Frontend changes:**
+1. Added `name` to formData state in `EditProviderEndpointDialog.tsx`
+2. Added editable Name TextField with validation
+3. Included name in the submit body
+
+### Files Modified
+
+- `api/pkg/types/provider.go` - Added `Name` field to `UpdateProviderEndpoint`
+- `api/pkg/server/provider_handlers.go` - Added name update logic with duplicate check
+- `frontend/src/components/dashboard/EditProviderEndpointDialog.tsx` - Added name field to UI
 
 ---
 
@@ -329,7 +369,7 @@ Update the provider edit dialog to allow name changes. This is a frontend-only f
 1. [x] ~~Investigate provider access control in model routing (Issue 1)~~ - Clarified: issue was HF model ID collision, not visibility
 2. [x] ~~Fix HF model ID prefix collision (Issue 3)~~ - Implemented `findProviderWithModel()` to check cached model lists first
 3. [x] ~~Audit `isKnownProvider` for case sensitivity issues~~ - Not needed, case sensitivity is intentional
-4. [ ] Fix provider edit dialog to allow name changes (Issue 4)
-5. [ ] Design model picker UI changes (Issue 2)
-6. [ ] Ensure model list API returns provider information
-7. [ ] Deploy `fix/multi-provider-model-routing` after testing
+4. [x] ~~Design model picker UI changes (Issue 2)~~ - Added provider chip to model list items
+5. [x] ~~Ensure model list API returns provider information~~ - Already returns provider info via `available_models`
+6. [x] ~~Fix provider edit dialog to allow name changes (Issue 4)~~ - Added editable name field with duplicate validation
+7. [ ] Deploy `feature/clone-task-across-projects` after testing
