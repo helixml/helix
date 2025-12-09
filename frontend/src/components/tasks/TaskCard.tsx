@@ -25,10 +25,12 @@ import {
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
   RadioButtonUnchecked as UncheckedIcon,
+  ContentCopy as CopyIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import CloneTaskDialog from '../specTask/CloneTaskDialog'
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -67,6 +69,7 @@ interface SpecTaskWithExtras {
   metadata?: { error?: string }
   merged_to_main?: boolean
   just_do_it_mode?: boolean
+  design_docs_pushed_at?: string
 }
 
 interface KanbanColumn {
@@ -348,6 +351,7 @@ export default function TaskCard({
   focusStartPlanning = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
 
@@ -465,6 +469,29 @@ export default function TaskCard({
                   }}
                 >
                   <DesignDocsIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Clone button - visible for tasks with specs */}
+            {task.design_docs_pushed_at && (
+              <Tooltip title="Clone to Other Projects">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowCloneDialog(true)
+                  }}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color: 'text.secondary',
+                    '&:hover': {
+                      color: 'primary.main',
+                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                    },
+                  }}
+                >
+                  <CopyIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Tooltip>
             )}
@@ -732,6 +759,15 @@ export default function TaskCard({
           </Box>
         )}
       </CardContent>
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={task.id}
+        taskName={task.name}
+        sourceProjectId={projectId || ''}
+      />
     </Card>
   )
 }
