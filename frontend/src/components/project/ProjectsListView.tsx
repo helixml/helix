@@ -15,6 +15,7 @@ import {
   Chip,
   Tooltip,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SearchIcon from '@mui/icons-material/Search'
 import { Kanban } from 'lucide-react'
@@ -62,6 +63,8 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
   isCreating,
   appNamesMap = {},
 }) => {
+  const theme = useTheme()
+
   return (
     <>
       {error && (
@@ -141,7 +144,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
               <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <CardContent sx={{ flexGrow: 1, cursor: 'pointer' }} onClick={() => onViewProject(project)}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Kanban size={40} style={{ color: '#1976d2' }} />
+                    <Kanban size={40} style={{ color: theme.palette.secondary.main }} />
                     <IconButton
                       size="small"
                       onClick={(e) => {

@@ -8,7 +8,6 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { Plus, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
