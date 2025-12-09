@@ -742,7 +742,7 @@ export interface ServerSampleTaskPrompt {
   /** Tags for organization */
   labels?: string[];
   /** "low", "medium", "high", "critical" */
-  priority?: string;
+  priority?: TypesSpecTaskPriority;
   /** Natural language request */
   prompt?: string;
 }
@@ -861,7 +861,7 @@ export interface ServerTaskSpecsResponse {
   spec_approved_at?: string;
   spec_approved_by?: string;
   spec_revision_count?: number;
-  status?: string;
+  status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
 }
@@ -968,20 +968,6 @@ export enum ServicesCoordinationEventType {
   CoordinationEventTypeBroadcast = "broadcast",
   CoordinationEventTypeCompletion = "completion",
   CoordinationEventTypeSpawn = "spawn",
-}
-
-export interface ServicesCreateTaskRequest {
-  /** Optional: Helix agent to use for spec generation */
-  app_id?: string;
-  /** Optional: Skip spec planning, go straight to implementation */
-  just_do_it_mode?: boolean;
-  priority?: string;
-  project_id?: string;
-  prompt?: string;
-  type?: string;
-  /** Optional: Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
-  user_id?: string;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -1997,6 +1983,20 @@ export interface TypesCreateSampleRepositoryRequest {
   organization_id?: string;
   owner_id?: string;
   sample_type?: string;
+}
+
+export interface TypesCreateTaskRequest {
+  /** Optional: Helix agent to use for spec generation */
+  app_id?: string;
+  /** Optional: Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
+  priority?: TypesSpecTaskPriority;
+  project_id?: string;
+  prompt?: string;
+  type?: string;
+  /** Optional: Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
+  user_id?: string;
 }
 
 export interface TypesCreateTeamRequest {
@@ -3173,6 +3173,11 @@ export interface TypesProject {
   id?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
+  /**
+   * Auto-incrementing task number for human-readable directory names
+   * Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
+   */
+  next_task_number?: number;
   organization_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
@@ -3917,6 +3922,7 @@ export interface TypesSpecTask {
   /** Metadata */
   created_by?: string;
   description?: string;
+  design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
   design_docs_pushed_at?: string;
   /** Simple tracking */
@@ -3954,7 +3960,7 @@ export interface TypesSpecTask {
    */
   planning_session_id?: string;
   /** "low", "medium", "high", "critical" */
-  priority?: string;
+  priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
   /** User stories + EARS acceptance criteria (markdown) */
@@ -3966,7 +3972,13 @@ export interface TypesSpecTask {
   spec_revision_count?: number;
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
-  status?: string;
+  status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
   /** Design document (markdown) */
   technical_design?: string;
   /** "feature", "bug", "refactor" */
@@ -4192,6 +4204,13 @@ export enum TypesSpecTaskPhase {
   SpecTaskPhaseValidation = "validation",
 }
 
+export enum TypesSpecTaskPriority {
+  SpecTaskPriorityLow = "low",
+  SpecTaskPriorityMedium = "medium",
+  SpecTaskPriorityHigh = "high",
+  SpecTaskPriorityCritical = "critical",
+}
+
 export interface TypesSpecTaskProgressResponse {
   active_work_sessions?: TypesSpecTaskWorkSession[];
   /** Progress from tasks.md */
@@ -4205,6 +4224,20 @@ export interface TypesSpecTaskProgressResponse {
   spec_task?: TypesSpecTask;
 }
 
+export enum TypesSpecTaskStatus {
+  TaskStatusBacklog = "backlog",
+  TaskStatusSpecGeneration = "spec_generation",
+  TaskStatusSpecReview = "spec_review",
+  TaskStatusSpecRevision = "spec_revision",
+  TaskStatusSpecApproved = "spec_approved",
+  TaskStatusImplementationQueued = "implementation_queued",
+  TaskStatusImplementation = "implementation",
+  TaskStatusImplementationReview = "implementation_review",
+  TaskStatusDone = "done",
+  TaskStatusSpecFailed = "spec_failed",
+  TaskStatusImplementationFailed = "implementation_failed",
+}
+
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
   /** Agent to use for this task */
@@ -4212,8 +4245,8 @@ export interface TypesSpecTaskUpdateRequest {
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
   name?: string;
-  priority?: string;
-  status?: string;
+  priority?: TypesSpecTaskPriority;
+  status?: TypesSpecTaskStatus;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4654,6 +4687,7 @@ export interface TypesUpdateProviderEndpoint {
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
   models?: string[];
+  name?: string;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -10231,7 +10265,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Create spec-driven task from simple prompt
      * @request POST:/api/v1/spec-tasks/from-prompt
      */
-    v1SpecTasksFromPromptCreate: (request: ServicesCreateTaskRequest, params: RequestParams = {}) =>
+    v1SpecTasksFromPromptCreate: (request: TypesCreateTaskRequest, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/from-prompt`,
         method: "POST",

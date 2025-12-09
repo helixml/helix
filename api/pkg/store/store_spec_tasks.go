@@ -13,6 +13,14 @@ import (
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
+	if task.ID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+
+	if task.ProjectID == "" {
+		return fmt.Errorf("project ID is required")
+	}
+
 	result := s.gdb.WithContext(ctx).Create(task)
 	if result.Error != nil {
 		return fmt.Errorf("failed to create spec task: %w", result.Error)
@@ -21,7 +29,7 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 	log.Info().
 		Str("task_id", task.ID).
 		Str("project_id", task.ProjectID).
-		Str("status", task.Status).
+		Str("status", task.Status.String()).
 		Msg("Created spec task")
 
 	return nil
@@ -29,6 +37,10 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 
 // GetSpecTask retrieves a spec-driven task by ID
 func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error) {
+	if id == "" {
+		return nil, fmt.Errorf("task ID is required")
+	}
+
 	task := &types.SpecTask{}
 
 	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&task).Error
@@ -44,6 +56,10 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 
 // UpdateSpecTask updates an existing spec-driven task
 func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask) error {
+	if task.ID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+
 	task.UpdatedAt = time.Now()
 
 	result := s.gdb.WithContext(ctx).Save(task)
@@ -58,7 +74,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 
 	log.Info().
 		Str("task_id", task.ID).
-		Str("status", task.Status).
+		Str("status", task.Status.String()).
 		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
 

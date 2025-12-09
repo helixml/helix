@@ -19,7 +19,7 @@ import (
 // @Tags    spec-driven-tasks
 // @Accept  json
 // @Produce json
-// @Param   request body services.CreateTaskRequest true "Task creation request"
+// @Param   request body types.CreateTaskRequest true "Task creation request"
 // @Success 201 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -32,7 +32,7 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var req services.CreateTaskRequest
+	var req types.CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to decode create task request")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -150,7 +150,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 
 	filters := &types.SpecTaskFilters{
 		ProjectID:       projectID,
-		Status:          query.Get("status"),
+		Status:          types.SpecTaskStatus(query.Get("status")),
 		UserID:          query.Get("user_id"),
 		Limit:           parseIntQuery(query.Get("limit"), 50),
 		Offset:          parseIntQuery(query.Get("offset"), 0),
@@ -358,7 +358,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 	// Build progress response
 	progress := TaskProgressResponse{
 		TaskID:    task.ID,
-		Status:    task.Status,
+		Status:    getSpecificationStatus(task.Status),
 		CreatedAt: task.CreatedAt,
 		UpdatedAt: task.UpdatedAt,
 		Specification: PhaseProgress{
@@ -666,7 +666,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(task)
 }
 
-func getSpecificationStatus(taskStatus string) string {
+func getSpecificationStatus(taskStatus types.SpecTaskStatus) string {
 	switch taskStatus {
 	case types.TaskStatusBacklog:
 		return "pending"
@@ -688,7 +688,7 @@ func getSpecificationStatus(taskStatus string) string {
 	}
 }
 
-func getImplementationStatus(taskStatus string) string {
+func getImplementationStatus(taskStatus types.SpecTaskStatus) string {
 	switch taskStatus {
 	case types.TaskStatusImplementationQueued:
 		return "queued"
@@ -701,15 +701,12 @@ func getImplementationStatus(taskStatus string) string {
 	case types.TaskStatusImplementationFailed:
 		return "failed"
 	default:
-		if isSpecificationStatus(taskStatus) {
-			return "pending"
-		}
-		return "unknown"
+		return "pending"
 	}
 }
 
-func isSpecificationStatus(status string) bool {
-	specificationStatuses := []string{
+func isSpecificationStatus(status types.SpecTaskStatus) bool {
+	specificationStatuses := []types.SpecTaskStatus{
 		types.TaskStatusBacklog,
 		types.TaskStatusSpecGeneration,
 		types.TaskStatusSpecReview,
@@ -725,8 +722,8 @@ func isSpecificationStatus(status string) bool {
 	return false
 }
 
-func isImplementationStatus(status string) bool {
-	implementationStatuses := []string{
+func isImplementationStatus(status types.SpecTaskStatus) bool {
+	implementationStatuses := []types.SpecTaskStatus{
 		types.TaskStatusImplementationQueued,
 		types.TaskStatusImplementation,
 		types.TaskStatusImplementationReview,
@@ -743,15 +740,15 @@ func isImplementationStatus(status string) bool {
 
 // Response types
 type TaskSpecsResponse struct {
-	TaskID             string     `json:"task_id"`
-	Status             string     `json:"status"`
-	OriginalPrompt     string     `json:"original_prompt"`
-	RequirementsSpec   string     `json:"requirements_spec"`
-	TechnicalDesign    string     `json:"technical_design"`
-	ImplementationPlan string     `json:"implementation_plan"`
-	SpecApprovedBy     string     `json:"spec_approved_by,omitempty"`
-	SpecApprovedAt     *time.Time `json:"spec_approved_at,omitempty"`
-	SpecRevisionCount  int        `json:"spec_revision_count"`
+	TaskID             string               `json:"task_id"`
+	Status             types.SpecTaskStatus `json:"status"`
+	OriginalPrompt     string               `json:"original_prompt"`
+	RequirementsSpec   string               `json:"requirements_spec"`
+	TechnicalDesign    string               `json:"technical_design"`
+	ImplementationPlan string               `json:"implementation_plan"`
+	SpecApprovedBy     string               `json:"spec_approved_by,omitempty"`
+	SpecApprovedAt     *time.Time           `json:"spec_approved_at,omitempty"`
+	SpecRevisionCount  int                  `json:"spec_revision_count"`
 }
 
 type TaskProgressResponse struct {
