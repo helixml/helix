@@ -3173,6 +3173,11 @@ export interface TypesProject {
   id?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
+  /**
+   * Auto-incrementing task number for human-readable directory names
+   * Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
+   */
+  next_task_number?: number;
   organization_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
@@ -3917,6 +3922,7 @@ export interface TypesSpecTask {
   /** Metadata */
   created_by?: string;
   description?: string;
+  design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
   design_docs_pushed_at?: string;
   /** Simple tracking */
@@ -3967,6 +3973,12 @@ export interface TypesSpecTask {
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
   /** Design document (markdown) */
   technical_design?: string;
   /** "feature", "bug", "refactor" */
@@ -4675,6 +4687,7 @@ export interface TypesUpdateProviderEndpoint {
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
   models?: string[];
+  name?: string;
 }
 
 export interface TypesUpdateTeamRequest {

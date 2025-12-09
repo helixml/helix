@@ -20751,6 +20751,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "next_task_number": {
+                    "description": "Auto-incrementing task number for human-readable directory names\nEach SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)",
+                    "type": "integer"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -22562,6 +22566,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "design_doc_path": {
+                    "type": "string"
+                },
                 "design_docs_pushed_at": {
                     "description": "When design docs were pushed to helix-specs branch",
                     "type": "string"
@@ -22676,6 +22683,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SpecTaskStatus"
                         }
                     ]
+                },
+                "task_number": {
+                    "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",
+                    "type": "integer"
                 },
                 "technical_design": {
                     "description": "Design document (markdown)",
@@ -24472,6 +24483,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
