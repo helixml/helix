@@ -39,6 +39,12 @@ type SpecTask struct {
 	// Git tracking
 	BranchName string `json:"branch_name,omitempty"`
 
+	// Human-readable directory naming for design docs in helix-specs branch
+	// TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+	// DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
+	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
+
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
 	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`

@@ -2440,6 +2440,21 @@ func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
 }
 
+// IncrementProjectTaskNumber mocks base method.
+func (m *MockStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementProjectTaskNumber", ctx, projectID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementProjectTaskNumber indicates an expected call of IncrementProjectTaskNumber.
+func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
+}
+
 // GetProviderDailyUsageMetrics mocks base method.
 func (m *MockStore) GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from, to time.Time) ([]*types.AggregatedUsageMetric, error) {
 	m.ctrl.T.Helper()
