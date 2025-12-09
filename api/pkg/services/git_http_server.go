@@ -479,14 +479,21 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		outputStr := string(output)
 
+		// Extract exit code if available
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+
 		log.Error().
 			Err(err).
 			Str("repo_id", repoID).
+			Int("exit_code", exitCode).
 			Str("output", outputStr).
 			Msg("Git http-backend failed")
 
 		// Return detailed error to client so it shows in terminal
-		errorMsg := fmt.Sprintf("Git operation failed: %s\n\nOutput:\n%s", err.Error(), outputStr)
+		errorMsg := fmt.Sprintf("Git operation failed (exit code %d): %s\n\nOutput:\n%s", exitCode, err.Error(), outputStr)
 		http.Error(w, errorMsg, http.StatusInternalServerError)
 		return
 	}
