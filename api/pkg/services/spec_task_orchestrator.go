@@ -37,7 +37,6 @@ type WolfExecutorInterface interface {
 	StopZedAgent(ctx context.Context, sessionID string) error
 }
 
-
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
@@ -117,7 +116,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	}
 
 	// Filter to only active tasks
-	activeStatuses := map[string]bool{
+	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusSpecGeneration:       true,
 		types.TaskStatusSpecReview:           true,
@@ -138,13 +137,13 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
-					Str("status", task.Status).
+					Str("status", task.Status.String()).
 					Msg("Task references deleted project - skipping")
 			} else {
 				log.Error().
 					Err(err).
 					Str("task_id", task.ID).
-					Str("status", task.Status).
+					Str("status", task.Status.String()).
 					Msg("Failed to process task")
 			}
 		}
@@ -399,7 +398,7 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
-		SessionID:           agentID,              // Agent-level session ID (not tied to specific Helix session)
+		SessionID:           agentID,                // Agent-level session ID (not tied to specific Helix session)
 		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,

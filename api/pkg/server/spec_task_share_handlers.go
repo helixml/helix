@@ -143,23 +143,23 @@ func (apiServer *HelixAPIServer) viewDesignDocsPublic(w http.ResponseWriter, r *
 
 	// Render HTML template
 	data := struct {
-		TaskID             string
-		TaskName           string
-		Status             string
-		OriginalPrompt     string
-		RequirementsHTML   template.HTML
-		TechnicalDesignHTML template.HTML
+		TaskID                 string
+		TaskName               string
+		Status                 string
+		OriginalPrompt         string
+		RequirementsHTML       template.HTML
+		TechnicalDesignHTML    template.HTML
 		ImplementationPlanHTML template.HTML
-		UpdatedAt          string
+		UpdatedAt              string
 	}{
-		TaskID:             task.ID,
-		TaskName:           task.Name,
-		Status:             task.Status,
-		OriginalPrompt:     task.OriginalPrompt,
-		RequirementsHTML:   requirementsHTML,
-		TechnicalDesignHTML: designHTML,
+		TaskID:                 task.ID,
+		TaskName:               task.Name,
+		Status:                 task.Status.String(),
+		OriginalPrompt:         task.OriginalPrompt,
+		RequirementsHTML:       requirementsHTML,
+		TechnicalDesignHTML:    designHTML,
 		ImplementationPlanHTML: implementationHTML,
-		UpdatedAt:          task.UpdatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedAt:              task.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}
 
 	tmpl, err := template.New("design_docs").Parse(designDocsViewerTemplate)

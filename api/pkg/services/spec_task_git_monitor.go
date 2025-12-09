@@ -18,11 +18,11 @@ import (
 // SpecTaskGitMonitor monitors Git repositories for design doc pushes
 // Automatically creates design reviews when design docs are pushed
 type SpecTaskGitMonitor struct {
-	store           store.Store
-	gitRepoService  *GitRepositoryService
-	pollInterval    time.Duration
-	stopChan        chan struct{}
-	designDocPaths  []string // Paths to monitor for design docs
+	store          store.Store
+	gitRepoService *GitRepositoryService
+	pollInterval   time.Duration
+	stopChan       chan struct{}
+	designDocPaths []string // Paths to monitor for design docs
 }
 
 // NewSpecTaskGitMonitor creates a new Git monitor for spec tasks
