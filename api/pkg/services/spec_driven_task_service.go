@@ -651,6 +651,8 @@ Follow these guidelines when making changes:
 
 **Primary Project Directory:** /home/retro/work/%s/
 
+**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
+
 **If making code changes:**
 1. git checkout -b %s
 2. Make your changes

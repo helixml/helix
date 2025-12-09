@@ -47,6 +47,10 @@ ALL work happens in /home/retro/work/. No other paths.
 
 Your task directory: /home/retro/work/helix-specs/design/tasks/%[5]s/
 
+## CRITICAL: Shell Commands
+
+Remember to specify is_background on all shell commands (either true or false) - it's a required field. Use is_background=true for long-running operations (builds, servers, installs) to prevent timeouts.
+
 ## CRITICAL: What To Create
 
 Create these 3 files in your task directory:
