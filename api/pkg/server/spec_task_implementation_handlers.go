@@ -139,7 +139,7 @@ Good luck! Let me know if you need any clarification on the design.
 		RepositoryID:      repo.ID,
 		RepositoryName:    repo.Name,
 		LocalPath:         repo.LocalPath,
-		Status:            specTask.Status,
+		Status:            getImplementationStatus(specTask.Status),
 		AgentInstructions: agentInstructions,
 		CreatedAt:         time.Now().Format(time.RFC3339),
 	}
