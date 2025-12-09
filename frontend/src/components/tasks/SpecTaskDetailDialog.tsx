@@ -719,14 +719,16 @@ I'll give you feedback and we can iterate on any changes needed.`
                 >
                   <GridViewOutlined sx={{ fontSize: 16 }} />
                 </IconButton>
-                <IconButton 
-                  size="small" 
-                  onClick={handleEditToggle} 
-                  sx={{ padding: '4px' }}
-                  title="Edit task"
-                >
-                  <EditIcon sx={{ fontSize: 16 }} />
-                </IconButton>
+                {displayTask.status === 'backlog' && (
+                  <IconButton 
+                    size="small" 
+                    onClick={handleEditToggle} 
+                    sx={{ padding: '4px' }}
+                    title="Edit task"
+                  >
+                    <EditIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                )}
               </>
             )}
             <IconButton size="small" onClick={onClose} sx={{ padding: '4px' }}>
