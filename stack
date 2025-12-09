@@ -318,6 +318,11 @@ function build-zed() {
     return 1
   fi
 
+  # Source cargo environment if it exists (rustup installation)
+  if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+  fi
+
   # Check if Rust is installed
   if ! command -v cargo &> /dev/null; then
     echo "❌ Rust/Cargo not found. Please install Rust first."
