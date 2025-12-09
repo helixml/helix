@@ -39,85 +39,62 @@ The provider lookup is **case-sensitive**. If the model prefix is `Nebius` but t
 
 ---
 
-## Issue 1: Provider Access Control When No Prefix Provided
+## Provider Endpoint Types (Architecture)
 
-### Problem
+Provider endpoints have two key fields:
+- `endpoint_type`: `global`, `user` (org/team are TODO, not implemented)
+- `owner`: user ID for personal providers, `system` for env-configured providers
 
-When a user sends a model name **without** a provider prefix (e.g., `gpt-4o`), we need to:
-1. Find which provider(s) offer this model
-2. Select one that the user has access to
-3. **Ensure we don't route to a provider the user can't access**
+### Visibility Rules
 
-### Observed Bugs
+| Endpoint Type | Owner | Visible To |
+|--------------|-------|------------|
+| `global` | anyone | **All users** (admins only can create) |
+| `user` | user_id | **Only that user** |
+| `global` | `system` | **All users** (from env vars like `OPENAI_API_KEY`) |
 
-**Bug A: Helix Sessions UI - No client found**
+### Query Logic (`store_provider_endpoints.go`)
 
-When trying to use a "global" inference provider created by another user via the Helix Sessions UI:
-
-```
-failed to get client: failed to get client: no client found for provider| Qwen_Mrek, available providers: [helix]
-```
-
-This shows that:
-1. User A created a provider called `Qwen_Mrek` (intended to be globally available)
-2. User B tries to use it via the model picker
-3. Provider manager only sees `[helix]` as available
-4. Request fails - the "global" provider isn't actually visible to other users
-
-**Bug B: Qwen in Zed - Model not found**
-
-When using Qwen Code agent with a correctly prefixed model:
-
-```
-error getting model: not found
+```go
+// Returns: (user's personal providers) OR (all global providers)
+query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
+if q.WithGlobal {
+    query = query.Or("endpoint_type = ?", types.ProviderEndpointTypeGlobal)
+}
 ```
 
-This shows that:
-1. Model is set to `Qwen_Achraf/Qwen/Qwen3-Coder` (correctly prefixed)
-2. Parses correctly: provider=`Qwen_Achraf`, model=`Qwen/Qwen3-Coder`
-3. Routes to `Qwen_Achraf` provider
-4. But model `Qwen/Qwen3-Coder` isn't in the provider's model list
+### Key Constraints
 
-Possible causes:
-- Provider's cached model list doesn't include this model
-- Model name mismatch (e.g., provider lists it as `Qwen3-Coder` not `Qwen/Qwen3-Coder`)
-- Provider model list refresh issue
+- **Only admins can create global endpoints** (`provider_handlers.go:419`)
+- Non-admin users can only create `user` type endpoints (personal, visible only to them)
+- Org-scoped providers (`endpoint_type = 'org'`) are **not implemented** - marked as TODO
 
-### Questions to Investigate
+---
 
-1. How are "global" user-created providers supposed to work?
-2. Is there a flag to make a user-created provider visible to all users?
-3. When iterating through available providers to find a model match, are we filtering by user access?
-4. Could a request accidentally route to another user's personal provider endpoint?
-5. Is there proper isolation between:
-   - Global providers (available to all) - hardcoded: openai, anthropic, etc.
-   - System providers (available to all, configured via env)
-   - User providers (only available to the owner)
-   - "Shared" user providers (created by user, visible to all?) - does this exist?
+## Issue 1: Provider Visibility - Clarified
 
-### Desired Behavior
+### Observed Bug
 
 ```
-User sends: model="gpt-4o" (no prefix)
-
-1. Get list of providers user can access:
-   - Global providers (openai, anthropic, etc.)
-   - System providers (from env vars)
-   - User's own custom providers
-
-2. For each accessible provider, check if it offers "gpt-4o"
-
-3. Select first matching provider (or use priority/preference)
-
-4. NEVER route to another user's personal provider
+failed to get client: failed to get client: no client found for provider: Qwen_Mrek, available providers: [helix]
 ```
 
-### Files to Investigate
+### Root Cause Analysis
 
-- `api/pkg/server/openai_chat_handlers.go` - Main routing logic
-- `api/pkg/controller/inference.go` - Provider selection
-- `api/pkg/openai/manager/provider_manager.go` - Provider client management
-- `api/pkg/store/store.go` - Provider endpoint queries
+The user likely created a provider thinking it was "global", but:
+1. **Only admins can create global endpoints** - non-admins get `endpoint_type = 'user'`
+2. A `user` type provider is only visible to its owner
+3. Other users won't see it in the provider list
+
+### Resolution
+
+If the provider needs to be globally available:
+1. An admin must create it, OR
+2. An admin must update the existing provider's `endpoint_type` to `global`
+
+### Error Message Fix (Completed)
+
+The error message was misleading - it only listed static global clients (`helix`), not database providers. Fixed in commit `23564fb13` to include all providers that were actually checked.
 
 ---
 
@@ -244,14 +221,65 @@ Current behavior, but document that HF-style model IDs may conflict with custom 
 **Option D: Require explicit model selector in UI**
 When user selects a model, always store both provider and model explicitly. Only fallback to prefix parsing for raw API calls.
 
-### Recommendation
+### Implemented Fix: Option B (Check cached model list first)
 
-Lean towards **Option A** or **Option B**. The `::` separator is unambiguous and won't conflict with HF model IDs. Option B is more backwards-compatible but requires model existence checks.
+**Commit:** `feature/clone-task-across-projects` branch
 
-### Files to Investigate
+Added `findProviderWithModel()` function to `openai_chat_handlers.go` that:
+1. Before parsing provider prefix, checks if the full model name exists in any accessible provider's model list
+2. **First checks global providers** (helix, openai, togetherai, anthropic, vllm) from env vars via cached model lists
+3. **Then checks database-stored providers** via cached model lists AND static `Models` field
+4. If found, uses that provider AND keeps the full model name (no prefix stripping)
+5. If not found in any provider, falls back to existing prefix parsing logic
 
-- `api/pkg/model/models.go` - `ParseProviderFromModel`
-- `api/pkg/server/openai_chat_handlers.go` - Routing logic
+**Implementation:**
+```go
+// Before parsing prefix:
+if strings.Contains(chatCompletionRequest.Model, "/") {
+    foundProvider := s.findProviderWithModel(ctx, chatCompletionRequest.Model, ownerID)
+    if foundProvider != "" {
+        validatedProvider = foundProvider
+        // Keep full model name - don't strip prefix
+    }
+}
+
+// findProviderWithModel checks (in order):
+// 1. Global providers from env vars (helix, openai, etc.) with cache key "provider:system"
+// 2. DB providers' cached model lists with cache key "provider:owner"
+// 3. DB providers' static Models field
+```
+
+**How the cache works:**
+- Cache key: `"{provider_name}:{owner}"`
+- Cache value: JSON-encoded `[]types.OpenAIModel`
+- TTL: Configured via `s.Cfg.WebServer.ModelsCacheTTL`
+- Populated when: UI calls `/api/v1/provider-endpoints?with_models=true`
+
+**Architecture Note:** There are three types of providers:
+
+1. **Static env-var providers** (helix, openai, togetherai, anthropic, vllm)
+   - Created from env vars like `OPENAI_API_KEY`, `TOGETHER_API_KEY`, etc.
+   - NOT stored in database, managed by ProviderManager in-memory
+   - Cache key: `"{provider}:system"`
+
+2. **Dynamic env-var providers** (`DYNAMIC_PROVIDERS` env var)
+   - Format: `provider1:api_key1:base_url1,provider2:api_key2:base_url2`
+   - Stored in database with `Owner: "system"`, `EndpointType: "global"`
+   - Cache key: `"{provider}:system"`
+
+3. **User/Admin-created providers** (via UI or API)
+   - Stored in database with `Owner: user_id` or admin-created global endpoints
+   - Cache key: `"{provider}:{owner}"`
+
+**Model lists per provider:**
+- `Models` (pq.StringArray) - Stored in database, configured by admin at provider creation
+- Cached model list - In-memory only (Ristretto), populated when fetching from provider's `/v1/models`
+
+The fix checks all three provider types via their cached model lists, plus the static `Models` field for DB providers.
+
+### Files Modified
+
+- `api/pkg/server/openai_chat_handlers.go` - Added `findProviderWithModel()` and modified prefix parsing logic
 
 ---
 
@@ -277,11 +305,31 @@ Added `mapHelixToZedProvider()` function:
 
 ---
 
+## Issue 4: Provider Edit Dialog Cannot Change Name
+
+### Problem
+
+The provider edit dialog in the frontend does not allow changing the provider name. This is confusing when:
+1. A provider was created with a name that conflicts with HuggingFace model ID prefixes (e.g., `Qwen`)
+2. User wants to rename to avoid conflicts (e.g., `qwen-endpoint`)
+3. The UI doesn't show the name field as editable
+
+### Resolution
+
+Update the provider edit dialog to allow name changes. This is a frontend-only fix.
+
+### Files to Investigate
+
+- Frontend provider edit/create dialog component
+
+---
+
 ## Next Steps
 
-1. [ ] Investigate provider access control in model routing (Issue 1)
-2. [ ] Audit `isKnownProvider` for case sensitivity issues
-3. [ ] Design model picker UI changes (Issue 2)
-4. [ ] Ensure model list API returns provider information
-5. [ ] Decide on disambiguation strategy for HF model IDs vs provider prefixes (Issue 3)
-6. [ ] Deploy `fix/multi-provider-model-routing` after testing
+1. [x] ~~Investigate provider access control in model routing (Issue 1)~~ - Clarified: issue was HF model ID collision, not visibility
+2. [x] ~~Fix HF model ID prefix collision (Issue 3)~~ - Implemented `findProviderWithModel()` to check cached model lists first
+3. [x] ~~Audit `isKnownProvider` for case sensitivity issues~~ - Not needed, case sensitivity is intentional
+4. [ ] Fix provider edit dialog to allow name changes (Issue 4)
+5. [ ] Design model picker UI changes (Issue 2)
+6. [ ] Ensure model list API returns provider information
+7. [ ] Deploy `fix/multi-provider-model-routing` after testing
