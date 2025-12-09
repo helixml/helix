@@ -175,7 +175,8 @@ const Projects: FC = () => {
     name: string,
     type: TypesExternalRepositoryType,
     username?: string,
-    password?: string
+    password?: string,
+    azureDevOps?: TypesAzureDevOps
   ): Promise<TypesGitRepository | null> => {
     if (!url.trim() || !account.user?.id) return null
 
@@ -192,6 +193,7 @@ const Projects: FC = () => {
         external_type: type,
         username,
         password,
+        azure_devops: azureDevOps,
       })
 
       // Invalidate repo queries (use base key to match all variants)
