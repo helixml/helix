@@ -498,8 +498,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     </ListItemIcon>
                     <ListItemText
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="body1" component="span">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Chip
+                            label={model.provider.name}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#353945',
+                              color: '#A0AEC0',
+                              fontSize: '0.7rem',
+                              height: '20px',
+                              minWidth: '70px',
+                              '& .MuiChip-label': {
+                                px: 1,
+                              },
+                            }}
+                          />
+                          <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {model.id || 'Unnamed Model'}
                           </Typography>
                           {isRecommended && (
@@ -517,10 +531,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
-                            {model.provider.name}
-                          </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
                           {model.description && (
                             <Typography
                               variant="caption"
@@ -534,14 +545,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               {model.description}
                             </Typography>
                           )}
-                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
-                            {model.provider.name}
-                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}
-                                {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input tokens`}
-                                {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
-                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}
-                          </>)}
-                           </Typography>
+                          {model.provider.billing_enabled && model.model_info?.pricing && (
+                            <Typography variant="body2" component="span" sx={{ color: '#A0AEC0', fontSize: '0.75rem' }}>
+                              {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input`}
+                              {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
+                              {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output`}
+                            </Typography>
+                          )}
                         </Box>
                       }
                       primaryTypographyProps={{
@@ -670,34 +680,45 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       </ListItemIcon>
                       <ListItemText
                         primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Typography variant="body1" component="span">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip
+                              label={model.provider.name}
+                              size="small"
+                              sx={{
+                                backgroundColor: '#353945',
+                                color: '#A0AEC0',
+                                fontSize: '0.7rem',
+                                height: '20px',
+                                minWidth: '70px',
+                                '& .MuiChip-label': {
+                                  px: 1,
+                                },
+                              }}
+                            />
+                            <Typography variant="body1" component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {model.id || 'Unnamed Model'}
                             </Typography>
                             {isRecommended && (
                               <Tooltip title="Recommended model">
-                                <StarIcon 
-                                  sx={{ 
-                                    fontSize: '1rem', 
+                                <StarIcon
+                                  sx={{
+                                    fontSize: '1rem',
                                     color: '#FFD700',
                                     ml: 0.5,
                                     verticalAlign: 'middle'
-                                  }} 
+                                  }}
                                 />
                               </Tooltip>
                             )}
                           </Box>
                         }
                         secondary={
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                            <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
-                              {model.provider.name}
-                            </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, ml: '78px' }}>
                             {model.description && (
-                              <Typography 
-                                variant="caption" 
-                                component="span" 
-                                sx={{ 
+                              <Typography
+                                variant="caption"
+                                component="span"
+                                sx={{
                                   color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
                                   fontSize: '0.75rem',
                                   lineHeight: 1.2,
