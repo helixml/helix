@@ -589,19 +589,48 @@ Follow these guidelines when making changes:
 `, guidelines)
 	}
 
+	// Get all project repositories early (needed for prompt)
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
+		projectRepos = nil
+	}
+
+	// Determine primary repository from project configuration
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		// Use first project repo as fallback if no default set
+		primaryRepoID = projectRepos[0].ID
+	}
+
+	// Get primary repo name for the prompt
+	var primaryRepoName string
+	if primaryRepoID != "" {
+		for _, repo := range projectRepos {
+			if repo.ID == primaryRepoID {
+				primaryRepoName = repo.Name
+				break
+			}
+		}
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
 
-**Working in ~/work/:** All code repositories are in ~/work/. That's where you make changes.
+**Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
+
+**Primary Project Directory:** /home/retro/work/%s/
 
 **If making code changes:**
 1. git checkout -b %s
 2. Make your changes
 3. git push origin %s
 
-**For persistent installs:** Add commands to .helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, branchName, branchName)
+**For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, branchName, branchName, primaryRepoName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -624,16 +653,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Launch the external agent (Zed) via Wolf executor
-	// Project already fetched earlier for agent inheritance
-
-	// Get all project repositories
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
-		projectRepos = nil
-	}
+	// Project and projectRepos already fetched earlier
 
 	// Build list of all repository IDs to clone from project
 	repositoryIDs := []string{}
@@ -641,13 +661,6 @@ Follow these guidelines when making changes:
 		if repo.ID != "" {
 			repositoryIDs = append(repositoryIDs, repo.ID)
 		}
-	}
-
-	// Determine primary repository from project configuration
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Use first project repo as fallback if no default set
-		primaryRepoID = projectRepos[0].ID
 	}
 
 	// Get user's personal API token for git operations
@@ -773,10 +786,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		var baseBranch string
+		var primaryRepoName string
 		if project.DefaultRepoID != "" {
 			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
 				baseBranch = repo.DefaultBranch
+				primaryRepoName = repo.Name
 			}
 		}
 		if baseBranch == "" {
@@ -822,6 +837,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 					task,
 					branchName,
 					baseBranch,
+					primaryRepoName,
 				)
 				if err != nil {
 					log.Error().
