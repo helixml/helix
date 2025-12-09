@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +61,7 @@ func newInspectCommand() *cobra.Command {
 				return fmt.Errorf("failed to get tasks (status %d)", resp.StatusCode)
 			}
 
-			var tasks []SpecTask
+			var tasks []types.SpecTask
 			if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
 				return fmt.Errorf("failed to decode tasks: %w", err)
 			}
@@ -77,9 +78,9 @@ func newInspectCommand() *cobra.Command {
 			fmt.Printf("Status: %s\n\n", project.Status)
 
 			// Group tasks by status
-			backlog := []SpecTask{}
-			inProgress := []SpecTask{}
-			done := []SpecTask{}
+			backlog := []types.SpecTask{}
+			inProgress := []types.SpecTask{}
+			done := []types.SpecTask{}
 
 			for _, task := range tasks {
 				switch task.Status {
@@ -131,22 +132,12 @@ func newInspectCommand() *cobra.Command {
 	}
 }
 
-func displayTask(task SpecTask) {
+func displayTask(task types.SpecTask) {
 	fmt.Printf("  • %s\n", task.Name)
 	fmt.Printf("    ID: %s | Priority: %s | Type: %s\n", task.ID, task.Priority, task.Type)
 	if task.Description != "" && task.Description != task.Name {
 		fmt.Printf("    Description: %s\n", task.Description)
 	}
-}
-
-type SpecTask struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Priority    string   `json:"priority"`
-	Type        string   `json:"type"`
-	Labels      []string `json:"labels"`
 }
 
 // Helper functions
