@@ -141,6 +141,7 @@ type SpecTaskFilters struct {
 	Offset          int    `json:"offset,omitempty"`
 	IncludeArchived bool   `json:"include_archived,omitempty"` // If true, include both archived and non-archived
 	ArchivedOnly    bool   `json:"archived_only,omitempty"`    // If true, show only archived tasks
+	DesignDocPath   string `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
