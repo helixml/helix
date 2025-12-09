@@ -1049,10 +1049,6 @@ const SpecTasksPage: FC = () => {
           onClose={() => {
             setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
           }}
-          onEdit={(task) => {
-            // TODO: Implement task editing
-            console.log('Edit task:', task);
-          }}
         />
       ))}
 
