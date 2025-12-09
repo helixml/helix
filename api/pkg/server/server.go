@@ -420,6 +420,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		// Don't fail startup if seeding fails, just log the error
 	}
 
+	// Start background model cache refresh to ensure provider model lists are always cached.
+	// This is critical for:
+	// 1. API-only clients that don't use the UI (which triggers cache population)
+	// 2. Handling HuggingFace model IDs like "Qwen/Qwen3-Coder" correctly
+	// 3. Detecting when providers come back online after being down
+	apiServer.StartModelCacheRefresh(ctx)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
