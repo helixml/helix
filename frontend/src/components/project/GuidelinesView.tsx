@@ -152,7 +152,7 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization }) => {
       <Divider sx={{ my: 3 }} />
 
       {/* Project Guidelines Info */}
-      <Paper sx={{ p: 3, backgroundColor: 'action.hover' }}>
+      <Paper sx={{ p: 3, backgroundColor: 'transparent', border: '1px solid', borderColor: 'grey.600' }}>
         <Typography variant="h6" sx={{ mb: 1 }}>
           Project-Specific Guidelines
         </Typography>
