@@ -760,12 +760,6 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	log.Info().
-		Str("user_id", user.ID).
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Requesting screenshot from sandbox via RevDial")
-
 	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
@@ -826,10 +820,6 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Successfully retrieved screenshot from external agent container")
 }
 
 // @Summary Get session clipboard content
