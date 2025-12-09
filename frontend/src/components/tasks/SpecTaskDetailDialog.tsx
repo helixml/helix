@@ -682,26 +682,53 @@ I'll give you feedback and we can iterate on any changes needed.`
               </Box>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation()
-                setTileMenuAnchor(e.currentTarget)
-              }}
-              title="Tile Window"
-              sx={{ padding: '4px' }}
-            >
-              <GridViewOutlined sx={{ fontSize: 16 }} />
-            </IconButton>
-            <IconButton 
-              size="small" 
-              onClick={handleEditToggle} 
-              sx={{ padding: '4px' }}
-              title="Edit task"
-            >
-              <EditIcon sx={{ fontSize: 16 }} />
-            </IconButton>
+          <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center' }}>
+            {isEditMode ? (
+              <>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<CancelIcon />}
+                  onClick={handleCancelEdit}
+                  sx={{ minWidth: 'auto', px: 1, mr: 1 }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="secondary"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveEdit}
+                  disabled={updateSpecTask.isPending}
+                  sx={{ minWidth: 'auto', px: 1, mr: 1 }}
+                >
+                  {updateSpecTask.isPending ? 'Saving...' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setTileMenuAnchor(e.currentTarget)
+                  }}
+                  title="Tile Window"
+                  sx={{ padding: '4px' }}
+                >
+                  <GridViewOutlined sx={{ fontSize: 16 }} />
+                </IconButton>
+                <IconButton 
+                  size="small" 
+                  onClick={handleEditToggle} 
+                  sx={{ padding: '4px' }}
+                  title="Edit task"
+                >
+                  <EditIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </>
+            )}
             <IconButton size="small" onClick={onClose} sx={{ padding: '4px' }}>
               <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
@@ -842,29 +869,6 @@ I'll give you feedback and we can iterate on any changes needed.`
               </Box>
 
               <Divider sx={{ mb: 3 }} />
-
-              {/* Edit Mode Controls */}
-              {isEditMode && (
-                <Box sx={{ mb: 3, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<CancelIcon />}
-                    onClick={handleCancelEdit}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<SaveIcon />}
-                    onClick={handleSaveEdit}
-                    disabled={updateSpecTask.isPending}
-                  >
-                    {updateSpecTask.isPending ? 'Saving...' : 'Save'}
-                  </Button>
-                </Box>
-              )}
 
               {/* Task Name - Editable */}
               <Box sx={{ mb: 3 }}>

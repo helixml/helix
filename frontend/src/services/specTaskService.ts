@@ -8,7 +8,7 @@ export type {
   TypesSpecTaskWorkSession as WorkSession,
   TypesSpecTaskZedThread as ZedThread,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverview,
-  GithubComHelixmlHelixApiPkgTypesZedInstanceStatus as ZedInstanceStatus,
+  TypesZedInstanceStatus,
   TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
   TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
