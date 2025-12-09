@@ -791,7 +791,7 @@ func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.S
 	}
 
 	// Parse task progress from tasks.md in helix-specs branch
-	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID)
+	taskProgress, err := services.ParseTaskProgress(repo.LocalPath, task.ID, task.DesignDocPath)
 	if err != nil {
 		log.Debug().Err(err).Str("task_id", task.ID).Msg("Could not parse task progress from helix-specs")
 		return nil

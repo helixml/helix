@@ -247,6 +247,23 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting spec generation")
 
+	// Assign task number and design doc path if not already set
+	if task.TaskNumber == 0 && task.ProjectID != "" {
+		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			// Fallback: use a hash of task ID for uniqueness
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		log.Info().
+			Str("task_id", task.ID).
+			Int("task_number", taskNumber).
+			Str("design_doc_path", task.DesignDocPath).
+			Msg("Assigned task number and design doc path")
+	}
+
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
 		delete(task.Metadata, "error")
@@ -493,20 +510,30 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting Just Do It mode - skipping spec generation")
 
+	// Assign task number and design doc path if not already set
+	if task.TaskNumber == 0 && task.ProjectID != "" {
+		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			taskNumber = 1
+		}
+		task.TaskNumber = taskNumber
+		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		log.Info().
+			Str("task_id", task.ID).
+			Int("task_number", taskNumber).
+			Str("design_doc_path", task.DesignDocPath).
+			Msg("Assigned task number and design doc path")
+	}
+
 	// Clear any previous error from metadata (in case this is a retry)
 	if task.Metadata != nil {
 		delete(task.Metadata, "error")
 		delete(task.Metadata, "error_timestamp")
 	}
 
-	// Generate feature branch name (same logic as spec approval flow)
-	// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
-	taskIDSuffix := task.ID
-	if len(taskIDSuffix) > 16 {
-		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-	}
-	branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
-	branchName = sanitizeBranchName(branchName)
+	// Generate feature branch name using task number (e.g., feature/install-uv-123)
+	branchName := GenerateFeatureBranchName(task)
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
@@ -589,19 +616,50 @@ Follow these guidelines when making changes:
 `, guidelines)
 	}
 
+	// Get all project repositories early (needed for prompt)
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
+		projectRepos = nil
+	}
+
+	// Determine primary repository from project configuration
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		// Use first project repo as fallback if no default set
+		primaryRepoID = projectRepos[0].ID
+	}
+
+	// Get primary repo name for the prompt
+	var primaryRepoName string
+	if primaryRepoID != "" {
+		for _, repo := range projectRepos {
+			if repo.ID == primaryRepoID {
+				primaryRepoName = repo.Name
+				break
+			}
+		}
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
 
-**Working in ~/work/:** All code repositories are in ~/work/. That's where you make changes.
+**Working in /home/retro/work/:** All code repositories are in /home/retro/work/. That's where you make changes.
+
+**Primary Project Directory:** /home/retro/work/%s/
+
+**Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
 **If making code changes:**
 1. git checkout -b %s
 2. Make your changes
 3. git push origin %s
 
-**For persistent installs:** Add commands to .helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, branchName, branchName)
+**For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, branchName, branchName, primaryRepoName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -624,16 +682,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Launch the external agent (Zed) via Wolf executor
-	// Project already fetched earlier for agent inheritance
-
-	// Get all project repositories
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
-		projectRepos = nil
-	}
+	// Project and projectRepos already fetched earlier
 
 	// Build list of all repository IDs to clone from project
 	repositoryIDs := []string{}
@@ -641,13 +690,6 @@ Follow these guidelines when making changes:
 		if repo.ID != "" {
 			repositoryIDs = append(repositoryIDs, repo.ID)
 		}
-	}
-
-	// Determine primary repository from project configuration
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Use first project repo as fallback if no default set
-		primaryRepoID = projectRepos[0].ID
 	}
 
 	// Get user's personal API token for git operations
@@ -773,25 +815,20 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		var baseBranch string
+		var primaryRepoName string
 		if project.DefaultRepoID != "" {
 			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
 				baseBranch = repo.DefaultBranch
+				primaryRepoName = repo.Name
 			}
 		}
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
 
-		// Generate feature branch name
-		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
-		taskIDSuffix := task.ID
-		if len(taskIDSuffix) > 16 {
-			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-		}
-		branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
-		// Sanitize branch name (replace spaces with hyphens, remove special chars)
-		branchName = sanitizeBranchName(branchName)
+		// Generate feature branch name using task number (e.g., feature/install-uv-123)
+		branchName := GenerateFeatureBranchName(task)
 
 		// Specs approved - move to implementation
 		task.Status = types.TaskStatusImplementation
@@ -822,6 +859,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 					task,
 					branchName,
 					baseBranch,
+					primaryRepoName,
 				)
 				if err != nil {
 					log.Error().

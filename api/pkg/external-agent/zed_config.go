@@ -132,16 +132,16 @@ func GenerateZedMCPConfig(
 		model = "claude-sonnet-4-5-latest"
 	}
 
-	// Normalize model ID to the format Zed expects (strip dates, use -latest aliases)
-	// Zed's serde config only recognizes specific aliases like "claude-3-5-haiku-latest",
-	// not dated versions like "claude-3-5-haiku-20241022"
-	model = normalizeModelIDForZed(model)
+	// Map Helix provider to Zed's provider type and format model name
+	// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
+	// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
+	zedProvider, zedModel := mapHelixToZedProvider(provider, model)
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
 	config.Agent = &AgentConfig{
 		DefaultModel: &ModelConfig{
-			Provider: provider,
-			Model:    model,
+			Provider: zedProvider,
+			Model:    zedModel,
 		},
 		AlwaysAllowToolActions: true,
 		ShowOnboarding:         false,
@@ -343,6 +343,38 @@ func normalizeModelIDForZed(modelID string) string {
 
 	// Return unchanged for other models (Gemini, Qwen, etc. - these go through OpenAI provider)
 	return modelID
+}
+
+// mapHelixToZedProvider maps a Helix provider name to a Zed provider type and formats the model name.
+// Zed only recognizes a fixed set of providers: anthropic, openai, google, ollama, copilot, lmstudio, deepseek.
+// All other Helix providers (nebius, together, openrouter, etc.) are OpenAI-compatible and should use "openai".
+//
+// For the model name:
+// - Anthropic models: normalize to -latest format (e.g., claude-sonnet-4-5-latest)
+// - OpenAI-native models: use as-is (e.g., gpt-4o)
+// - All other providers: prefix with "provider/" so Helix's router can route to the correct backend
+//
+// Examples:
+//
+//	helixProvider="anthropic", model="claude-sonnet-4-5" → zedProvider="anthropic", zedModel="claude-sonnet-4-5-latest"
+//	helixProvider="openai", model="gpt-4o" → zedProvider="openai", zedModel="openai/gpt-4o"
+//	helixProvider="nebius", model="Qwen/Qwen3-Coder" → zedProvider="openai", zedModel="nebius/Qwen/Qwen3-Coder"
+func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel string) {
+	provider := strings.ToLower(helixProvider)
+
+	switch provider {
+	case "anthropic":
+		// Anthropic uses Zed's native Anthropic provider which routes to Helix's Anthropic proxy.
+		// Model name is normalized to -latest format (required by Zed's serde config).
+		// No provider prefix needed since Anthropic API is separate from OpenAI API.
+		return "anthropic", normalizeModelIDForZed(model)
+
+	default:
+		// All other providers (openai, nebius, together, openrouter, azure, google, etc.)
+		// route through Zed's OpenAI provider → Helix's OpenAI-compatible proxy.
+		// Model is prefixed with provider name so Helix can route to the correct backend.
+		return "openai", fmt.Sprintf("%s/%s", helixProvider, model)
+	}
 }
 
 // GetZedConfigForSession retrieves Zed MCP config for a session

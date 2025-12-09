@@ -110,6 +110,10 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		} else if !filters.IncludeArchived {
 			db = db.Where("archived = ? OR archived IS NULL", false)
 		}
+		// DesignDocPath filter - used for matching pushed design doc directories to tasks
+		if filters.DesignDocPath != "" {
+			db = db.Where("design_doc_path = ?", filters.DesignDocPath)
+		}
 
 		if filters.Limit > 0 {
 			db = db.Limit(filters.Limit)
