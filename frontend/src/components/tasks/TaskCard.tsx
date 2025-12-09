@@ -720,33 +720,7 @@ export default function TaskCard({
         {/* Implementation phase */}
         {task.status === 'implementation' && (
           <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ViewIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (onTaskClick) onTaskClick(task)
-              }}
-              fullWidth
-            >
-              View Agent Session
-            </Button>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                size="small"
-                variant="contained"
-                color="success"
-                startIcon={<ApproveIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  approveImplementationMutation.mutate()
-                }}
-                disabled={approveImplementationMutation.isPending}
-                sx={{ flex: 1 }}
-              >
-                Accept
-              </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>              
               <Button
                 size="small"
                 variant="outlined"
@@ -761,6 +735,21 @@ export default function TaskCard({
                 sx={{ flex: 1 }}
               >
                 Reject
+              </Button>
+
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<ApproveIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  approveImplementationMutation.mutate()
+                }}
+                disabled={approveImplementationMutation.isPending}
+                sx={{ flex: 1 }}
+              >
+                Accept
               </Button>
             </Box>
           </Box>
