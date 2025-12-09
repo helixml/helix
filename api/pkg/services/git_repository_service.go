@@ -110,7 +110,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Check for duplicate repository name for this owner
+	// Check for duplicate repository name for this owner and auto-increment if needed
 	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: request.OrganizationID,
 		OwnerID:        request.OwnerID,
@@ -118,12 +118,24 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}
-	// Check for duplicates
+
+	// Build a set of existing names for quick lookup
+	existingNames := make(map[string]bool)
 	for _, repo := range existingRepos {
-		if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
-			return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
+		if repo.OwnerID == request.OwnerID {
+			existingNames[repo.Name] = true
 		}
 	}
+
+	// Auto-increment name if it already exists
+	baseName := request.Name
+	uniqueName := baseName
+	suffix := 1
+	for existingNames[uniqueName] {
+		uniqueName = fmt.Sprintf("%s-%d", baseName, suffix)
+		suffix++
+	}
+	request.Name = uniqueName
 
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)

@@ -897,6 +897,21 @@ I'll give you feedback and we can iterate on any changes needed.`
                 <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
+                {displayTask.task_number && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Task Number: {displayTask.task_number}
+                  </Typography>
+                )}
+                {displayTask.design_doc_path && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Design Doc Path: {displayTask.design_doc_path}
+                  </Typography>
+                )}
+                {displayTask.branch_name && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Branch: {displayTask.branch_name}
+                  </Typography>
+                )}
                 {activeSessionId && (
                   <>
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>

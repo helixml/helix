@@ -556,6 +556,9 @@ type Store interface {
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, repoID string) error
 	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
+	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+	// Used to assign unique task numbers for human-readable design doc paths
+	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
