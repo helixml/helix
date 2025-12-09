@@ -28,7 +28,7 @@ import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
-import { TypesSpecTask } from '../../services'
+import { TypesSpecTask } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
@@ -619,7 +619,7 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <Typography variant="subtitle">
                 {displayTask.name}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
@@ -627,16 +627,16 @@ I'll give you feedback and we can iterate on any changes needed.`
                   label={formatStatus(displayTask.status)}
                   color={getStatusColor(displayTask.status)}
                   size="small"
-                  sx={{ height: 20, fontSize: '0.7rem' }}
+                  sx={{ height: 20 }}
                 />
                 <Chip
                   label={displayTask.priority || 'Medium'}
                   color={getPriorityColor(displayTask.priority)}
                   size="small"
-                  sx={{ height: 20, fontSize: '0.7rem' }}
+                  sx={{ height: 20 }}
                 />
                 {displayTask.type && (
-                  <Chip label={displayTask.type} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                  <Chip label={displayTask.type} size="small" variant="outlined" sx={{ height: 20 }} />
                 )}
               </Box>
             </Box>
@@ -730,7 +730,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                       startIcon={<PlayArrow />}
                       onClick={handleStartPlanning}
                       endIcon={
-                        <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                        <Box component="span" sx={{ opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
                           {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
                         </Box>
                       }
@@ -751,7 +751,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <Typography variant="body2">Just Do It</Typography>
-                            <Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                            <Box component="span" sx={{ opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
                               {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
                             </Box>
                           </Box>
@@ -891,27 +891,27 @@ I'll give you feedback and we can iterate on any changes needed.`
               {/* Debug Information */}
               <Divider sx={{ my: 2 }} />
               <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
-                <Typography variant="caption" color="grey.400" display="block" gutterBottom sx={{ fontWeight: 600 }}>
+                <Typography variant="caption" color="grey.400" display="block" gutterBottom>
                   Debug Information
                 </Typography>
-                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
                 {activeSessionId && (
                   <>
-                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Active Session ID: {activeSessionId}
                     </Typography>
                     {displayTask.planning_session_id && displayTask.spec_session_id && (
-                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', display: 'block', fontStyle: 'italic' }}>
+                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', display: 'block', fontStyle: 'italic' }}>
                         (using planning_session_id, spec_session_id also available)
                       </Typography>
                     )}
-                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Moonlight Client ID: {clientUniqueId || 'calculating...'}
                     </Typography>
                     {swayVersion && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         Sway Version:{' '}
                         <a
                           href={`https://github.com/helixml/helix/commit/${swayVersion}`}
@@ -924,12 +924,12 @@ I'll give you feedback and we can iterate on any changes needed.`
                       </Typography>
                     )}
                     {gpuVendor && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         GPU Vendor: {gpuVendor}
                       </Typography>
                     )}
                     {renderNode && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         Render Node: {renderNode}
                       </Typography>
                     )}
