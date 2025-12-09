@@ -420,6 +420,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		// Don't fail startup if seeding fails, just log the error
 	}
 
+	// Start background model cache refresh to ensure provider model lists are always cached.
+	// This is critical for:
+	// 1. API-only clients that don't use the UI (which triggers cache population)
+	// 2. Handling HuggingFace model IDs like "Qwen/Qwen3-Coder" correctly
+	// 3. Detecting when providers come back online after being down
+	apiServer.StartModelCacheRefresh(ctx)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -960,6 +967,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
+	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/quick-create", apiServer.quickCreateProject).Methods(http.MethodPost)
 
 	// Workflow automation routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost)

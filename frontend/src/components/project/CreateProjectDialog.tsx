@@ -299,7 +299,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         }
         repoIdToUse = newRepo.id
       } catch (err) {
-        setRepoError('Failed to create repository')
+        setRepoError(err instanceof Error ? err.message : 'Failed to create repository')
         return
       } finally {
         setCreatingRepo(false)
@@ -342,7 +342,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
         }
         repoIdToUse = linkedRepo.id
       } catch (err) {
-        setRepoError('Failed to link repository')
+        setRepoError(err instanceof Error ? err.message : 'Failed to link repository')
         return
       } finally {
         setCreatingRepo(false)

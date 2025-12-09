@@ -61,6 +61,12 @@ type SpecTask struct {
 	// Git tracking
 	BranchName string `json:"branch_name,omitempty"`
 
+	// Human-readable directory naming for design docs in helix-specs branch
+	// TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+	// DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
+	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
+
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
 	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`
@@ -97,6 +103,11 @@ type SpecTask struct {
 	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
 	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
+
+	// Clone tracking
+	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
+	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty" gorm:"size:255;index"` // Original project
+	CloneGroupID        string `json:"clone_group_id,omitempty" gorm:"size:255;index"`         // Groups tasks from same clone operation
 
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
@@ -152,6 +163,7 @@ type SpecTaskFilters struct {
 	Offset          int            `json:"offset,omitempty"`
 	IncludeArchived bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
 	ArchivedOnly    bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
+	DesignDocPath   string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
@@ -256,4 +268,81 @@ func (ExternalAgentActivity) TableName() string {
 
 type SpecTaskArchiveRequest struct {
 	Archived bool `json:"archived"`
+}
+
+// CloneGroup tracks a batch of cloned tasks from the same source
+type CloneGroup struct {
+	ID                  string    `json:"id" gorm:"primaryKey;size:255"`
+	SourceTaskID        string    `json:"source_task_id" gorm:"size:255;index;not null"`
+	SourceProjectID     string    `json:"source_project_id" gorm:"size:255;index"`
+	SourceTaskName      string    `json:"source_task_name" gorm:"size:500"`
+	SourcePrompt        string    `json:"source_prompt" gorm:"type:text"`
+	SourceRequirements  string    `json:"source_requirements_spec" gorm:"type:text"`
+	SourceTechnicalSpec string    `json:"source_technical_spec" gorm:"type:text"`
+	TotalTargets        int       `json:"total_targets"`
+	CreatedBy           string    `json:"created_by" gorm:"size:255"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+func (CloneGroup) TableName() string {
+	return "clone_groups"
+}
+
+// CloneTaskRequest is the request to clone a task to multiple projects
+type CloneTaskRequest struct {
+	TargetProjectIDs []string                     `json:"target_project_ids"`
+	CreateProjects   []CloneTaskCreateProjectSpec `json:"create_projects,omitempty"` // Create new projects for repos
+	AutoStart        bool                         `json:"auto_start"`                // Auto-start cloned tasks
+}
+
+type CloneTaskCreateProjectSpec struct {
+	RepoID string `json:"repo_id"`
+	Name   string `json:"name,omitempty"` // Optional, will use repo name if not provided
+}
+
+// CloneTaskResponse is the response from cloning a task
+type CloneTaskResponse struct {
+	CloneGroupID string            `json:"clone_group_id"`
+	ClonedTasks  []CloneTaskResult `json:"cloned_tasks"`
+	TotalCloned  int               `json:"total_cloned"`
+	TotalFailed  int               `json:"total_failed"`
+	Errors       []CloneTaskError  `json:"errors,omitempty"`
+}
+
+type CloneTaskResult struct {
+	TaskID    string `json:"task_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"` // "created", "started", "failed"
+}
+
+type CloneTaskError struct {
+	ProjectID string `json:"project_id"`
+	RepoID    string `json:"repo_id,omitempty"`
+	Error     string `json:"error"`
+}
+
+// CloneGroupProgress tracks progress of all tasks in a clone group
+type CloneGroupProgress struct {
+	CloneGroupID    string                   `json:"clone_group_id"`
+	SourceTask      *CloneGroupSourceTask    `json:"source_task"`
+	Tasks           []CloneGroupTaskProgress `json:"tasks"`
+	TotalTasks      int                      `json:"total_tasks"`
+	CompletedTasks  int                      `json:"completed_tasks"`
+	ProgressPct     int                      `json:"progress_pct"`
+	StatusBreakdown map[string]int           `json:"status_breakdown"` // status -> count
+}
+
+type CloneGroupSourceTask struct {
+	TaskID      string `json:"task_id"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Name        string `json:"name"`
+}
+
+type CloneGroupTaskProgress struct {
+	TaskID      string `json:"task_id"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
 }

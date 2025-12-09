@@ -473,6 +473,13 @@ type Store interface {
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
 
+	// Clone Group methods
+	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
+	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
+	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
+	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+
 	// External Agent Activity methods (idle detection)
 	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
 	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
@@ -549,6 +556,9 @@ type Store interface {
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, repoID string) error
 	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
+	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+	// Used to assign unique task numbers for human-readable design doc paths
+	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)

@@ -11,6 +11,9 @@ import {
   CircularProgress,
   LinearProgress,
   keyframes,
+  Dialog,
+  DialogTitle,
+  DialogContent,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -25,10 +28,14 @@ import {
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
   RadioButtonUnchecked as UncheckedIcon,
+  ContentCopy as CopyIcon,
+  AccountTree as BatchIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import CloneTaskDialog from '../specTask/CloneTaskDialog'
+import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -69,6 +76,8 @@ interface SpecTaskWithExtras {
   just_do_it_mode?: boolean
   started_at?: string
   design_docs_pushed_at?: string
+  clone_group_id?: string
+  cloned_from_id?: string
 }
 
 interface KanbanColumn {
@@ -389,6 +398,8 @@ export default function TaskCard({
   focusStartPlanning = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
+  const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
 
@@ -514,6 +525,50 @@ export default function TaskCard({
                 </IconButton>
               </Tooltip>
             )}
+            {/* Clone batch progress - visible for cloned tasks */}
+            {task.clone_group_id && (
+              <Tooltip title="View Clone Batch Progress">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowCloneBatchProgress(true)
+                  }}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color: 'secondary.main',
+                    '&:hover': {
+                      color: 'secondary.dark',
+                      backgroundColor: 'rgba(156, 39, 176, 0.08)',
+                    },
+                  }}
+                >
+                  <BatchIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Clone button - always visible */}
+            <Tooltip title="Clone to Other Projects">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowCloneDialog(true)
+                }}
+                sx={{
+                  width: 24,
+                  height: 24,
+                  color: 'text.secondary',
+                  '&:hover': {
+                    color: 'primary.main',
+                    backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                  },
+                }}
+              >
+                <CopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
               <IconButton
                 size="small"
@@ -783,6 +838,43 @@ export default function TaskCard({
           </Box>
         )}
       </CardContent>
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={task.id}
+        taskName={task.name}
+        sourceProjectId={projectId || ''}
+      />
+
+      {/* Clone Batch Progress Dialog */}
+      {task.clone_group_id && (
+        <Dialog
+          open={showCloneBatchProgress}
+          onClose={() => setShowCloneBatchProgress(false)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            Clone Batch Progress
+            <IconButton size="small" onClick={() => setShowCloneBatchProgress(false)}>
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent>
+            <CloneGroupProgressFull
+              groupId={task.clone_group_id}
+              onTaskClick={(taskId, projectId) => {
+                setShowCloneBatchProgress(false)
+                if (onTaskClick) {
+                  onTaskClick({ ...task, id: taskId })
+                }
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   )
 }

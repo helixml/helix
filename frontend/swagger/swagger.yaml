@@ -1084,6 +1084,13 @@ definitions:
       success:
         type: boolean
     type: object
+  server.QuickCreateProjectRequest:
+    properties:
+      name:
+        type: string
+      repo_id:
+        type: string
+    type: object
   server.SampleProject:
     properties:
       category:
@@ -3040,6 +3047,134 @@ definitions:
         type: string
       type:
         description: '"text" or "image"'
+        type: string
+    type: object
+  types.CloneGroup:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      source_project_id:
+        type: string
+      source_prompt:
+        type: string
+      source_requirements_spec:
+        type: string
+      source_task_id:
+        type: string
+      source_task_name:
+        type: string
+      source_technical_spec:
+        type: string
+      total_targets:
+        type: integer
+    type: object
+  types.CloneGroupProgress:
+    properties:
+      clone_group_id:
+        type: string
+      completed_tasks:
+        type: integer
+      progress_pct:
+        type: integer
+      source_task:
+        $ref: '#/definitions/types.CloneGroupSourceTask'
+      status_breakdown:
+        additionalProperties:
+          type: integer
+        description: status -> count
+        type: object
+      tasks:
+        items:
+          $ref: '#/definitions/types.CloneGroupTaskProgress'
+        type: array
+      total_tasks:
+        type: integer
+    type: object
+  types.CloneGroupSourceTask:
+    properties:
+      name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.CloneGroupTaskProgress:
+    properties:
+      name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      status:
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.CloneTaskCreateProjectSpec:
+    properties:
+      name:
+        description: Optional, will use repo name if not provided
+        type: string
+      repo_id:
+        type: string
+    type: object
+  types.CloneTaskError:
+    properties:
+      error:
+        type: string
+      project_id:
+        type: string
+      repo_id:
+        type: string
+    type: object
+  types.CloneTaskRequest:
+    properties:
+      auto_start:
+        description: Auto-start cloned tasks
+        type: boolean
+      create_projects:
+        description: Create new projects for repos
+        items:
+          $ref: '#/definitions/types.CloneTaskCreateProjectSpec'
+        type: array
+      target_project_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  types.CloneTaskResponse:
+    properties:
+      clone_group_id:
+        type: string
+      cloned_tasks:
+        items:
+          $ref: '#/definitions/types.CloneTaskResult'
+        type: array
+      errors:
+        items:
+          $ref: '#/definitions/types.CloneTaskError'
+        type: array
+      total_cloned:
+        type: integer
+      total_failed:
+        type: integer
+    type: object
+  types.CloneTaskResult:
+    properties:
+      project_id:
+        type: string
+      status:
+        description: '"created", "started", "failed"'
+        type: string
+      task_id:
         type: string
     type: object
   types.CodeAgentConfig:
@@ -6523,6 +6658,15 @@ definitions:
       branch_name:
         description: Git tracking
         type: string
+      clone_group_id:
+        description: Groups tasks from same clone operation
+        type: string
+      cloned_from_id:
+        description: Clone tracking
+        type: string
+      cloned_from_project_id:
+        description: Original project
+        type: string
       completed_at:
         type: string
       created_at:
@@ -9532,6 +9676,31 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/clone-groups/{groupId}/progress:
+    get:
+      description: Get status breakdown and progress of all cloned tasks
+      parameters:
+      - description: Clone group ID
+        in: path
+        name: groupId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CloneGroupProgress'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get progress of all tasks in a clone group
+      tags:
+      - CloneGroups
   /api/v1/config:
     get:
       description: Get config
@@ -12292,6 +12461,34 @@ paths:
       summary: Get startup script version history
       tags:
       - Projects
+  /api/v1/projects/quick-create:
+    post:
+      consumes:
+      - application/json
+      description: Create a minimal project for a repository that doesn't have one
+      parameters:
+      - description: Quick create request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.QuickCreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Quick-create a project for a repository
+      tags:
+      - Projects
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -12711,6 +12908,28 @@ paths:
       summary: Get question set execution results
       tags:
       - question-sets
+  /api/v1/repositories/without-projects:
+    get:
+      description: Get all repositories that don't have an associated project
+      parameters:
+      - description: Filter by organization ID
+        in: query
+        name: organization_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitRepository'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List repositories without projects
+      tags:
+      - Repositories
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
@@ -14331,6 +14550,70 @@ paths:
       summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/clone:
+    post:
+      consumes:
+      - application/json
+      description: Clone a spec task (with its prompt, spec, and plan) to other projects
+      parameters:
+      - description: Source task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Clone request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CloneTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CloneTaskResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Clone a spec task to multiple projects
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{taskId}/clone-groups:
+    get:
+      description: Get all clone groups where this task was the source
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.CloneGroup'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List clone groups for a task
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{taskId}/commit-progress:
     post:
       consumes:

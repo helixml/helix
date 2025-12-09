@@ -41,6 +41,7 @@ const (
 	QuestionSetExecutionPrefix = "qsex_"
 	SpecTaskPrefix             = "spt_"
 	ProjectPrefix              = "prj_"
+	CloneGroupPrefix           = "clg_"
 )
 
 func GenerateUUID() string {
@@ -184,4 +185,8 @@ func GenerateQuestionSetExecutionID() string {
 
 func GenerateSpecTaskID() string {
 	return fmt.Sprintf("%s%s", SpecTaskPrefix, newID())
+}
+
+func GenerateCloneGroupID() string {
+	return fmt.Sprintf("%s%s", CloneGroupPrefix, newID())
 }

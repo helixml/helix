@@ -12,8 +12,12 @@ export type {
   TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
   TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
-  TypesSpecTaskUpdateRequest as SpecTaskUpdateRequest,
-  TypesZedInstanceEvent as ZedInstanceEvent
+  TypesSpecTaskUpdateRequest as SpecTaskUpdateRequest,  
+  TypesZedInstanceEvent as ZedInstanceEvent,
+  TypesCloneTaskRequest as CloneTaskRequest,
+  TypesCloneTaskResponse as CloneTaskResponse,
+  TypesCloneGroup as CloneGroup,
+  TypesCloneGroupProgress as CloneGroupProgress,
 } from '../api/api';
 
 // Query keys
@@ -27,6 +31,9 @@ const QUERY_KEYS = {
   coordinationLog: (id: string) => ['spec-tasks', id, 'coordination-log'] as const,
   zedInstanceStatus: (id: string) => ['spec-tasks', id, 'zed-instance'] as const,
   sessionHistory: (sessionId: string) => ['work-sessions', sessionId, 'history'] as const,
+  cloneGroups: (taskId: string) => ['spec-tasks', taskId, 'clone-groups'] as const,
+  cloneGroupProgress: (groupId: string) => ['clone-groups', groupId, 'progress'] as const,
+  reposWithoutProjects: (orgId?: string) => ['repositories', 'without-projects', orgId] as const,
 };
 
 // Custom hooks for SpecTask operations
@@ -236,7 +243,7 @@ export function useRecordSessionHistory() {
 export function useSendZedEvent() {
   const api = useApi();
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (event: any) => { // TypesZedInstanceEvent
       const response = await api.getApiClient().v1ZedEventsCreate(event);
@@ -245,10 +252,75 @@ export function useSendZedEvent() {
     onSuccess: (_, event) => {
       // Invalidate coordination events for the affected SpecTask
       if (event.spec_task_id) {
-        queryClient.invalidateQueries({ 
-          queryKey: QUERY_KEYS.coordinationLog(event.spec_task_id) 
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.coordinationLog(event.spec_task_id)
         });
       }
+    },
+  });
+}
+
+// Clone-related hooks
+export function useCloneGroups(taskId: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.cloneGroups(taskId),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksCloneGroupsDetail(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useCloneGroupProgress(groupId: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.cloneGroupProgress(groupId),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1CloneGroupsProgressDetail(groupId);
+      return response.data;
+    },
+    enabled: !!groupId,
+    refetchInterval: 5000, // Refresh every 5 seconds during cloning
+  });
+}
+
+export function useReposWithoutProjects(orgId?: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.reposWithoutProjects(orgId),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1RepositoriesWithoutProjectsList({ organization_id: orgId });
+      return response.data;
+    },
+  });
+}
+
+export function useCloneTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ taskId, request }: {
+      taskId: string;
+      request: {
+        target_project_ids?: string[];
+        create_projects?: { repo_id: string; name?: string }[];
+        auto_start?: boolean;
+      }
+    }) => {
+      const response = await api.getApiClient().v1SpecTasksCloneCreate(taskId, request);
+      return response.data;
+    },
+    onSuccess: (data, { taskId }) => {
+      // Invalidate clone groups for the source task
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cloneGroups(taskId) });
+      // Invalidate spec tasks list to show new cloned tasks
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasks });
     },
   });
 }
@@ -326,7 +398,10 @@ const specTaskService = {
   useCoordinationEvents,
   useZedInstanceStatus,
   useSessionHistory,
-  
+  useCloneGroups,
+  useCloneGroupProgress,
+  useReposWithoutProjects,
+
   // Mutation functions
   useCreateImplementationSessions,
   useUpdateSpecTaskStatus,
@@ -334,15 +409,16 @@ const specTaskService = {
   useApproveSpecTask,
   useRecordSessionHistory,
   useSendZedEvent,
-  
+  useCloneTask,
+
   // Real-time updates
   useSpecTaskRealTimeUpdates,
-  
+
   // Helper functions
   getSessionStatusColor,
   getSpecTaskStatusColor,
   formatTimestamp,
-  
+
   // Query keys for external use
   QUERY_KEYS,
 };
