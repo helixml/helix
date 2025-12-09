@@ -8538,7 +8538,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/services.CreateTaskRequest"
+                            "$ref": "#/definitions/types.CreateTaskRequest"
                         }
                     }
                 ],
@@ -14391,7 +14391,11 @@ const docTemplate = `{
                 },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
                 },
                 "prompt": {
                     "description": "Natural language request",
@@ -14711,7 +14715,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskStatus"
                 },
                 "task_id": {
                     "type": "string"
@@ -14984,38 +14988,6 @@ const docTemplate = `{
                 "CoordinationEventTypeCompletion",
                 "CoordinationEventTypeSpawn"
             ]
-        },
-        "services.CreateTaskRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "description": "Optional: Helix agent to use for spec generation",
-                    "type": "string"
-                },
-                "just_do_it_mode": {
-                    "description": "Optional: Skip spec planning, go straight to implementation",
-                    "type": "boolean"
-                },
-                "priority": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "prompt": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "use_host_docker": {
-                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
-                    "type": "boolean"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            }
         },
         "services.DocumentHandoffConfig": {
             "type": "object",
@@ -17430,6 +17402,38 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateTaskRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "Optional: Helix agent to use for spec generation",
+                    "type": "string"
+                },
+                "just_do_it_mode": {
+                    "description": "Optional: Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "priority": {
+                    "$ref": "#/definitions/types.SpecTaskPriority"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
+                "user_id": {
                     "type": "string"
                 }
             }
@@ -22196,7 +22200,11 @@ const docTemplate = `{
                 },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
                 },
                 "project_id": {
                     "type": "string"
@@ -22224,7 +22232,11 @@ const docTemplate = `{
                 },
                 "status": {
                     "description": "Spec-driven workflow statuses - see constants below",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskStatus"
+                        }
+                    ]
                 },
                 "technical_design": {
                     "description": "Design document (markdown)",
@@ -22813,6 +22825,21 @@ const docTemplate = `{
                 "SpecTaskPhaseValidation"
             ]
         },
+        "types.SpecTaskPriority": {
+            "type": "string",
+            "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskPriorityLow",
+                "SpecTaskPriorityMedium",
+                "SpecTaskPriorityHigh",
+                "SpecTaskPriorityCritical"
+            ]
+        },
         "types.SpecTaskProgressResponse": {
             "type": "object",
             "properties": {
@@ -22858,6 +22885,48 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskStatus": {
+            "type": "string",
+            "enum": [
+                "backlog",
+                "spec_generation",
+                "spec_review",
+                "spec_revision",
+                "spec_approved",
+                "implementation_queued",
+                "implementation",
+                "implementation_review",
+                "done",
+                "spec_failed",
+                "implementation_failed"
+            ],
+            "x-enum-comments": {
+                "TaskStatusBacklog": "Initial state, waiting for spec generation",
+                "TaskStatusDone": "Task completed",
+                "TaskStatusImplementation": "Zed agent coding",
+                "TaskStatusImplementationFailed": "Implementation failed",
+                "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
+                "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusSpecApproved": "Specs approved, ready for implementation",
+                "TaskStatusSpecFailed": "Spec generation failed",
+                "TaskStatusSpecGeneration": "Helix agent generating specs",
+                "TaskStatusSpecReview": "Human reviewing generated specs",
+                "TaskStatusSpecRevision": "Human requested spec changes"
+            },
+            "x-enum-varnames": [
+                "TaskStatusBacklog",
+                "TaskStatusSpecGeneration",
+                "TaskStatusSpecReview",
+                "TaskStatusSpecRevision",
+                "TaskStatusSpecApproved",
+                "TaskStatusImplementationQueued",
+                "TaskStatusImplementation",
+                "TaskStatusImplementationReview",
+                "TaskStatusDone",
+                "TaskStatusSpecFailed",
+                "TaskStatusImplementationFailed"
+            ]
+        },
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
@@ -22876,10 +22945,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskPriority"
                 },
                 "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskStatus"
                 }
             }
         },
@@ -23875,20 +23944,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
