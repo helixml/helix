@@ -8,12 +8,212 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// WorkingCopy represents a temporary non-bare clone of a bare repository
+// that can be used for worktree operations (add, commit, checkout, etc.)
+type WorkingCopy struct {
+	TempDir  string          // Temporary directory containing the working copy
+	Repo     *git.Repository // The cloned repository
+	Worktree *git.Worktree   // The worktree for making changes
+}
+
+// Cleanup removes the temporary working copy directory
+func (wc *WorkingCopy) Cleanup() {
+	if wc.TempDir != "" {
+		os.RemoveAll(wc.TempDir)
+	}
+}
+
+// PushToBare pushes changes from the working copy back to the bare repository (origin)
+func (wc *WorkingCopy) PushToBare(branch string) error {
+	refSpec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch))
+	err := wc.Repo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []config.RefSpec{refSpec},
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+	return nil
+}
+
+// PushToHelixBare pushes changes to the helix-bare remote (used for external repos)
+func (wc *WorkingCopy) PushToHelixBare(branch string) error {
+	refSpec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch))
+	err := wc.Repo.Push(&git.PushOptions{
+		RemoteName: "helix-bare",
+		RefSpecs:   []config.RefSpec{refSpec},
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to push to helix-bare repo: %w", err)
+	}
+	return nil
+}
+
+// PushToOrigin pushes changes to origin (external remote) with optional force and auth
+func (wc *WorkingCopy) PushToOrigin(branch string, force bool, auth transport.AuthMethod) error {
+	refSpec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch))
+	if force {
+		refSpec = config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch))
+	}
+	opts := &git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []config.RefSpec{refSpec},
+	}
+	if auth != nil {
+		opts.Auth = auth
+	}
+	err := wc.Repo.Push(opts)
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to push to origin: %w", err)
+	}
+	return nil
+}
+
+// Pull fetches and merges changes from origin
+func (wc *WorkingCopy) Pull(auth transport.AuthMethod) error {
+	opts := &git.PullOptions{
+		RemoteName: "origin",
+	}
+	if auth != nil {
+		opts.Auth = auth
+	}
+	err := wc.Worktree.Pull(opts)
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to pull from origin: %w", err)
+	}
+	return nil
+}
+
+// getWorkingCopy creates a temporary non-bare clone of a bare repository
+// This is needed because bare repositories don't have a worktree, so operations
+// like Add, Commit, Checkout require a non-bare clone.
+// The caller MUST call Cleanup() when done to remove the temporary directory.
+func (s *GitRepositoryService) getWorkingCopy(bareRepoPath string, branch string, auth transport.AuthMethod) (*WorkingCopy, error) {
+	tempDir, err := os.MkdirTemp("", "helix-git-workdir-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	cloneOpts := &git.CloneOptions{
+		URL: bareRepoPath,
+	}
+	if auth != nil {
+		cloneOpts.Auth = auth
+	}
+
+	repo, err := git.PlainClone(tempDir, cloneOpts)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to clone bare repo: %w", err)
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	if branch != "" {
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: branchRef,
+		})
+		if err != nil {
+			err = worktree.Checkout(&git.CheckoutOptions{
+				Branch: branchRef,
+				Create: true,
+			})
+			if err != nil {
+				os.RemoveAll(tempDir)
+				return nil, fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+			}
+		}
+	}
+
+	return &WorkingCopy{
+		TempDir:  tempDir,
+		Repo:     repo,
+		Worktree: worktree,
+	}, nil
+}
+
+// getExternalWorkingCopy creates a temporary non-bare clone from an external repository
+// This is used for syncing with external repositories (GitHub, ADO, etc.)
+// The working copy has the external repo as "origin" and can push/pull from it.
+// The caller MUST call Cleanup() when done to remove the temporary directory.
+func (s *GitRepositoryService) getExternalWorkingCopy(
+	externalURL string,
+	bareRepoPath string,
+	branch string,
+	auth transport.AuthMethod,
+) (*WorkingCopy, error) {
+	tempDir, err := os.MkdirTemp("", "helix-git-external-workdir-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	cloneOpts := &git.CloneOptions{
+		URL: externalURL,
+	}
+	if auth != nil {
+		cloneOpts.Auth = auth
+	}
+
+	repo, err := git.PlainClone(tempDir, cloneOpts)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to clone external repo: %w", err)
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	if branch != "" {
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: branchRef,
+		})
+		if err != nil {
+			err = worktree.Checkout(&git.CheckoutOptions{
+				Branch: branchRef,
+				Create: true,
+			})
+			if err != nil {
+				os.RemoveAll(tempDir)
+				return nil, fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+			}
+		}
+	}
+
+	if bareRepoPath != "" {
+		_, err = repo.CreateRemote(&config.RemoteConfig{
+			Name: "helix-bare",
+			URLs: []string{bareRepoPath},
+		})
+		if err != nil {
+			os.RemoveAll(tempDir)
+			return nil, fmt.Errorf("failed to add helix-bare remote: %w", err)
+		}
+	}
+
+	return &WorkingCopy{
+		TempDir:  tempDir,
+		Repo:     repo,
+		Worktree: worktree,
+	}, nil
+}
 
 // BrowseTree lists files and directories at a given path in a specific branch
 func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]types.TreeEntry, error) {
@@ -103,6 +303,8 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 }
 
 // CreateOrUpdateFileContents creates or updates a file in a repository and commits it.
+// For bare repositories (which Helix uses to accept remote pushes), this creates a
+// temporary working copy, makes the changes, commits, and pushes back to the bare repo.
 // Returns the commit hash.
 func (s *GitRepositoryService) CreateOrUpdateFileContents(
 	ctx context.Context,
@@ -145,47 +347,13 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		authorEmail = s.gitUserEmail
 	}
 
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	wc, err := s.getWorkingCopy(repo.LocalPath, branch, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to open git repository: %w", err)
+		return "", fmt.Errorf("failed to create working copy: %w", err)
 	}
+	defer wc.Cleanup()
 
-	w, err := gitRepo.Worktree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	branchRef := plumbing.NewBranchReferenceName(branch)
-	head, err := gitRepo.Head()
-	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD: %w", err)
-	}
-
-	if head.Name() != branchRef {
-		err = w.Checkout(&git.CheckoutOptions{
-			Branch: branchRef,
-		})
-		if err != nil {
-			err = w.Checkout(&git.CheckoutOptions{
-				Branch: branchRef,
-				Create: true,
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to checkout or create branch %s: %w", branch, err)
-			}
-			log.Info().
-				Str("repo_id", repoID).
-				Str("branch", branch).
-				Msg("Created and checked out new branch")
-		} else {
-			log.Info().
-				Str("repo_id", repoID).
-				Str("branch", branch).
-				Msg("Checked out existing branch")
-		}
-	}
-
-	filename := filepath.Join(repo.LocalPath, path)
+	filename := filepath.Join(wc.TempDir, path)
 
 	fileDir := filepath.Dir(filename)
 	if err := os.MkdirAll(fileDir, 0755); err != nil {
@@ -197,12 +365,12 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	_, err = w.Add(path)
+	_, err = wc.Worktree.Add(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to add file to staging: %w", err)
 	}
 
-	status, err := w.Status()
+	status, err := wc.Worktree.Status()
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree status: %w", err)
 	}
@@ -213,7 +381,7 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		Str("status", status.String()).
 		Msg("Worktree status after adding file")
 
-	commitHash, err := w.Commit(commitMessage, &git.CommitOptions{
+	commitHash, err := wc.Worktree.Commit(commitMessage, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  authorName,
 			Email: authorEmail,
@@ -224,7 +392,12 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		return "", fmt.Errorf("failed to commit: %w", err)
 	}
 
-	commitObj, err := gitRepo.CommitObject(commitHash)
+	err = wc.PushToBare(branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to push to bare repository: %w", err)
+	}
+
+	commitObj, err := wc.Repo.CommitObject(commitHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit object: %w", err)
 	}
