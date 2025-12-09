@@ -532,14 +532,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		delete(task.Metadata, "error_timestamp")
 	}
 
-	// Generate feature branch name (same logic as spec approval flow)
-	// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
-	taskIDSuffix := task.ID
-	if len(taskIDSuffix) > 16 {
-		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-	}
-	branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
-	branchName = sanitizeBranchName(branchName)
+	// Generate feature branch name using task number (e.g., feature/install-uv-123)
+	branchName := GenerateFeatureBranchName(task)
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
@@ -831,15 +825,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			baseBranch = "main"
 		}
 
-		// Generate feature branch name
-		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
-		taskIDSuffix := task.ID
-		if len(taskIDSuffix) > 16 {
-			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-		}
-		branchName := fmt.Sprintf("feature/%s-%s", task.Name, taskIDSuffix)
-		// Sanitize branch name (replace spaces with hyphens, remove special chars)
-		branchName = sanitizeBranchName(branchName)
+		// Generate feature branch name using task number (e.g., feature/install-uv-123)
+		branchName := GenerateFeatureBranchName(task)
 
 		// Specs approved - move to implementation
 		task.Status = types.TaskStatusImplementation

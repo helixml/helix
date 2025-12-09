@@ -59,3 +59,22 @@ func GenerateDesignDocPath(task *types.SpecTask, taskNumber int) string {
 	sanitizedName := sanitizeForBranchName(task.Name) // Already limited to 25 chars
 	return fmt.Sprintf("%s_%s_%d", dateStr, sanitizedName, taskNumber)
 }
+
+// GenerateFeatureBranchName creates a human-readable feature branch name
+// Format: "feature/shortname-N" e.g., "feature/install-cowsay-123"
+// Uses task.TaskNumber if set, otherwise falls back to last 8 chars of task ID
+func GenerateFeatureBranchName(task *types.SpecTask) string {
+	sanitizedName := sanitizeForBranchName(task.Name)
+
+	// Use TaskNumber if available (new format), otherwise use ID suffix (backwards compat)
+	if task.TaskNumber > 0 {
+		return fmt.Sprintf("feature/%s-%d", sanitizedName, task.TaskNumber)
+	}
+
+	// Fallback for old tasks without TaskNumber
+	taskIDSuffix := task.ID
+	if len(taskIDSuffix) > 8 {
+		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-8:]
+	}
+	return fmt.Sprintf("feature/%s-%s", sanitizedName, taskIDSuffix)
+}

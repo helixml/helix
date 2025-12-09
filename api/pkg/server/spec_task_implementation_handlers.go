@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -61,8 +62,8 @@ func (s *HelixAPIServer) startImplementation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Generate feature branch name
-	branchName := generateFeatureBranchName(specTask)
+	// Generate feature branch name using task number (e.g., feature/install-uv-123)
+	branchName := services.GenerateFeatureBranchName(specTask)
 
 	// Get project repository
 	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
@@ -165,34 +166,6 @@ Good luck! Let me know if you need any clarification on the design.
 }
 
 // Helper functions
-
-func generateFeatureBranchName(task *types.SpecTask) string {
-	// Sanitize task name for branch name
-	name := strings.ToLower(task.Name)
-	name = strings.ReplaceAll(name, " ", "-")
-	// Remove special characters
-	name = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			return r
-		}
-		return -1
-	}, name)
-
-	// Truncate to reasonable length
-	if len(name) > 50 {
-		name = name[:50]
-	}
-
-	// Add task ID suffix for uniqueness
-	// Use last 16 chars of task ID to get more of the random ULID portion
-	// (ULID = 10 char timestamp + 16 char random, we want the random part)
-	taskIDSuffix := task.ID
-	if len(taskIDSuffix) > 16 {
-		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-	}
-
-	return fmt.Sprintf("feature/%s-%s", name, taskIDSuffix)
-}
 
 func extractRepoPath(cloneURL string) string {
 	// Extract owner/repo from clone URL
