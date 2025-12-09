@@ -477,12 +477,17 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// Capture combined output (CGI format: headers\r\n\r\nbody)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		outputStr := string(output)
+
 		log.Error().
 			Err(err).
 			Str("repo_id", repoID).
-			Str("output", string(output)).
+			Str("output", outputStr).
 			Msg("Git http-backend failed")
-		http.Error(w, "Git operation failed", http.StatusInternalServerError)
+
+		// Return detailed error to client so it shows in terminal
+		errorMsg := fmt.Sprintf("Git operation failed: %s\n\nOutput:\n%s", err.Error(), outputStr)
+		http.Error(w, errorMsg, http.StatusInternalServerError)
 		return
 	}
 
