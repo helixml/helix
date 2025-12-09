@@ -1076,3 +1076,286 @@ With the fix deployed:
 - Reduces model's reliance on shell command workarounds
 
 The other issues (restart button, RevDial reconnection, shell security) are important for UX but are separate from the file writing root cause.
+
+---
+
+## Issue 9: Session Resumption After Agent/Zed Restart - SOLUTION FOUND
+
+### Background
+
+GitHub issue zed-industries/zed#80 documents that Claude Code/Qwen Code threads don't persist across Zed restarts. Users lose their entire conversation history when:
+- Qwen Code crashes (exit code 1)
+- Zed restarts
+- Container restarts
+
+The issue has been open since October 2024 with slow progress from Zed team.
+
+### MAJOR DISCOVERY: Qwen Code ALREADY Has Session Persistence!
+
+**Investigation on 2025-12-09 found that the solution already exists but isn't connected:**
+
+#### 1. Qwen Code Persists Sessions as JSONL Files
+
+Sessions are stored at `~/.qwen/tmp/<project_hash>/chats/<sessionId>.jsonl`
+
+From `qwen-code/packages/core/src/services/sessionService.ts`:
+```typescript
+export class SessionService {
+  // Lists all sessions for a project with pagination
+  async listSessions(options: ListSessionsOptions = {}): Promise<ListSessionsResult>
+
+  // Loads a specific session for resumption
+  async loadSession(sessionId: string): Promise<ResumedSessionData | undefined>
+
+  // Convenience method to load most recent session
+  async loadLastSession(): Promise<ResumedSessionData | undefined>
+}
+```
+
+Each JSONL file contains:
+- All chat messages (user + assistant)
+- Tool calls and results
+- Usage metadata (tokens)
+- Compression checkpoints for long conversations
+
+#### 2. ACP Protocol Already Supports Session Resumption
+
+From `qwen-code/packages/cli/src/acp-integration/acp.ts`:
+```typescript
+case schema.AGENT_METHODS.session_load: {
+  const validatedParams = schema.loadSessionRequestSchema.parse(params);
+  return agent.loadSession(validatedParams);
+}
+case schema.AGENT_METHODS.session_list: {
+  const validatedParams = schema.listSessionsRequestSchema.parse(params);
+  return agent.listSessions(validatedParams);
+}
+```
+
+The ACP protocol defines:
+- `session/list` - Returns paginated list of sessions with metadata
+- `session/load` - Loads a specific session by ID
+
+#### 3. Qwen Code Advertises This Capability
+
+From `qwen-code/packages/cli/src/acp-integration/acpAgent.ts:113`:
+```typescript
+agentCapabilities: {
+  loadSession: true,  // Advertises session resumption support
+  promptCapabilities: {
+    image: true,
+    audio: true,
+    embeddedContext: true,
+  },
+}
+```
+
+#### 4. The Implementation Exists in Qwen Code
+
+From `acpAgent.ts:204-258`:
+```typescript
+async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
+  const sessionService = new SessionService(params.cwd);
+  const exists = await sessionService.sessionExists(params.sessionId);
+  if (!exists) {
+    throw acp.RequestError.invalidParams(`Session not found for id: ${params.sessionId}`);
+  }
+
+  const config = await this.newSessionConfig(params.cwd, params.mcpServers, params.sessionId);
+  await this.ensureAuthenticated(config);
+
+  const sessionData = config.getResumedSessionData();
+  await this.createAndStoreSession(config, sessionData.conversation);
+
+  return null;
+}
+
+async listSessions(params: acp.ListSessionsRequest): Promise<acp.ListSessionsResponse> {
+  const sessionService = new SessionService(params.cwd);
+  const result = await sessionService.listSessions({
+    cursor: params.cursor,
+    size: params.size,
+  });
+
+  return {
+    items: result.items.map((item) => ({
+      sessionId: item.sessionId,
+      cwd: item.cwd,
+      startTime: item.startTime,
+      mtime: item.mtime,
+      prompt: item.prompt,
+      gitBranch: item.gitBranch,
+      filePath: item.filePath,
+      messageCount: item.messageCount,
+    })),
+    nextCursor: result.nextCursor,
+    hasMore: result.hasMore,
+  };
+}
+```
+
+### The Missing Link: Zed Doesn't Call These Methods
+
+From `zed/crates/agent_servers/src/acp.rs`, the `AcpConnection` struct:
+- Creates new sessions via `new_session`
+- Sends prompts via `session/prompt`
+- Handles cancellation via `session/cancel`
+- **But NEVER calls `session/list` or `session/load`**
+
+Neither our fork nor upstream Zed implements session resumption for ACP agents.
+
+### Implementation Plan
+
+**To enable session resumption in Zed:**
+
+1. **Add `session_list` call to AcpConnection** (Rust)
+   - Call when ACP agent initializes
+   - Check if agent advertises `loadSession: true` in capabilities
+   - If so, call `session/list` with `cwd` parameter
+
+2. **Add UI for session selection** (Rust/GPUI)
+   - Show list of previous sessions with:
+     - First prompt (truncated)
+     - Start time
+     - Message count
+     - Git branch (if available)
+   - Allow user to resume or start new
+
+3. **Add `session_load` call** (Rust)
+   - When user selects a session, call `session/load`
+   - Replay history into Zed's thread UI
+
+### Schema Reference
+
+```typescript
+// ListSessionsRequest
+{
+  cwd: string;        // Working directory (required)
+  cursor?: number;    // Pagination cursor (mtime of last item)
+  size?: number;      // Page size (default: 20)
+}
+
+// ListSessionsResponse
+{
+  items: SessionListItem[];
+  nextCursor?: number;
+  hasMore: boolean;
+}
+
+// SessionListItem
+{
+  sessionId: string;
+  cwd: string;
+  startTime: string;    // ISO 8601
+  mtime: number;        // File modification time
+  prompt: string;       // First user prompt (truncated)
+  gitBranch?: string;
+  filePath: string;
+  messageCount: number;
+}
+
+// LoadSessionRequest
+{
+  sessionId: string;
+  cwd: string;
+  mcpServers: McpServer[];
+}
+```
+
+### Why Zed Team Is Slow
+
+From the GitHub issue discussion:
+
+1. **They're waiting on Claude Code SDK** - "Claude Code SDK currently still has some limitations around this"
+2. **They're designing the protocol** - Working on agentclientprotocol.com/rfds/session-list
+3. **Generic solution needed** - They want something that works for all ACP agents
+
+**But for Helix**, we don't need the generic solution. Qwen Code already implements it. We just need to call it.
+
+### Impact
+
+This is a **HIGH VALUE, MEDIUM EFFORT** fix:
+- Eliminates conversation loss on crashes
+- Makes Qwen Code feel as persistent as native Zed Agent
+- Requires Rust/GPUI work in our Zed fork
+- ~200-400 lines of code to add session list/load UI
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `zed/crates/agent_servers/src/acp.rs` | Add `session_list` and `session_load` RPC calls |
+| `zed/crates/agent/src/lib.rs` | Add session list UI component |
+| `zed/crates/agent/src/agent_panel.rs` | Add "Resume Session" button/dropdown |
+
+### Implementation Status (2025-12-09)
+
+**COMPLETED:**
+- Added `supports_session_load()` to `AgentConnection` trait
+- Added `get_last_session_id()` to `AgentConnection` trait
+- Added `load_thread()` method to `AgentConnection` trait
+- Implemented all three in `AcpConnection` for ACP agents
+- Added session ID persistence to `.zed/acp-session-<agent-name>.json`
+- Code compiles successfully
+
+**REMAINING:**
+- Add UI to offer session resumption on Zed startup
+- Test end-to-end with Qwen Code
+
+---
+
+## Feature 5: Restart Button - CRITICAL Thread ID Mapping Requirement
+
+### Context
+
+When implementing the restart button for crashed agents, there's a **CRITICAL** requirement related to the Zed-threads to Helix sessions mapping.
+
+### The Problem
+
+Helix maintains a mapping between:
+- Zed thread IDs (in the agent panel)
+- Helix session IDs (in the control plane)
+
+This mapping enables:
+1. **External message delivery**: Users can send messages to the agent via Helix UI (session details panel, spec task text box)
+2. **WebSocket sync**: Messages sent from Helix get routed to the correct Zed thread via the WebSocket connection
+
+### The Requirement
+
+**When restarting an agent session, we MUST ensure:**
+
+1. The new Zed thread ID is communicated back to Helix
+2. OR the restart preserves/reuses the same thread ID
+3. OR Helix's mapping is updated to point to the new thread ID
+
+**If this mapping gets out of sync:**
+- Messages sent from Helix won't reach the agent
+- The text box at the bottom of active sessions won't work
+- The spec task UI message input won't work
+
+### Implementation Approach Options
+
+1. **Option A: Preserve Thread ID on Restart**
+   - When loading a previous session, reuse the same session ID
+   - This naturally maintains the mapping
+   - Requires Qwen Code to accept the same session ID
+
+2. **Option B: Update Helix Mapping**
+   - After restart, send an RPC to Helix with the new thread ID
+   - Helix updates its session→thread mapping
+   - Requires API endpoint for mapping updates
+
+3. **Option C: Use Helix Session ID as Thread ID**
+   - Always use the Helix session ID as the Zed thread ID
+   - Eliminates mapping issues entirely
+   - May require changes to how threads are identified in Zed
+
+### Related Code
+
+| File | Purpose |
+|------|---------|
+| `api/pkg/server/external_agent_websocket.go` | WebSocket handler that routes messages by session ID |
+| `api/pkg/server/external_agent_handlers.go` | Session management and thread ID tracking |
+| `zed/crates/agent/src/external_sync.rs` | External sync WebSocket client |
+
+---
