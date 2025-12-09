@@ -25,17 +25,20 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 	}
 }
 
+// getTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
+func getTaskDirName(task *types.SpecTask) string {
+	if task.DesignDocPath != "" {
+		return task.DesignDocPath
+	}
+	return task.ID // Backwards compatibility for old tasks
+}
+
 // BuildApprovalInstructionPrompt builds the approval instruction prompt for an agent
 // This is the single source of truth for this prompt - used by WebSocket and database approaches
 // guidelines contains concatenated organization + project guidelines (can be empty)
-func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+// primaryRepoName is the name of the primary project repository (e.g., "my-app")
+func BuildApprovalInstructionPrompt(task *types.SpecTask, branchName, baseBranch, guidelines, primaryRepoName string) string {
+	taskDirName := getTaskDirName(task)
 
 	// Build guidelines section if provided
 	guidelinesSection := ""
@@ -64,15 +67,16 @@ Your design has been approved. Implement the code changes now.
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [x] when you start each task, push immediately
 4. **Update design docs as you go** - Record discoveries, decisions, and blockers in design.md
+5. **Shell commands require is_background** - Specify is_background (true or false) on all shell commands. Use true for long-running operations (builds, servers, installs)
 
 ## Two Repositories - Don't Confuse Them
 
-1. **~/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
-2. **~/work/<repo-name>/** = Code changes (push to feature branch)
+1. **/home/retro/work/helix-specs/** = Design docs and progress tracking (push to helix-specs branch)
+2. **/home/retro/work/%[9]s/** = Code changes (push to feature branch) - THIS IS YOUR PRIMARY PROJECT
 
 ## Task Checklist
 
-Your checklist: ~/work/helix-specs/design/tasks/%[4]s/tasks.md
+Your checklist: /home/retro/work/helix-specs/design/tasks/%[4]s/tasks.md
 
 - [ ] = not started
 - [x] = done
@@ -82,12 +86,12 @@ Small frequent pushes are better than one big push at the end.
 
 After ANY checklist change:
 %[1]sbash
-cd ~/work/helix-specs && git add -A && git commit -m "Progress update" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Progress update" && git push origin helix-specs
 %[1]s
 
 ## Steps
 
-1. Read design docs: ~/work/helix-specs/design/tasks/%[4]s/
+1. Read design docs: /home/retro/work/helix-specs/design/tasks/%[4]s/
 2. In the CODE repo, create feature branch: %[1]sgit checkout -b %[2]s%[1]s
 3. For each task in tasks.md: mark [x], push helix-specs, then do the work
 4. When all tasks done, push code: %[1]sgit push origin %[2]s%[1]s
@@ -96,7 +100,7 @@ cd ~/work/helix-specs && git add -A && git commit -m "Progress update" && git pu
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
 - "Create sample data" → write files directly, NOT a generator script
-- "Run X at startup" → .helix/startup.sh (idempotent), NOT a service framework
+- "Run X at startup" → /home/retro/work/%[9]s/.helix/startup.sh (idempotent), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
 ## Update Design Docs As You Go
@@ -118,24 +122,20 @@ Example additions to design.md:
 
 **Task:** %[5]s
 **Feature Branch:** %[2]s (base: %[3]s)
-**Design Docs:** ~/work/helix-specs/design/tasks/%[4]s/
+**Design Docs:** /home/retro/work/helix-specs/design/tasks/%[4]s/
 **SpecTask ID:** %[6]s
 
 **Original Request:**
 %[7]s
-`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt, guidelinesSection)
+
+**Primary Project Directory:** /home/retro/work/%[9]s/
+`, "```", branchName, baseBranch, taskDirName, task.Name, task.ID, task.OriginalPrompt, guidelinesSection, primaryRepoName)
 }
 
 // BuildCommentPrompt builds a prompt for sending a design review comment to an agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignReviewComment) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := specTask.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(specTask.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, specTask.ID)
+	taskDirName := getTaskDirName(specTask)
 
 	// Map document types to readable labels
 	documentTypeLabels := map[string]string{
@@ -167,8 +167,8 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 	promptBuilder += fmt.Sprintf("\n**Comment:** %s\n\n", comment.CommentText)
 
 	promptBuilder += "---\n\n"
-	promptBuilder += fmt.Sprintf("If changes are needed, update ~/work/helix-specs/design/tasks/%s/ and push:\n", taskDirName)
-	promptBuilder += fmt.Sprintf("```bash\ncd ~/work/helix-specs && git add -A && git commit -m \"Address feedback\" && git push origin helix-specs\n```\n", taskDirName)
+	promptBuilder += fmt.Sprintf("If changes are needed, update /home/retro/work/helix-specs/design/tasks/%s/ and push:\n", taskDirName)
+	promptBuilder += fmt.Sprintf("```bash\ncd /home/retro/work/helix-specs && git add -A && git commit -m \"Address feedback\" && git push origin helix-specs\n```\n", taskDirName)
 
 	return promptBuilder
 }
@@ -176,13 +176,7 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 // BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+	taskDirName := getTaskDirName(task)
 
 	return fmt.Sprintf(`# Implementation Ready for Review
 
@@ -193,20 +187,14 @@ Your code has been pushed. The user will now test your work.
 If this is a web app, please start the dev server and provide the URL.
 
 **Branch:** %s
-**Docs:** ~/work/helix-specs/design/tasks/%s/
+**Docs:** /home/retro/work/helix-specs/design/tasks/%s/
 `, branchName, taskDirName)
 }
 
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
-	// Generate task directory name (same format as planning phase)
-	dateStr := task.CreatedAt.Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+	taskDirName := getTaskDirName(task)
 
 	return fmt.Sprintf(`# Changes Requested
 
@@ -218,11 +206,11 @@ Update your design based on this feedback:
 
 ---
 
-**Your docs are in:** ~/work/helix-specs/design/tasks/%[1]s/
+**Your docs are in:** /home/retro/work/helix-specs/design/tasks/%[1]s/
 
 After updating, push immediately:
 %[3]sbash
-cd ~/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
+cd /home/retro/work/helix-specs && git add -A && git commit -m "Address feedback" && git push origin helix-specs
 %[3]s
 `, taskDirName, comments, "```")
 }
@@ -252,10 +240,11 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	task *types.SpecTask,
 	branchName string,
 	baseBranch string,
+	primaryRepoName string,
 ) error {
 	// Fetch guidelines from project and organization
 	guidelines := s.getGuidelinesForTask(ctx, task)
-	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines)
+	message := BuildApprovalInstructionPrompt(task, branchName, baseBranch, guidelines, primaryRepoName)
 
 	log.Info().
 		Str("session_id", sessionID).

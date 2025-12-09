@@ -503,29 +503,27 @@ export default function TaskCard({
                 </IconButton>
               </Tooltip>
             )}
-            {/* Clone button - visible for tasks with specs */}
-            {task.design_docs_pushed_at && (
-              <Tooltip title="Clone to Other Projects">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowCloneDialog(true)
-                  }}
-                  sx={{
-                    width: 24,
-                    height: 24,
-                    color: 'text.secondary',
-                    '&:hover': {
-                      color: 'primary.main',
-                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
-                    },
-                  }}
-                >
-                  <CopyIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            )}
+            {/* Clone button - always visible */}
+            <Tooltip title="Clone to Other Projects">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowCloneDialog(true)
+                }}
+                sx={{
+                  width: 24,
+                  height: 24,
+                  color: 'text.secondary',
+                  '&:hover': {
+                    color: 'primary.main',
+                    backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                  },
+                }}
+              >
+                <CopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
               <IconButton
                 size="small"

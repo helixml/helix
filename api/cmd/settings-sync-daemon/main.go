@@ -101,6 +101,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"args": []string{
 					"--experimental-acp",
 					"--no-telemetry",
+					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
 			},

@@ -127,7 +127,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
 
   if (cloneResult) {
     return (
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth onClick={(e) => e.stopPropagation()}>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Check size={24} color="green" />
           Clone Complete
@@ -189,7 +189,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   }
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth onClick={(e) => e.stopPropagation()}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Copy size={24} />
         Clone Task to Projects
