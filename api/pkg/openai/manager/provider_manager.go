@@ -359,10 +359,13 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		}
 	}
 
-	// Check if the provider is a global one
-	availableProviders := make([]string, 0, len(m.globalClients))
+	// Build list of all available providers for error message
+	availableProviders := make([]string, 0, len(m.globalClients)+len(userProviders))
 	for provider := range m.globalClients {
 		availableProviders = append(availableProviders, string(provider))
+	}
+	for _, provider := range userProviders {
+		availableProviders = append(availableProviders, provider.Name)
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
 }
