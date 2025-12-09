@@ -69,7 +69,6 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useSpecTasks } from '../hooks/useSpecTasks';
 import { useFloatingModal } from '../contexts/floatingModal';
 import EditIcon from '@mui/icons-material/Edit';
 import {
@@ -80,7 +79,7 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
-import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../api/api';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -162,9 +161,6 @@ const SpecTasksPage: FC = () => {
   // Ref for task prompt text field to manually focus
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Data hooks
-  const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
-
   // Sort apps: project default first, then zed_external, then others
   const sortedApps = useMemo(() => {
     if (!apps.apps) return [];
@@ -219,17 +215,7 @@ const SpecTasksPage: FC = () => {
 
   // Load tasks and apps on mount
   useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        const result = await api.getApiClient().v1SpecTasksList();
-        // The hook will handle updating the data automatically
-      } catch (error) {
-        console.error('Error loading spec tasks:', error);
-      }
-    };
-
     if (account.user?.id) {
-      loadTasks();
       apps.loadApps(); // Load available agents
     }
   }, []);
@@ -432,9 +418,9 @@ const SpecTasksPage: FC = () => {
 
       // Create SpecTask with simplified single-field approach
       // Repository configuration is managed at the project level - no task-level repo selection
-      const createTaskRequest: ServicesCreateTaskRequest = {
+      const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt, // Just the raw user input!
-        priority: taskPriority,
+        priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
@@ -1062,10 +1048,6 @@ const SpecTasksPage: FC = () => {
           open={true}
           onClose={() => {
             setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
-          }}
-          onEdit={(task) => {
-            // TODO: Implement task editing
-            console.log('Edit task:', task);
           }}
         />
       ))}

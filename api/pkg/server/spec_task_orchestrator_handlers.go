@@ -89,7 +89,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		Name:           demoReq.Prompt[:min(len(demoReq.Prompt), 100)],
 		Description:    demoReq.Prompt,
 		Type:           demoReq.Type,
-		Priority:       demoReq.Priority,
+		Priority:       types.SpecTaskPriority(demoReq.Priority),
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: demoReq.Prompt,
 		CreatedBy:      user.ID,
@@ -479,9 +479,9 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		UserID:              task.CreatedBy,
 		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
 		ProjectPath:         "backend",
-		RepositoryIDs:       repositoryIDs,     // Needed for Zed startup arguments
-		PrimaryRepositoryID: primaryRepoID,     // Needed for design docs path
-		SpecTaskID:          task.ID,           // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		RepositoryIDs:       repositoryIDs,      // Needed for Zed startup arguments
+		PrimaryRepositoryID: primaryRepoID,      // Needed for design docs path
+		SpecTaskID:          task.ID,            // CRITICAL: Must pass SpecTaskID for correct workspace path computation
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,

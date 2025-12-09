@@ -40,7 +40,7 @@ type GitHTTPServer struct {
 	maxRepoSize            int64 // Maximum repository size in bytes
 	requestTimeout         time.Duration
 	testMode               bool
-	authorizeFn            AuthorizationFunc    // Callback to server's RBAC system
+	authorizeFn            AuthorizationFunc     // Callback to server's RBAC system
 	sendMessageToAgentFunc SpecTaskMessageSender // Callback to send messages via WebSocket
 }
 
@@ -651,7 +651,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			// Push during review - agent is updating specs in response to comments
 			log.Info().
 				Str("task_id", task.ID).
-				Str("current_status", task.Status).
+				Str("current_status", task.Status.String()).
 				Msg("Processing SpecTask for design doc update during review")
 
 			// Update the existing design review with new content
@@ -672,7 +672,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		default:
 			log.Debug().
 				Str("task_id", taskID).
-				Str("current_status", task.Status).
+				Str("current_status", task.Status.String()).
 				Msg("Task in terminal status, skipping design doc processing")
 		}
 	}
@@ -981,7 +981,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 		if task.Status != types.TaskStatusImplementation {
 			log.Debug().
 				Str("task_id", task.ID).
-				Str("status", task.Status).
+				Str("status", task.Status.String()).
 				Str("branch", branchName).
 				Msg("Skipping task - not in implementation status")
 			continue
@@ -1035,7 +1035,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 
 		log.Info().
 			Str("task_id", task.ID).
-			Str("status", task.Status).
+			Str("status", task.Status.String()).
 			Msg("Task transitioned to implementation review")
 	}
 }
@@ -1109,7 +1109,7 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 
 			log.Info().
 				Str("task_id", task.ID).
-				Str("status", task.Status).
+				Str("status", task.Status.String()).
 				Msg("Task transitioned to done")
 		}
 	}

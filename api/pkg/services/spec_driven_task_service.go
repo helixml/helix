@@ -144,7 +144,7 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 }
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
-func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *CreateTaskRequest) (*types.SpecTask, error) {
+func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
 	// Determine which agent to use (single agent for entire workflow)
 	helixAppID := s.helixAgentID
 	if req.AppID != "" {
@@ -161,9 +161,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID,           // Helix agent used for entire workflow
-		JustDoItMode:   req.JustDoItMode,   // Set Just Do It mode from request
-		UseHostDocker:  req.UseHostDocker,  // Use host Docker socket (requires privileged sandbox)
+		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
+		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
+		UseHostDocker:  req.UseHostDocker, // Use host Docker socket (requires privileged sandbox)
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -1132,17 +1132,4 @@ func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, u
 		Msg("✅ Created personal API key for agent access")
 
 	return createdKey.Key, nil
-}
-
-// Request types
-type CreateTaskRequest struct {
-	ProjectID     string `json:"project_id"`
-	Prompt        string `json:"prompt"`
-	Type          string `json:"type"`
-	Priority      string `json:"priority"`
-	UserID        string `json:"user_id"`
-	AppID         string `json:"app_id"`            // Optional: Helix agent to use for spec generation
-	JustDoItMode  bool   `json:"just_do_it_mode"`   // Optional: Skip spec planning, go straight to implementation
-	UseHostDocker bool   `json:"use_host_docker"`   // Optional: Use host Docker socket (requires privileged sandbox)
-	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

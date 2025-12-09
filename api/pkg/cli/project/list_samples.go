@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +51,7 @@ func newListSamplesCommand() *cobra.Command {
 				return fmt.Errorf("API returned status %d", resp.StatusCode)
 			}
 
-			var samples []SampleProject
+			var samples []types.SampleSpecProject
 			if err := json.NewDecoder(resp.Body).Decode(&samples); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
@@ -81,26 +82,4 @@ func newListSamplesCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&difficulty, "difficulty", "d", "", "Filter by difficulty (beginner, intermediate, advanced)")
 
 	return cmd
-}
-
-type SampleProject struct {
-	ID            string             `json:"id"`
-	Name          string             `json:"name"`
-	Description   string             `json:"description"`
-	GitHubRepo    string             `json:"github_repo"`
-	DefaultBranch string             `json:"default_branch"`
-	Technologies  []string           `json:"technologies"`
-	TaskPrompts   []SampleTaskPrompt `json:"task_prompts"`
-	ReadmeURL     string             `json:"readme_url"`
-	DemoURL       string             `json:"demo_url,omitempty"`
-	Difficulty    string             `json:"difficulty"`
-	Category      string             `json:"category"`
-}
-
-type SampleTaskPrompt struct {
-	Prompt      string   `json:"prompt"`
-	Priority    string   `json:"priority"`
-	Labels      []string `json:"labels"`
-	Context     string   `json:"context"`
-	Constraints string   `json:"constraints"`
 }

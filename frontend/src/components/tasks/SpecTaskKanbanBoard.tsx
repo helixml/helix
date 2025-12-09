@@ -295,8 +295,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const theme = useTheme();
   const api = useApi();
   const account = useAccount();
-  
-  console.log('🔥 KANBAN COMPONENT MOUNTED with props:', { userId });
 
   // State
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
@@ -530,9 +528,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Update sample types when data loads
   useEffect(() => {
-    console.log('Raw sampleTypesData:', sampleTypesData);
-    if (sampleTypesData && sampleTypesData.length > 0) {
-      console.log('Setting sample types:', sampleTypesData);
+    if (sampleTypesData && sampleTypesData.length > 0) {      
       setSampleTypes(sampleTypesData);
     }
   }, [sampleTypesData]);

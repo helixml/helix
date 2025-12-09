@@ -74,6 +74,7 @@ interface SpecTaskWithExtras {
   metadata?: { error?: string }
   merged_to_main?: boolean
   just_do_it_mode?: boolean
+  started_at?: string
   design_docs_pushed_at?: string
   clone_group_id?: string
   cloned_from_id?: string
@@ -110,6 +111,45 @@ interface ChecklistProgress {
   completed_tasks: number
   in_progress_task?: ChecklistItem
   progress_pct: number
+}
+
+const formatDuration = (startedAt: string): string => {
+  const start = new Date(startedAt).getTime()
+  const now = Date.now()
+  const diffMs = now - start
+  
+  if (diffMs < 0) return '0s'
+  
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  
+  if (hours > 0) {
+    return `${hours}h${minutes}m`
+  }
+  return `${minutes}m${seconds}s`
+}
+
+const useRunningDuration = (startedAt: string | undefined, enabled: boolean): string | null => {
+  const [duration, setDuration] = useState<string | null>(null)
+  
+  useEffect(() => {
+    if (!enabled || !startedAt) {
+      setDuration(null)
+      return
+    }
+    
+    setDuration(formatDuration(startedAt))
+    
+    const interval = setInterval(() => {
+      setDuration(formatDuration(startedAt))
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [startedAt, enabled])
+  
+  return duration
 }
 
 // Gorgeous task progress display with fade effect and spinner
@@ -384,6 +424,11 @@ export default function TaskCard({
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
   })
 
+  const runningDuration = useRunningDuration(
+    task.started_at,
+    task.status === 'implementation'
+  )
+
   // Check if planning column is full
   const planningColumn = columns.find((col) => col.id === 'planning')
   const isPlanningFull =
@@ -578,6 +623,11 @@ export default function TaskCard({
                 ? 'In Progress'
                 : 'Done'}
             </Typography>
+            {runningDuration && (
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
+                • {runningDuration}
+              </Typography>
+            )}
           </Box>
         </Box>
 
@@ -670,33 +720,7 @@ export default function TaskCard({
         {/* Implementation phase */}
         {task.status === 'implementation' && (
           <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ViewIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (onTaskClick) onTaskClick(task)
-              }}
-              fullWidth
-            >
-              View Agent Session
-            </Button>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                size="small"
-                variant="contained"
-                color="success"
-                startIcon={<ApproveIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  approveImplementationMutation.mutate()
-                }}
-                disabled={approveImplementationMutation.isPending}
-                sx={{ flex: 1 }}
-              >
-                Accept
-              </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>              
               <Button
                 size="small"
                 variant="outlined"
@@ -711,6 +735,21 @@ export default function TaskCard({
                 sx={{ flex: 1 }}
               >
                 Reject
+              </Button>
+
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={<ApproveIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  approveImplementationMutation.mutate()
+                }}
+                disabled={approveImplementationMutation.isPending}
+                sx={{ flex: 1 }}
+              >
+                Accept
               </Button>
             </Box>
           </Box>

@@ -99,12 +99,12 @@ func (s *PostgresStore) GetCloneGroupProgress(ctx context.Context, groupID strin
 			ProjectID:   t.ProjectID,
 			ProjectName: projectNames[t.ProjectID],
 			Name:        t.Name,
-			Status:      t.Status,
+			Status:      t.Status.String(),
 		})
 
-		progress.StatusBreakdown[t.Status]++
+		progress.StatusBreakdown[t.Status.String()]++
 
-		if t.Status == "done" || t.Status == "completed" {
+		if t.Status == types.TaskStatusDone {
 			progress.CompletedTasks++
 		}
 	}

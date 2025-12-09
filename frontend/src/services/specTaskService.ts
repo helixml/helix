@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Api } from '../api/api';
+import { Api, TypesSpecTaskUpdateRequest } from '../api/api';
 import useApi from '../hooks/useApi';
 
 // Re-export generated types for convenience
@@ -8,10 +8,11 @@ export type {
   TypesSpecTaskWorkSession as WorkSession,
   TypesSpecTaskZedThread as ZedThread,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverview,
-  GithubComHelixmlHelixApiPkgTypesZedInstanceStatus as ZedInstanceStatus,
+  TypesZedInstanceStatus,
   TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
   TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
+  TypesSpecTaskUpdateRequest as SpecTaskUpdateRequest,  
   TypesZedInstanceEvent as ZedInstanceEvent,
   TypesCloneTaskRequest as CloneTaskRequest,
   TypesCloneTaskResponse as CloneTaskResponse,
@@ -36,7 +37,7 @@ const QUERY_KEYS = {
 };
 
 // Custom hooks for SpecTask operations
-export function useSpecTask(taskId: string) {
+export function useSpecTask(taskId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi();
 
   return useQuery({
@@ -45,7 +46,8 @@ export function useSpecTask(taskId: string) {
       const response = await api.getApiClient().v1SpecTasksDetail(taskId);
       return response.data;
     },
-    enabled: !!taskId,
+    enabled: options?.enabled !== false && !!taskId,
+    refetchInterval: options?.refetchInterval !== undefined ? options.refetchInterval : 2000,
   });
 }
 
@@ -178,6 +180,26 @@ export function useUpdateSpecTaskStatus() {
     onSuccess: (_, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
+    },
+  });
+}
+
+export function useUpdateSpecTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ taskId, updates }: { 
+      taskId: string; 
+      updates: TypesSpecTaskUpdateRequest;
+    }) => {
+      const response = await api.getApiClient().v1SpecTasksUpdate(taskId, updates);
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasks });
     },
   });
 }
@@ -383,6 +405,7 @@ const specTaskService = {
   // Mutation functions
   useCreateImplementationSessions,
   useUpdateSpecTaskStatus,
+  useUpdateSpecTask,
   useApproveSpecTask,
   useRecordSessionHistory,
   useSendZedEvent,
