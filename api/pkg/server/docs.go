@@ -1860,6 +1860,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/clone-groups/{groupId}/progress": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get status breakdown and progress of all cloned tasks",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CloneGroups"
+                ],
+                "summary": "Get progress of all tasks in a clone group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Clone group ID",
+                        "name": "groupId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneGroupProgress"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/config": {
             "get": {
                 "security": [
@@ -5458,6 +5498,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/quick-create": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a minimal project for a repository that doesn't have one",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Quick-create a project for a repository",
+                "parameters": [
+                    {
+                        "description": "Quick create request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.QuickCreateProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}": {
             "get": {
                 "security": [
@@ -6860,6 +6945,42 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.QuestionSetExecution"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/repositories/without-projects": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all repositories that don't have an associated project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "List repositories without projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitRepository"
+                            }
                         }
                     }
                 }
@@ -9570,6 +9691,107 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/clone": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Clone a spec task (with its prompt, spec, and plan) to other projects",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Clone a spec task to multiple projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Clone request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneTaskRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneTaskResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/clone-groups": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all clone groups where this task was the source",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "List clone groups for a task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.CloneGroup"
+                            }
                         }
                     }
                 }
@@ -14278,6 +14500,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.QuickCreateProjectRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SampleProject": {
             "type": "object",
             "properties": {
@@ -17155,6 +17388,200 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "\"text\" or \"image\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneGroup": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source_project_id": {
+                    "type": "string"
+                },
+                "source_prompt": {
+                    "type": "string"
+                },
+                "source_requirements_spec": {
+                    "type": "string"
+                },
+                "source_task_id": {
+                    "type": "string"
+                },
+                "source_task_name": {
+                    "type": "string"
+                },
+                "source_technical_spec": {
+                    "type": "string"
+                },
+                "total_targets": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneGroupProgress": {
+            "type": "object",
+            "properties": {
+                "clone_group_id": {
+                    "type": "string"
+                },
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "progress_pct": {
+                    "type": "integer"
+                },
+                "source_task": {
+                    "$ref": "#/definitions/types.CloneGroupSourceTask"
+                },
+                "status_breakdown": {
+                    "description": "status -\u003e count",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneGroupTaskProgress"
+                    }
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneGroupSourceTask": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneGroupTaskProgress": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskCreateProjectSpec": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "Optional, will use repo name if not provided",
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskRequest": {
+            "type": "object",
+            "properties": {
+                "auto_start": {
+                    "description": "Auto-start cloned tasks",
+                    "type": "boolean"
+                },
+                "create_projects": {
+                    "description": "Create new projects for repos",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskCreateProjectSpec"
+                    }
+                },
+                "target_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.CloneTaskResponse": {
+            "type": "object",
+            "properties": {
+                "clone_group_id": {
+                    "type": "string"
+                },
+                "cloned_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskResult"
+                    }
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskError"
+                    }
+                },
+                "total_cloned": {
+                    "type": "integer"
+                },
+                "total_failed": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneTaskResult": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"created\", \"started\", \"failed\"",
+                    "type": "string"
+                },
+                "task_id": {
                     "type": "string"
                 }
             }
@@ -22106,6 +22533,18 @@ const docTemplate = `{
                     "description": "Git tracking",
                     "type": "string"
                 },
+                "clone_group_id": {
+                    "description": "Groups tasks from same clone operation",
+                    "type": "string"
+                },
+                "cloned_from_id": {
+                    "description": "Clone tracking",
+                    "type": "string"
+                },
+                "cloned_from_project_id": {
+                    "description": "Original project",
+                    "type": "string"
+                },
                 "completed_at": {
                     "type": "string"
                 },
@@ -23875,20 +24314,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
