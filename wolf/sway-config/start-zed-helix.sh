@@ -573,6 +573,30 @@ else
     done
 fi
 
+# Launch ACP log viewer in Kitty (for debugging agent issues)
+# This runs in background and provides visibility into Qwen Code/agent behavior
+if [ "$SHOW_ACP_DEBUG_LOGS" = "true" ] || [ -n "$HELIX_DEBUG" ]; then
+    echo "Starting ACP log viewer in Kitty terminal..."
+    kitty --class acp-log-viewer \
+          --title "ACP Agent Logs" \
+          -e bash -c '
+              echo "═══════════════════════════════════════════════════════════════"
+              echo "  ACP Agent Log Viewer - Tailing Zed and Qwen Code logs"
+              echo "═══════════════════════════════════════════════════════════════"
+              echo ""
+              echo "Waiting for Zed logs to appear..."
+              echo ""
+              # Wait for logs directory to exist
+              while [ ! -d ~/.local/share/zed/logs ]; do
+                  sleep 1
+              done
+              # Tail all log files, filtering for agent-related entries
+              tail -F ~/.local/share/zed/logs/*.log 2>/dev/null | \
+                  grep --line-buffered -iE "(agent|acp|qwen|session|error|Error|ERROR|panic|PANIC|crash|CRASH|\\[ACP\\])"
+          ' &
+    echo "ACP log viewer started in background"
+fi
+
 # Launch Zed in a restart loop
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
 echo "Using Wayland backend (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"

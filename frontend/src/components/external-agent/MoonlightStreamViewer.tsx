@@ -104,7 +104,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
   // Low mode uses rapid screenshot polling for video while keeping input via the stream
   // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
-  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
+  // Default to 'low' (screenshot mode) for enterprise reliability - 60fps streaming unreliable over corporate networks
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('low');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -1709,6 +1710,43 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Disconnected Overlay - prominent reconnection indicator */}
+      {!isConnecting && !isConnected && !error && retryCountdown === null && !showLoadingOverlay && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 1500,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <CircularProgress size={48} sx={{ color: 'warning.main' }} />
+          <Typography variant="h6" sx={{ color: 'white' }}>
+            Connection Lost
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+            {status || 'Attempting to reconnect...'}
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={reconnect}
+            startIcon={<Refresh />}
+            sx={{ mt: 2 }}
+          >
+            Reconnect Now
+          </Button>
+        </Box>
+      )}
+
       {/* Status Overlay */}
       {(isConnecting || error || retryCountdown !== null) && (
         <Box
@@ -1823,12 +1861,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
           style={{
-            width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
-            height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+            width: '100%',
+            height: '100%',
             position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
+            left: 0,
+            top: 0,
             objectFit: 'contain',
             pointerEvents: 'none', // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements

@@ -70,6 +70,15 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
 
+# Create symlink for Qwen Code session persistence
+# Qwen stores sessions at ~/.qwen/tmp/<project_hash>/chats/
+# By symlinking to workspace, sessions persist across container restarts
+QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_STATE_DIR
+rm -rf ~/.qwen
+ln -sf $QWEN_STATE_DIR ~/.qwen
+echo "✅ Qwen state symlink created (~/.qwen -> $QWEN_STATE_DIR)"
+
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)

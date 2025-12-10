@@ -70,8 +70,9 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   });
 
   // Filter out source project
+  // Note: v1ProjectsList returns TypesProject[] directly, not an object with .projects
   const availableProjects = useMemo(() => {
-    const projects = projectsData?.projects || [];
+    const projects = projectsData || [];
     return projects.filter((p: TypesProject) => p.id !== sourceProjectId);
   }, [projectsData, sourceProjectId]);
 
