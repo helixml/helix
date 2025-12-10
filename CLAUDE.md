@@ -274,7 +274,7 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 This applies to BOTH repos:
 - **helix** - for sway config, Wolf executor, API changes
-- **qwen-code** (at `~/pm/qwen-code`) - for Qwen Code tool/agent changes
+- **qwen-code** (at `../qwen-code`) - for Qwen Code tool/agent changes
 
 `./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
@@ -288,9 +288,9 @@ This applies to BOTH repos:
 git add -A && git commit -m "changes" && git push
 
 # In qwen-code (if modified):
-cd ~/pm/qwen-code
+cd ../qwen-code
 git add -A && git commit -m "changes" && git push
-cd ~/pm/helix
+cd ../helix
 
 ./stack build-sway                    # Now detects all changes
 ```
