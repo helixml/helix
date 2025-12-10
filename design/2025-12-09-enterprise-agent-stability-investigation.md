@@ -1572,6 +1572,45 @@ This mapping enables:
 4. **Zed saves session ID immediately?** ✅ YES - Called in `new_thread()` after session creation succeeds
 5. **Qwen's sessionExists() follows symlinks?** ✅ YES - Node.js fs follows symlinks by default
 
+#### Remaining Gap: Thread-to-Session Mapping After Restart
+
+**Status:** KNOWN GAP - Only affects Helix→Zed message routing
+
+**The Issue:**
+When container restarts and Zed resumes an ACP session:
+1. Zed creates a NEW `acp_thread_id` (Gpui Entity ID)
+2. Helix still has the OLD `acp_thread_id` from before restart
+3. Messages sent from Helix UI to the OLD `acp_thread_id` fail
+
+**What WORKS:**
+- ✅ User interacting directly in Zed agent panel - session resumes perfectly
+- ✅ Agent can continue working on tasks
+- ✅ Conversation history is restored
+
+**What DOESN'T work (without additional implementation):**
+- ❌ Sending messages from Helix UI (spec task panel) to the agent after restart
+- ❌ The text box at the bottom of spec task details panel
+
+**Potential Solutions (ROADMAP):**
+
+1. **Zed sends `thread_resumed` event on auto-resume:**
+   ```rust
+   SyncEvent::ThreadResumed {
+       old_acp_thread_id: Option<String>,  // From saved .zed/acp-session-*.json
+       new_acp_thread_id: String,
+       helix_session_id: String,  // From env var
+   }
+   ```
+   Helix can then update its mapping.
+
+2. **Use session ID as thread ID (stable across restarts):**
+   Instead of using Gpui Entity ID, use the ACP session ID as `acp_thread_id`.
+
+3. **Helix re-queries on WebSocket reconnect:**
+   When WebSocket reconnects, Helix asks Zed for active threads and updates mappings.
+
+**For now:** Session resume for direct Zed interaction is working. The mapping fix is a follow-up task for enabling Helix→Zed message routing after restarts.
+
 ---
 
 ### P0: Restart Button in Helix UI (COMPLETED)
@@ -1605,23 +1644,19 @@ This mapping enables:
 
 ### P1: Live ACP Log Tailing in Kitty
 
+**Status:** ✅ COMPLETED (2025-12-10)
+
 **Requirements:**
 - Open a Kitty terminal that tails ACP/Qwen Code logs
 - Show startup message "Tailing ACP logs..."
 - Display Qwen Code crash errors prominently
 - Do NOT close the kitty window
 
-**Implementation:**
-```bash
-# In wolf/sway-config/start-zed-helix.sh
-kitty --class acp-log-viewer \
-      --title "ACP Agent Logs" \
-      -e bash -c 'echo "Tailing ACP logs..."; tail -f ~/.local/share/zed/logs/*.log 2>/dev/null | grep --line-buffered -E "(agent|acp|qwen|error|Error|ERROR)"' &
-
-# Keep window open on exit
-kitty_pid=$!
-# Don't wait for it - let it run independently
-```
+**Implementation (start-zed-helix.sh:576-598):**
+- Enabled via `SHOW_ACP_DEBUG_LOGS=true` or `HELIX_DEBUG=1` environment variables
+- Waits for Zed logs directory to exist before tailing
+- Filters for agent-related keywords: agent, acp, qwen, session, error, panic, crash
+- Runs in background Kitty window with class `acp-log-viewer`
 
 ### P2: RevDial Reconnection Fixes
 
@@ -1655,7 +1690,7 @@ kitty_pid=$!
 1. ~~**First:** Add restart button to SpecTaskDetailDialog~~ ✅ COMPLETED (uses stop+resume APIs)
 2. ~~**Fourth:** Fix RevDial reconnection timing~~ ✅ COMPLETED (already optimal)
 3. ~~**Fifth:** Add reconnection spinner to MoonlightStreamViewer~~ ✅ COMPLETED
-4. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings)
-5. **Third:** Add kitty log tailing to start-zed-helix.sh
+4. ~~**Third:** Add kitty log tailing to start-zed-helix.sh~~ ✅ COMPLETED (2025-12-10)
+5. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings) - ROADMAP
 
 ---
