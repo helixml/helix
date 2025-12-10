@@ -863,6 +863,127 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	writeResponse(w, response, http.StatusOK)
 }
 
+// pullFromRemote pulls latest commits from the remote repository
+// @Summary Pull from remote repository
+// @Description Pulls latest commits from remote repository
+// @ID pullFromRemote
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param force query bool true "Force pull (default: false)"
+// @Param branch query string false "Branch name (required)"
+// @Success 200 {object} types.PullResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/pull [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) pullFromRemote(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
+		return
+	}
+
+	branchName := r.URL.Query().Get("branch")
+	if branchName == "" {
+		writeErrResponse(w, system.NewHTTPError400("branch name is required"), http.StatusBadRequest)
+		return
+	}
+
+	force := r.URL.Query().Get("force") == "true"
+
+	err = s.gitRepositoryService.PullFromRemote(r.Context(), repoID, branchName, force)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Bool("force", force).Msg("Failed to pull from remote")
+		http.Error(w, fmt.Sprintf("Failed to pull from remote: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := types.PullResponse{
+		RepositoryID: repoID,
+		Branch:       branchName,
+		Success:      true,
+		Message:      "Successfully pulled from remote",
+	}
+
+	writeResponse(w, response, http.StatusOK)
+}
+
+// pushToRemote pushes the local branch to the remote repository
+// @Summary Push to remote repository
+// @Description Pushes the local branch to the remote repository
+// @ID pushToRemote
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param branch query string true "Branch name"
+// @Success 200 {object} types.PushResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/push [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) pushToRemote(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.authorizeUserToRepository(r.Context(), user, existing, types.ActionUpdate); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
+		return
+	}
+
+	branchName := r.URL.Query().Get("branch")
+	if branchName == "" {
+		writeErrResponse(w, system.NewHTTPError400("branch name is required"), http.StatusBadRequest)
+		return
+	}
+
+	err = s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, branchName, true)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Msg("Failed to push to remote")
+		http.Error(w, fmt.Sprintf("Failed to push to remote: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := types.PushResponse{
+		RepositoryID: repoID,
+		Branch:       branchName,
+		Success:      true,
+		Message:      "Successfully pushed to remote",
+	}
+
+	writeResponse(w, response, http.StatusOK)
+}
+
 // pushPullGitRepository pulls latest commits and pushes local commits to the remote repository
 // @Summary Push and pull repository
 // @Description Pulls latest commits from remote and pushes local commits. Automatically merges if needed.
