@@ -290,10 +290,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           qualitySessionId
         );
 
-        // Set canvas for WebSocket stream rendering (skip in low mode - screenshots provide video)
-        // In low mode, stream is only used for input, not video rendering
-        if (canvasRef.current && qualityMode !== 'low') {
-          stream.setCanvas(canvasRef.current);
+        // Set canvas for WebSocket stream rendering
+        if (canvasRef.current) {
+          if (qualityMode !== 'low') {
+            // Normal mode: stream renders frames to canvas
+            stream.setCanvas(canvasRef.current);
+          } else {
+            // Low/screenshot mode: stream is only used for input, not video rendering
+            // But we still need to set canvas dimensions for proper mouse coordinate mapping
+            // (getStreamRect uses canvas.width/height to calculate aspect ratio)
+            canvasRef.current.width = 1920;
+            canvasRef.current.height = 1080;
+          }
         }
       } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
