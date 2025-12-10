@@ -272,20 +272,33 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
+This applies to BOTH repos:
+- **helix** - for sway config, Wolf executor, API changes
+- **qwen-code** (at `~/pm/qwen-code`) - for Qwen Code tool/agent changes
+
 `./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
 ```bash
 # ❌ WRONG: Build without committing
-./stack build-sway                    # Image tag won't update!
-./stack build-sandbox                 # Image tag won't update!
+./stack build-sway                    # Changes won't be detected!
+./stack build-sandbox                 # Changes won't be detected!
 
-# ✅ CORRECT
+# ✅ CORRECT: Commit in BOTH repos if you changed both
+# In helix:
 git add -A && git commit -m "changes" && git push
-./stack build-sway                    # New tag detected, new image runs
-./stack build-sandbox                 # New tag detected, new image runs
+
+# In qwen-code (if modified):
+cd ~/pm/qwen-code
+git add -A && git commit -m "changes" && git push
+cd ~/pm/helix
+
+./stack build-sway                    # Now detects all changes
 ```
 
-**Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
+**Why:**
+- The helix-sway image tag is derived from the helix git commit hash
+- Qwen-code rebuild detection compares git commit hashes (uncommitted changes are invisible!)
+- Push is required for the version link in the UI to work
 
 ## 🚨 CRITICAL: VERIFY DOCKER CACHE BUSTING ON REBUILDS 🚨
 
