@@ -355,7 +355,9 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	}
 
 	// Use Helix's existing API key validation
-	apiKeyRecord, err := s.store.GetAPIKey(ctx, apiKey)
+	apiKeyRecord, err := s.store.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey,
+	})
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get API key from store")
 		return nil, err
