@@ -772,7 +772,10 @@ I'll give you feedback and we can iterate on any changes needed.`
                   </IconButton>
                 )}
                 {activeSessionId && (
-                  <Tooltip title="Restart agent session (stops container, starts fresh)">
+                  <Tooltip
+                    title="Restart agent session (stops container, starts fresh)"
+                    slotProps={{ popper: { sx: { zIndex: 100001 } } }}
+                  >
                     <IconButton
                       size="small"
                       onClick={() => setRestartConfirmOpen(true)}
@@ -809,15 +812,12 @@ I'll give you feedback and we can iterate on any changes needed.`
           {/* Tab 0: Active Session (only if session exists) */}
           {activeSessionId && currentTab === 0 && (
             <>
-              {/* ExternalAgentDesktopViewer */}
-              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                <ExternalAgentDesktopViewer
-                  sessionId={activeSessionId}
-                  height={600}
-                  mode="stream"
-                  onClientIdCalculated={setClientUniqueId}
-                />
-              </Box>
+              {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
+              <ExternalAgentDesktopViewer
+                sessionId={activeSessionId}
+                mode="stream"
+                onClientIdCalculated={setClientUniqueId}
+              />
 
               {/* Message input box */}
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
