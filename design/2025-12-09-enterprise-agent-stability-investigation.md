@@ -1682,6 +1682,38 @@ let acp_thread_id = thread.read(cx).session_id().to_string();
 - Error should be visible in kitty window (live log tail will catch it)
 - Consider also displaying in Helix UI
 
+### FUTURE: Remove CAP_SYS_ADMIN from Untrusted Sandbox
+
+**Status:** TODO - Security hardening item
+
+**Current State:**
+- Personal dev environment containers have `CAP_SYS_ADMIN` capability
+- This is a powerful capability that allows:
+  - Mounting filesystems
+  - Modifying kernel parameters
+  - Creating cgroups
+  - Many other privileged operations
+
+**Why it was added:**
+- Needed for certain container operations
+- May have been cargo-culted from GOW base config
+- Specific use case needs investigation
+
+**Why we should remove it:**
+- Untrusted code runs in these sandboxes (user code, LLM-generated code)
+- Principle of least privilege
+- Reduces attack surface significantly
+- Now that we use Wolf-level bind mounts for `/home/retro/work`, no need for container-level mount operations
+
+**Investigation needed:**
+1. Audit what actually requires CAP_SYS_ADMIN in current setup
+2. Test sandbox functionality without it
+3. Document any breakages and alternatives
+
+**Files affected:**
+- `api/pkg/external-agent/wolf_executor.go` lines 1759-1760 (personal dev environment)
+- May also affect external agent sandbox config
+
 ### Implementation Order
 
 0. ~~**🚨 CRITICAL FIRST:** Complete ACP session persistence UI in Zed agent panel~~ ✅ COMPLETED
