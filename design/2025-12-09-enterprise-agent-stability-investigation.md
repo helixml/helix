@@ -712,24 +712,90 @@ export QWEN_DEBUG_LOG="/tmp/qwen-code-debug.log"
 - `frontend/src/components/streaming/` - UI overlay for reconnecting
 - `api/pkg/server/moonlight_proxy.go` - session resumption logic
 
-### Feature 4: Prefer Zed Agent over Qwen Code
+### Feature 4: ACP Session Persistence (Zed-Side Infrastructure)
 
-**Priority:** MEDIUM - Zed Agent is more resumable
+**Priority:** HIGH - Required for session history and resume functionality
 
-**Rationale:**
-- Zed Agent (NativeAgent) sessions sync to Helix backend
-- If Zed crashes, we can resume the conversation
-- Qwen Code (ACP agent_server) doesn't support session listing/resumption
-- If Qwen Code crashes, conversation history is lost
+**Status:** Zed-side implementation COMPLETE
 
-**Current Status:**
-- Zed Agent with Qwen model was working but "mysteriously failing"
-- Need to investigate why before recommending as default
+**What was implemented (2025-12-09):**
 
-**Investigation Steps:**
+1. **Vendored ACP runtime crate** (`crates/acp_runtime/`):
+   - Forked from `agent-client-protocol` v0.9.0
+   - Added `list_sessions` method to `Agent` trait
+   - Added `ClientSideConnection::list_sessions` implementation
+   - Added RPC decoder and handler for `session/list`
+
+2. **AcpConnection.list_sessions** (`crates/agent_servers/src/acp.rs`):
+   - Checks `session_capabilities.list` capability
+   - Calls `session/list` RPC method on ACP agent
+   - Returns `Vec<SessionInfo>` for history UI
+
+3. **AgentConnection trait** (`crates/acp_thread/src/connection.rs`):
+   - Already had `list_sessions()` method (default returns empty)
+   - Now properly implemented for ACP agents
+
+**Current limitation: Qwen Code doesn't support session/list or session/load yet**
+
+Investigation of `qwen-code/packages/cli/src/zed-integration/`:
+- `zedIntegration.ts:150` sets `loadSession: false` in capabilities
+- No `session/list` handler exists
+- Sessions are not persisted between Qwen Code restarts
+
+**For session history to work with Qwen Code:**
+1. Implement session persistence in Qwen Code (store to disk/database)
+2. Add `session/list` handler returning saved sessions
+3. Add `session/load` handler to restore session context
+4. Set `loadSession: true` and `sessionCapabilities.list: {}` in capabilities
+
+**Alternative: Use Zed NativeAgent instead**
+- NativeAgent sessions sync to Helix backend
+- Crash recovery handled by Zed + Helix
+- Model routing through Helix LLM router works
+
+**Investigation Steps for NativeAgent:**
 1. Check if `HelixSessionID` fix is deployed
 2. Verify Qwen model routes correctly through Helix router
 3. Test Zed Agent with Qwen model end-to-end
+
+### Feature 5: Default to Screenshot Mode in Moonlight Viewer
+
+**Priority:** HIGH - 60fps streaming is unreliable for customers, screenshots work better
+
+**Current State:**
+- MoonlightStreamViewer defaults to 60fps video streaming mode
+- Video streaming requires continuous WebSocket connection to Wolf
+- When connection degrades, video quality drops or freezes
+- Customers are experiencing unreliable video in enterprise networks
+
+**Proposed Changes:**
+
+1. **Default to screenshot mode** in MoonlightStreamViewer:
+   - Screenshot polling is more resilient to network issues
+   - Works better through corporate proxies
+   - Less bandwidth consumption
+
+2. **Keep WebSocket connection for input and audio**:
+   - The Moonlight WebSocket connection must still be established for:
+     - Keyboard/mouse input from user to sandbox
+     - Audio streaming from sandbox to user
+   - Video channel starts PAUSED (not requesting video frames)
+
+3. **Allow switching to video streaming mode**:
+   - User can manually enable 60fps mode via toggle
+   - When switching: unpause video channel in WebSocket stream
+   - When switching back: pause video, resume screenshot polling
+
+**Implementation Details:**
+- Default mode state: `screenshot` (not `video60fps`)
+- WebSocket connection opens immediately for input/audio
+- Video stream starts in paused state: `videoEnabled: false`
+- Screenshot polling starts immediately
+- Toggle allows switching between modes without reconnecting
+
+**Files to modify:**
+- `frontend/src/components/streaming/MoonlightStreamViewer.tsx`
+- Potentially Wolf configuration for video pause behavior
 
 ---
 
@@ -1357,5 +1423,162 @@ This mapping enables:
 | `api/pkg/server/external_agent_websocket.go` | WebSocket handler that routes messages by session ID |
 | `api/pkg/server/external_agent_handlers.go` | Session management and thread ID tracking |
 | `zed/crates/agent/src/external_sync.rs` | External sync WebSocket client |
+
+---
+
+## PRIORITY IMPLEMENTATION PLAN (2025-12-09)
+
+### 🚨 P-1: Complete ACP Session Persistence (CRITICAL FIRST)
+
+**Status:** ✅ FULLY IMPLEMENTED - Qwen Code v0.4.1 has native session persistence
+
+**Updated (2025-12-10):** Discovered that upstream Qwen Code v0.4.1 already implements full session persistence. Our fork has been rebased to include this.
+
+**Qwen Code Session Persistence (packages/core/src/services/sessionService.ts):**
+- `listSessions()` - Lists sessions with pagination, ordered by mtime
+- `loadSession(sessionId)` - Loads a session by ID
+- `loadLastSession()` - Convenience method for most recent session
+- Sessions stored as JSONL files at `~/.qwen/tmp/<project_id>/chats/`
+- Full conversation reconstruction from tree-structured records
+- Chat compression checkpoint support
+
+**Qwen Code ACP Integration (packages/cli/src/acp-integration/acpAgent.ts):**
+- `loadSession: true` in agentCapabilities
+- `session/list` handler - Calls SessionService.listSessions()
+- `session/load` handler - Calls SessionService.loadSession()
+
+**What's IMPLEMENTED (2025-12-09):**
+
+1. **Low-level ACP methods** (in `zed/crates/agent_servers/src/acp.rs`):
+   - `supports_session_load()` - checks if agent advertises `load_session` capability
+   - `get_last_session_id(cwd)` - reads saved session ID from `.zed/acp-session-<name>.json`
+   - `load_thread()` - full implementation to load a session via ACP protocol
+   - `save_session_id()` - saves session ID when new sessions are created
+   - `list_sessions()` - calls session/list on ACP agent
+
+2. **Auto-resume on Zed restart** (in `zed/crates/agent_ui/src/acp/thread_view.rs:714-743`):
+   ```rust
+   } else if connection.supports_session_load() {
+       // ACP agent (e.g., Qwen Code): Check for saved session to resume
+       if let Some(session_id) = connection.get_last_session_id(&root_dir) {
+           log::info!("🔄 [ACP SESSION] Found saved session, attempting to resume");
+           cx.update(|_, cx| {
+               connection.clone().load_thread(session_id, project.clone(), &root_dir, cx)
+           })
+       } else {
+           // No saved session, create new
+           connection.clone().new_thread(project.clone(), &root_dir, cx)
+       }
+   }
+   ```
+
+**How it works:**
+- When Zed opens and creates an ACP thread view
+- `initial_state()` checks if agent supports session loading
+- If yes, reads last session ID from `.zed/acp-session-<agent>.json`
+- If found, calls `load_thread()` to resume instead of `new_thread()`
+- User automatically continues where they left off!
+
+**What's REMAINING (Future Enhancement):**
+
+**History UI Integration** - Showing ACP sessions in the existing thread history list
+- NativeAgent threads are stored in Zed's SQLite database
+- ACP sessions are stored on the agent side (Qwen stores in `~/.qwen/tmp/...`)
+- To list ACP sessions in history UI, would need to:
+  1. Call `session/list` ACP method on the agent
+  2. Store session metadata in Zed's database or cache
+  3. When user clicks, call `load_thread()` to fetch from agent
+- This is a nice-to-have but NOT required for core "resume on restart" functionality
+
+**Why History UI is lower priority:**
+- Primary use case (auto-resume on restart) is now working
+- ACP agents can only have ONE active session at a time anyway
+- Most users just want "pick up where I left off", not "browse all old sessions"
+
+**Files Modified:**
+- `zed/crates/agent_ui/src/acp/thread_view.rs` - Added auto-resume logic in `initial_state()`
+- `zed/crates/agent_servers/src/acp.rs` - Already had session persistence methods
+
+---
+
+### P0: Restart Button in Helix UI (COMPLETED)
+
+**Location:** SpecTaskDetailDialog.tsx (in spec task details page, NOT in streaming UI)
+
+**Requirements:**
+- Button in the title bar area of the spec task dialog
+- "Are you sure?" confirmation dialog before restarting
+- Must wire across Helix API -> Zed -> Qwen Code
+- Must fix thread-to-session mappings after restart
+
+**Implementation Steps:**
+
+1. **Frontend: Add Restart Button**
+   - Add restart button to SpecTaskDetailDialog.tsx header
+   - Add confirmation dialog with warning about session restart
+   - Call new API endpoint `/api/v1/sessions/:id/restart`
+
+2. **API: Restart Endpoint**
+   - Add handler for `POST /api/v1/sessions/:id/restart`
+   - Stop existing sandbox container
+   - Start new container with same configuration
+   - Update ZedThread -> HelixSession mapping
+
+3. **Thread-to-Session Mapping Fix**
+   - Current mappings are in-memory in `ZedToHelixSessionService`
+   - On restart: new Zed thread ID gets created
+   - Must update mapping: `createOrUpdateZedThreadMapping()`
+   - Consider using Helix session ID as thread ID (Option C)
+
+### P1: Live ACP Log Tailing in Kitty
+
+**Requirements:**
+- Open a Kitty terminal that tails ACP/Qwen Code logs
+- Show startup message "Tailing ACP logs..."
+- Display Qwen Code crash errors prominently
+- Do NOT close the kitty window
+
+**Implementation:**
+```bash
+# In wolf/sway-config/start-zed-helix.sh
+kitty --class acp-log-viewer \
+      --title "ACP Agent Logs" \
+      -e bash -c 'echo "Tailing ACP logs..."; tail -f ~/.local/share/zed/logs/*.log 2>/dev/null | grep --line-buffered -E "(agent|acp|qwen|error|Error|ERROR)"' &
+
+# Keep window open on exit
+kitty_pid=$!
+# Don't wait for it - let it run independently
+```
+
+### P2: RevDial Reconnection Fixes
+
+**Frontend Fixes:**
+- Don't close fullscreen view on momentary glitches
+- Show spinner overlay during reconnection
+- Reconnect faster (reduce ping interval, reduce reconnect delay)
+
+**Backend Fixes:**
+- Reduce ping interval: 30s -> 15s (`api/pkg/revdial/client.go`)
+- Reduce reconnect delay: 5s -> 1s (`api/pkg/revdial/client.go`)
+
+**UI Fixes:**
+- MoonlightStreamViewer.tsx already has `showLoadingOverlay` and `isRestart` props
+- Need to use these during reconnection instead of closing
+
+### P3: Crash Error Display
+
+**Requirements:**
+- If Qwen Code exits with error code 1, display the error
+- Error should be visible in kitty window (live log tail will catch it)
+- Consider also displaying in Helix UI
+
+### Implementation Order
+
+0. **🚨 CRITICAL FIRST:** Complete ACP session persistence UI in Zed agent panel
+1. ~~**First:** Add restart button to SpecTaskDetailDialog~~ (COMPLETED - uses stop+resume APIs)
+2. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings)
+3. **Third:** Add kitty log tailing to start-zed-helix.sh
+4. **Fourth:** Fix RevDial reconnection timing
+5. **Fifth:** Add reconnection spinner to MoonlightStreamViewer
 
 ---
