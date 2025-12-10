@@ -111,14 +111,15 @@ RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 # ====================================================================
 # Install Firefox from Mozilla repository (latest version)
 # ====================================================================
+# Remove snap Firefox (not usable in containers) and install from Mozilla repo
 RUN apt-get update && \
-    apt-get install -y wget gnupg && \
+    apt-get remove -y firefox 2>/dev/null || true && \
     mkdir -p /etc/apt/keyrings && \
     wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
     echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
-    echo "Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000" > /etc/apt/preferences.d/mozilla-firefox && \
+    printf 'Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla-firefox && \
     apt-get update && \
-    apt-get install -y firefox && \
+    apt-get install -y --allow-downgrades firefox && \
     rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
