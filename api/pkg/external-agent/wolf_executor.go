@@ -248,6 +248,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		// This allows connections to internal HTTPS URLs without certificate errors
 		"ZED_HELIX_SKIP_TLS_VERIFY=true",
 		"RUST_LOG=info", // Enable Rust logging for Zed
+		// Show ACP debug logs in Kitty window (for debugging agent issues)
+		"SHOW_ACP_DEBUG_LOGS=true",
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
 		// API URL for settings sync daemon and other services
@@ -1719,6 +1721,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
+		// Show ACP debug logs in Kitty window (for debugging agent issues)
+		"SHOW_ACP_DEBUG_LOGS=true",
 	}
 
 	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility:

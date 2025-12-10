@@ -1,8 +1,105 @@
 # Investigation: Enterprise Agent Stability Issues
 
 **Date:** 2025-12-09
-**Status:** Root Causes Identified, Fixes Implemented
+**Updated:** 2025-12-10
+**Status:** Root Causes Identified, Fixes In Progress
 **Author:** Helix Team
+
+---
+
+## CRITICAL: Current Issues (2025-12-10)
+
+### 1. Screenshot/Video Stream Does Not Reconnect After Restart
+
+**Status:** ✅ FIXED (2025-12-10)
+
+**Problem:** When user clicks "Restart Session" button:
+- The screenshot stream shows the last screenshot from the OLD container
+- The 60fps video mode DOES show the new instance (after toggle)
+- No automatic reconnection occurs
+
+**Root Cause:** `SpecTaskDetailDialog.tsx` was not passing `wolfLobbyId` to `ExternalAgentDesktopViewer`:
+```tsx
+// OLD (broken): No wolfLobbyId passed
+<ExternalAgentDesktopViewer
+  sessionId={activeSessionId}
+  mode="stream"
+/>
+
+// This caused MoonlightStreamViewer to use sessionId as fallback for wolfLobbyId
+// Since sessionId never changes, lobby change detection never fires
+```
+
+**Fix Applied:**
+1. Extract `wolfLobbyId` from session config: `sessionData?.config?.wolf_lobby_id`
+2. Pass it to ExternalAgentDesktopViewer: `wolfLobbyId={wolfLobbyId}`
+3. Invalidate session query after restart to refetch the new lobby ID
+
+**Files Modified:**
+- `frontend/src/components/tasks/SpecTaskDetailDialog.tsx`
+
+### 2. Zed Does Not Resume Qwen Code Session After Restart
+
+**Status:** DEBUG LOGGING ADDED (2025-12-10)
+
+**Problem:** When container restarts:
+- Zed starts fresh
+- Qwen Code agent panel shows empty/new session
+- Previous conversation history is NOT restored
+- User expects "pick up where I left off" behavior
+
+**Expected Flow (per design doc lines 1526-1567):**
+1. Container restarts, workspace persists
+2. `startup-app.sh` creates symlink: `~/.qwen → $WORK_DIR/.qwen-state`
+3. Zed opens, `thread_view.rs:719-729` checks for saved session
+4. Should find `.zed/acp-session-qwen.json` in workspace
+5. Should call `load_thread()` to resume session
+6. Qwen Code loads session from `~/.qwen/projects/<hash>/chats/<sessionId>.jsonl`
+
+**Debug Logging Added (2025-12-10):**
+
+To trace where the flow is failing, debug logging has been added to:
+
+1. **Zed (acp.rs)**:
+   - `get_last_session_id()` - logs session file path and contents
+   - `save_session_id()` - logs when session ID is saved
+
+2. **Qwen Code (acpAgent.ts)**:
+   - `loadSession()` - logs session ID, cwd, exists check, message count
+
+3. **Qwen Code (Session.ts)**:
+   - `replayHistory()` - logs number of records being replayed
+
+4. **Qwen Code (HistoryReplayer.ts)**:
+   - `replay()` - logs each record type as it's replayed
+
+**How to view logs:**
+
+ACP logs are now shown in a Kitty terminal window when `SHOW_ACP_DEBUG_LOGS=true` (enabled in dev mode).
+
+The log viewer tails `~/.local/share/zed/logs/*.log` and filters for:
+- `agent`, `acp`, `qwen`, `session`, `error`, `panic`, `crash`, `[ACP]`
+
+**Investigation Required:**
+- [ ] Verify `.zed/acp-session-qwen.json` is being saved in workspace
+- [ ] Verify symlink `~/.qwen` is created correctly on startup
+- [ ] Verify Qwen Code session files are in workspace (not container home)
+- [ ] Check Zed logs for session resume attempts
+- [ ] Check if `supports_session_load()` returns true for Qwen Code
+- [ ] Verify `get_last_session_id()` finds the saved session ID
+
+### 3. Qwen Code History Not Visible in Zed After Resume
+
+**Status:** PENDING (related to #2)
+
+**Problem:** Even when session resumes:
+- The conversation history may not be visible in Zed agent panel
+- User sees empty panel but session technically resumed
+
+**Potential Causes:**
+- `load_thread()` returns session but doesn't populate UI
+- History messages not being rendered in thread view
+- Qwen Code's `loadSession` doesn't replay messages to Zed
 
 ---
 
