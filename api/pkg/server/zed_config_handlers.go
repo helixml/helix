@@ -207,14 +207,6 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 				Str("spec_task_id", session.Metadata.SpecTaskID).
 				Str("app_id", specTask.HelixAppID).
 				Msg("No zed_external assistant found - using default Zed agent with Helix proxy")
-		} else {
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("spec_task_id", session.Metadata.SpecTaskID).
-				Str("provider", codeAgentConfig.Provider).
-				Str("model", codeAgentConfig.Model).
-				Str("api_type", codeAgentConfig.APIType).
-				Msg("Built code agent config from spec task")
 		}
 	}
 

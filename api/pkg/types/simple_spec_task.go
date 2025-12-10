@@ -67,6 +67,8 @@ type SpecTask struct {
 	TaskNumber    int    `json:"task_number,omitempty" gorm:"default:0"`
 	DesignDocPath string `json:"design_doc_path,omitempty" gorm:"size:255"`
 
+	PullRequestID string `json:"pull_request_id"`
+
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
 	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`

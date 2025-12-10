@@ -2141,6 +2141,11 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeBitbucket = "bitbucket",
 }
 
+export interface TypesExternalStatus {
+  commits_ahead?: number;
+  commits_behind?: number;
+}
+
 export enum TypesFeedback {
   FeedbackLike = "like",
   FeedbackDislike = "dislike",
@@ -2775,6 +2780,7 @@ export enum TypesLLMCallStep {
 
 export interface TypesListCommitsResponse {
   commits?: TypesCommit[];
+  external_status?: TypesExternalStatus;
 }
 
 export interface TypesLoginRequest {
@@ -3286,6 +3292,20 @@ export interface TypesPullRequest {
   title?: string;
   updated_at?: string;
   url?: string;
+}
+
+export interface TypesPullResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
+export interface TypesPushResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
 }
 
 export interface TypesQuestion {
@@ -3963,6 +3983,7 @@ export interface TypesSpecTask {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  pull_request_id?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -6922,6 +6943,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Pulls latest commits from remote repository
+     *
+     * @tags git-repositories
+     * @name PullFromRemote
+     * @summary Pull from remote repository
+     * @request POST:/api/v1/git/repositories/{id}/pull
+     * @secure
+     */
+    pullFromRemote: (
+      id: string,
+      query: {
+        /** Force pull (default: false) */
+        force: boolean;
+        /** Branch name (required) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPullResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull`,
+        method: "POST",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all pull requests in a repository
      *
      * @tags git-repositories
@@ -6955,6 +7004,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pushes the local branch to the remote repository
+     *
+     * @tags git-repositories
+     * @name PushToRemote
+     * @summary Push to remote repository
+     * @request POST:/api/v1/git/repositories/{id}/push
+     * @secure
+     */
+    pushToRemote: (
+      id: string,
+      query: {
+        /** Branch name */
+        branch: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPushResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/push`,
+        method: "POST",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),

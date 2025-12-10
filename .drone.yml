@@ -99,6 +99,10 @@ steps:
         from_secret: openai_api_key
       TOGETHER_BASE_URL:
         from_secret: openai_base_url
+      CI_ADO_TOKEN:
+        from_secret: ci_ado_token
+      CI_ADO_REPO:
+        from_secret: ci_ado_repo
       # Database config (running in a sidecar)
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"

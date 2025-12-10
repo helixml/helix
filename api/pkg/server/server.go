@@ -101,38 +101,39 @@ type HelixAPIServer struct {
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	// Comment queue per planning session - serializes comment responses
-	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
-	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
-	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
-	requestToCommenterMapping   map[string]string    // request_id -> commenter user_id (for design review streaming)
-	inferenceServer             *openai.InternalHelixServer
-	knowledgeManager            knowledge.Manager
-	skillManager                *api_skill.Manager
-	router                      *mux.Router
-	scheduler                   *scheduler.Scheduler
-	pingService                 *version.PingService
-	authenticator               auth.Authenticator
-	oidcClient                  auth.OIDC
-	oauthManager                *oauth.Manager
-	fileServerHandler           http.Handler
-	cache                       *ristretto.Cache[string, string]
-	avatarsBucket               *blob.Bucket
-	trigger                     *trigger.Manager
-	specDrivenTaskService       *services.SpecDrivenTaskService
-	sampleProjectCodeService    *services.SampleProjectCodeService
-	gitRepositoryService        *services.GitRepositoryService
-	koditService                *services.KoditService
-	gitHTTPServer               *services.GitHTTPServer
-	moonlightProxy              *moonlight.MoonlightProxy
-	moonlightServer             *moonlight.MoonlightServer
+	sessionCommentQueue       map[string][]string // planning_session_id -> queue of comment_ids waiting for response
+	sessionCurrentComment     map[string]string   // planning_session_id -> currently processing comment_id
+	sessionCommentMutex       sync.RWMutex        // Mutex for comment queue operations
+	requestToCommenterMapping map[string]string   // request_id -> commenter user_id (for design review streaming)
+	inferenceServer           *openai.InternalHelixServer
+	knowledgeManager          knowledge.Manager
+	skillManager              *api_skill.Manager
+	router                    *mux.Router
+	scheduler                 *scheduler.Scheduler
+	pingService               *version.PingService
+	authenticator             auth.Authenticator
+	oidcClient                auth.OIDC
+	oauthManager              *oauth.Manager
+	fileServerHandler         http.Handler
+	cache                     *ristretto.Cache[string, string]
+	avatarsBucket             *blob.Bucket
+	trigger                   *trigger.Manager
+	specDrivenTaskService     *services.SpecDrivenTaskService
+	sampleProjectCodeService  *services.SampleProjectCodeService
+	gitRepositoryService      *services.GitRepositoryService
+	koditService              *services.KoditService
+	gitHTTPServer             *services.GitHTTPServer
+	moonlightProxy            *moonlight.MoonlightProxy
+	moonlightServer           *moonlight.MoonlightServer
 	// Rate limiting for streaming connections (prevents Wolf deadlock from rapid reconnects)
-	streamingRateLimiter        map[string]time.Time // session_id -> last connection time
-	streamingRateLimiterMutex   sync.RWMutex
-	specTaskOrchestrator        *services.SpecTaskOrchestrator
-	externalAgentPool           *services.ExternalAgentPool
-	projectInternalRepoService  *services.ProjectInternalRepoService
-	anthropicProxy              *anthropic.Proxy
-	adminAlerter                *notification.AdminAlerter
+	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
+	streamingRateLimiterMutex  sync.RWMutex
+	specTaskOrchestrator       *services.SpecTaskOrchestrator
+	externalAgentPool          *services.ExternalAgentPool
+	projectInternalRepoService *services.ProjectInternalRepoService
+	anthropicProxy             *anthropic.Proxy
+	adminAlerter               *notification.AdminAlerter
+	wg                         sync.WaitGroup // Control for goroutines to enable tests
 }
 
 func NewServer(
@@ -251,9 +252,9 @@ func NewServer(
 		Controller: controller,
 		Janitor:    janitor,
 
-		externalAgentExecutor:      externalAgentExecutor,
-		externalAgentWSManager:     externalAgentWSManager,
-		externalAgentRunnerManager: externalAgentRunnerManager,
+		externalAgentExecutor:       externalAgentExecutor,
+		externalAgentWSManager:      externalAgentWSManager,
+		externalAgentRunnerManager:  externalAgentRunnerManager,
 		contextMappings:             make(map[string]string),
 		sessionToWaitingInteraction: make(map[string]string),
 		requestToSessionMapping:     make(map[string]string),
@@ -263,7 +264,7 @@ func NewServer(
 		sessionCurrentComment:       make(map[string]string),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
-		inferenceServer:            inferenceServer,
+		inferenceServer:             inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
@@ -1061,6 +1062,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/search-snippets", apiServer.searchRepositorySnippets).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/kodit-status", apiServer.getRepositoryIndexingStatus).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/push-pull", apiServer.pushPullGitRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pull", apiServer.pullFromRemote).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/push", apiServer.pushToRemote).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
@@ -1891,7 +1894,6 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// Control connections are WebSocket too, but without the dialer parameter
 		dialerParam := r.URL.Query().Get("revdial.dialer")
 		if websocket.IsWebSocketUpgrade(r) && dialerParam != "" {
-			log.Debug().Str("dialer_id", dialerParam).Msg("Handling revdial WebSocket DATA connection")
 			// This is a data connection - use the revdial ConnHandler
 			revDialConnHandler.ServeHTTP(w, r)
 			return
