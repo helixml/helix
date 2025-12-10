@@ -296,6 +296,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const api = useApi();
   const account = useAccount();
 
+  // Track initial load to avoid showing loading spinner on refreshes
+  const hasLoadedOnceRef = React.useRef(false);
+
   // State
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
   const [loading, setLoading] = useState(true);
@@ -409,7 +412,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     const loadTasks = async () => {
       try {
-        setLoading(true);
+        // Only show loading spinner on initial load
+        // This prevents the board from disappearing during refreshes
+        if (!hasLoadedOnceRef.current) {
+          setLoading(true);
+        }
         const response = await api.get('/api/v1/spec-tasks', {
           params: {
             project_id: projectId || 'default',
@@ -456,6 +463,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         });
 
         setTasks(enhancedTasks);
+        hasLoadedOnceRef.current = true;
       } catch (err) {
         console.error('Failed to load tasks:', err);
         setError('Failed to load tasks');
