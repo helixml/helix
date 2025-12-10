@@ -583,6 +583,44 @@ docker compose -f docker-compose.dev.yaml logs --tail 30 api
 
 **Why:** Build logs don't catch all runtime errors. JSX syntax errors, missing imports, and broken conditionals only appear when page actually loads in browser.
 
+## CRITICAL: ACP Architecture - IDE ↔ Agent, NOT Agent ↔ LLM
+
+**ACP (Agent Client Protocol) connects the Agent to the IDE, NOT to the LLM!**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        HELIX AGENT ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌──────────┐   OpenAI API    ┌─────────────┐    ACP     ┌──────────┐ │
+│   │   LLM    │ ←──────────────→│ Qwen Code   │←──────────→│   Zed    │ │
+│   │(Claude/  │  function calls │  (Agent)    │  messages  │  (IDE)   │ │
+│   │ Qwen3)   │  & responses    │             │  & prompts │          │ │
+│   └──────────┘                 └─────────────┘            └──────────┘ │
+│                                                                         │
+│   LLM handles:                 Agent handles:       IDE handles:        │
+│   - Understanding prompts      - Tool execution     - UI rendering      │
+│   - Function calling           - State management   - User input        │
+│   - Response generation        - LLM communication  - Thread display    │
+│                                - ACP communication                      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Common confusion to avoid:**
+- ❌ WRONG: "ACP handles tool calls from the LLM"
+- ✅ RIGHT: ACP is a protocol between Zed (IDE) and the Agent (Qwen Code)
+- ✅ RIGHT: Tool calls happen internally between the Agent and the LLM via OpenAI API
+
+**When debugging agent issues:**
+- **Model outputs raw XML in text** → LLM issue (model doesn't understand function calling)
+- **Messages not appearing in Zed** → ACP/Zed issue (protocol or UI rendering)
+- **Tools failing silently** → Agent issue (Qwen Code's tool execution)
+
+**Key files:**
+- `qwen-code/packages/cli/src/` → Qwen Code agent (talks to LLM AND Zed)
+- `zed/crates/agent_servers/src/acp.rs` → Zed's ACP client (talks to agent)
+- `api/cmd/settings-sync-daemon/` → Configures agent_servers in Zed's settings.json
+
 ## Zed Build Process
 
 ```bash
