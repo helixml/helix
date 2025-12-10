@@ -132,6 +132,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Connect to stream
   const connect = useCallback(async () => {
+    // Generate fresh UUID for EVERY connection attempt
+    // This prevents Wolf session ID conflicts when reconnecting to the same Helix session
+    // (Wolf requires unique client_unique_id per connection to avoid stale state corruption)
+    componentInstanceIdRef.current = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+
     setIsConnecting(true);
     setError(null);
     setStatus('Connecting to streaming server...');
