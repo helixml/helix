@@ -1907,6 +1907,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	if response.WolfLobbyPIN != "" {
 		session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
 	}
+	// CRITICAL: Clear PausedScreenshotPath when resuming
+	// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
+	session.Metadata.PausedScreenshotPath = ""
 	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		log.Error().
