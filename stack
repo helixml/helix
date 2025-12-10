@@ -967,16 +967,21 @@ function build-sway() {
 
   echo "✅ Found qwen-code at $HOME/pm/qwen-code"
 
-  # Check if we need to rebuild
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "./qwen-code-build/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "./qwen-code-build/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild - compare git hashes to detect ANY changes
   local NEEDS_REBUILD=false
   if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
     NEEDS_REBUILD=true
-  else
-    # Check if source is newer than build (check key files)
-    if [ "$HOME/pm/qwen-code/packages/core/src/utils/errors.ts" -nt "./qwen-code-build/packages/core/src/utils/errors.ts" ] || \
-       [ "$HOME/pm/qwen-code/packages/cli/src/utils/errors.ts" -nt "./qwen-code-build/packages/cli/src/utils/errors.ts" ]; then
-      NEEDS_REBUILD=true
-    fi
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
   fi
 
   if [ "$NEEDS_REBUILD" = "true" ]; then
@@ -988,13 +993,14 @@ function build-sway() {
       npm run build
     )
     cp -r "$HOME/pm/qwen-code" ./qwen-code-build
-    echo "✅ qwen-code built and copied to ./qwen-code-build"
+    # Save the git commit hash for future change detection
+    echo "$QWEN_CODE_HASH" > ./qwen-code-build/.git-commit-hash
+    echo "✅ qwen-code built and copied to ./qwen-code-build (${QWEN_CODE_HASH:0:8})"
   else
     echo "✅ Using existing qwen-code build at ./qwen-code-build"
   fi
 
-  # Get qwen-code git commit hash for Docker cache busting
-  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
+  # Log qwen-code commit for Docker cache busting (hash already computed above)
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
   # Build the custom Sway image with image tags

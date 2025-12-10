@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -76,6 +77,25 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 		log.Debug().
 			Str("action", "🟠 runner ws CONNECT").
 			Msgf("connected runner websocket: %s\n", runnerID)
+
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+						log.Debug().Err(err).Str("runner_id", runnerID).Msg("Runner WebSocket ping failed, connection closing")
+						return
+					}
+				}
+			}
+		}()
 
 		// we block on reading messages from the client
 		// if we get any errors then we break and this will close

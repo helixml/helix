@@ -44,7 +44,8 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
-import { useGetSession } from '../../services/sessionService'
+import { useQueryClient } from '@tanstack/react-query'
+import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
@@ -68,6 +69,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const streaming = useStreaming()
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
+  const queryClient = useQueryClient()
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false)
@@ -193,6 +195,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const swayVersion = sessionData?.config?.sway_version
   const gpuVendor = sessionData?.config?.gpu_vendor
   const renderNode = sessionData?.config?.render_node
+  const wolfLobbyId = sessionData?.config?.wolf_lobby_id
 
   // Debug logging
   useEffect(() => {
@@ -386,6 +389,10 @@ I'll give you feedback and we can iterate on any changes needed.`
       // Step 2: Resume the session (starts a new container)
       snackbar.info('Starting new agent session...')
       await api.getApiClient().v1SessionsResumeCreate(activeSessionId)
+
+      // Step 3: Invalidate session query to refetch wolf_lobby_id
+      // This triggers MoonlightStreamViewer to detect the lobby change and reconnect
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(activeSessionId) })
 
       snackbar.success('Session restarted successfully')
     } catch (err: any) {
@@ -815,6 +822,7 @@ I'll give you feedback and we can iterate on any changes needed.`
               {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
               <ExternalAgentDesktopViewer
                 sessionId={activeSessionId}
+                wolfLobbyId={wolfLobbyId}
                 mode="stream"
                 onClientIdCalculated={setClientUniqueId}
               />
@@ -1245,8 +1253,8 @@ I'll give you feedback and we can iterate on any changes needed.`
           <DialogContentText>
             This will stop the current agent container and start a fresh one.
             <br /><br />
-            <strong>Note:</strong> The Zed thread will need to be reconnected after restart.
-            Any unsaved work in the sandbox may be lost.
+            <strong>Note:</strong> Any unsaved files in the sandbox may be lost. Please make sure
+            you save all your files before restarting. Everything in the work folder will survive the restart.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

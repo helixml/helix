@@ -104,8 +104,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
   // Low mode uses rapid screenshot polling for video while keeping input via the stream
   // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
-  // Default to 'low' (screenshot mode) for enterprise reliability - 60fps streaming unreliable over corporate networks
-  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('low');
+  // Default to 'high' (60fps video) - screenshot mode has app_id issues in lobbies mode
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -290,10 +290,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           qualitySessionId
         );
 
-        // Set canvas for WebSocket stream rendering (skip in low mode - screenshots provide video)
-        // In low mode, stream is only used for input, not video rendering
-        if (canvasRef.current && qualityMode !== 'low') {
-          stream.setCanvas(canvasRef.current);
+        // Set canvas for WebSocket stream rendering
+        if (canvasRef.current) {
+          if (qualityMode !== 'low') {
+            // Normal mode: stream renders frames to canvas
+            stream.setCanvas(canvasRef.current);
+          } else {
+            // Low/screenshot mode: stream is only used for input, not video rendering
+            // But we still need to set canvas dimensions for proper mouse coordinate mapping
+            // (getStreamRect uses canvas.width/height to calculate aspect ratio)
+            canvasRef.current.width = 1920;
+            canvasRef.current.height = 1080;
+          }
         }
       } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
@@ -560,10 +568,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
-  // Reconnect
-  const reconnect = useCallback(() => {
+  // Reconnect with configurable delay
+  // Mode switches need longer delay to wait for moonlight-web cleanup (up to 15s)
+  // Normal reconnects (errors, user-initiated) can be faster
+  const reconnect = useCallback((delayMs = 1000) => {
     disconnect();
-    setTimeout(connect, 1000);
+    setTimeout(connect, delayMs);
   }, [disconnect, connect]);
 
   // Toggle fullscreen
@@ -591,11 +601,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const previousStreamingModeRef = useRef<StreamingMode>(streamingMode);
 
   // Reconnect when streaming mode changes (user toggled the transport)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
+  // moonlight-web cleanup can take up to 15s (host.cancel() HTTP call), but 5s covers typical cases
   useEffect(() => {
     if (previousStreamingModeRef.current !== streamingMode) {
       console.log('[MoonlightStreamViewer] Streaming mode changed from', previousStreamingModeRef.current, 'to', streamingMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       previousStreamingModeRef.current = streamingMode;
-      reconnect();
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [streamingMode, reconnect]);
 
@@ -603,9 +616,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const previousQualityModeRef = useRef<'adaptive' | 'high' | 'low'>(qualityMode);
 
   // Reconnect when quality mode changes (user toggled fps/quality)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
   useEffect(() => {
     if (previousQualityModeRef.current !== qualityMode) {
       console.log('[MoonlightStreamViewer] Quality mode changed from', previousQualityModeRef.current, 'to', qualityMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       previousQualityModeRef.current = qualityMode;
       // Update fallback state immediately for UI feedback
       setIsOnFallback(qualityMode === 'low');
@@ -613,25 +628,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // This allows adaptive mode to start fresh and evaluate latency again
       setAdaptiveLockedToScreenshots(false);
       setAdaptiveScreenshotEnabled(false);
-      reconnect();
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [qualityMode, reconnect]);
 
   // Detect lobby changes and reconnect (for test script restart scenarios)
+  // Uses 5-second delay to wait for moonlight-web cleanup before connecting to new lobby
   useEffect(() => {
     if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
       console.log('[MoonlightStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', wolfLobbyId);
-      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby');
-      reconnect();
+      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby (5s delay)');
+      reconnect(5000); // 5 seconds for lobby switches to allow cleanup
     }
     previousLobbyIdRef.current = wolfLobbyId;
   }, [wolfLobbyId, reconnect]);
 
-  // Auto-connect on mount
+  // Auto-connect when wolfLobbyId becomes available
+  // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
+  // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  const hasConnectedRef = useRef(false);
   useEffect(() => {
+    // Only auto-connect once
+    if (hasConnectedRef.current) return;
+
+    // If wolfLobbyId prop is expected but not yet loaded, wait for it
+    // We detect this by checking if sessionId is provided (external agent mode)
+    // In this mode, wolfLobbyId should be provided by the parent once session data loads
+    if (sessionId && !isPersonalDevEnvironment && !wolfLobbyId) {
+      console.log('[MoonlightStreamViewer] Waiting for wolfLobbyId to load before connecting...');
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Auto-connecting with wolfLobbyId:', wolfLobbyId);
+    hasConnectedRef.current = true;
     connect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps intentional - only connect once on mount
+  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1096,6 +1127,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             framesDropped: wsStats.framesDropped,
             rttMs: wsStats.rttMs,                                              // RTT in ms
             isHighLatency: wsStats.isHighLatency,                              // High latency flag
+            // Batching stats for congestion visibility
+            batchingRatio: wsStats.batchingRatio,                              // % of frames batched
+            avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
+            batchesReceived: wsStats.batchesReceived,                          // Total batches
           },
           connection: {
             transport: `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
@@ -1730,7 +1765,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         >
           <CircularProgress size={48} sx={{ color: 'warning.main' }} />
           <Typography variant="h6" sx={{ color: 'white' }}>
-            Connection Lost
+            Connecting...
           </Typography>
           <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
             {status || 'Attempting to reconnect...'}
@@ -1939,6 +1974,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
                     {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                  </div>
+                )}
+                {/* Batching stats (WebSocket mode) - shows congestion handling */}
+                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                  <div>
+                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
+                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
+                      : 'OFF'}
+                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
                   </div>
                 )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}

@@ -32,6 +32,76 @@ bash -c "./stack start"                # OR THIS
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
 
+## 🚨 CRITICAL: Sandbox Build Pipeline - COMMIT EVERYTHING FIRST 🚨
+
+**The sandbox architecture is deeply nested. Changes MUST be committed before rebuilding.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Host Machine                                                     │
+│  └── Wolf Container (runs Docker-in-Docker)                     │
+│       └── helix-sway Container (the sandbox)                    │
+│            ├── Zed binary (built from ~/pm/zed)                 │
+│            ├── Qwen Code (built from ~/pm/qwen-code)            │
+│            └── Settings Sync Daemon (built from helix/api/cmd)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**The problem: `./stack build-sway` copies from LOCAL builds, not git repos:**
+- It copies `~/pm/qwen-code/packages/cli/dist/` → into Docker image
+- It copies `~/pm/zed/target/release/zed` → into Docker image
+- Wolf's inner Docker pulls the helix-sway image by TAG (based on git commit)
+
+**If you don't commit before rebuild:**
+1. Build runs → creates new helix-sway image
+2. Image gets tagged with current git commit hash
+3. BUT if repos aren't committed, the tag doesn't change
+4. Wolf's inner Docker sees same tag → uses cached image
+5. **YOUR CHANGES DON'T RUN** ← This wastes hours of debugging
+
+**CORRECT WORKFLOW for sandbox changes:**
+
+```bash
+# Step 1: COMMIT ALL THREE REPOS FIRST
+cd ~/pm/qwen-code && git add -A && git commit -m "feat: description"
+cd ~/pm/zed && git add -A && git commit -m "feat: description"
+cd ~/pm/helix && git add -A && git commit -m "feat: description"
+
+# Step 2: Build Zed binary (if Zed code changed)
+./stack build-zed
+
+# Step 3: Build sway container (picks up qwen-code, zed binary, helix changes)
+./stack build-sway
+
+# Step 4: VERIFY the build worked
+docker images helix-sway --format "{{.Tag}} {{.CreatedAt}}" | head -1
+# Tag should match your latest helix commit hash
+# CreatedAt should be just now
+
+# Step 5: Start a NEW session (existing containers use old image)
+# Ask user to create new agent session to test
+```
+
+**Common mistakes that waste hours:**
+- ❌ Editing qwen-code but not committing before build-sway
+- ❌ Editing zed but not running build-zed before build-sway
+- ❌ Assuming existing sandbox containers got updated (they didn't)
+- ❌ Not verifying the image tag/timestamp after build
+
+**Signs your changes didn't deploy:**
+- Same bug still happens after "fix"
+- Console logs you added don't appear
+- Image timestamp is old
+
+**ALWAYS verify after building:**
+```bash
+# Check helix-sway image was just created
+docker images helix-sway --format "table {{.Tag}}\t{{.CreatedAt}}" | head -3
+
+# For Wolf changes specifically:
+docker run --rm --entrypoint="" helix-sandbox:latest stat /wolf/wolf | grep Modify
+```
+
 ## 🚨 CRITICAL: NEVER DELETE GIT INDEX LOCK 🚨
 
 **NEVER delete .git/index.lock - it causes git index corruption**
@@ -272,20 +342,33 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
+This applies to BOTH repos:
+- **helix** - for sway config, Wolf executor, API changes
+- **qwen-code** (at `../qwen-code`) - for Qwen Code tool/agent changes
+
 `./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
 ```bash
 # ❌ WRONG: Build without committing
-./stack build-sway                    # Image tag won't update!
-./stack build-sandbox                 # Image tag won't update!
+./stack build-sway                    # Changes won't be detected!
+./stack build-sandbox                 # Changes won't be detected!
 
-# ✅ CORRECT
+# ✅ CORRECT: Commit in BOTH repos if you changed both
+# In helix:
 git add -A && git commit -m "changes" && git push
-./stack build-sway                    # New tag detected, new image runs
-./stack build-sandbox                 # New tag detected, new image runs
+
+# In qwen-code (if modified):
+cd ../qwen-code
+git add -A && git commit -m "changes" && git push
+cd ../helix
+
+./stack build-sway                    # Now detects all changes
 ```
 
-**Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
+**Why:**
+- The helix-sway image tag is derived from the helix git commit hash
+- Qwen-code rebuild detection compares git commit hashes (uncommitted changes are invisible!)
+- Push is required for the version link in the UI to work
 
 ## 🚨 CRITICAL: VERIFY DOCKER CACHE BUSTING ON REBUILDS 🚨
 
@@ -499,6 +582,44 @@ docker compose -f docker-compose.dev.yaml logs --tail 30 api
 6. **"hmr update" ≠ success** - Must verify: (a) no errors in logs AND (b) user confirms page loads
 
 **Why:** Build logs don't catch all runtime errors. JSX syntax errors, missing imports, and broken conditionals only appear when page actually loads in browser.
+
+## CRITICAL: ACP Architecture - IDE ↔ Agent, NOT Agent ↔ LLM
+
+**ACP (Agent Client Protocol) connects the Agent to the IDE, NOT to the LLM!**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        HELIX AGENT ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌──────────┐   OpenAI API    ┌─────────────┐    ACP     ┌──────────┐ │
+│   │   LLM    │ ←──────────────→│ Qwen Code   │←──────────→│   Zed    │ │
+│   │(Claude/  │  function calls │  (Agent)    │  messages  │  (IDE)   │ │
+│   │ Qwen3)   │  & responses    │             │  & prompts │          │ │
+│   └──────────┘                 └─────────────┘            └──────────┘ │
+│                                                                         │
+│   LLM handles:                 Agent handles:       IDE handles:        │
+│   - Understanding prompts      - Tool execution     - UI rendering      │
+│   - Function calling           - State management   - User input        │
+│   - Response generation        - LLM communication  - Thread display    │
+│                                - ACP communication                      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Common confusion to avoid:**
+- ❌ WRONG: "ACP handles tool calls from the LLM"
+- ✅ RIGHT: ACP is a protocol between Zed (IDE) and the Agent (Qwen Code)
+- ✅ RIGHT: Tool calls happen internally between the Agent and the LLM via OpenAI API
+
+**When debugging agent issues:**
+- **Model outputs raw XML in text** → LLM issue (model doesn't understand function calling)
+- **Messages not appearing in Zed** → ACP/Zed issue (protocol or UI rendering)
+- **Tools failing silently** → Agent issue (Qwen Code's tool execution)
+
+**Key files:**
+- `qwen-code/packages/cli/src/` → Qwen Code agent (talks to LLM AND Zed)
+- `zed/crates/agent_servers/src/acp.rs` → Zed's ACP client (talks to agent)
+- `api/cmd/settings-sync-daemon/` → Configures agent_servers in Zed's settings.json
 
 ## Zed Build Process
 
