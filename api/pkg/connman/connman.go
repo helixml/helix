@@ -66,7 +66,6 @@ func (m *ConnectionManager) Dial(ctx context.Context, key string) (net.Conn, err
 		log.Printf("[connman] Dial failed for key=%s dialer=%s: %v", key, dialerPtr, err)
 		return nil, err
 	}
-	log.Printf("[connman] Dial successful for key=%s dialer=%s", key, dialerPtr)
 	return conn, nil
 }
 
