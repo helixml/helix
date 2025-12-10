@@ -89,36 +89,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, push the branch and create a pull request
 	switch {
 	case repo.AzureDevOps != nil:
-		// Push to remote
-		err = s.gitRepositoryService.PushBranchToRemote(r.Context(), repo.ID, specTask.BranchName, true)
-		if err != nil {
-			log.Error().Err(err).
-				Str("repo_id", repo.ID).
-				Str("branch", specTask.BranchName).
-				Msg("Failed to push branch to remote")
-			writeErrResponse(w, fmt.Errorf("failed to push branch to remote: %w", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Open a pull request
-		prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repo.ID, specTask.Name, specTask.Description, specTask.BranchName, repo.DefaultBranch)
-		if err != nil {
-			log.Error().Err(err).
-				Str("repo_id", repo.ID).
-				Str("source_branch", specTask.BranchName).
-				Str("target_branch", repo.DefaultBranch).
-				Msg("Failed to create pull request")
-			writeErrResponse(w, fmt.Errorf("failed to create pull request: %w", err), http.StatusInternalServerError)
-			return
-		}
-
-		specTask.PullRequestID = prID
-
+		// Pull request should have been created on pushes, nothing to do here
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-
 		writeResponse(w, specTask, http.StatusOK)
 		return
 	default:
