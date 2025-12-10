@@ -32,6 +32,76 @@ bash -c "./stack start"                # OR THIS
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
 
+## 🚨 CRITICAL: Sandbox Build Pipeline - COMMIT EVERYTHING FIRST 🚨
+
+**The sandbox architecture is deeply nested. Changes MUST be committed before rebuilding.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Host Machine                                                     │
+│  └── Wolf Container (runs Docker-in-Docker)                     │
+│       └── helix-sway Container (the sandbox)                    │
+│            ├── Zed binary (built from ~/pm/zed)                 │
+│            ├── Qwen Code (built from ~/pm/qwen-code)            │
+│            └── Settings Sync Daemon (built from helix/api/cmd)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**The problem: `./stack build-sway` copies from LOCAL builds, not git repos:**
+- It copies `~/pm/qwen-code/packages/cli/dist/` → into Docker image
+- It copies `~/pm/zed/target/release/zed` → into Docker image
+- Wolf's inner Docker pulls the helix-sway image by TAG (based on git commit)
+
+**If you don't commit before rebuild:**
+1. Build runs → creates new helix-sway image
+2. Image gets tagged with current git commit hash
+3. BUT if repos aren't committed, the tag doesn't change
+4. Wolf's inner Docker sees same tag → uses cached image
+5. **YOUR CHANGES DON'T RUN** ← This wastes hours of debugging
+
+**CORRECT WORKFLOW for sandbox changes:**
+
+```bash
+# Step 1: COMMIT ALL THREE REPOS FIRST
+cd ~/pm/qwen-code && git add -A && git commit -m "feat: description"
+cd ~/pm/zed && git add -A && git commit -m "feat: description"
+cd ~/pm/helix && git add -A && git commit -m "feat: description"
+
+# Step 2: Build Zed binary (if Zed code changed)
+./stack build-zed
+
+# Step 3: Build sway container (picks up qwen-code, zed binary, helix changes)
+./stack build-sway
+
+# Step 4: VERIFY the build worked
+docker images helix-sway --format "{{.Tag}} {{.CreatedAt}}" | head -1
+# Tag should match your latest helix commit hash
+# CreatedAt should be just now
+
+# Step 5: Start a NEW session (existing containers use old image)
+# Ask user to create new agent session to test
+```
+
+**Common mistakes that waste hours:**
+- ❌ Editing qwen-code but not committing before build-sway
+- ❌ Editing zed but not running build-zed before build-sway
+- ❌ Assuming existing sandbox containers got updated (they didn't)
+- ❌ Not verifying the image tag/timestamp after build
+
+**Signs your changes didn't deploy:**
+- Same bug still happens after "fix"
+- Console logs you added don't appear
+- Image timestamp is old
+
+**ALWAYS verify after building:**
+```bash
+# Check helix-sway image was just created
+docker images helix-sway --format "table {{.Tag}}\t{{.CreatedAt}}" | head -3
+
+# For Wolf changes specifically:
+docker run --rm --entrypoint="" helix-sandbox:latest stat /wolf/wolf | grep Modify
+```
+
 ## 🚨 CRITICAL: NEVER DELETE GIT INDEX LOCK 🚨
 
 **NEVER delete .git/index.lock - it causes git index corruption**
