@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -42,6 +43,7 @@ type GitHTTPServer struct {
 	testMode               bool
 	authorizeFn            AuthorizationFunc     // Callback to server's RBAC system
 	sendMessageToAgentFunc SpecTaskMessageSender // Callback to send messages via WebSocket
+	wg                     sync.WaitGroup
 }
 
 // GitHTTPServerConfig represents configuration for the git HTTP server
@@ -579,6 +581,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		Str("repo_id", repoID).
 		Str("branch", pushedBranch).
 		Str("commit", latestCommitHash).
+		Str("repo_path", repoPath).
 		Msg("Detected push to repository")
 
 	// Check for feature branch pushes (implementation workflow)
@@ -619,6 +622,14 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			continue
 		}
 
+		log.Info().
+			Str("task_id", task.ID).
+			Str("task_name", task.Name).
+			Str("branch", task.BranchName).
+			Str("status", task.Status.String()).
+			Str("commit", latestCommitHash).
+			Msg("Processing SpecTask for design doc push")
+
 		// Handle pushes based on task status
 		switch task.Status {
 		case types.TaskStatusSpecGeneration:
@@ -655,10 +666,18 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 				Msg("Processing SpecTask for design doc update during review")
 
 			// Update the existing design review with new content
-			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+			}()
 
 			// Check for design review comments that need auto-resolution
-			go s.checkCommentResolution(context.Background(), task.ID, repoPath)
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.checkCommentResolution(context.Background(), task.ID, repoPath)
+			}()
 
 		case types.TaskStatusImplementation:
 			// Push during implementation - agent is updating tasks.md with progress
@@ -667,7 +686,25 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 				Msg("Processing SpecTask for design doc update during implementation")
 
 			// Update the existing design review with new content (e.g., tasks.md progress)
-			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+			}()
+
+			// if repository is external, push to external repository and create a pull request (if PR doesn't exist yet)
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				log.Info().
+					Str("spec_task_id", task.ID).
+					Str("branch", pushedBranch).
+					Msg("Ensuring pull request for external repository")
+				err := s.ensurePullRequest(context.Background(), repo, task, task.BranchName)
+				if err != nil {
+					log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to ensure pull request")
+				}
+			}()
 
 		default:
 			log.Debug().
@@ -678,8 +715,72 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 }
 
+func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRepository, task *types.SpecTask, branch string) error {
+	if repo.ExternalURL == "" {
+		return nil
+	}
+
+	log.Info().
+		Str("repo_id", repo.ID).
+		Str("branch", branch).
+		Str("spec_task_id", task.ID).
+		Msg("Ensuring pull request for external repository")
+
+	err := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false)
+	if err != nil {
+		return fmt.Errorf("failed to push branch to external repository: %w", err)
+	}
+
+	prs, err := s.gitRepoService.ListPullRequests(ctx, repo.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list pull requests: %w", err)
+	}
+
+	sourceBranchRef := "refs/heads/" + branch
+	for _, pr := range prs {
+		if pr.SourceBranch == sourceBranchRef && (pr.State == "active" || pr.State == "open") {
+			log.Info().
+				Str("repo_id", repo.ID).
+				Str("branch", branch).
+				Str("pr_id", pr.ID).
+				Msg("Pull request already exists for branch")
+
+			if task.PullRequestID != pr.ID {
+				task.PullRequestID = pr.ID
+				task.UpdatedAt = time.Now()
+				if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+					log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to update spec task with PR ID")
+				}
+			}
+			return nil
+		}
+	}
+
+	description := fmt.Sprintf("> **Helix**: %s\n", task.Description)
+
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, task.Name, description, branch, repo.DefaultBranch)
+	if err != nil {
+		return fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	log.Info().
+		Str("repo_id", repo.ID).
+		Str("branch", branch).
+		Str("pr_id", prID).
+		Msg("Created pull request for branch")
+
+	task.PullRequestID = prID
+	task.UpdatedAt = time.Now()
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to update spec task with PR ID")
+	}
+
+	return nil
+}
+
 // createDesignReviewForPush auto-creates or updates a design review record when design docs are pushed
 func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string) {
+
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Str("branch", branch).
@@ -1010,28 +1111,22 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 		}
 
 		// Send notification to agent that push was detected via WebSocket
-		if s.sendMessageToAgentFunc != nil {
-			go func(t *types.SpecTask, branch string) {
-				message := BuildImplementationReviewPrompt(t, branch)
-				_, err := s.sendMessageToAgentFunc(context.Background(), t, message, "")
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("task_id", t.ID).
-						Str("planning_session_id", t.PlanningSessionID).
-						Msg("Failed to send implementation review request via WebSocket")
-				} else {
-					log.Info().
-						Str("task_id", t.ID).
-						Str("branch", branch).
-						Msg("Sent implementation review request to agent via WebSocket")
-				}
-			}(task, branchName)
-		} else {
-			log.Warn().
-				Str("task_id", task.ID).
-				Msg("No message sender configured - agent will not receive implementation review request")
-		}
+		go func(t *types.SpecTask, branch string) {
+			message := BuildImplementationReviewPrompt(t, branch)
+			_, err := s.sendMessageToAgentFunc(context.Background(), t, message, "")
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", t.ID).
+					Str("planning_session_id", t.PlanningSessionID).
+					Msg("Failed to send implementation review request via WebSocket")
+			} else {
+				log.Info().
+					Str("task_id", t.ID).
+					Str("branch", branch).
+					Msg("Sent implementation review request to agent via WebSocket")
+			}
+		}(task, branchName)
 
 		log.Info().
 			Str("task_id", task.ID).

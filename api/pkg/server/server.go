@@ -1842,7 +1842,6 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// Control connections are WebSocket too, but without the dialer parameter
 		dialerParam := r.URL.Query().Get("revdial.dialer")
 		if websocket.IsWebSocketUpgrade(r) && dialerParam != "" {
-			log.Debug().Str("dialer_id", dialerParam).Msg("Handling revdial WebSocket DATA connection")
 			// This is a data connection - use the revdial ConnHandler
 			revDialConnHandler.ServeHTTP(w, r)
 			return

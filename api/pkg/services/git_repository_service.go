@@ -296,8 +296,6 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
 	}
 
-	log.Info().Str("repo_id", repoID).Str("local_path", gitRepo.LocalPath).Msg("Got repository metadata from store")
-
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {
 		if gitRepo.LocalPath != "" {
