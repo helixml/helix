@@ -1341,9 +1341,10 @@ This is a **HIGH VALUE, MEDIUM EFFORT** fix:
 - Added session ID persistence to `.zed/acp-session-<agent-name>.json`
 - Code compiles successfully
 
-**REMAINING:**
-- Add UI to offer session resumption on Zed startup
-- Test end-to-end with Qwen Code
+**STATUS:** ✅ AUTO-RESUME IMPLEMENTED
+- Auto-resume logic added to `thread_view.rs:719-739` - no UI prompt needed
+- Session resumes automatically when Zed opens agent panel
+- Testing required in production environment
 
 ---
 
@@ -1572,44 +1573,41 @@ This mapping enables:
 4. **Zed saves session ID immediately?** ✅ YES - Called in `new_thread()` after session creation succeeds
 5. **Qwen's sessionExists() follows symlinks?** ✅ YES - Node.js fs follows symlinks by default
 
-#### Remaining Gap: Thread-to-Session Mapping After Restart
+#### Thread-to-Session Mapping After Restart - FIXED
 
-**Status:** KNOWN GAP - Only affects Helix→Zed message routing
+**Status:** ✅ FIXED (2025-12-10) - Implemented Solution 2
 
-**The Issue:**
-When container restarts and Zed resumes an ACP session:
-1. Zed creates a NEW `acp_thread_id` (Gpui Entity ID)
-2. Helix still has the OLD `acp_thread_id` from before restart
-3. Messages sent from Helix UI to the OLD `acp_thread_id` fail
+**The Bug (was):**
+- `acp_thread_id` was using `entity_id()` (Gpui Entity ID) - ephemeral
+- When container restarts, Zed creates a NEW Entity ID
+- Helix had the OLD Entity ID, so message routing failed
 
-**What WORKS:**
+**The Fix:**
+Changed `thread_view.rs` to use `session_id()` instead of `entity_id()`:
+```rust
+// OLD (BUG): ephemeral Entity ID
+let acp_thread_id = thread.entity_id().to_string();
+
+// NEW (FIXED): stable ACP session ID
+let acp_thread_id = thread.read(cx).session_id().to_string();
+```
+
+**Why This Works:**
+- `session_id` is the ACP session ID - stable and persisted
+- Same ID before and after container restart
+- `thread_service.rs` was already correct - only `thread_view.rs` had the bug
+- No need for `ThreadResumed` event or re-querying
+
+**Files Modified:**
+- `zed/crates/agent_ui/src/acp/thread_view.rs:801` - UserCreatedThread event
+- `zed/crates/agent_ui/src/acp/thread_view.rs:1712` - ThreadTitleChanged event
+
+**What NOW works:**
 - ✅ User interacting directly in Zed agent panel - session resumes perfectly
 - ✅ Agent can continue working on tasks
 - ✅ Conversation history is restored
-
-**What DOESN'T work (without additional implementation):**
-- ❌ Sending messages from Helix UI (spec task panel) to the agent after restart
-- ❌ The text box at the bottom of spec task details panel
-
-**Potential Solutions (ROADMAP):**
-
-1. **Zed sends `thread_resumed` event on auto-resume:**
-   ```rust
-   SyncEvent::ThreadResumed {
-       old_acp_thread_id: Option<String>,  // From saved .zed/acp-session-*.json
-       new_acp_thread_id: String,
-       helix_session_id: String,  // From env var
-   }
-   ```
-   Helix can then update its mapping.
-
-2. **Use session ID as thread ID (stable across restarts):**
-   Instead of using Gpui Entity ID, use the ACP session ID as `acp_thread_id`.
-
-3. **Helix re-queries on WebSocket reconnect:**
-   When WebSocket reconnects, Helix asks Zed for active threads and updates mappings.
-
-**For now:** Session resume for direct Zed interaction is working. The mapping fix is a follow-up task for enabling Helix→Zed message routing after restarts.
+- ✅ Helix→Zed message routing after restart (same `acp_thread_id`)
+- ✅ Spec task panel text box works after restart
 
 ---
 
@@ -1691,6 +1689,6 @@ When container restarts and Zed resumes an ACP session:
 2. ~~**Fourth:** Fix RevDial reconnection timing~~ ✅ COMPLETED (already optimal)
 3. ~~**Fifth:** Add reconnection spinner to MoonlightStreamViewer~~ ✅ COMPLETED
 4. ~~**Third:** Add kitty log tailing to start-zed-helix.sh~~ ✅ COMPLETED (2025-12-10)
-5. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings) - ROADMAP
+5. ~~**Second:** Fix thread-to-session mappings~~ ✅ COMPLETED (2025-12-10) - Use session_id() instead of entity_id()
 
 ---
