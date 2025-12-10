@@ -10,8 +10,10 @@ pin = []
 #   - {{HELIX_HOSTNAME}} → WOLF_INSTANCE_ID
 #   - uuid → auto-generated if empty
 #   - pin → MOONLIGHT_INTERNAL_PAIRING_PIN
-#   - gop-size=N → GOP_SIZE (all encoders)
-#   - key-int-max=N → GOP_SIZE (for VA/AMD encoders)
+#   - gop-size=N → GOP_SIZE (hardware encoders: nvenc, vaapi, qsv)
+#   - key-int-max=N → GOP_SIZE (VA-API encoders)
+#   - keyint=N → GOP_SIZE (software encoders: x264enc, x265enc)
+#   - keyframe-max-dist=N → GOP_SIZE (software av1enc / libaom)
 # =============================================================================
 
 # wolf-ui requires profiles instead of top-level apps array
@@ -169,7 +171,7 @@ video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'av1enc' ]
-    encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
+    encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} keyframe-max-dist=120 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'aom'
@@ -213,7 +215,7 @@ video/x-h264, profile=main, stream-format=byte-stream'''
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'x264enc' ]
     encoder_pipeline = '''x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1
-sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0"
+sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=120:open-gop=0"
 b-adapt=false bitrate={bitrate} aud=false !
 video/x-h264, profile=high, stream-format=byte-stream'''
     plugin_name = 'x264'
@@ -249,7 +251,7 @@ video/x-h265, profile=main, stream-format=byte-stream'''
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'x265enc' ]
     encoder_pipeline = '''x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate}
-option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
+option-string="info=0:keyint=120:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'x265'
     video_params = '''videoconvertscale !

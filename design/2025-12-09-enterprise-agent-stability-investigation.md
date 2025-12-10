@@ -1907,3 +1907,61 @@ let acp_thread_id = thread.read(cx).session_id().to_string();
 **Priority:** Medium - Improves visual continuity and user experience
 
 ---
+
+### COMPLETED: Refactor Prompt Templates to Use Named Parameters
+
+**Status:** ✅ COMPLETED (2025-12-10)
+
+**Problem (2025-12-10):**
+The spec task prompt templates in `spec_task_prompts.go` and `agent_instruction_service.go` were using Go's indexed format arguments (`%[1]s`, `%[2]s`, etc.). This caused multiple bugs:
+
+1. **Off-by-one counting errors** - Comments said `[6], [7] unused` but there were 3 empty strings, pushing task.ID to position `[9]` instead of `[8]`
+2. **SpecTask ID appearing in wrong place** - `%[9]s` was meant for guidelines but received task.ID
+3. **Mixed positional/indexed args** - `BuildMergeInstructionPrompt` used `%s` and `%[1]s` in the same template
+4. **Hard to maintain** - Adding/removing parameters required renumbering everything
+
+**Solution Implemented:**
+Refactored all prompts to use Go's `text/template` package with named parameters:
+
+```go
+// Before (error-prone):
+fmt.Sprintf(`...%[9]s...%[8]s...`, "```", branchName, baseBranch, taskDirName, ...)
+
+// After (self-documenting):
+var approvalPromptTemplate = template.Must(template.New("approval").Parse(`
+...{{.Guidelines}}...{{.PrimaryRepoName}}...
+`))
+
+data := ApprovalPromptData{
+    Guidelines:      guidelinesSection,
+    PrimaryRepoName: primaryRepoName,
+    // etc.
+}
+approvalPromptTemplate.Execute(&buf, data)
+```
+
+**Benefits:**
+- Named parameters are self-documenting
+- No counting/indexing errors possible
+- Easier to add/remove parameters
+- Better IDE support and refactoring tools
+- Templates are compiled at startup, catching errors early
+
+**Files Refactored:**
+- `api/pkg/services/spec_task_prompts.go` - BuildPlanningPrompt
+- `api/pkg/services/agent_instruction_service.go`:
+  - BuildApprovalInstructionPrompt
+  - BuildCommentPrompt
+  - BuildImplementationReviewPrompt
+  - BuildRevisionInstructionPrompt
+  - BuildMergeInstructionPrompt
+
+**Data Structures Added:**
+- `PlanningPromptData` - For BuildPlanningPrompt
+- `ApprovalPromptData` - For BuildApprovalInstructionPrompt
+- `CommentPromptData` - For BuildCommentPrompt
+- `ImplementationReviewPromptData` - For BuildImplementationReviewPrompt
+- `RevisionPromptData` - For BuildRevisionInstructionPrompt
+- `MergePromptData` - For BuildMergeInstructionPrompt
+
+---
