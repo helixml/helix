@@ -1821,3 +1821,89 @@ let acp_thread_id = thread.read(cx).session_id().to_string();
 5. ~~**Second:** Fix thread-to-session mappings~~ ✅ COMPLETED (2025-12-10) - Use session_id() instead of entity_id()
 
 ---
+
+### FUTURE: CLI Support for Agent Selection
+
+**Status:** TODO - CLI enhancement
+
+**User Request (2025-12-10):**
+> "Is it worth updating the CLI with any changes needed to be able to specify agents when creating projects and spec tasks like we did in the UI?"
+
+**Current State:**
+- The `helix spectask` CLI command has `start`, `screenshot`, `list` subcommands
+- Projects can have a `default_helix_app_id` field to specify which agent to use
+- The UI allows selecting agents when creating projects and spec tasks
+- **The CLI has no way to specify the agent**
+
+**Required Changes:**
+
+1. **Add `--agent` / `--app-id` flag to `helix project create`:**
+   ```bash
+   helix project create --name "My Project" --agent app_01kby6d46dwd0f2yhezz9bf0pv
+   ```
+
+2. **Add `--agent` flag to `helix spectask start`:**
+   ```bash
+   helix spectask start --project prj_xxx --agent app_xxx "Build feature X"
+   ```
+
+3. **Add `helix app list` command** to discover available agents:
+   ```bash
+   helix app list
+   # Output:
+   # ID                              NAME                 MODEL
+   # app_01kby6d46dwd0f2yhezz9bf0pv  Qwen 3 Coder 30B    qwen-code
+   # app_01abc123...                  Claude Sonnet       claude-code
+   ```
+
+**Files to Modify:**
+- `api/pkg/cli/spectask/spectask.go` - Add `--agent` flag
+- `api/pkg/cli/project/` - May need to create this for project management
+- `api/pkg/cli/app/` - May need to create for app listing
+
+**Priority:** Medium - Improves automation and scripting workflows
+
+---
+
+### FUTURE: WebSocket Reconnection UX - Keep Last Frame Visible
+
+**Status:** TODO - Frontend UX improvement
+
+**User Request (2025-12-10):**
+> "When the front-end is reconnecting to the WebSocket stream, we need to make it ideally still show the last frame of either the video stream or the screenshot stream so that the user can still see what they were doing when they got disconnected. It would be less visually disturbing to go through a reconnection like that."
+
+**Current Behavior:**
+- When WebSocket disconnects, the video/screenshot element may go blank or show error
+- User loses visual context of what they were working on
+- Reconnection shows spinner/overlay but background goes black
+
+**Proposed Behavior:**
+- Cache the last received frame (video frame or screenshot JPEG)
+- On disconnect, freeze the display on the last frame
+- Show "Reconnecting..." overlay on TOP of the frozen frame
+- On reconnect, seamlessly transition back to live feed
+
+**Implementation Approach:**
+
+1. **Screenshot Mode (Low Quality):**
+   - Already fetches JPEG images
+   - Store last JPEG in state: `const [lastFrame, setLastFrame] = useState<string | null>(null)`
+   - On disconnect, display `lastFrame` with overlay
+   - Easy to implement since images are already discrete
+
+2. **Video Mode (High Quality/60fps):**
+   - Capture frame from `<video>` element before disconnect
+   - Use `canvas.drawImage(video, ...)` and `canvas.toDataURL()`
+   - Store as data URL, display during reconnection
+   - More complex due to timing of disconnect detection
+
+**Files to Modify:**
+- `frontend/src/components/external-agent/MoonlightStreamViewer.tsx`
+  - Add frame caching logic
+  - Modify disconnect handling to preserve last frame
+- `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx`
+  - Pass last frame state through reconnection
+
+**Priority:** Medium - Improves visual continuity and user experience
+
+---
