@@ -437,6 +437,8 @@ Empirical observation: LLM text streaming over WebSocket had a maximum message r
 - Azure Application Gateway and similar L7 proxies are optimized for HTTP patterns
 - WebSocket is treated as an opaque bytestream after the upgrade handshake
 
+**RevDial context:** The sandbox-to-API tunnel uses RevDial, which hijacks a WebSocket connection and adapts it to a `net.Conn` interface for tunneling TCP (similar to minimal SOCKS5). This means video frames go: Moonlight WebSocket → RevDial (hijacked WebSocket tunneling TCP) → Helix API → Azure LB → Client. The nested WebSocket-over-WebSocket path may have different buffering characteristics than a direct SSE stream.
+
 **Implementation approach:**
 - Video frames sent as binary base64 or raw chunks in SSE events
 - Input sent back via separate POST requests or a parallel WebSocket
