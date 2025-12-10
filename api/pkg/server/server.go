@@ -858,8 +858,28 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		defer backendConn.Close()
 		defer resp.Body.Close()
 
-		// Start two goroutines to copy data between the client and the backend.
-		errCh := make(chan error, 2)
+		// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+		var clientMu sync.Mutex
+
+		// Start three goroutines: client→backend, backend→client, and ping
+		errCh := make(chan error, 3)
+
+		// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				<-ticker.C
+				clientMu.Lock()
+				err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				clientMu.Unlock()
+				if err != nil {
+					log.Debug().Err(err).Str("runner_id", runnerID).Msg("NATS WebSocket proxy ping failed, connection closing")
+					errCh <- nil
+					return
+				}
+			}
+		}()
 
 		// Copy messages from the client to the backend.
 		go func() {
@@ -884,8 +904,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 					errCh <- err
 					return
 				}
-				if err := clientConn.WriteMessage(messageType, message); err != nil {
-					errCh <- err
+				// Mutex protects against concurrent ping writes
+				clientMu.Lock()
+				writeErr := clientConn.WriteMessage(messageType, message)
+				clientMu.Unlock()
+				if writeErr != nil {
+					errCh <- writeErr
 					return
 				}
 			}
@@ -1424,6 +1448,32 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
+		// Mutex for thread-safe WebSocket writes (pings + NATS messages can race)
+		var wsMu sync.Mutex
+
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					wsMu.Lock()
+					err := wsConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+					wsMu.Unlock()
+					if err != nil {
+						log.Debug().
+							Err(err).
+							Str("runner_id", runnerID).
+							Msg("Failed to send ping to external agent runner, connection may be closing")
+						return
+					}
+				}
+			}
+		}()
+
 		// Declare connectionID before defer so it's in scope
 		var connectionID string
 
@@ -1541,7 +1591,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				Int("payload_length", len(envelope.Payload)).
 				Msg("📦 ZED_FLOW_DEBUG: Created envelope - about to send via WebSocket")
 
+			wsMu.Lock()
 			err := wsConn.WriteJSON(envelope)
+			wsMu.Unlock()
 			if err != nil {
 				consecutiveFailures++
 				log.Error().
@@ -1924,6 +1976,23 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
 				return
 			}
+
+			// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+			// This runs until the WebSocket is closed (WriteControl fails)
+			go func(ws *websocket.Conn, rID string) {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					<-ticker.C
+					if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+						log.Debug().
+							Err(err).
+							Str("runner_id", rID).
+							Msg("RevDial WebSocket ping failed, connection closing")
+						return
+					}
+				}
+			}(wsConn, runnerID)
 
 			// Wrap WebSocket as net.Conn using wsconnadapter
 			conn = wsconnadapter.New(wsConn)
