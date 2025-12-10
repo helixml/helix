@@ -1861,12 +1861,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
           style={{
-            width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
-            height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+            width: '100%',
+            height: '100%',
             position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
+            left: 0,
+            top: 0,
             objectFit: 'contain',
             pointerEvents: 'none', // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements

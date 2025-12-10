@@ -46,7 +46,7 @@ const useWolfAppState = (sessionId: string) => {
 interface ExternalAgentDesktopViewerProps {
   sessionId: string;
   wolfLobbyId?: string;
-  height: number;
+  height?: number; // Optional - required for screenshot mode, ignored for stream mode (uses flex)
   mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
   onClientIdCalculated?: (clientId: string) => void;
 }
@@ -203,6 +203,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   // Stream mode (floating window) - KEEP STREAM MOUNTED to prevent fullscreen exit on hiccups
   // Once we've been running, show overlays instead of unmounting the stream viewer
+  // Use flex: 1 to fill available space (no fixed height)
 
   // Starting state before we've ever been running - show spinner
   if (isStarting && !hasEverBeenRunning) {
@@ -210,7 +211,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       <Box
         sx={{
           width: '100%',
-          height: height,
+          flex: 1,
+          minHeight: 0,
           position: 'relative',
           border: '1px solid',
           borderColor: 'divider',
@@ -239,7 +241,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       <Box
         sx={{
           width: '100%',
-          height: height,
+          flex: 1,
+          minHeight: 0,
           position: 'relative',
           border: '1px solid',
           borderColor: 'divider',
@@ -302,7 +305,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
 
   return (
     <Box sx={{
-      height: height,
+      flex: 1,
+      minHeight: 0,
       width: '100%',
       overflow: 'hidden',
       position: 'relative',
