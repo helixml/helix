@@ -5596,6 +5596,28 @@ definitions:
       url:
         type: string
     type: object
+  types.PullResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
+  types.PushResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
   types.Question:
     properties:
       created:
@@ -10690,6 +10712,49 @@ paths:
       summary: Get repository indexing status
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/pull:
+    post:
+      description: Pulls latest commits from remote repository
+      operationId: pullFromRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Force pull (default: false)'
+        in: query
+        name: force
+        required: true
+        type: boolean
+      - description: Branch name (required)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PullResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Pull from remote repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/pull-requests:
     get:
       description: List all pull requests in a repository
@@ -10766,6 +10831,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Create pull request
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/push:
+    post:
+      description: Pushes the local branch to the remote repository
+      operationId: pushToRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: query
+        name: branch
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PushResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Push to remote repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/push-pull:
