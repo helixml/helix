@@ -16,7 +16,7 @@ export function useApproveImplementation(specTaskId: string) {
     },
     onSuccess: (response: TypesSpecTask) => {
       if (response.pull_request_id) {
-        snackbar.success('Implementation approved! Pull request created: ' + response.pull_request_id)
+        snackbar.success('Implementation approved! Pull request ID: ' + response.pull_request_id)
       } else {
         snackbar.success('Implementation approved! Agent will merge to your primary branch...')
       }      
