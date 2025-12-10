@@ -400,7 +400,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Get user's personal API token for git operations (not app-scoped keys)
-	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
+	userAPIKey, err := s.GetOrCreatePersonalAPIKey(ctx, task.CreatedBy)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for SpecTask")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
@@ -693,7 +693,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Get user's personal API token for git operations
-	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
+	userAPIKey, err := s.GetOrCreatePersonalAPIKey(ctx, task.CreatedBy)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for Just Do It task")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
@@ -1075,7 +1075,7 @@ func convertPriorityToInt(priority string) int {
 
 // getOrCreatePersonalAPIKey gets or creates a personal API key for the user
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, userID string) (string, error) {
+func (s *SpecDrivenTaskService) GetOrCreatePersonalAPIKey(ctx context.Context, userID string) (string, error) {
 	// List user's existing API keys
 	keys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
 		Owner:     userID,
