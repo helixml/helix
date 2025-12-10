@@ -1,8 +1,105 @@
 # Investigation: Enterprise Agent Stability Issues
 
 **Date:** 2025-12-09
-**Status:** Root Causes Identified, Fixes Implemented
+**Updated:** 2025-12-10
+**Status:** Root Causes Identified, Fixes In Progress
 **Author:** Helix Team
+
+---
+
+## CRITICAL: Current Issues (2025-12-10)
+
+### 1. Screenshot/Video Stream Does Not Reconnect After Restart
+
+**Status:** ✅ FIXED (2025-12-10)
+
+**Problem:** When user clicks "Restart Session" button:
+- The screenshot stream shows the last screenshot from the OLD container
+- The 60fps video mode DOES show the new instance (after toggle)
+- No automatic reconnection occurs
+
+**Root Cause:** `SpecTaskDetailDialog.tsx` was not passing `wolfLobbyId` to `ExternalAgentDesktopViewer`:
+```tsx
+// OLD (broken): No wolfLobbyId passed
+<ExternalAgentDesktopViewer
+  sessionId={activeSessionId}
+  mode="stream"
+/>
+
+// This caused MoonlightStreamViewer to use sessionId as fallback for wolfLobbyId
+// Since sessionId never changes, lobby change detection never fires
+```
+
+**Fix Applied:**
+1. Extract `wolfLobbyId` from session config: `sessionData?.config?.wolf_lobby_id`
+2. Pass it to ExternalAgentDesktopViewer: `wolfLobbyId={wolfLobbyId}`
+3. Invalidate session query after restart to refetch the new lobby ID
+
+**Files Modified:**
+- `frontend/src/components/tasks/SpecTaskDetailDialog.tsx`
+
+### 2. Zed Does Not Resume Qwen Code Session After Restart
+
+**Status:** DEBUG LOGGING ADDED (2025-12-10)
+
+**Problem:** When container restarts:
+- Zed starts fresh
+- Qwen Code agent panel shows empty/new session
+- Previous conversation history is NOT restored
+- User expects "pick up where I left off" behavior
+
+**Expected Flow (per design doc lines 1526-1567):**
+1. Container restarts, workspace persists
+2. `startup-app.sh` creates symlink: `~/.qwen → $WORK_DIR/.qwen-state`
+3. Zed opens, `thread_view.rs:719-729` checks for saved session
+4. Should find `.zed/acp-session-qwen.json` in workspace
+5. Should call `load_thread()` to resume session
+6. Qwen Code loads session from `~/.qwen/projects/<hash>/chats/<sessionId>.jsonl`
+
+**Debug Logging Added (2025-12-10):**
+
+To trace where the flow is failing, debug logging has been added to:
+
+1. **Zed (acp.rs)**:
+   - `get_last_session_id()` - logs session file path and contents
+   - `save_session_id()` - logs when session ID is saved
+
+2. **Qwen Code (acpAgent.ts)**:
+   - `loadSession()` - logs session ID, cwd, exists check, message count
+
+3. **Qwen Code (Session.ts)**:
+   - `replayHistory()` - logs number of records being replayed
+
+4. **Qwen Code (HistoryReplayer.ts)**:
+   - `replay()` - logs each record type as it's replayed
+
+**How to view logs:**
+
+ACP logs are now shown in a Kitty terminal window when `SHOW_ACP_DEBUG_LOGS=true` (enabled in dev mode).
+
+The log viewer tails `~/.local/share/zed/logs/*.log` and filters for:
+- `agent`, `acp`, `qwen`, `session`, `error`, `panic`, `crash`, `[ACP]`
+
+**Investigation Required:**
+- [ ] Verify `.zed/acp-session-qwen.json` is being saved in workspace
+- [ ] Verify symlink `~/.qwen` is created correctly on startup
+- [ ] Verify Qwen Code session files are in workspace (not container home)
+- [ ] Check Zed logs for session resume attempts
+- [ ] Check if `supports_session_load()` returns true for Qwen Code
+- [ ] Verify `get_last_session_id()` finds the saved session ID
+
+### 3. Qwen Code History Not Visible in Zed After Resume
+
+**Status:** PENDING (related to #2)
+
+**Problem:** Even when session resumes:
+- The conversation history may not be visible in Zed agent panel
+- User sees empty panel but session technically resumed
+
+**Potential Causes:**
+- `load_thread()` returns session but doesn't populate UI
+- History messages not being rendered in thread view
+- Qwen Code's `loadSession` doesn't replay messages to Zed
 
 ---
 
@@ -1682,6 +1779,38 @@ let acp_thread_id = thread.read(cx).session_id().to_string();
 - Error should be visible in kitty window (live log tail will catch it)
 - Consider also displaying in Helix UI
 
+### FUTURE: Remove CAP_SYS_ADMIN from Untrusted Sandbox
+
+**Status:** TODO - Security hardening item
+
+**Current State:**
+- Personal dev environment containers have `CAP_SYS_ADMIN` capability
+- This is a powerful capability that allows:
+  - Mounting filesystems
+  - Modifying kernel parameters
+  - Creating cgroups
+  - Many other privileged operations
+
+**Why it was added:**
+- Needed for certain container operations
+- May have been cargo-culted from GOW base config
+- Specific use case needs investigation
+
+**Why we should remove it:**
+- Untrusted code runs in these sandboxes (user code, LLM-generated code)
+- Principle of least privilege
+- Reduces attack surface significantly
+- Now that we use Wolf-level bind mounts for `/home/retro/work`, no need for container-level mount operations
+
+**Investigation needed:**
+1. Audit what actually requires CAP_SYS_ADMIN in current setup
+2. Test sandbox functionality without it
+3. Document any breakages and alternatives
+
+**Files affected:**
+- `api/pkg/external-agent/wolf_executor.go` lines 1759-1760 (personal dev environment)
+- May also affect external agent sandbox config
+
 ### Implementation Order
 
 0. ~~**🚨 CRITICAL FIRST:** Complete ACP session persistence UI in Zed agent panel~~ ✅ COMPLETED
@@ -1690,5 +1819,149 @@ let acp_thread_id = thread.read(cx).session_id().to_string();
 3. ~~**Fifth:** Add reconnection spinner to MoonlightStreamViewer~~ ✅ COMPLETED
 4. ~~**Third:** Add kitty log tailing to start-zed-helix.sh~~ ✅ COMPLETED (2025-12-10)
 5. ~~**Second:** Fix thread-to-session mappings~~ ✅ COMPLETED (2025-12-10) - Use session_id() instead of entity_id()
+
+---
+
+### FUTURE: CLI Support for Agent Selection
+
+**Status:** TODO - CLI enhancement
+
+**User Request (2025-12-10):**
+> "Is it worth updating the CLI with any changes needed to be able to specify agents when creating projects and spec tasks like we did in the UI?"
+
+**Current State:**
+- The `helix spectask` CLI command has `start`, `screenshot`, `list` subcommands
+- Projects can have a `default_helix_app_id` field to specify which agent to use
+- The UI allows selecting agents when creating projects and spec tasks
+- **The CLI has no way to specify the agent**
+
+**Required Changes:**
+
+1. **Add `--agent` / `--app-id` flag to `helix project create`:**
+   ```bash
+   helix project create --name "My Project" --agent app_01kby6d46dwd0f2yhezz9bf0pv
+   ```
+
+2. **Add `--agent` flag to `helix spectask start`:**
+   ```bash
+   helix spectask start --project prj_xxx --agent app_xxx "Build feature X"
+   ```
+
+3. **Add `helix app list` command** to discover available agents:
+   ```bash
+   helix app list
+   # Output:
+   # ID                              NAME                 MODEL
+   # app_01kby6d46dwd0f2yhezz9bf0pv  Qwen 3 Coder 30B    qwen-code
+   # app_01abc123...                  Claude Sonnet       claude-code
+   ```
+
+**Files to Modify:**
+- `api/pkg/cli/spectask/spectask.go` - Add `--agent` flag
+- `api/pkg/cli/project/` - May need to create this for project management
+- `api/pkg/cli/app/` - May need to create for app listing
+
+**Priority:** Medium - Improves automation and scripting workflows
+
+---
+
+### FUTURE: WebSocket Reconnection UX - Keep Last Frame Visible
+
+**Status:** TODO - Frontend UX improvement
+
+**User Request (2025-12-10):**
+> "When the front-end is reconnecting to the WebSocket stream, we need to make it ideally still show the last frame of either the video stream or the screenshot stream so that the user can still see what they were doing when they got disconnected. It would be less visually disturbing to go through a reconnection like that."
+
+**Current Behavior:**
+- When WebSocket disconnects, the video/screenshot element may go blank or show error
+- User loses visual context of what they were working on
+- Reconnection shows spinner/overlay but background goes black
+
+**Proposed Behavior:**
+- Cache the last received frame (video frame or screenshot JPEG)
+- On disconnect, freeze the display on the last frame
+- Show "Reconnecting..." overlay on TOP of the frozen frame
+- On reconnect, seamlessly transition back to live feed
+
+**Implementation Approach:**
+
+1. **Screenshot Mode (Low Quality):**
+   - Already fetches JPEG images
+   - Store last JPEG in state: `const [lastFrame, setLastFrame] = useState<string | null>(null)`
+   - On disconnect, display `lastFrame` with overlay
+   - Easy to implement since images are already discrete
+
+2. **Video Mode (High Quality/60fps):**
+   - Capture frame from `<video>` element before disconnect
+   - Use `canvas.drawImage(video, ...)` and `canvas.toDataURL()`
+   - Store as data URL, display during reconnection
+   - More complex due to timing of disconnect detection
+
+**Files to Modify:**
+- `frontend/src/components/external-agent/MoonlightStreamViewer.tsx`
+  - Add frame caching logic
+  - Modify disconnect handling to preserve last frame
+- `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx`
+  - Pass last frame state through reconnection
+
+**Priority:** Medium - Improves visual continuity and user experience
+
+---
+
+### COMPLETED: Refactor Prompt Templates to Use Named Parameters
+
+**Status:** ✅ COMPLETED (2025-12-10)
+
+**Problem (2025-12-10):**
+The spec task prompt templates in `spec_task_prompts.go` and `agent_instruction_service.go` were using Go's indexed format arguments (`%[1]s`, `%[2]s`, etc.). This caused multiple bugs:
+
+1. **Off-by-one counting errors** - Comments said `[6], [7] unused` but there were 3 empty strings, pushing task.ID to position `[9]` instead of `[8]`
+2. **SpecTask ID appearing in wrong place** - `%[9]s` was meant for guidelines but received task.ID
+3. **Mixed positional/indexed args** - `BuildMergeInstructionPrompt` used `%s` and `%[1]s` in the same template
+4. **Hard to maintain** - Adding/removing parameters required renumbering everything
+
+**Solution Implemented:**
+Refactored all prompts to use Go's `text/template` package with named parameters:
+
+```go
+// Before (error-prone):
+fmt.Sprintf(`...%[9]s...%[8]s...`, "```", branchName, baseBranch, taskDirName, ...)
+
+// After (self-documenting):
+var approvalPromptTemplate = template.Must(template.New("approval").Parse(`
+...{{.Guidelines}}...{{.PrimaryRepoName}}...
+`))
+
+data := ApprovalPromptData{
+    Guidelines:      guidelinesSection,
+    PrimaryRepoName: primaryRepoName,
+    // etc.
+}
+approvalPromptTemplate.Execute(&buf, data)
+```
+
+**Benefits:**
+- Named parameters are self-documenting
+- No counting/indexing errors possible
+- Easier to add/remove parameters
+- Better IDE support and refactoring tools
+- Templates are compiled at startup, catching errors early
+
+**Files Refactored:**
+- `api/pkg/services/spec_task_prompts.go` - BuildPlanningPrompt
+- `api/pkg/services/agent_instruction_service.go`:
+  - BuildApprovalInstructionPrompt
+  - BuildCommentPrompt
+  - BuildImplementationReviewPrompt
+  - BuildRevisionInstructionPrompt
+  - BuildMergeInstructionPrompt
+
+**Data Structures Added:**
+- `PlanningPromptData` - For BuildPlanningPrompt
+- `ApprovalPromptData` - For BuildApprovalInstructionPrompt
+- `CommentPromptData` - For BuildCommentPrompt
+- `ImplementationReviewPromptData` - For BuildImplementationReviewPrompt
+- `RevisionPromptData` - For BuildRevisionInstructionPrompt
+- `MergePromptData` - For BuildMergeInstructionPrompt
 
 ---

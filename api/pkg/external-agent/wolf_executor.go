@@ -248,14 +248,15 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		// This allows connections to internal HTTPS URLs without certificate errors
 		"ZED_HELIX_SKIP_TLS_VERIFY=true",
 		"RUST_LOG=info", // Enable Rust logging for Zed
+		// Show ACP debug logs in Kitty window (for debugging agent issues)
+		"SHOW_ACP_DEBUG_LOGS=true",
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
 		// API URL for settings sync daemon and other services
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
-		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
-		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
 	}
 
@@ -272,13 +273,14 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	}
 
 	// Build standard mounts (common to all Sway apps)
-	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
-	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
-	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
-	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility:
+	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
+	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
+	// This eliminates symlink confusion where tools resolve the symlink and get confused.
 	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
 		fmt.Sprintf("%s:%s", config.WorkspaceDir, config.WorkspaceDir),
+		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
 		fmt.Sprintf("%s:/var/run/docker.sock", dockerSocket),
 	}
 
@@ -1717,19 +1719,21 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
-		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
-		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
+		// Show ACP debug logs in Kitty window (for debugging agent issues)
+		"SHOW_ACP_DEBUG_LOGS=true",
 	}
 
-	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
-	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
-	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
-	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility:
+	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
+	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
+	// This eliminates symlink confusion where tools resolve the symlink and get confused.
 	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
-		fmt.Sprintf("%s:%s", workspaceDir, workspaceDir), // Mount persistent workspace at same path
-		"/var/run/docker.sock:/var/run/docker.sock:rw",   // Mount Wolf's docker socket for devcontainer support
+		fmt.Sprintf("%s:%s", workspaceDir, workspaceDir),   // Mount persistent workspace at same path
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),   // Mount at user-friendly path too
+		"/var/run/docker.sock:/var/run/docker.sock:rw",     // Mount Wolf's docker socket for devcontainer support
 	}
 
 	// Development mode: mount files for hot-reloading

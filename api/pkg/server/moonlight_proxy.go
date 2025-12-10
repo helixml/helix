@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -288,7 +289,27 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 
 	log.Debug().Msg("WebSocket connection established to Moonlight Web, starting bidirectional proxy")
 
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 3) // 3 for client→backend, backend→client, and ping
+
+	// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+	var clientMu sync.Mutex
+
+	// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			clientMu.Lock()
+			err := clientWS.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			clientMu.Unlock()
+			if err != nil {
+				log.Debug().Err(err).Msg("Moonlight WebSocket proxy ping failed, connection closing")
+				errChan <- nil // Signal connection closed
+				return
+			}
+		}
+	}()
 
 	// Client → Moonlight Web (with credential replacement on first message)
 	go func() {
@@ -360,9 +381,12 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 				return
 			}
 
-			// Forward to client
-			if err := clientWS.WriteMessage(messageType, message); err != nil {
-				errChan <- fmt.Errorf("client write error: %w", err)
+			// Forward to client (mutex protects against concurrent ping writes)
+			clientMu.Lock()
+			writeErr := clientWS.WriteMessage(messageType, message)
+			clientMu.Unlock()
+			if writeErr != nil {
+				errChan <- fmt.Errorf("client write error: %w", writeErr)
 				return
 			}
 		}
@@ -503,7 +527,27 @@ func (apiServer *HelixAPIServer) proxyWebSocket_OLD(w http.ResponseWriter, r *ht
 		Msg("✅ WebSocket proxy established - streaming active")
 
 	// Proxy messages bidirectionally
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3) // 3 for client→backend, backend→client, and ping
+
+	// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+	var clientMu sync.Mutex
+
+	// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			clientMu.Lock()
+			err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			clientMu.Unlock()
+			if err != nil {
+				log.Debug().Err(err).Msg("Moonlight WebSocket proxy ping failed, connection closing")
+				errCh <- nil // Signal connection closed
+				return
+			}
+		}
+	}()
 
 	// Client -> Backend (with credential translation)
 	go func() {
@@ -587,8 +631,12 @@ func (apiServer *HelixAPIServer) proxyWebSocket_OLD(w http.ResponseWriter, r *ht
 				Int("message_type", messageType).
 				Int("message_len", len(message)).
 				Msg("📩 Backend -> Client message")
-			if err := clientConn.WriteMessage(messageType, message); err != nil {
-				errCh <- fmt.Errorf("client write error: %w", err)
+			// Mutex protects against concurrent ping writes
+			clientMu.Lock()
+			writeErr := clientConn.WriteMessage(messageType, message)
+			clientMu.Unlock()
+			if writeErr != nil {
+				errCh <- fmt.Errorf("client write error: %w", writeErr)
 				return
 			}
 		}
