@@ -3977,6 +3977,7 @@ export interface TypesSpecTask {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  pull_request_id?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;

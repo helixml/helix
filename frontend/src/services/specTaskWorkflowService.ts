@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
+import { TypesSpecTask } from '../api/api'
 
 export function useApproveImplementation(specTaskId: string) {
   const api = useApi()
@@ -13,8 +14,12 @@ export function useApproveImplementation(specTaskId: string) {
       const response = await apiClient.v1SpecTasksApproveImplementationCreate(specTaskId)
       return response.data
     },
-    onSuccess: () => {
-      snackbar.success('Implementation approved! Agent will merge to main...')
+    onSuccess: (response: TypesSpecTask) => {
+      if (response.pull_request_id) {
+        snackbar.success('Implementation approved! Pull request created: ' + response.pull_request_id)
+      } else {
+        snackbar.success('Implementation approved! Agent will merge to your primary branch...')
+      }      
       // Invalidate queries to refetch task
       queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
       queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })

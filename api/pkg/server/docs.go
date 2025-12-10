@@ -22818,6 +22818,9 @@ const docTemplate = `{
                 "project_path": {
                     "type": "string"
                 },
+                "pull_request_id": {
+                    "type": "string"
+                },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"

@@ -128,10 +128,5 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}
 
-	log.Info().
-		Int("task_count", len(tasks)).
-		Interface("filters", filters).
-		Msg("Listed spec tasks")
-
 	return tasks, nil
 }
