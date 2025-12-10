@@ -47,6 +47,7 @@ import {
 } from '../../services/gitRepositoryService'
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
+import ExternalStatus from './ExternalStatus'
 
 const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
   if (!branches || branches.length === 0) {
@@ -270,6 +271,12 @@ const CodeTab: FC<CodeTabProps> = ({
                   setCurrentPath('.')
                   setSelectedFile(null)
                 }}
+              />
+              
+              <ExternalStatus
+                repositoryId={repository?.id || ''}
+                branch={currentBranch}
+                isExternal={isExternal}
               />
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
