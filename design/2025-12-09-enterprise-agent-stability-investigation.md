@@ -760,42 +760,19 @@ Investigation of `qwen-code/packages/cli/src/zed-integration/`:
 
 ### Feature 5: Default to Screenshot Mode in Moonlight Viewer
 
+**Status:** ✅ COMPLETED (2025-12-10)
+
 **Priority:** HIGH - 60fps streaming is unreliable for customers, screenshots work better
 
-**Current State:**
-- MoonlightStreamViewer defaults to 60fps video streaming mode
-- Video streaming requires continuous WebSocket connection to Wolf
-- When connection degrades, video quality drops or freezes
-- Customers are experiencing unreliable video in enterprise networks
+**Implementation:**
+- Changed `qualityMode` default from `'high'` to `'low'` in MoonlightStreamViewer.tsx:108
+- Screenshot mode uses adaptive JPEG quality polling (targets 2 FPS minimum)
+- WebSocket connection remains active for keyboard/mouse input
+- Video channel is automatically paused when in screenshot mode (saves bandwidth)
+- User can toggle to 60fps video mode via the speed icon in toolbar
 
-**Proposed Changes:**
-
-1. **Default to screenshot mode** in MoonlightStreamViewer:
-   - Screenshot polling is more resilient to network issues
-   - Works better through corporate proxies
-   - Less bandwidth consumption
-
-2. **Keep WebSocket connection for input and audio**:
-   - The Moonlight WebSocket connection must still be established for:
-     - Keyboard/mouse input from user to sandbox
-     - Audio streaming from sandbox to user
-   - Video channel starts PAUSED (not requesting video frames)
-
-3. **Allow switching to video streaming mode**:
-   - User can manually enable 60fps mode via toggle
-   - When switching: unpause video channel in WebSocket stream
-   - When switching back: pause video, resume screenshot polling
-
-**Implementation Details:**
-- Default mode state: `screenshot` (not `video60fps`)
-- WebSocket connection opens immediately for input/audio
-- Video stream starts in paused state: `videoEnabled: false`
-- Screenshot polling starts immediately
-- Toggle allows switching between modes without reconnecting
-
-**Files to modify:**
-- `frontend/src/components/streaming/MoonlightStreamViewer.tsx`
-- Potentially Wolf configuration for video pause behavior
+**Files Modified:**
+- `frontend/src/components/external-agent/MoonlightStreamViewer.tsx` - Line 108
 
 ---
 
@@ -806,10 +783,10 @@ Investigation of `qwen-code/packages/cli/src/zed-integration/`:
 | Runtime | Built-in NativeAgent | Custom agent_server |
 | API | Anthropic (via Helix proxy) | OpenAI-compatible |
 | Config | `language_models.anthropic` | `agent_servers.qwen` |
-| Log Location | Zed logs | Unknown (needs investigation) |
-| Tool Protocol | ACP (native) | ACP (experimental) |
-| Session Resumable | Yes (via Helix sync) | No (ACP limitation) |
-| Restart Recovery | Sync recovers history | History lost |
+| Log Location | Zed logs | `~/.qwen/tmp/<project>/chats/` |
+| Tool Protocol | ACP (native) | ACP (v0.4.1) |
+| Session Resumable | Yes (via Helix sync) | ✅ Yes (via SessionService) |
+| Restart Recovery | Sync recovers history | ✅ Auto-resumes from `.zed/acp-session-*.json` |
 
 ---
 
@@ -1552,18 +1529,22 @@ kitty_pid=$!
 
 ### P2: RevDial Reconnection Fixes
 
-**Frontend Fixes:**
-- Don't close fullscreen view on momentary glitches
-- Show spinner overlay during reconnection
-- Reconnect faster (reduce ping interval, reduce reconnect delay)
+**Status:** ✅ COMPLETED (2025-12-10)
 
-**Backend Fixes:**
-- Reduce ping interval: 30s -> 15s (`api/pkg/revdial/client.go`)
-- Reduce reconnect delay: 5s -> 1s (`api/pkg/revdial/client.go`)
+**Backend Fixes (ALREADY DONE):**
+- Ping interval: Already at 15s (`api/pkg/revdial/client.go:137`)
+- Reconnect delay: Already at 1s (`api/pkg/revdial/client.go:38`)
 
-**UI Fixes:**
-- MoonlightStreamViewer.tsx already has `showLoadingOverlay` and `isRestart` props
-- Need to use these during reconnection instead of closing
+**Frontend Fixes (COMPLETED):**
+- ✅ Keep MoonlightStreamViewer mounted during transient state changes
+- ✅ Show "Reconnecting..." overlay instead of unmounting
+- ✅ Fullscreen no longer exits on Wolf state polling hiccups
+
+**Implementation Details (ExternalAgentDesktopViewer.tsx):**
+- Added `hasEverBeenRunning` state to track if stream was ever active
+- Once running, keep MoonlightStreamViewer mounted even if Wolf state changes
+- Show semi-transparent overlay with spinner during reconnection
+- Prevents fullscreen exit by keeping the DOM structure stable
 
 ### P3: Crash Error Display
 
@@ -1574,11 +1555,11 @@ kitty_pid=$!
 
 ### Implementation Order
 
-0. **🚨 CRITICAL FIRST:** Complete ACP session persistence UI in Zed agent panel
-1. ~~**First:** Add restart button to SpecTaskDetailDialog~~ (COMPLETED - uses stop+resume APIs)
-2. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings)
-3. **Third:** Add kitty log tailing to start-zed-helix.sh
-4. **Fourth:** Fix RevDial reconnection timing
-5. **Fifth:** Add reconnection spinner to MoonlightStreamViewer
+0. ~~**🚨 CRITICAL FIRST:** Complete ACP session persistence UI in Zed agent panel~~ ✅ COMPLETED
+1. ~~**First:** Add restart button to SpecTaskDetailDialog~~ ✅ COMPLETED (uses stop+resume APIs)
+2. ~~**Fourth:** Fix RevDial reconnection timing~~ ✅ COMPLETED (already optimal)
+3. ~~**Fifth:** Add reconnection spinner to MoonlightStreamViewer~~ ✅ COMPLETED
+4. **Second:** Wire up restart across Helix, Zed, Qwen Code (fix thread-to-session mappings)
+5. **Third:** Add kitty log tailing to start-zed-helix.sh
 
 ---

@@ -20,6 +20,11 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -30,6 +35,7 @@ import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -149,6 +155,10 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
+
+  // Session restart state
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
+  const [isRestarting, setIsRestarting] = useState(false)
 
   // Just Do It mode state (initialized from task, synced via API)
   const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
@@ -357,6 +367,38 @@ I'll give you feedback and we can iterate on any changes needed.`
       snackbar.error('Failed to send message')
     }
   }
+
+  // Handle session restart (stop container, then resume)
+  const handleRestartSession = useCallback(async () => {
+    if (!activeSessionId || isRestarting) return
+
+    setIsRestarting(true)
+    setRestartConfirmOpen(false)
+
+    try {
+      // Step 1: Stop the external agent container
+      snackbar.info('Stopping agent session...')
+      await api.getApiClient().v1SessionsStopExternalAgentDelete(activeSessionId)
+
+      // Small delay to ensure container is fully stopped
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Step 2: Resume the session (starts a new container)
+      snackbar.info('Starting new agent session...')
+      await api.getApiClient().v1SessionsResumeCreate(activeSessionId)
+
+      snackbar.success('Session restarted successfully')
+    } catch (err: any) {
+      console.error('Failed to restart session:', err)
+      const errorMessage = err?.response?.data?.error
+        || err?.response?.data?.message
+        || err?.message
+        || 'Failed to restart session'
+      snackbar.error(errorMessage)
+    } finally {
+      setIsRestarting(false)
+    }
+  }, [activeSessionId, isRestarting, api, snackbar])
 
   // Toggle Just Do It mode and persist to backend
   const handleToggleJustDoIt = useCallback(async () => {
@@ -720,14 +762,31 @@ I'll give you feedback and we can iterate on any changes needed.`
                   <GridViewOutlined sx={{ fontSize: 16 }} />
                 </IconButton>
                 {displayTask.status === TypesSpecTaskStatus.TaskStatusBacklog && (
-                  <IconButton 
-                    size="small" 
-                    onClick={handleEditToggle} 
+                  <IconButton
+                    size="small"
+                    onClick={handleEditToggle}
                     sx={{ padding: '4px' }}
                     title="Edit task"
                   >
                     <EditIcon sx={{ fontSize: 16 }} />
                   </IconButton>
+                )}
+                {activeSessionId && (
+                  <Tooltip title="Restart agent session (stops container, starts fresh)">
+                    <IconButton
+                      size="small"
+                      onClick={() => setRestartConfirmOpen(true)}
+                      disabled={isRestarting}
+                      sx={{ padding: '4px' }}
+                      color={isRestarting ? 'default' : 'warning'}
+                    >
+                      {isRestarting ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <RestartAltIcon sx={{ fontSize: 16 }} />
+                      )}
+                    </IconButton>
+                  </Tooltip>
                 )}
               </>
             )}
@@ -1174,6 +1233,37 @@ I'll give you feedback and we can iterate on any changes needed.`
           reviewId={activeReviewId}
         />
       )}
+
+      {/* Restart Session Confirmation Dialog */}
+      <Dialog
+        open={restartConfirmOpen}
+        onClose={() => setRestartConfirmOpen(false)}
+        sx={{ zIndex: 100002 }}
+      >
+        <DialogTitle>Restart Agent Session?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will stop the current agent container and start a fresh one.
+            <br /><br />
+            <strong>Note:</strong> The Zed thread will need to be reconnected after restart.
+            Any unsaved work in the sandbox may be lost.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRestartConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRestartSession}
+            color="warning"
+            variant="contained"
+            disabled={isRestarting}
+            startIcon={isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon />}
+          >
+            {isRestarting ? 'Restarting...' : 'Restart Session'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }

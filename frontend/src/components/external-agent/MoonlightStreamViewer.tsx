@@ -104,7 +104,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
   // Low mode uses rapid screenshot polling for video while keeping input via the stream
   // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
-  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
+  // Default to 'low' (screenshot mode) for enterprise reliability - 60fps streaming unreliable over corporate networks
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('low');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
