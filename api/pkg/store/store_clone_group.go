@@ -121,13 +121,11 @@ func (s *PostgresStore) ListReposWithoutProjects(ctx context.Context, organizati
 	var repos []*types.GitRepository
 
 	query := s.gdb.WithContext(ctx).
-		Table("git_repositories").
-		Select("git_repositories.*").
-		Joins("LEFT JOIN project_repositories ON git_repositories.id = project_repositories.repository_id").
-		Where("project_repositories.id IS NULL")
+		Model(&types.GitRepository{}).
+		Where("project_id = '' OR project_id IS NULL")
 
 	if organizationID != "" {
-		query = query.Where("git_repositories.organization_id = ?", organizationID)
+		query = query.Where("organization_id = ?", organizationID)
 	}
 
 	if err := query.Find(&repos).Error; err != nil {

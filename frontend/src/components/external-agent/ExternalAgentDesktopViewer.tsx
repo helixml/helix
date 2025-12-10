@@ -313,7 +313,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }}>
       <MoonlightStreamViewer
         sessionId={sessionId}
-        wolfLobbyId={wolfLobbyId || sessionId}
+        wolfLobbyId={wolfLobbyId}
         onError={(error) => {
           console.error('Stream viewer error:', error);
         }}
