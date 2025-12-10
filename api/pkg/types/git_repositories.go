@@ -174,7 +174,13 @@ type ListCommitsRequest struct {
 }
 
 type ListCommitsResponse struct {
-	Commits []*Commit `json:"commits"`
+	Commits        []*Commit      `json:"commits"`
+	ExternalStatus ExternalStatus `json:"external_status"`
+}
+
+type ExternalStatus struct {
+	CommitsAhead  int `json:"commits_ahead"`
+	CommitsBehind int `json:"commits_behind"`
 }
 
 type Commit struct {

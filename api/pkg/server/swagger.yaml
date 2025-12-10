@@ -3630,6 +3630,13 @@ definitions:
     - ExternalRepositoryTypeGitLab
     - ExternalRepositoryTypeADO
     - ExternalRepositoryTypeBitbucket
+  types.ExternalStatus:
+    properties:
+      commits_ahead:
+        type: integer
+      commits_behind:
+        type: integer
+    type: object
   types.Feedback:
     enum:
     - like
@@ -4719,6 +4726,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Commit'
         type: array
+      external_status:
+        $ref: '#/definitions/types.ExternalStatus'
     type: object
   types.LoginRequest:
     properties:

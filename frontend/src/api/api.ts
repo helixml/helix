@@ -2141,6 +2141,11 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeBitbucket = "bitbucket",
 }
 
+export interface TypesExternalStatus {
+  commits_ahead?: number;
+  commits_behind?: number;
+}
+
 export enum TypesFeedback {
   FeedbackLike = "like",
   FeedbackDislike = "dislike",
@@ -2775,6 +2780,7 @@ export enum TypesLLMCallStep {
 
 export interface TypesListCommitsResponse {
   commits?: TypesCommit[];
+  external_status?: TypesExternalStatus;
 }
 
 export interface TypesLoginRequest {

@@ -18348,6 +18348,17 @@ const docTemplate = `{
                 "ExternalRepositoryTypeBitbucket"
             ]
         },
+        "types.ExternalStatus": {
+            "type": "object",
+            "properties": {
+                "commits_ahead": {
+                    "type": "integer"
+                },
+                "commits_behind": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Feedback": {
             "type": "string",
             "enum": [
@@ -19911,6 +19922,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Commit"
                     }
+                },
+                "external_status": {
+                    "$ref": "#/definitions/types.ExternalStatus"
                 }
             }
         },
