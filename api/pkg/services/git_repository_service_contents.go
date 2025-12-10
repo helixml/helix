@@ -28,7 +28,7 @@ type WorkingCopy struct {
 // Cleanup removes the temporary working copy directory
 func (wc *WorkingCopy) Cleanup() {
 	if wc.TempDir != "" {
-		os.RemoveAll(wc.TempDir)
+		_ = os.RemoveAll(wc.TempDir)
 	}
 }
 

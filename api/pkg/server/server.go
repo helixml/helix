@@ -133,6 +133,7 @@ type HelixAPIServer struct {
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	adminAlerter               *notification.AdminAlerter
+	wg                         sync.WaitGroup // Control for goroutines to enable tests
 }
 
 func NewServer(

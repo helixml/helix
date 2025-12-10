@@ -36,15 +36,12 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	}
 
 	if branchName == "" {
-		branchName = gitRepo.DefaultBranch
-		if branchName == "" {
-			branchName = "main"
-		}
+		return fmt.Errorf("branch name is required")
 	}
 
 	auth := s.getAuthConfig(gitRepo)
 
-	wc, err := s.getWorkingCopyForExternalPush(gitRepo.LocalPath, gitRepo.ExternalURL, branchName, auth)
+	wc, err := s.getWorkingCopyForExternalPush(gitRepo.LocalPath, gitRepo.ExternalURL, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to create working copy: %w", err)
 	}
@@ -57,7 +54,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		Bool("force", force).
 		Msg("Pushing local branch to external repository")
 
-	err = wc.PushToExternal(branchName, force, auth)
+	err = wc.pushToExternal(branchName, force, auth)
 	if err != nil {
 		return fmt.Errorf("failed to push to external repository: %w", err)
 	}
@@ -70,8 +67,8 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 	return nil
 }
 
-// PushToExternal pushes changes to the "external" remote with optional force and auth
-func (wc *WorkingCopy) PushToExternal(branch string, force bool, auth transport.AuthMethod) error {
+// pushToExternal pushes changes to the "external" remote with optional force and auth
+func (wc *WorkingCopy) pushToExternal(branch string, force bool, auth transport.AuthMethod) error {
 	refSpec := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch))
 	if force {
 		refSpec = config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch))
@@ -80,13 +77,16 @@ func (wc *WorkingCopy) PushToExternal(branch string, force bool, auth transport.
 		RemoteName: "external",
 		RefSpecs:   []config.RefSpec{refSpec},
 	}
+
 	if auth != nil {
 		opts.Auth = auth
 	}
+
 	err := wc.Repo.Push(opts)
 	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return fmt.Errorf("failed to push to external: %w", err)
 	}
+
 	return nil
 }
 
@@ -98,44 +98,34 @@ func (s *GitRepositoryService) getWorkingCopyForExternalPush(
 	bareRepoPath string,
 	externalURL string,
 	branch string,
-	auth transport.AuthMethod,
 ) (*WorkingCopy, error) {
+	if branch == "" {
+		return nil, fmt.Errorf("branch is required")
+	}
+
 	tempDir, err := os.MkdirTemp("", "helix-git-push-workdir-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
+	branchRef := plumbing.NewBranchReferenceName(branch)
+
 	cloneOpts := &git.CloneOptions{
-		URL: bareRepoPath,
+		URL:           bareRepoPath,
+		ReferenceName: branchRef,
+		SingleBranch:  true,
 	}
 
 	repo, err := git.PlainClone(tempDir, cloneOpts)
 	if err != nil {
 		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("failed to clone bare repo: %w", err)
+		return nil, fmt.Errorf("failed to clone bare repo branch %s: %w", branch, err)
 	}
 
 	worktree, err := repo.Worktree()
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	if branch != "" {
-		branchRef := plumbing.NewBranchReferenceName(branch)
-		err = worktree.Checkout(&git.CheckoutOptions{
-			Branch: branchRef,
-		})
-		if err != nil {
-			err = worktree.Checkout(&git.CheckoutOptions{
-				Branch: branchRef,
-				Create: true,
-			})
-			if err != nil {
-				os.RemoveAll(tempDir)
-				return nil, fmt.Errorf("failed to checkout branch %s: %w", branch, err)
-			}
-		}
 	}
 
 	_, err = repo.CreateRemote(&config.RemoteConfig{
