@@ -109,7 +109,7 @@ func (suite *GitRepositoryPushSuiteADO) TestPushBranchToRemote() {
 	suite.Require().NoError(err, "Failed to get commit log from remote")
 
 	var commits []string
-	err = commitIter.ForEach(func(c *object.Commit) error {
+	_ = commitIter.ForEach(func(c *object.Commit) error {
 		commits = append(commits, c.Message)
 		if len(commits) >= 2 {
 			return fmt.Errorf("stop")
