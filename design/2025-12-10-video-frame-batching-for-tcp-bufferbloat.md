@@ -426,6 +426,29 @@ Requires:
 - QUIC support in our infrastructure
 - Moonlight Web changes
 
+### 5. Server-Sent Events (SSE) Transport (Future Investigation)
+
+Empirical observation: LLM text streaming over WebSocket had a maximum message rate issue that was fixed by switching to SSE. This suggests proxies and L7 load balancers may handle SSE more efficiently than WebSocket.
+
+**Why SSE might perform better:**
+- SSE is native HTTP - proxies understand it deeply and optimize for it
+- HTTP/2 multiplexing provides stream-level flow control independent of TCP
+- SSE servers explicitly flush after each event (vs WebSocket library buffering)
+- Azure Application Gateway and similar L7 proxies are optimized for HTTP patterns
+- WebSocket is treated as an opaque bytestream after the upgrade handshake
+
+**Implementation approach:**
+- Video frames sent as binary base64 or raw chunks in SSE events
+- Input sent back via separate POST requests or a parallel WebSocket
+- Could use HTTP/2 server push for lower latency
+
+**Trade-offs:**
+- SSE is unidirectional (server→client only), need separate channel for input
+- Base64 encoding adds ~33% overhead for binary data
+- Less browser API support for binary SSE (would need custom parsing)
+
+Worth investigating if batching alone doesn't solve the latency issues.
+
 ---
 
 ## Implementation Plan
