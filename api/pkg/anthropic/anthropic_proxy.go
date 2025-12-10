@@ -193,8 +193,6 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 						continue
 					}
 
-					log.Debug().Str("data", data).Msg("processing streaming data")
-
 					// Parse the JSON data as a streaming event
 					var event anthropic.MessageStreamEventUnion
 					if err := event.UnmarshalJSON([]byte(data)); err != nil {

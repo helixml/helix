@@ -104,24 +104,6 @@ func GenerateZedMCPConfig(
 		if model == "" {
 			model = assistant.Model
 		}
-		log.Info().
-			Str("app_id", app.ID).
-			Str("session_id", sessionID).
-			Str("assistant_name", assistant.Name).
-			Str("assistant_agent_type", string(assistant.AgentType)).
-			Str("assistant_provider", assistant.Provider).
-			Str("assistant_model", assistant.Model).
-			Str("assistant_gen_provider", assistant.GenerationModelProvider).
-			Str("assistant_gen_model", assistant.GenerationModel).
-			Str("resolved_provider", provider).
-			Str("resolved_model", model).
-			Msg("GenerateZedMCPConfig: resolved assistant model")
-	} else {
-		log.Info().
-			Str("app_id", app.ID).
-			Str("session_id", sessionID).
-			Int("num_assistants", len(app.Config.Helix.Assistants)).
-			Msg("GenerateZedMCPConfig: no assistant found, using defaults")
 	}
 
 	// Default to anthropic/claude-sonnet if nothing is configured

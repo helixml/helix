@@ -9,6 +9,7 @@ import (
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
@@ -50,16 +51,23 @@ func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context,
 
 	project, err := s.getAzureDevOpsProject(repo)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get azure devops project: %w", err)
 	}
 
 	repositoryName, err := s.getAzureDevOpsRepositoryName(repo)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get azure devops repository name: %w", err)
 	}
 
 	pr, err := client.CreatePullRequest(ctx, repositoryName, title, description, sourceBranch, targetBranch, project)
 	if err != nil {
+		log.Error().Err(err).Str("repository_name", repositoryName).
+			Str("project", project).
+			Str("title", title).
+			Str("description", description).
+			Str("source_branch", sourceBranch).
+			Str("target_branch", targetBranch).
+			Msg("failed to create pull request")
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
 

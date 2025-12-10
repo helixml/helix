@@ -53,7 +53,7 @@ export function useKoditEnrichments(repoId: string, commitSha?: string, options?
       })
       return response.data
     },
-    enabled: options?.enabled !== false && !!repoId,
+    enabled: options?.enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: commitSha ? undefined : 30 * 1000, // Only auto-refetch for latest, not for specific commits
   })

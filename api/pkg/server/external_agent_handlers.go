@@ -870,11 +870,6 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Requesting clipboard from sandbox via RevDial")
-
 	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
