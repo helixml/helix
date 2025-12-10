@@ -1104,6 +1104,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             framesDropped: wsStats.framesDropped,
             rttMs: wsStats.rttMs,                                              // RTT in ms
             isHighLatency: wsStats.isHighLatency,                              // High latency flag
+            // Batching stats for congestion visibility
+            batchingRatio: wsStats.batchingRatio,                              // % of frames batched
+            avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
+            batchesReceived: wsStats.batchesReceived,                          // Total batches
           },
           connection: {
             transport: `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
@@ -1947,6 +1951,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   <div>
                     <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
                     {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                  </div>
+                )}
+                {/* Batching stats (WebSocket mode) - shows congestion handling */}
+                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                  <div>
+                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
+                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
+                      : 'OFF'}
+                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
                   </div>
                 )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
