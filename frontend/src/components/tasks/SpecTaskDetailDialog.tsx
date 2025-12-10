@@ -1245,8 +1245,8 @@ I'll give you feedback and we can iterate on any changes needed.`
           <DialogContentText>
             This will stop the current agent container and start a fresh one.
             <br /><br />
-            <strong>Note:</strong> The Zed thread will need to be reconnected after restart.
-            Any unsaved work in the sandbox may be lost.
+            <strong>Note:</strong> Any unsaved files in the sandbox may be lost. Please make sure
+            you save all your files before restarting. Everything in the work folder will survive the restart.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
