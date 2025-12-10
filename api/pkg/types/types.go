@@ -819,13 +819,15 @@ type InferenceRequestFilter struct {
 }
 
 type ApiKey struct { //nolint:revive
-	Created   time.Time       `json:"created"`
-	Owner     string          `json:"owner"`
-	OwnerType OwnerType       `json:"owner_type"`
-	Key       string          `json:"key" gorm:"primaryKey"`
-	Name      string          `json:"name"`
-	Type      APIKeyType      `json:"type" gorm:"default:api"`
-	AppID     *sql.NullString `json:"app_id"`
+	Created    time.Time       `json:"created"`
+	Owner      string          `json:"owner"`
+	OwnerType  OwnerType       `json:"owner_type"`
+	Key        string          `json:"key" gorm:"primaryKey"`
+	Name       string          `json:"name"`
+	Type       APIKeyType      `json:"type" gorm:"default:api"`
+	AppID      *sql.NullString `json:"app_id"`
+	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
+	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
 }
 
 type OwnerContext struct {
@@ -1737,8 +1739,8 @@ type SlackTrigger struct {
 // Register a bot at https://dev.botframework.com/ or Azure Portal
 type TeamsTrigger struct {
 	Enabled     bool   `json:"enabled,omitempty"`
-	AppID       string `json:"app_id" yaml:"app_id"`             // Microsoft App ID
-	AppPassword string `json:"app_password" yaml:"app_password"` // Microsoft App Password
+	AppID       string `json:"app_id" yaml:"app_id"`                           // Microsoft App ID
+	AppPassword string `json:"app_password" yaml:"app_password"`               // Microsoft App Password
 	TenantID    string `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"` // Optional: restrict to specific tenant
 }
 
@@ -2234,7 +2236,7 @@ type ZedConfigResponse struct {
 	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
 	Agent           map[string]interface{} `json:"agent,omitempty"`
 	Theme           string                 `json:"theme,omitempty"`
-	Version         int64                  `json:"version"`                      // Unix timestamp of app config update
+	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
 	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
 }
 

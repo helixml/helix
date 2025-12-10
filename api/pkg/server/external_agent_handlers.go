@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -26,7 +27,11 @@ import (
 // This ensures RBAC is enforced - agent can only access repos the user can access
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
-	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreatePersonalAPIKey(ctx, userID)
+	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
+		UserID:     userID,
+		ProjectID:  agent.ProjectPath,
+		SpecTaskID: agent.SpecTaskID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get user API key for external agent: %w", err)
 	}
