@@ -197,6 +197,10 @@ const CodeTab: FC<CodeTabProps> = ({
     }
   }
 
+  const handlePullFromRemote = async () => {
+
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {enrichments?.length > 0 && groupedEnrichments?.['architecture'] && (
