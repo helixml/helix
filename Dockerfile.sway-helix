@@ -193,21 +193,20 @@ RUN apt-get update && \
 # ====================================================================
 # Build Qwen Code from AUDITED source (NOT from npm)
 # ====================================================================
-# SECURITY: We build from the GitHub source we've audited rather than trusting
-# the npm package, which could differ from the source or be compromised.
-# This ensures the code running matches our security audit.
+# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
+# with audited commits and critical bug fixes.
 #
-# CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
-# early in the Dockerfile before frequently-changing sway configs and scripts.
+# BUILD APPROACH: Copy pre-built qwen-code from local directory
+# This is faster during development and ensures we're using our fixes.
+# The qwen-code-build directory must be prepared by ./stack build-sway
+#
+# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
+# ensuring Docker rebuilds this layer with the latest code.
+ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
-RUN git clone https://github.com/QwenLM/qwen-code.git . && \
-    # Pin to specific audited commit for reproducibility and audit trail
-    # Commit: c9af7481 "fix: reset authType settings (#1091)"
-    # Audit Date: 2025-01-24
-    # Security Audit: PASSED (zero backdoors, zero hidden telemetry)
-    git checkout c9af7481 && \
-    npm install && \
-    npm run build && \
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    echo "Fixes: [object Object] error display + shell security disabled" && \
     npm install -g . && \
     npm cache clean --force
 

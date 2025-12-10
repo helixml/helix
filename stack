@@ -956,6 +956,47 @@ function build-sway() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
+  # Prepare qwen-code build directory from local fork
+  echo "🔨 Preparing qwen-code build from local repository..."
+
+  if [ ! -d "$HOME/pm/qwen-code" ]; then
+    echo "❌ qwen-code not found at $HOME/pm/qwen-code"
+    echo "   Clone it with: cd ~/pm && git clone git@github.com:helixml/qwen-code.git"
+    exit 1
+  fi
+
+  echo "✅ Found qwen-code at $HOME/pm/qwen-code"
+
+  # Check if we need to rebuild
+  local NEEDS_REBUILD=false
+  if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
+    NEEDS_REBUILD=true
+  else
+    # Check if source is newer than build (check key files)
+    if [ "$HOME/pm/qwen-code/packages/core/src/utils/errors.ts" -nt "./qwen-code-build/packages/core/src/utils/errors.ts" ] || \
+       [ "$HOME/pm/qwen-code/packages/cli/src/utils/errors.ts" -nt "./qwen-code-build/packages/cli/src/utils/errors.ts" ]; then
+      NEEDS_REBUILD=true
+    fi
+  fi
+
+  if [ "$NEEDS_REBUILD" = "true" ]; then
+    echo "🔨 Building qwen-code from source..."
+    rm -rf ./qwen-code-build
+    (
+      cd "$HOME/pm/qwen-code"
+      npm install
+      npm run build
+    )
+    cp -r "$HOME/pm/qwen-code" ./qwen-code-build
+    echo "✅ qwen-code built and copied to ./qwen-code-build"
+  else
+    echo "✅ Using existing qwen-code build at ./qwen-code-build"
+  fi
+
+  # Get qwen-code git commit hash for Docker cache busting
+  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
+  echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
+
   # Build the custom Sway image with image tags
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
@@ -967,10 +1008,12 @@ function build-sway() {
 
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
+  # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
   local BUILD_SUCCESS=0
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f Dockerfile.sway-helix \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t helix-sway:latest \
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -978,6 +1021,7 @@ function build-sway() {
       . || BUILD_SUCCESS=1
   else
     docker build --provenance=false -f Dockerfile.sway-helix \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t helix-sway:latest \
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
