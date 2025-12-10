@@ -1475,6 +1475,102 @@ This mapping enables:
 **Files Modified:**
 - `zed/crates/agent_ui/src/acp/thread_view.rs` - Added auto-resume logic in `initial_state()`
 - `zed/crates/agent_servers/src/acp.rs` - Already had session persistence methods
+- `wolf/sway-config/startup-app.sh` - Added symlink for Qwen session persistence
+
+---
+
+### Verified End-to-End Session Resume Flow (2025-12-10)
+
+**Goal:** When a Wolf sandbox container is destroyed and recreated with the same workspace filesystem, Zed with Qwen Code automatically resumes the previous conversation.
+
+**Key Insight:** Two separate data stores must persist:
+1. **Zed's session ID reference:** `.zed/acp-session-qwen.json` (in workspace)
+2. **Qwen Code's session data:** `~/.qwen/projects/<project>/chats/<sessionId>.jsonl` (symlinked to workspace)
+
+#### FIRST RUN (New Container)
+
+1. **Container startup (`startup-app.sh:76-80`)**:
+   ```bash
+   QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+   mkdir -p $QWEN_STATE_DIR
+   rm -rf ~/.qwen
+   ln -sf $QWEN_STATE_DIR ~/.qwen
+   ```
+   - Creates symlink: `~/.qwen → $WORK_DIR/.qwen-state`
+   - ALL Qwen state now persists in workspace!
+
+2. **Zed opens agent panel (`thread_view.rs:719-729`)**:
+   - Checks `connection.supports_session_load()` → returns true (Qwen advertises this)
+   - Calls `connection.get_last_session_id(&root_dir)` → reads `.zed/acp-session-qwen.json`
+   - File doesn't exist yet → returns `None`
+   - Falls through to `connection.new_thread()` → creates new session
+
+3. **Zed creates new session (`acp.rs:395-435`)**:
+   - Calls ACP `session/new` RPC on Qwen Code
+   - Receives new `session_id` from Qwen Code
+   - Calls `save_session_id(cwd, "qwen", session_id)` at line 432
+   - Creates `.zed/acp-session-qwen.json`:
+     ```json
+     {
+       "session_id": "abc123...",
+       "agent_name": "qwen",
+       "cwd": "/home/retro/work",
+       "created_at": "1733840000"
+     }
+     ```
+
+4. **Qwen Code stores session data**:
+   - As user interacts, SessionService writes to `~/.qwen/projects/<sanitized_cwd>/chats/<sessionId>.jsonl`
+   - Due to symlink: actual location is `$WORK_DIR/.qwen-state/projects/<sanitized_cwd>/chats/<sessionId>.jsonl`
+   - Session data persists in workspace!
+
+#### CONTAINER DESTROYED AND RECREATED
+
+1. Container home (`/home/retro/`) is destroyed
+2. Workspace (`$WORKSPACE_DIR`) persists (mounted volume) containing:
+   - `.zed/acp-session-qwen.json` (session ID reference)
+   - `.qwen-state/projects/<sanitized_cwd>/chats/<sessionId>.jsonl` (full session data)
+
+#### SECOND RUN (Session Resume)
+
+1. **Container startup (`startup-app.sh:76-80`)**:
+   - Creates symlink: `~/.qwen → $WORK_DIR/.qwen-state`
+   - Qwen's session data is now accessible again at `~/.qwen/...`
+
+2. **Zed opens agent panel (`thread_view.rs:719-729`)**:
+   - Checks `connection.supports_session_load()` → true
+   - Calls `connection.get_last_session_id(&root_dir)` → reads `.zed/acp-session-qwen.json`
+   - **File exists! Returns session ID**
+   - Calls `connection.load_thread(session_id, ...)` instead of `new_thread()`
+
+3. **Zed loads session (`acp.rs:582-659`)**:
+   - Calls ACP `session/load` RPC on Qwen Code with `session_id` and `cwd`
+
+4. **Qwen Code loads session (`acpAgent.ts:204-233`)**:
+   - Creates `SessionService(cwd)` to access session storage
+   - Checks `sessionService.sessionExists(session_id)` → reads from `~/.qwen/...` (via symlink to workspace)
+   - Session file exists! Calls `config.getResumedSessionData()` to reconstruct conversation
+   - Calls `createAndStoreSession(config, sessionData.conversation)`
+   - **User sees resumed conversation in Zed agent panel!**
+
+#### Verification Checklist
+
+| Component | File Location | Status |
+|-----------|---------------|--------|
+| Session ID saved to workspace | `acp.rs:769-787` → `.zed/acp-session-qwen.json` | ✅ Verified |
+| Session ID read from workspace | `acp.rs:570-580` → `get_last_session_id()` | ✅ Verified |
+| Symlink created at startup | `startup-app.sh:76-80` → `~/.qwen → $WORK_DIR/.qwen-state` | ✅ Verified |
+| Resume logic in thread_view | `thread_view.rs:719-729` → checks capability, calls `load_thread()` | ✅ Verified |
+| Qwen loadSession handler | `acpAgent.ts:204-233` → uses SessionService | ✅ Verified |
+| SessionService reads from `~/.qwen/` | `sessionService.ts:134-136` → `getChatsDir()` | ✅ Verified |
+
+#### Devil's Advocate: Potential Failure Points
+
+1. **Symlink created BEFORE Qwen starts?** ✅ YES - startup-app.sh runs before Sway (which starts Zed)
+2. **Same session ID format in Zed and Qwen?** ✅ YES - Both use `acp::SessionId` (string)
+3. **Project hash matches between runs?** ✅ YES - Based on `cwd` which is `/home/retro/work` (stable symlink)
+4. **Zed saves session ID immediately?** ✅ YES - Called in `new_thread()` after session creation succeeds
+5. **Qwen's sessionExists() follows symlinks?** ✅ YES - Node.js fs follows symlinks by default
 
 ---
 
