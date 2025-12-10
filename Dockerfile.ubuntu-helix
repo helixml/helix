@@ -14,30 +14,33 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
-# Ubuntu GNOME Personal Dev Environment
+# Ubuntu 22.04 GNOME Personal Dev Environment
 # ====================================================================
-# Using XFCE base image from GOW - already has X11/Xwayland infrastructure
-# We install GNOME on top and configure it to run instead of XFCE
-FROM ghcr.io/games-on-whales/xfce:edge
+# Using Zorin GOW base image - Ubuntu 22.04 with stable GNOME 42/43
+# This avoids MIT-SHM crashes that occur with GNOME 48 on Ubuntu 25.04
+# We apply Ubuntu theming (Yaru) on top for vanilla Ubuntu experience
+FROM ghcr.io/mollomm1/gow-zorin-18:latest
 
-# ====================================================================
-# CRITICAL: Disable systemd-logind for GNOME in containers
-# ====================================================================
-# GNOME session manager tries to connect to systemd-logind for session
-# management. Containers don't have systemd, so this causes GNOME to fail.
-# Solution: Rename/disable all login1-related files to prevent the lookup.
-# This is the same workaround used by Zorin desktop.
+# CRITICAL FIX: Override RUN_SWAY from base image - we use GNOME, not Sway
+ENV RUN_SWAY=""
+
+# CRITICAL FIX: Zorin base image init script expects XDG_RUNTIME_DIR but doesn't set it
+ENV XDG_RUNTIME_DIR=/run/user/1000
+RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
+
+# CRITICAL FIX: Disable systemd-logind (not available in containers)
+# GNOME session manager tries to connect to systemd-logind for session management
 RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
     mv -v "$file" "$file.back" 2>/dev/null || true; \
     done
 
-# Enable bubblewrap SUID for GNOME sandboxing (required by some GNOME apps)
+# Enable bubblewrap (bwrap) for application sandboxing - needed by GNOME
 RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 
-# CRITICAL FIX: GOW images may not set XDG_RUNTIME_DIR
-# This is required for many applications and D-Bus
-ENV XDG_RUNTIME_DIR=/run/user/1000
-RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
+# Ensure dbus-x11 is installed (required for D-Bus in X11 sessions)
+RUN apt-get update && \
+    apt-get install -y dbus-x11 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Add passwordless sudo (needed for Zed startup script to create symlinks)
 RUN apt-get update && \
@@ -64,22 +67,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI only (daemon on host via socket mount)
-# Using 'noble' for Ubuntu 24.04 LTS compatibility (XFCE edge is based on Ubuntu 25.04/plucky)
-# Fallback to noble as it has the most compatible packages
+# Note: Uses 'jammy' (22.04) for Ubuntu 22.04 compatibility
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
-# These wrappers intercept docker/compose commands and resolve symlinks in volume
-# paths before passing to the real binaries, enabling bind mounts to work
-# correctly when using Hydra (nested dockerd per session).
 COPY wolf/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
 COPY wolf/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
@@ -99,36 +98,25 @@ RUN apt-get update && apt-get install -y \
     git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GNOME session and Ubuntu theming for vanilla Ubuntu experience
-# Also install x11-utils (xdpyinfo) and x11-xserver-utils (xrandr) for proper X startup
-# Include ubuntu-dock extension for the standard Ubuntu dock on left side
-# Include appindicator extension for system tray icons in top panel
-# Include xdg-utils for xdg-open command (browser launching)
+# Install window management tools for tiling (Terminal, Zed, Firefox in thirds)
 RUN apt-get update && apt-get install -y \
-    gnome-session \
-    gnome-shell \
-    gnome-shell-extension-ubuntu-dock \
-    gnome-shell-extension-appindicator \
-    gnome-terminal \
-    gnome-control-center \
-    nautilus \
-    dbus-x11 \
-    xdg-utils \
+    wmctrl xdotool devilspie2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Ubuntu Theming - Apply Yaru theme for vanilla Ubuntu experience
+# ====================================================================
+# The base image has GNOME but with Zorin theming. We install Ubuntu's
+# Yaru theme, wallpapers, and fonts to make it look like Ubuntu.
+RUN apt-get update && apt-get install -y \
     yaru-theme-gtk \
     yaru-theme-icon \
     yaru-theme-sound \
     ubuntu-wallpapers \
     fonts-ubuntu \
-    wmctrl \
-    x11-utils \
-    x11-xserver-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install devilspie2 for window positioning rules
-# This allows us to automatically position windows (Firefox, Zed, Terminal) in columns
-# like Sway's tiling, but in a floating window manager
-RUN apt-get update && apt-get install -y \
-    devilspie2 \
+    gnome-shell-extension-ubuntu-dock \
+    gnome-shell-extension-appindicator \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy settings-sync-daemon, screenshot-server, and revdial-client binaries from Go build stage
@@ -151,115 +139,13 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create
 ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh
 RUN chmod +x /opt/gow/startup.sh
 
-# Copy GNOME dconf settings for vanilla Ubuntu appearance
-# These settings configure: Yaru theme, Ubuntu fonts, default wallpaper, no HiDPI scaling
+# Copy GNOME dconf settings for Ubuntu appearance (Yaru theme, wallpaper, etc.)
 COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
-
-# ====================================================================
-# GOW X11/D-Bus Launch Scripts (replicated from Zorin)
-# ====================================================================
-# These scripts properly initialize Xwayland, D-Bus, and GNOME session
-# Using DISPLAY=:9 (matching Zorin's working GNOME configuration)
-
-# /opt/gow/xorg.sh - Launches Xwayland and waits for it to be ready
-# Using DISPLAY=:9 to match Zorin's working GNOME configuration
-RUN cat > /opt/gow/xorg.sh << 'XORG_EOF'
-#!/bin/bash
-export DISPLAY=:9
-
-function wait_for_x_display() {
-    local max_attempts=100
-    local attempt=0
-    while ! xdpyinfo -display ":9" >/dev/null 2>&1; do
-        if (( attempt++ >= max_attempts )); then
-            echo "Xwayland failed to start on display :9"
-            exit 1
-        fi
-        sleep 0.1
-    done
-}
-
-function wait_for_dbus() {
-    local max_attempts=100
-    local attempt=0
-    while ! dbus-send --system --dest=org.freedesktop.DBus --type=method_call --print-reply \
-        /org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null 2>&1; do
-        if (( attempt++ >= max_attempts )); then
-            echo "DBus failed to start"
-            exit 1
-        fi
-        sleep 0.1
-    done
-}
-
-Xwayland :9 &
-wait_for_x_display
-XWAYLAND_OUTPUT=$(xrandr --display :9 | grep " connected" | awk '{print $1}')
-xrandr --output "$XWAYLAND_OUTPUT" --mode "${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
-sudo /opt/gow/dbus.sh
-wait_for_dbus
-exec /opt/gow/desktop.sh
-XORG_EOF
-
-# /opt/gow/dbus.sh - Starts system D-Bus
-RUN cat > /opt/gow/dbus.sh << 'DBUS_EOF'
-#!/bin/bash
-echo "Starting system D-Bus..."
-service dbus start
-DBUS_EOF
-
-# /opt/gow/desktop.sh - Launches GNOME session with proper environment
-RUN cat > /opt/gow/desktop.sh << 'DESKTOP_EOF'
-#!/bin/bash
-echo "=== GOW desktop.sh starting ==="
-
-# Set up environment for GNOME on X11
-export XDG_DATA_DIRS=/var/lib/flatpak/exports/share:/home/retro/.local/share/flatpak/exports/share:/usr/local/share/:/usr/share/
-export XDG_CURRENT_DESKTOP=ubuntu:GNOME
-export DE=ubuntu
-export DESKTOP_SESSION=ubuntu
-export XDG_SESSION_TYPE=x11
-export XDG_SESSION_CLASS="user"
-export _JAVA_AWT_WM_NONREPARENTING=1
-export GDK_BACKEND=x11
-export MOZ_ENABLE_WAYLAND=0
-export QT_QPA_PLATFORM="xcb"
-export QT_AUTO_SCREEN_SCALE_FACTOR=1
-export QT_ENABLE_HIGHDPI_SCALING=1
-export LC_ALL="en_US.UTF-8"
-
-# Disable accessibility bridge (not needed in containers, reduces overhead)
-export NO_AT_BRIDGE=1
-
-# Use the display we set up in xorg.sh (DISPLAY=:9 matches Zorin's working config)
-export DISPLAY=:9
-unset WAYLAND_DISPLAY
-
-# Start a new D-Bus session for GNOME
-export $(dbus-launch)
-
-# Set vanilla Ubuntu scaling (no HiDPI)
-gsettings set org.gnome.desktop.interface scaling-factor 1 2>/dev/null || true
-
-# Load dconf settings NOW (D-Bus is available after dbus-launch above)
-# This sets wallpaper, theme, fonts etc BEFORE GNOME session starts
-echo "Loading dconf settings..."
-dconf load / < /opt/gow/dconf-settings.ini 2>/dev/null || true
-
-echo "Launching GNOME session..."
-exec /usr/bin/dbus-launch /usr/bin/gnome-session
-DESKTOP_EOF
-
-# Make all GOW scripts executable
-RUN chmod +x /opt/gow/xorg.sh /opt/gow/dbus.sh /opt/gow/desktop.sh
 
 # Add retro user to docker group at runtime (after GOW creates user AND after 15-setup_devices.sh)
 # CRITICAL: Must be 16+ because 15-setup_devices.sh uses "usermod -G" (not -aG) which REPLACES groups
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
-
-# Note: Ubuntu wallpapers are installed via ubuntu-wallpapers package above
-# The default Ubuntu wallpaper is set via dconf settings in /opt/gow/dconf-settings.ini
 
 # Copy devilspie2 window positioning config
 # This script auto-tiles windows (Firefox, Zed, Terminal) in 3 columns like Sway
