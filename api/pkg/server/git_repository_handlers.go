@@ -118,8 +118,7 @@ func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repository)
+	writeResponse(w, repository, http.StatusOK)
 }
 
 // updateGitRepository updates an existing git repository
@@ -1128,6 +1127,16 @@ func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository commits")
 		http.Error(w, fmt.Sprintf("Failed to list commits: %s", err.Error()), http.StatusInternalServerError)
 		return
+	}
+
+	// Get external repo status
+	if repository.ExternalURL != "" {
+		externalStatus, err := s.gitRepositoryService.GetExternalRepoStatus(r.Context(), repoID, branch)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get external repo status")
+		} else {
+			response.ExternalStatus = *externalStatus
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

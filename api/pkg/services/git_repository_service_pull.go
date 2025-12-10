@@ -43,7 +43,7 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 		return fmt.Errorf("failed to open bare repository: %w", err)
 	}
 
-	auth := s.getAuthConfig(gitRepo)
+	auth := s.GetAuthConfig(gitRepo)
 
 	var refSpecs []config.RefSpec
 	if branchName != "" {

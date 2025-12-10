@@ -39,7 +39,7 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		return fmt.Errorf("branch name is required")
 	}
 
-	auth := s.getAuthConfig(gitRepo)
+	auth := s.GetAuthConfig(gitRepo)
 
 	wc, err := s.getWorkingCopyForExternalPush(gitRepo.LocalPath, gitRepo.ExternalURL, branchName)
 	if err != nil {
