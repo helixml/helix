@@ -67,7 +67,6 @@ Your design has been approved. Implement the code changes now.
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [x] when you start each task, push immediately
 4. **Update design docs as you go** - Record discoveries, decisions, and blockers in design.md
-5. **Shell commands require is_background** - Specify is_background (true or false) on all shell commands. Use true for long-running operations (builds, servers, installs)
 
 ## Two Repositories - Don't Confuse Them
 
