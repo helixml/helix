@@ -222,3 +222,17 @@ type CreatePullRequestResponse struct {
 	ID      string `json:"id"`
 	Message string `json:"message"`
 }
+
+type PullResponse struct {
+	RepositoryID string `json:"repository_id"`
+	Branch       string `json:"branch"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+}
+
+type PushResponse struct {
+	RepositoryID string `json:"repository_id"`
+	Branch       string `json:"branch"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+}
