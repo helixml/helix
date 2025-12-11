@@ -400,6 +400,7 @@ export default function TaskCard({
   isArchiving = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)

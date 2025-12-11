@@ -541,6 +541,19 @@ I'll give you feedback and we can iterate on any changes needed.`
     })
   }
 
+  // Double-click on title bar toggles maximize
+  const handleTitleBarDoubleClick = useCallback(() => {
+    if (position === 'full') {
+      // Restore to center/floating
+      setPosition('center')
+      setIsSnapped(false)
+    } else {
+      // Maximize to full screen
+      setPosition('full')
+      setIsSnapped(true)
+    }
+  }, [position])
+
   // Prevent text selection globally while dragging
   useEffect(() => {
     if (isDragging) {
@@ -693,6 +706,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleTitleBarDoubleClick}
           sx={{
             display: 'flex',
             alignItems: 'center',
