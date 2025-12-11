@@ -524,6 +524,9 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// --bridge specifies the bridge interface to use instead of docker0
 	// Note: We don't use --bip because the bridge already has its IP assigned
 	// via createBridge(). Using both --bridge and --bip is mutually exclusive.
+	// --ip sets the default IP for container port bindings. By binding to the
+	// gateway IP (10.200.N.1) instead of 0.0.0.0, each session's ports are isolated
+	// and won't conflict with other sessions using the same port numbers.
 	cmd := exec.Command("dockerd",
 		"--host=unix://"+socketPath,
 		"--data-root="+dataRoot,
@@ -531,6 +534,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		"--pidfile="+pidFile,
 		"--config-file="+configFile,
 		"--bridge="+bridgeName,
+		"--ip="+gatewayIP,
 	)
 
 	// Redirect output to log with prefix
@@ -1435,6 +1439,10 @@ func (m *Manager) clearLocalhostForwarding(containerPID int, inst *DockerInstanc
 //
 // IMPORTANT: Only forwards ports that Docker containers have exposed via -p flag.
 // Local services (like Vite on localhost:3000) are NOT affected and work normally.
+//
+// Technical details:
+// - Requires route_localnet=1 sysctl to allow routing 127.0.0.0/8 to non-local addresses
+// - Requires MASQUERADE for return traffic (source 127.x.x.x must be SNATed to eth1 IP)
 func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string, inst *DockerInstance) error {
 	// 1. Query exposed ports from Hydra's dockerd
 	ports, err := m.queryExposedPorts(inst)
@@ -1443,10 +1451,31 @@ func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string,
 		return nil // Non-fatal - desktop still works, just no port forwarding
 	}
 
-	// 2. Clear any existing DNAT rules (idempotent)
+	// 2. Enable route_localnet sysctl (required for DNAT from 127.0.0.1 to work)
+	// This allows routing packets with 127.0.0.0/8 source/dest to non-loopback interfaces
+	// Without this, the kernel drops DNATed packets before they're routed out eth1
+	for _, iface := range []string{"all", "lo", "eth1"} {
+		if err := m.runNsenter(containerPID, "sysctl", "-w",
+			fmt.Sprintf("net.ipv4.conf.%s.route_localnet=1", iface)); err != nil {
+			log.Warn().Err(err).Str("interface", iface).Msg("Failed to set route_localnet (non-fatal)")
+		}
+	}
+
+	// 3. Add MASQUERADE rule for return traffic (idempotent: delete first, then add)
+	// When we DNAT localhost:PORT → gateway:PORT, the source IP stays as 127.0.0.1
+	// Without MASQUERADE, the gateway sends responses to its own localhost, not back to desktop
+	// This SNATs the source to the desktop's eth1 IP so responses come back correctly
+	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "POSTROUTING",
+		"-o", "eth1", "-s", "127.0.0.0/8", "-j", "MASQUERADE") // Ignore error - may not exist
+	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "POSTROUTING",
+		"-o", "eth1", "-s", "127.0.0.0/8", "-j", "MASQUERADE"); err != nil {
+		log.Warn().Err(err).Msg("Failed to add MASQUERADE rule for localhost forwarding")
+	}
+
+	// 4. Clear any existing DNAT rules (idempotent)
 	m.clearLocalhostForwarding(containerPID, inst)
 
-	// 3. Add port-specific DNAT rules
+	// 5. Add port-specific DNAT rules
 	for _, port := range ports {
 		if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
 			"-d", "127.0.0.1", "-p", "tcp", "--dport", fmt.Sprintf("%d", port),
@@ -1456,7 +1485,7 @@ func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string,
 		}
 	}
 
-	// 4. Store ports for later cleanup/update
+	// 6. Store ports for later cleanup/update
 	inst.ForwardedPorts = ports
 
 	if len(ports) > 0 {
