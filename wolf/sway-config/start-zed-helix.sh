@@ -121,22 +121,20 @@ echo "========================================="
 echo "Configuring Git..."
 echo "========================================="
 
-# Configure git user identity (required for commits)
-if [ -n "$GIT_USER_NAME" ]; then
-    git config --global user.name "$GIT_USER_NAME"
-    echo "✅ Git user.name: $GIT_USER_NAME"
-else
-    git config --global user.name "Helix Agent"
-    echo "✅ Git user.name: Helix Agent (default)"
+# Configure git user identity (required for commits to enterprise Git systems like Azure DevOps)
+if [ -z "$GIT_USER_NAME" ]; then
+    echo "❌ FATAL: GIT_USER_NAME environment variable is required but not set"
+    exit 1
+fi
+if [ -z "$GIT_USER_EMAIL" ]; then
+    echo "❌ FATAL: GIT_USER_EMAIL environment variable is required but not set"
+    exit 1
 fi
 
-if [ -n "$GIT_USER_EMAIL" ]; then
-    git config --global user.email "$GIT_USER_EMAIL"
-    echo "✅ Git user.email: $GIT_USER_EMAIL"
-else
-    git config --global user.email "agent@helix.ml"
-    echo "✅ Git user.email: agent@helix.ml (default)"
-fi
+git config --global user.name "$GIT_USER_NAME"
+echo "✅ Git user.name: $GIT_USER_NAME"
+git config --global user.email "$GIT_USER_EMAIL"
+echo "✅ Git user.email: $GIT_USER_EMAIL"
 
 # Configure git to use merge commits (not rebase) for concurrent agent work
 git config --global pull.rebase false

@@ -75,10 +75,21 @@ write_project_files() {
 # Function to initialize git repository
 init_git_repo() {
     log "Initializing git repository..."
-    
+
+    # Validate required environment variables
+    if [ -z "$GIT_USER_EMAIL" ]; then
+        log "FATAL: GIT_USER_EMAIL environment variable is required but not set"
+        exit 1
+    fi
+    if [ -z "$GIT_USER_NAME" ]; then
+        log "FATAL: GIT_USER_NAME environment variable is required but not set"
+        exit 1
+    fi
+
     git init
-    git config user.email "zed-agent@helixml.ai"
-    git config user.name "Zed Agent"
+    git config user.email "$GIT_USER_EMAIL"
+    git config user.name "$GIT_USER_NAME"
+    log "Git config: $GIT_USER_NAME <$GIT_USER_EMAIL>"
     
     # Add all files to git
     git add .
@@ -151,9 +162,21 @@ main() {
         create_feature_branch
     else
         log "Failed to fetch project code, initializing empty git repo..."
+
+        # Validate required environment variables
+        if [ -z "$GIT_USER_EMAIL" ]; then
+            log "FATAL: GIT_USER_EMAIL environment variable is required but not set"
+            exit 1
+        fi
+        if [ -z "$GIT_USER_NAME" ]; then
+            log "FATAL: GIT_USER_NAME environment variable is required but not set"
+            exit 1
+        fi
+
         git init
-        git config user.email "zed-agent@helixml.ai"
-        git config user.name "Zed Agent"
+        git config user.email "$GIT_USER_EMAIL"
+        git config user.name "$GIT_USER_NAME"
+        log "Git config: $GIT_USER_NAME <$GIT_USER_EMAIL>"
         
         # Create a basic README
         echo "# Project Workspace" > README.md
