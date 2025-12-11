@@ -411,16 +411,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       //   onClick: () => orgNavigateTo('files'),
       //   label: "Files",
       // },
-      {
+    ]
+
+    // Only show Providers menu item if providers management is enabled or user is admin
+    if (account.serverConfig.providers_management_enabled || account.admin) {
+      baseButtons.push({
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
         isActive: isActive('providers'),
         onClick: () => orgNavigateTo('providers'),
         label: "Providers",
-      },
-    ]
-
-
+      })
+    }
 
     // Add org-specific buttons if we're in an org context
     if (currentOrgSlug !== 'default') {
@@ -436,7 +438,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, account.admin])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
