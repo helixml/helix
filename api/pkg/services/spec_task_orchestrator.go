@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -298,11 +299,49 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
+	if task.PullRequestID != "" {
+		err := o.processExternalPullRequestStatus(ctx, task)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to process external pull request status")
+		}
+	}
+
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
 	log.Debug().
 		Str("task_id", task.ID).
 		Msg("Task in implementation (using reused agent pattern)")
+	return nil
+}
+
+func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+
+	pr, err := o.gitService.GetPullRequest(ctx, project.DefaultRepoID, task.PullRequestID)
+	if err != nil {
+		return fmt.Errorf("failed to get pull request: %w", err)
+	}
+
+	spew.Dump(pr)
+
+	switch pr.State {
+	case "active":
+		// Active - still open, nothing to do
+	case "completed":
+		// Can move into "done"
+		task.Status = types.TaskStatusDone
+		task.UpdatedAt = time.Now()
+		return o.store.UpdateSpecTask(ctx, task)
+	case "abandoned":
+		// Can move into archived
+		task.Archived = true
+		task.UpdatedAt = time.Now()
+		return o.store.UpdateSpecTask(ctx, task)
+	}
+
 	return nil
 }
 
