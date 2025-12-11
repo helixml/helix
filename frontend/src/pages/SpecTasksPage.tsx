@@ -16,6 +16,8 @@ import {
   CircularProgress,
   List,
   ListItem,
+  ListItemButton,
+  ListItemIcon,
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
@@ -23,6 +25,7 @@ import {
   Checkbox,
   FormControlLabel,
   Tooltip,
+  Avatar,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -31,19 +34,43 @@ import {
   Close as CloseIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
+  SmartToy as SmartToyIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
+import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
+import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
+import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../types';
+
+// Recommended models for zed_external agents (state-of-the-art coding models)
+const RECOMMENDED_MODELS = [
+  // Anthropic
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5-20250929',
+  'claude-haiku-4-5-20251001',
+  // OpenAI
+  'openai/gpt-5.1-codex',
+  'openai/gpt-oss-120b',
+  // Google Gemini
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  // Zhipu GLM
+  'glm-4.6',
+  // Qwen (Coder + Large)
+  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+  'Qwen/Qwen3-235B-A22B-fp8-tput',
+];
 
 import useAccount from '../hooks/useAccount';
 import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useSpecTasks } from '../hooks/useSpecTasks';
 import { useFloatingModal } from '../contexts/floatingModal';
+import EditIcon from '@mui/icons-material/Edit';
 import {
   useGetProject,
   useGetProjectRepositories,
@@ -52,7 +79,7 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
-import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../api/api';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -113,30 +140,82 @@ const SpecTasksPage: FC = () => {
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
   const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
+
+  // Inline agent creation state (same UX as AgentSelectionModal)
+  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
+  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent');
+  const [selectedProvider, setSelectedProvider] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
+  const [newAgentName, setNewAgentName] = useState('-');
+  const [userModifiedName, setUserModifiedName] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [agentError, setAgentError] = useState('');
   // Repository configuration moved to project level - no task-level repo selection needed
 
   // Task detail windows state - array to support multiple windows
   const [openTaskWindows, setOpenTaskWindows] = useState<TypesSpecTask[]>([]);
 
+  // Track newly created task ID for focusing "Start Planning" button
+  const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);
+
   // Ref for task prompt text field to manually focus
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Data hooks
-  const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
+  // Sort apps: project default first, then zed_external, then others
+  const sortedApps = useMemo(() => {
+    if (!apps.apps) return [];
+    const zedExternalApps: IApp[] = [];
+    const otherApps: IApp[] = [];
+    let defaultApp: IApp | null = null;
+    const projectDefaultId = project?.default_helix_app_id;
+
+    apps.apps.forEach((app) => {
+      // Pull out the project's default agent to pin at top
+      if (projectDefaultId && app.id === projectDefaultId) {
+        defaultApp = app;
+        return;
+      }
+
+      const hasZedExternal = app.config?.helix?.assistants?.some(
+        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
+      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
+      if (hasZedExternal) {
+        zedExternalApps.push(app);
+      } else {
+        otherApps.push(app);
+      }
+    });
+
+    // Project default first, then zed_external, then others
+    const result: IApp[] = [];
+    if (defaultApp) result.push(defaultApp);
+    result.push(...zedExternalApps, ...otherApps);
+    return result;
+  }, [apps.apps, project?.default_helix_app_id]);
+
+  // Create a map of app ID -> app name for displaying agent names
+  const appNamesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (apps.apps) {
+      apps.apps.forEach((app) => {
+        if (app.id) {
+          map[app.id] = app.config?.helix?.name || 'Unnamed Agent';
+        }
+      });
+    }
+    return map;
+  }, [apps.apps]);
+
+  // Auto-generate agent name when model or runtime changes (if user hasn't modified it)
+  useEffect(() => {
+    if (!userModifiedName && showCreateAgentForm) {
+      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime));
+    }
+  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm]);
 
   // Load tasks and apps on mount
   useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        const result = await api.getApiClient().v1SpecTasksList();
-        // The hook will handle updating the data automatically
-      } catch (error) {
-        console.error('Error loading spec tasks:', error);
-      }
-    };
-
     if (account.user?.id) {
-      loadTasks();
       apps.loadApps(); // Load available agents
     }
   }, []);
@@ -151,20 +230,18 @@ const SpecTasksPage: FC = () => {
   // Auto-select default agent when dialog opens
   useEffect(() => {
     if (createDialogOpen) {
-      // Check if "Default Spec Agent" already exists
-      const defaultAgent = apps.apps.find(app =>
-        (app.config?.helix?.name || app.name) === 'Default Spec Agent'
-      );
-
-      if (defaultAgent) {
-        // Select the existing default agent
-        setSelectedHelixAgent(defaultAgent.id || '');
-      } else if (apps.apps.length === 0) {
-        // No agents exist, default to create option
-        setSelectedHelixAgent('__create_default__');
+      // First priority: use project's default agent if set
+      if (project?.default_helix_app_id) {
+        setSelectedHelixAgent(project.default_helix_app_id);
+        setShowCreateAgentForm(false);
+      } else if (sortedApps.length === 0) {
+        // No agents exist, show create form
+        setShowCreateAgentForm(true);
+        setSelectedHelixAgent('');
       } else {
-        // Agents exist but no default agent, select first one
-        setSelectedHelixAgent(apps.apps[0]?.id || '__create_default__');
+        // Agents exist but project has no default, select first zed_external
+        setSelectedHelixAgent(sortedApps[0]?.id || '');
+        setShowCreateAgentForm(false);
       }
 
       // Focus the text field when dialog opens
@@ -174,7 +251,7 @@ const SpecTasksPage: FC = () => {
         }
       }, 100);
     }
-  }, [createDialogOpen, apps.apps]);
+  }, [createDialogOpen, sortedApps, project?.default_helix_app_id]);
 
   // Handle URL parameters for opening dialog
   useEffect(() => {
@@ -217,6 +294,7 @@ const SpecTasksPage: FC = () => {
   }, [createDialogOpen]);
 
   // Keyboard shortcut: Ctrl/Cmd+Enter to submit task (when dialog is open)
+  // Note: dependencies include justDoItMode to ensure the handler captures the current value
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -231,7 +309,7 @@ const SpecTasksPage: FC = () => {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen, taskPrompt]);
+  }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
 
   // Keyboard shortcut: ESC to close create task panel
   useEffect(() => {
@@ -250,6 +328,71 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen]);
 
+  // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
+        if (createDialogOpen) {
+          e.preventDefault();
+          setJustDoItMode(prev => !prev);
+        }
+      }
+    };
+
+    if (createDialogOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [createDialogOpen]);
+
+  // Handle inline agent creation (same pattern as CreateProjectDialog)
+  const handleCreateAgent = async (): Promise<string | null> => {
+    if (!newAgentName.trim()) {
+      setAgentError('Please enter a name for the agent');
+      return null;
+    }
+    if (!selectedModel) {
+      setAgentError('Please select a model');
+      return null;
+    }
+
+    setCreatingAgent(true);
+    setAgentError('');
+
+    try {
+      const params: ICreateAgentParams = {
+        name: newAgentName.trim(),
+        description: 'Code development agent for spec tasks',
+        agentType: AGENT_TYPE_ZED_EXTERNAL,
+        codeAgentRuntime,
+        model: selectedModel,
+        generationModelProvider: selectedProvider,
+        generationModel: selectedModel,
+        reasoningModelProvider: '',
+        reasoningModel: '',
+        reasoningModelEffort: 'none',
+        smallReasoningModelProvider: '',
+        smallReasoningModel: '',
+        smallReasoningModelEffort: 'none',
+        smallGenerationModelProvider: '',
+        smallGenerationModel: '',
+      };
+
+      const newApp = await apps.createAgent(params);
+      if (newApp) {
+        return newApp.id;
+      }
+      setAgentError('Failed to create agent');
+      return null;
+    } catch (err) {
+      console.error('Failed to create agent:', err);
+      setAgentError(err instanceof Error ? err.message : 'Failed to create agent');
+      return null;
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
+
   // Handle task creation - SIMPLIFIED
   const handleCreateTask = async () => {
     if (!checkLoginStatus()) return;
@@ -261,50 +404,23 @@ const SpecTasksPage: FC = () => {
       }
 
       let agentId = selectedHelixAgent;
+      setAgentError('');
 
-      // Create default agent if requested
-      if (selectedHelixAgent === '__create_default__') {
-        try {
-          snackbar.info('Creating default agent...');
-
-          const newAgent = await apps.createAgent({
-            name: 'Default Spec Agent',
-            systemPrompt: 'You are a software development agent that helps with planning and implementation. For planning tasks, analyze user requirements and create detailed design documents. For implementation tasks, write high-quality code based on specifications.',
-            agentType: 'zed_external',
-            reasoningModelProvider: '',
-            reasoningModel: '',
-            reasoningModelEffort: '',
-            generationModelProvider: '',
-            generationModel: '',
-            smallReasoningModelProvider: '',
-            smallReasoningModel: '',
-            smallReasoningModelEffort: '',
-            smallGenerationModelProvider: '',
-            smallGenerationModel: '',
-          });
-
-          if (!newAgent || !newAgent.id) {
-            throw new Error('Failed to create default agent');
-          }
-
-          agentId = newAgent.id;
-          console.log('Created default agent with ID:', agentId);
-          // Note: apps.createAgent() already reloads the apps list internally
-        } catch (err: any) {
-          console.error('Failed to create default agent:', err);
-          const errorMessage = err?.response?.data?.message
-            || err?.message
-            || 'Failed to create default agent. Please try again.';
-          snackbar.error(errorMessage);
+      // Create agent inline if showing create form
+      if (showCreateAgentForm) {
+        const newAgentId = await handleCreateAgent();
+        if (!newAgentId) {
+          // Error already set in handleCreateAgent
           return;
         }
+        agentId = newAgentId;
       }
 
       // Create SpecTask with simplified single-field approach
       // Repository configuration is managed at the project level - no task-level repo selection
-      const createTaskRequest: ServicesCreateTaskRequest = {
+      const createTaskRequest: TypesCreateTaskRequest = {
         prompt: taskPrompt, // Just the raw user input!
-        priority: taskPriority,
+        priority: taskPriority as TypesSpecTaskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
@@ -325,6 +441,22 @@ const SpecTasksPage: FC = () => {
         setSelectedHelixAgent(''); // Reset agent selection
         setJustDoItMode(false); // Reset Just Do It mode
         setUseHostDocker(false); // Reset host Docker mode
+        // Reset inline agent creation form
+        setShowCreateAgentForm(false);
+        setCodeAgentRuntime('zed_agent');
+        setSelectedProvider('');
+        setSelectedModel('');
+        setNewAgentName('-');
+        setUserModifiedName(false);
+        setAgentError('');
+
+        // Set focusTaskId to focus the Start Planning button on the new task
+        const newTaskId = response.data.id;
+        if (newTaskId) {
+          setFocusTaskId(newTaskId);
+          // Clear focus after a few seconds so it doesn't persist
+          setTimeout(() => setFocusTaskId(undefined), 5000);
+        }
 
         // Trigger immediate refresh of Kanban board
         setRefreshTrigger(prev => prev + 1);
@@ -399,6 +531,34 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
+          {/* Project's default agent lozenge */}
+          {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
+            <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
+              <Chip
+                label={appNamesMap[project.default_helix_app_id]}
+                size="small"
+                onClick={() => {
+                  if (project.default_helix_app_id) {
+                    account.orgNavigate('app', { app_id: project.default_helix_app_id });
+                  }
+                }}
+                sx={{
+                  flexShrink: 0,
+                  cursor: 'pointer',
+                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500,
+                  fontSize: '0.75rem',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                  '&:hover': {
+                    background: 'linear-gradient(145deg, rgba(130, 130, 150, 0.95) 0%, rgba(100, 100, 120, 1) 50%, rgba(80, 80, 100, 0.95) 100%)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.25)',
+                  },
+                }}
+              />
+            </Tooltip>
+          )}
           {!exploratorySessionData ? (
             <Button
               variant="outlined"
@@ -520,6 +680,7 @@ const SpecTasksPage: FC = () => {
               }}
               refreshing={refreshing}
               refreshTrigger={refreshTrigger}
+              focusTaskId={focusTaskId}
             />
           </Box>
         </Box>
@@ -569,10 +730,10 @@ const SpecTasksPage: FC = () => {
           </Box>
 
           {/* Content */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-            <Stack spacing={3}>
+          <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+            <Stack spacing={2}>
               {/* Priority Selector */}
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel>Priority</InputLabel>
                 <Select
                   value={taskPriority}
@@ -586,13 +747,13 @@ const SpecTasksPage: FC = () => {
                 </Select>
               </FormControl>
 
-              {/* Single large text box for everything */}
+              {/* Single text box for everything */}
               <TextField
                 label="Describe what you want to get done"
                 fullWidth
                 required
                 multiline
-                rows={12}
+                rows={9}
                 value={taskPrompt}
                 onChange={(e) => setTaskPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -602,43 +763,175 @@ const SpecTasksPage: FC = () => {
                     setCreateDialogOpen(false)
                   }
                 }}
-                placeholder="Dump everything you know here - the AI will parse this into requirements, design, and implementation plan.
-
-Examples:
-- Add dark mode toggle to settings page
-- Fix the user registration bug where emails aren't validated properly
-- Refactor the payment processing to use Stripe instead of PayPal"
-                helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
+                placeholder={justDoItMode
+                  ? "Describe what you want the agent to do. It will start immediately without planning."
+                  : "Describe the task - the AI will generate specs from this."
+                }
+                helperText={justDoItMode
+                  ? "Agent will start working immediately"
+                  : "Planning agent extracts task name, description, and generates specifications"
+                }
                 inputRef={taskPromptRef}
+                size="small"
               />
 
-              {/* Helix Agent Selection */}
-              <FormControl fullWidth>
-                <InputLabel>Helix Agent</InputLabel>
-                <Select
-                  value={selectedHelixAgent}
-                  onChange={(e) => setSelectedHelixAgent(e.target.value)}
-                  label="Helix Agent"
-                >
-                  {apps.apps.map((app) => (
-                    <MenuItem key={app.id} value={app.id}>
-                      {app.config?.helix?.name || 'Unnamed Agent'}
-                    </MenuItem>
-                  ))}
-                  <MenuItem value="__create_default__">
-                    <em>Create new external agent...</em>
-                  </MenuItem>
-                </Select>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                  {selectedHelixAgent === '__create_default__'
-                    ? 'A new external agent will be created when you submit this task.'
-                    : 'Select which agent will generate specifications for this task.'}
+              {/* Agent Selection (compact) */}
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                  Agent
                 </Typography>
-              </FormControl>
+                {!showCreateAgentForm ? (
+                  <>
+                    {/* Existing agents list - compact style */}
+                    {sortedApps.length > 0 ? (
+                      <List dense sx={{ pt: 0, maxHeight: 120, overflow: 'auto' }}>
+                        {sortedApps.map((app) => {
+                          const isSelected = selectedHelixAgent === app.id;
+
+                          return (
+                            <ListItem
+                              key={app.id}
+                              disablePadding
+                              secondaryAction={
+                                <IconButton
+                                  edge="end"
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    account.orgNavigate('app', { app_id: app.id });
+                                  }}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  <EditIcon sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              }
+                            >
+                              <ListItemButton
+                                selected={isSelected}
+                                onClick={() => setSelectedHelixAgent(app.id)}
+                                sx={{
+                                  borderRadius: 0.5,
+                                  py: 0.5,
+                                  minHeight: 36,
+                                  border: isSelected ? '1px solid' : '1px solid transparent',
+                                  borderColor: isSelected ? 'primary.main' : 'transparent',
+                                  bgcolor: isSelected ? 'action.selected' : 'transparent',
+                                  pr: 4,
+                                }}
+                              >
+                                <ListItemIcon sx={{ minWidth: 32 }}>
+                                  <Avatar
+                                    src={app.config?.helix?.avatar}
+                                    sx={{ width: 24, height: 24, fontSize: 12 }}
+                                  >
+                                    <SmartToyIcon sx={{ fontSize: 14 }} />
+                                  </Avatar>
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={app.config?.helix?.name || 'Unnamed Agent'}
+                                  primaryTypographyProps={{ variant: 'body2', noWrap: true }}
+                                />
+                              </ListItemButton>
+                            </ListItem>
+                          );
+                        })}
+                      </List>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        No agents. Create one below.
+                      </Typography>
+                    )}
+                    <Button
+                      size="small"
+                      onClick={() => setShowCreateAgentForm(true)}
+                      sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                    >
+                      + Create new agent
+                    </Button>
+                  </>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Code Agent Runtime
+                    </Typography>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={codeAgentRuntime}
+                        onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
+                        disabled={creatingAgent}
+                      >
+                        <MenuItem value="zed_agent">
+                          <Box>
+                            <Typography variant="body2">Zed Agent (Built-in)</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Uses Zed's native agent panel with direct API integration
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                        <MenuItem value="qwen_code">
+                          <Box>
+                            <Typography variant="body2">Qwen Code</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <Typography variant="body2" color="text.secondary">
+                      Code Agent Model
+                    </Typography>
+                    <AdvancedModelPicker
+                      recommendedModels={RECOMMENDED_MODELS}
+                      hint="Choose a capable model for agentic coding."
+                      selectedProvider={selectedProvider}
+                      selectedModelId={selectedModel}
+                      onSelectModel={(provider, model) => {
+                        setSelectedProvider(provider);
+                        setSelectedModel(model);
+                      }}
+                      currentType="text"
+                      displayMode="short"
+                      disabled={creatingAgent}
+                    />
+
+                    <Typography variant="body2" color="text.secondary">
+                      Agent Name
+                    </Typography>
+                    <TextField
+                      value={newAgentName}
+                      onChange={(e) => {
+                        setNewAgentName(e.target.value);
+                        setUserModifiedName(true);
+                      }}
+                      size="small"
+                      fullWidth
+                      disabled={creatingAgent}
+                      helperText="Auto-generated from model and runtime. Edit to customize."
+                    />
+
+                    {agentError && (
+                      <Alert severity="error">{agentError}</Alert>
+                    )}
+
+                    {sortedApps.length > 0 && (
+                      <Button
+                        size="small"
+                        onClick={() => setShowCreateAgentForm(false)}
+                        sx={{ alignSelf: 'flex-start' }}
+                        disabled={creatingAgent}
+                      >
+                        Back to agent list
+                      </Button>
+                    )}
+                  </Box>
+                )}
+              </Box>
 
               {/* Just Do It Mode Checkbox */}
               <FormControl fullWidth>
-                <Tooltip title="Skip writing a spec and just get the agent to immediately start doing what you ask" placement="top">
+                <Tooltip title={`Skip writing a spec and just get the agent to immediately start doing what you ask (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`} placement="top">
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -649,9 +942,14 @@ Examples:
                     }
                     label={
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          Just Do It
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Just Do It
+                          </Typography>
+                          <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                            {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
+                          </Box>
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
                           Skip spec planning — useful for tasks that don't require planning code changes (e.g., if you don't want the agent to push code)
                         </Typography>
@@ -699,6 +997,14 @@ Examples:
               setSelectedHelixAgent('');
               setJustDoItMode(false);
               setUseHostDocker(false);
+              // Reset inline agent creation form
+              setShowCreateAgentForm(false);
+              setCodeAgentRuntime('zed_agent');
+              setSelectedProvider('');
+              setSelectedModel('');
+              setNewAgentName('-');
+              setUserModifiedName(false);
+              setAgentError('');
             }}>
               Cancel
             </Button>
@@ -706,8 +1012,8 @@ Examples:
               onClick={handleCreateTask}
               variant="contained"
               color="secondary"
-              disabled={!taskPrompt.trim()}
-              startIcon={<AddIcon />}
+              disabled={!taskPrompt.trim() || creatingAgent || (showCreateAgentForm && !selectedModel)}
+              startIcon={creatingAgent ? <CircularProgress size={16} /> : <AddIcon />}
               sx={{
                 '& .MuiButton-endIcon': {
                   ml: 1,
@@ -742,10 +1048,6 @@ Examples:
           open={true}
           onClose={() => {
             setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
-          }}
-          onEdit={(task) => {
-            // TODO: Implement task editing
-            console.log('Edit task:', task);
           }}
         />
       ))}

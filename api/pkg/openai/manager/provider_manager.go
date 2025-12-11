@@ -71,6 +71,13 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 	}
 
+	// Log TLS configuration prominently for debugging enterprise deployments
+	log.Info().
+		Bool("tls_skip_verify", cfg.Tools.TLSSkipVerify).
+		Str("env_var", "TOOLS_TLS_SKIP_VERIFY").
+		Str("how_to_set", "set in .env for Docker Compose, or extraEnv in Helm chart").
+		Msg("Provider manager TLS configuration loaded")
+
 	if cfg.Providers.OpenAI.APIKey != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).
@@ -352,10 +359,13 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 		}
 	}
 
-	// Check if the provider is a global one
-	availableProviders := make([]string, 0, len(m.globalClients))
+	// Build list of all available providers for error message
+	availableProviders := make([]string, 0, len(m.globalClients)+len(userProviders))
 	for provider := range m.globalClients {
 		availableProviders = append(availableProviders, string(provider))
+	}
+	for _, provider := range userProviders {
+		availableProviders = append(availableProviders, provider.Name)
 	}
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
 }
@@ -369,6 +379,16 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		}
 		apiKey = strings.TrimSpace(string(bts))
 	}
+
+	// Log TLS configuration for database-configured providers (user/org endpoints)
+	// This helps debug enterprise TLS issues with providers configured via web UI
+	log.Info().
+		Str("provider_id", endpoint.ID).
+		Str("provider_name", endpoint.Name).
+		Str("base_url", endpoint.BaseURL).
+		Str("endpoint_type", string(endpoint.EndpointType)).
+		Bool("tls_skip_verify", m.cfg.Tools.TLSSkipVerify).
+		Msg("Initializing client for database-configured provider with TLS config")
 
 	openaiClient := openai.NewWithOptions(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, openai.ClientOptions{
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,

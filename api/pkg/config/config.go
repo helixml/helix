@@ -42,7 +42,8 @@ type ServerConfig struct {
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
 
 	// AI Providers management - controls if users can add their own AI provider API keys
-	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
+	// Disabled by default for enterprise customers who don't want users adding external API keys
+	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"false"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
@@ -89,6 +90,7 @@ type Providers struct {
 	VLLM                      VLLM
 	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
 	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
+	BillingEnabled            bool   `envconfig:"PROVIDERS_BILLING_ENABLED" default:"false"`    // Enable usage tracking/billing for built-in providers (from env vars)
 }
 
 type OpenAI struct {
@@ -589,9 +591,4 @@ type ExternalAgents struct {
 	// MaxConcurrentLobbies is the maximum number of Wolf lobbies that can be created concurrently.
 	// Each lobby uses GPU resources (VRAM for video encoding).
 	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent Wolf lobbies (GPU streaming sessions)."`
-
-	// Qwen Code configuration (passed to sway containers)
-	QwenBaseURL string `envconfig:"QWEN_BASE_URL" description:"OpenAI-compatible API endpoint for Qwen Code (default: SERVER_URL/v1)"`
-	QwenModel   string `envconfig:"QWEN_MODEL" default:"qwen-oss:120b" description:"Model name for Qwen Code"`
-	QwenAPIKey  string `envconfig:"QWEN_API_KEY" description:"API key for Qwen Code (default: user's Helix API token)"`
 }

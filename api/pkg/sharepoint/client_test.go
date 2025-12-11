@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	client := NewClient("test-token")
+	client := NewClient("test-token", false)
 	assert.NotNil(t, client)
 	assert.Equal(t, "test-token", client.accessToken)
 }
@@ -58,7 +58,7 @@ func TestClient_GetSite(t *testing.T) {
 }
 
 func TestClient_matchesExtensionFilter(t *testing.T) {
-	client := NewClient("test-token")
+	client := NewClient("test-token", false)
 
 	tests := []struct {
 		name       string
@@ -151,8 +151,8 @@ func TestClient_ListFiles(t *testing.T) {
 						File: &FileInfo{MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
 					},
 					{
-						ID:   "folder-1",
-						Name: "Subfolder",
+						ID:     "folder-1",
+						Name:   "Subfolder",
 						Folder: &FolderInfo{ChildCount: 1},
 					},
 				},

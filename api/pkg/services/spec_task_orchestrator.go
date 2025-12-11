@@ -37,7 +37,6 @@ type WolfExecutorInterface interface {
 	StopZedAgent(ctx context.Context, sessionID string) error
 }
 
-
 // NewSpecTaskOrchestrator creates a new orchestrator
 func NewSpecTaskOrchestrator(
 	store store.Store,
@@ -117,7 +116,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	}
 
 	// Filter to only active tasks
-	activeStatuses := map[string]bool{
+	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusSpecGeneration:       true,
 		types.TaskStatusSpecReview:           true,
@@ -138,13 +137,13 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
-					Str("status", task.Status).
+					Str("status", task.Status.String()).
 					Msg("Task references deleted project - skipping")
 			} else {
 				log.Error().
 					Err(err).
 					Str("task_id", task.ID).
-					Str("status", task.Status).
+					Str("status", task.Status.String()).
 					Msg("Failed to process task")
 			}
 		}
@@ -399,7 +398,8 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
-		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
+		SessionID:           agentID,                // Agent-level session ID (not tied to specific Helix session)
+		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
 		ProjectPath:         "backend",          // Default primary repo path
@@ -458,6 +458,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 
 // createPlanningSession creates a Helix session for the planning phase
 func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		return nil, fmt.Errorf("app %s has no assistants configured", app.ID)
+	}
+
 	// Build system prompt for planning phase
 	systemPrompt := o.buildPlanningPrompt(task, app)
 
@@ -522,18 +527,16 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	if len(projectRepos) > 0 {
 		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
 		for _, repo := range projectRepos {
-			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repo.Name)
+			repoInstructions += fmt.Sprintf("- `%s` at `/home/retro/work/%s`\n", repo.Name, repo.Name)
 		}
 		repoInstructions += "\n"
 	}
 
-	// Generate task directory name
-	dateStr := time.Now().Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
+	// Use DesignDocPath if set (new human-readable format), fall back to task ID
+	taskDirName := task.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = task.ID // Backwards compatibility for old tasks
 	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
 	// Build planning prompt using string builder to avoid nested backticks
 	var promptBuilder strings.Builder
@@ -554,15 +557,15 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("Understand the current architecture, patterns, and conventions before designing new features.\n\n")
 	promptBuilder.WriteString("**Step 2: Navigate to the design docs directory**\n\n")
 	promptBuilder.WriteString("The helix-specs git worktree is already set up at:\n")
-	promptBuilder.WriteString("`~/work/helix-specs`\n\n")
+	promptBuilder.WriteString("`/home/retro/work/helix-specs`\n\n")
 	promptBuilder.WriteString("Create a dated task directory and navigate to it:\n\n")
 	promptBuilder.WriteString("```bash\n")
-	promptBuilder.WriteString("cd ~/work/helix-specs/tasks\n")
+	promptBuilder.WriteString("cd /home/retro/work/helix-specs/tasks\n")
 	promptBuilder.WriteString(fmt.Sprintf("mkdir -p %s\n", taskDirName))
 	promptBuilder.WriteString(fmt.Sprintf("cd %s\n", taskDirName))
 	promptBuilder.WriteString("```\n\n")
 	promptBuilder.WriteString("**Step 3: Create design documents**\n\n")
-	promptBuilder.WriteString("Write these markdown files in `~/work/helix-specs/tasks/` (the current directory):\n\n")
+	promptBuilder.WriteString("Write these markdown files in `/home/retro/work/helix-specs/tasks/` (the current directory):\n\n")
 	promptBuilder.WriteString("1. **requirements.md** - User stories + EARS acceptance criteria\n")
 	promptBuilder.WriteString("2. **design.md** - Architecture, diagrams, data models\n")
 	promptBuilder.WriteString("3. **tasks.md** - Implementation tasks with [ ]/[~]/[x] markers\n")
@@ -571,12 +574,12 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("This is **CRITICAL** - you must commit and then push to get design docs back to Helix:\n\n")
 	promptBuilder.WriteString("```bash\n")
 	promptBuilder.WriteString("git add .\n")
-	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", sanitizedName))
+	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", task.Name))
 	promptBuilder.WriteString("git push origin helix-specs\n")
 	promptBuilder.WriteString("```\n\n")
 	promptBuilder.WriteString("The helix-specs branch is **forward-only** (never rolled back).\n")
 	promptBuilder.WriteString("Pushing to upstream is how the Helix UI retrieves your design docs to display to the user.\n\n")
-	promptBuilder.WriteString("**All work persists in `~/work/` across sessions.**")
+	promptBuilder.WriteString("**All work persists in `/home/retro/work/` across sessions.**")
 
 	return promptBuilder.String()
 }

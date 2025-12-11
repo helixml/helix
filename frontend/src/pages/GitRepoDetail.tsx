@@ -78,7 +78,7 @@ import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
 import { TypesExternalRepositoryType } from '../api/api'
 
-const TAB_NAMES = ['code-intelligence', 'code', 'settings', 'access', 'commits', 'pull-requests'] as const
+const TAB_NAMES = ['code', 'code-intelligence', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -126,7 +126,7 @@ const GitRepoDetail: FC = () => {
   const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(repoId || '')
 
   // Access grants for RBAC
-  const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
+  const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId && !!currentOrg)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
@@ -137,10 +137,10 @@ const GitRepoDetail: FC = () => {
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
   const currentBranch = branchFromQuery
-  const commitsBranch = branchFromQuery
+  const commitsBranch = branchFromQuery  
 
   // Kodit code intelligence enrichments (internal summary types filtered in backend)
-  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !!repoId })
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !!isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
 
@@ -646,19 +646,19 @@ const GitRepoDetail: FC = () => {
               const tabName = newValue as TabName
               setCurrentTab(tabName)
               router.mergeParams({ tab: tabName })
-            }}>
-              <Tab
-                value="code-intelligence"
-                icon={<Brain size={16} />}
-                iconPosition="start"
-                label="Code Intelligence"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
+            }}>              
               <Tab
                 value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                value="code-intelligence"
+                icon={<Brain size={16} />}
+                iconPosition="start"
+                label="Code Intelligence"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab

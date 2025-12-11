@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -51,13 +52,22 @@ func New(config *config.ServerConfig, store store.Store, filestore filestore.Fil
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
+	// Create HTTP client with optional TLS skip verify for enterprise environments
+	httpClient := &http.Client{}
+	if config.Tools.TLSSkipVerify {
+		// Clone the default transport to preserve all default settings
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		httpClient.Transport = transport
+	}
+
 	r := &Reconciler{
 		config:       config,
 		store:        store,
 		filestore:    filestore,
 		cron:         s,
 		extractor:    extractor,
-		httpClient:   http.DefaultClient,
+		httpClient:   httpClient,
 		ragClient:    ragClient,
 		oauthManager: oauthManager,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {

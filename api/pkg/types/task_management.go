@@ -123,11 +123,57 @@ const (
 	AgentTypeHelixBasic  AgentType = "helix_basic"  // Basic Helix agent
 	AgentTypeHelixAgent  AgentType = "helix_agent"  // Standard Helix agent with skills
 	AgentTypeZedExternal AgentType = "zed_external" // Zed-integrated agent
-	// Future agent types:
-	// AgentTypeZedClaudeCode AgentType = "zed_claude_code" // Zed with Claude for coding
-	// AgentTypeZedGeminiCLI  AgentType = "zed_gemini_cli"  // Zed with Gemini for CLI
-	// AgentTypeZedQwenCode   AgentType = "zed_qwen_code"   // Zed with Qwen for coding
 )
+
+// CodeAgentRuntime specifies which code agent runtime to use inside Zed.
+// This determines how the LLM is configured within the Zed editor.
+type CodeAgentRuntime string
+
+const (
+	// CodeAgentRuntimeZedAgent uses Zed's built-in agent panel.
+	// The LLM is configured via Zed's settings (agent.default_model) and env vars
+	// like ANTHROPIC_API_KEY. Works best with Anthropic and OpenAI models.
+	CodeAgentRuntimeZedAgent CodeAgentRuntime = "zed_agent"
+
+	// CodeAgentRuntimeQwenCode uses the qwen code agent as a custom agent_server.
+	// The LLM is configured via OPENAI_BASE_URL, OPENAI_API_KEY, and OPENAI_MODEL
+	// env vars passed to the qwen command. Works with any OpenAI-compatible API.
+	// Zed agent name: "qwen"
+	CodeAgentRuntimeQwenCode CodeAgentRuntime = "qwen_code"
+
+	// CodeAgentRuntimeClaudeCode uses Claude Code as a custom agent_server.
+	// Requires Claude Code CLI to be installed in the container.
+	// Zed agent name: "claude"
+	CodeAgentRuntimeClaudeCode CodeAgentRuntime = "claude_code"
+
+	// CodeAgentRuntimeGeminiCLI uses Gemini CLI as a custom agent_server.
+	// Requires Gemini CLI to be installed in the container.
+	// Zed agent name: "gemini"
+	CodeAgentRuntimeGeminiCLI CodeAgentRuntime = "gemini_cli"
+
+	// CodeAgentRuntimeCodexCLI uses Codex CLI as a custom agent_server.
+	// Requires Codex CLI to be installed in the container.
+	// Zed agent name: "codex"
+	CodeAgentRuntimeCodexCLI CodeAgentRuntime = "codex_cli"
+)
+
+// ZedAgentName returns the agent name used in Zed for this runtime.
+// This is used when sending open_thread commands to tell Zed which agent to use.
+// For zed_agent (built-in), returns empty string (uses NativeAgent).
+func (r CodeAgentRuntime) ZedAgentName() string {
+	switch r {
+	case CodeAgentRuntimeQwenCode:
+		return "qwen"
+	case CodeAgentRuntimeClaudeCode:
+		return "claude"
+	case CodeAgentRuntimeGeminiCLI:
+		return "gemini"
+	case CodeAgentRuntimeCodexCLI:
+		return "codex"
+	default: // CodeAgentRuntimeZedAgent or empty
+		return "" // NativeAgent (built-in)
+	}
+}
 
 // Helper functions for agent type checking with backward compatibility
 

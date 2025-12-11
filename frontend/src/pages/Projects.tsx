@@ -8,7 +8,6 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { Plus, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -18,12 +17,15 @@ import CreateProjectButton from '../components/project/CreateProjectButton'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog'
 import LinkExternalRepositoryDialog from '../components/project/LinkExternalRepositoryDialog'
+import AgentSelectionModal from '../components/project/AgentSelectionModal'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
+import GuidelinesView from '../components/project/GuidelinesView'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
+import useApps from '../hooks/useApps'
 import {
   useListProjects,
   useListSampleProjects,
@@ -40,6 +42,27 @@ const Projects: FC = () => {
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
   const api = useApi()
+  const apps = useApps()
+
+  // Load apps on mount to get app names for project lozenges
+  React.useEffect(() => {
+    if (account.user?.id) {
+      apps.loadApps()
+    }
+  }, [account.user?.id])
+
+  // Create a map of app ID -> app name for displaying in project cards
+  const appNamesMap = React.useMemo(() => {
+    const map: Record<string, string> = {}
+    if (apps.apps) {
+      apps.apps.forEach((app) => {
+        if (app.id) {
+          map[app.id] = app.config?.helix?.name || 'Unnamed Agent'
+        }
+      })
+    }
+    return map
+  }, [apps.apps])
 
   // Check if org slug is set in the URL
   // const orgSlug = router.params.org_id || ''
@@ -69,6 +92,10 @@ const Projects: FC = () => {
   // Repository dialog states
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false)
   const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
+
+  // Agent selection modal state for sample project fork
+  const [agentModalOpen, setAgentModalOpen] = useState(false)
+  const [pendingSampleFork, setPendingSampleFork] = useState<{ sampleId: string; sampleName: string } | null>(null)
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string>('')
@@ -147,7 +174,8 @@ const Projects: FC = () => {
     name: string,
     type: TypesExternalRepositoryType,
     username?: string,
-    password?: string
+    password?: string,
+    azureDevOps?: TypesAzureDevOps
   ): Promise<TypesGitRepository | null> => {
     if (!url.trim() || !account.user?.id) return null
 
@@ -164,15 +192,18 @@ const Projects: FC = () => {
         external_type: type,
         username,
         password,
+        azure_devops: azureDevOps,
       })
 
       // Invalidate repo queries (use base key to match all variants)
       await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       return response.data
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to link repository:', error)
-      return null
+      // Re-throw with the actual error message so the dialog can display it
+      const message = error?.response?.data?.message || error?.response?.data || error?.message || 'Failed to link repository'
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
     }
   }
 
@@ -200,8 +231,21 @@ const Projects: FC = () => {
     setCreateDialogOpen(true)
   }
 
+  // Step 1: User clicks on sample project - show agent selection modal
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
     if (!checkLoginStatus()) return
+
+    // Store the pending fork request and show agent selection modal
+    setPendingSampleFork({ sampleId, sampleName })
+    setAgentModalOpen(true)
+  }
+
+  // Step 2: User selects an agent - proceed with fork
+  const handleAgentSelected = async (agentId: string) => {
+    if (!pendingSampleFork) return
+
+    const { sampleId, sampleName } = pendingSampleFork
+    setPendingSampleFork(null)
 
     try {
       snackbar.info(`Creating ${sampleName}...`)
@@ -211,6 +255,7 @@ const Projects: FC = () => {
         request: {
           project_name: sampleName,
           organization_id: account.organizationTools.organization?.id, // Pass current workspace context
+          helix_app_id: agentId, // Pass the selected agent
         },
       })
 
@@ -341,9 +386,21 @@ const Projects: FC = () => {
     )
   }
 
+  // Get breadcrumb title based on current view
+  const getBreadcrumbTitle = () => {
+    switch (currentView) {
+      case 'repositories':
+        return 'Repositories'
+      case 'guidelines':
+        return 'Guidelines'
+      default:
+        return 'Projects'
+    }
+  }
+
   return (
     <Page
-      breadcrumbTitle={currentView === 'repositories' ? 'Repositories' : 'Projects'}
+      breadcrumbTitle={getBreadcrumbTitle()}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (
@@ -398,6 +455,7 @@ const Projects: FC = () => {
             onCreateFromSample={handleInstantiateSample}
             sampleProjects={sampleProjects}
             isCreating={instantiateSampleMutation.isPending}
+            appNamesMap={appNamesMap}
           />
         )}
 
@@ -415,6 +473,11 @@ const Projects: FC = () => {
             totalPages={reposTotalPages}
             onViewRepository={handleViewRepository}
           />
+        )}
+
+        {/* Guidelines View */}
+        {currentView === 'guidelines' && (
+          <GuidelinesView organization={currentOrg} />
         )}
       </Container>
 
@@ -459,6 +522,18 @@ const Projects: FC = () => {
           onClose={() => setLinkRepoDialogOpen(false)}
           onSubmit={handleLinkExternalRepo}
           isCreating={creating}
+        />
+
+        {/* Agent Selection Modal for Sample Project Fork */}
+        <AgentSelectionModal
+          open={agentModalOpen}
+          onClose={() => {
+            setAgentModalOpen(false)
+            setPendingSampleFork(null)
+          }}
+          onSelect={handleAgentSelected}
+          title="Select Agent for Project"
+          description="Choose a default agent for this project. You can override this when creating individual tasks."
         />
     </Page>
   )

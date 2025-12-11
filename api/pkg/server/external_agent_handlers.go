@@ -760,12 +760,6 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	log.Info().
-		Str("user_id", user.ID).
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Requesting screenshot from sandbox via RevDial")
-
 	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
@@ -826,10 +820,6 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Successfully retrieved screenshot from external agent container")
 }
 
 // @Summary Get session clipboard content
@@ -879,11 +869,6 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		http.Error(res, "External agent container not found", http.StatusNotFound)
 		return
 	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Requesting clipboard from sandbox via RevDial")
 
 	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
@@ -1191,25 +1176,28 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
 
-	// Find placeholder app - prefer "Blank" (test pattern), fall back to "Select Agent" (Wolf-UI)
-	var wolfUIAppID string
+	// Find placeholder app - prefer "Select Agent" (Wolf-UI with real Wayland compositor)
+	// The "Blank" test pattern causes NVENC buffer registration failures on second session
+	// because shared lobby buffers have stale registrations from previous encoder sessions.
+	// See design/2025-12-04-websocket-mode-session-leak.md for details.
+	var placeholderAppID string
 	for _, app := range apps {
-		if app.Title == "Blank" {
-			wolfUIAppID = app.ID
+		if app.Title == "Select Agent" {
+			placeholderAppID = app.ID
 			break
 		}
-		if app.Title == "Select Agent" && wolfUIAppID == "" {
-			wolfUIAppID = app.ID
+		if app.Title == "Blank" && placeholderAppID == "" {
+			placeholderAppID = app.ID
 		}
 	}
-	if wolfUIAppID == "" {
+	if placeholderAppID == "" {
 		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
 	}
 
 	log.Info().
 		Str("lobby_id", lobbyID).
-		Str("wolf_ui_app_id", wolfUIAppID).
-		Msg("[AUTO-JOIN] Found Wolf UI app, querying sessions to find client")
+		Str("placeholder_app_id", placeholderAppID).
+		Msg("[AUTO-JOIN] Found placeholder app, querying sessions to find client")
 
 	// Query Wolf sessions to find the Wolf UI client via interface
 	sessions, err := wolfClient.ListSessions(ctx)
@@ -1234,7 +1222,7 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 	var wolfUISessions []string
 
 	for _, session := range sessions {
-		if session.AppID == wolfUIAppID {
+		if session.AppID == placeholderAppID {
 			sessionInfo := fmt.Sprintf("client_id=%s unique_id=%s ip=%s",
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
 			wolfUISessions = append(wolfUISessions, sessionInfo)
@@ -1393,11 +1381,11 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		for _, session := range sessions {
 			if session.ClientID == moonlightSessionID {
 				// Check if the session is no longer on the test pattern app (Wolf UI / Blank)
-				if session.AppID != wolfUIAppID {
+				if session.AppID != placeholderAppID {
 					log.Info().
 						Str("moonlight_session_id", moonlightSessionID).
 						Str("new_app_id", session.AppID).
-						Str("old_app_id", wolfUIAppID).
+						Str("old_app_id", placeholderAppID).
 						Msg("[AUTO-JOIN] ✅ Session switched to lobby producer, pipeline ready")
 					return nil
 				}

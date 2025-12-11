@@ -12,6 +12,40 @@ export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 
+# Configure host networking for Docker-in-Docker support
+function setup_dev_networking() {
+  echo "🌐 Configuring networking for Docker-in-Docker support..."
+
+  # Check if already configured
+  local NEEDS_SETUP=false
+
+  if [[ $(cat /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null) != "1" ]]; then
+    NEEDS_SETUP=true
+  fi
+
+  if [[ "$NEEDS_SETUP" == "true" ]]; then
+    # route_localnet: Allow 127.x.x.x addresses on non-loopback interfaces
+    # Required for localhost:PORT forwarding to container networks via DNAT
+    sudo sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    echo "✅ Docker-in-Docker networking configured (route_localnet, ip_forward)"
+  else
+    echo "✅ Docker-in-Docker networking already configured"
+  fi
+
+  # Also ensure inotify limits are sufficient for Zed file watching
+  local CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+  local TARGET_WATCHES=1048576
+
+  if [[ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ]]; then
+    echo "📁 Increasing inotify limits for Zed file watching..."
+    sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+    sudo sysctl -w fs.inotify.max_user_instances=8192 >/dev/null 2>&1 || true
+    echo "✅ inotify limits increased"
+  fi
+}
+
 # Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
@@ -37,6 +71,13 @@ function setup_runner_profile() {
     export RUNNER_PROFILE="--profile runner_gpu_amd"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
+  elif [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*(Intel|Iris)" &> /dev/null; then
+    # Intel GPU mode - video encoding supported (QSV), but no GPU compute for LLM inference
+    echo "🖥️ Intel GPU detected - sandbox/video encoding supported (QSV), external LLM recommended for AI inference"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   else
     # CPU mode (fallback)
     echo "❌ No supported GPU detected, running without GPU support"
@@ -277,6 +318,11 @@ function build-zed() {
     return 1
   fi
 
+  # Source cargo environment if it exists (rustup installation)
+  if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+  fi
+
   # Check if Rust is installed
   if ! command -v cargo &> /dev/null; then
     echo "❌ Rust/Cargo not found. Please install Rust first."
@@ -284,8 +330,14 @@ function build-zed() {
     return 1
   fi
 
-  # Create output directory
+  # Create output directory and ensure we own it
+  # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
+  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable (likely created by Docker as root)"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
+  fi
 
   # Change to Zed source directory
   cd "$ZED_SOURCE_DIR"
@@ -434,6 +486,9 @@ function start() {
 
   export MANUALRUN=1
   export LOG_LEVEL=debug
+
+  # Configure host networking for Docker-in-Docker
+  setup_dev_networking
 
   echo "🐳 Starting docker compose"
 
@@ -901,6 +956,53 @@ function build-sway() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
+  # Prepare qwen-code build directory from local fork
+  echo "🔨 Preparing qwen-code build from local repository..."
+
+  if [ ! -d "$HOME/pm/qwen-code" ]; then
+    echo "❌ qwen-code not found at $HOME/pm/qwen-code"
+    echo "   Clone it with: cd ~/pm && git clone git@github.com:helixml/qwen-code.git"
+    exit 1
+  fi
+
+  echo "✅ Found qwen-code at $HOME/pm/qwen-code"
+
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "./qwen-code-build/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "./qwen-code-build/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild - compare git hashes to detect ANY changes
+  local NEEDS_REBUILD=false
+  if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+  fi
+
+  if [ "$NEEDS_REBUILD" = "true" ]; then
+    echo "🔨 Building qwen-code from source..."
+    rm -rf ./qwen-code-build
+    (
+      cd "$HOME/pm/qwen-code"
+      npm install
+      npm run build
+    )
+    cp -r "$HOME/pm/qwen-code" ./qwen-code-build
+    # Save the git commit hash for future change detection
+    echo "$QWEN_CODE_HASH" > ./qwen-code-build/.git-commit-hash
+    echo "✅ qwen-code built and copied to ./qwen-code-build (${QWEN_CODE_HASH:0:8})"
+  else
+    echo "✅ Using existing qwen-code build at ./qwen-code-build"
+  fi
+
+  # Log qwen-code commit for Docker cache busting (hash already computed above)
+  echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
+
   # Build the custom Sway image with image tags
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
@@ -912,40 +1014,50 @@ function build-sway() {
 
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
+  # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
+  local BUILD_SUCCESS=0
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f Dockerfile.sway-helix \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t helix-sway:latest \
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
-      .
+      . || BUILD_SUCCESS=1
   else
     docker build --provenance=false -f Dockerfile.sway-helix \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t helix-sway:latest \
       -t "helix-sway:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      .
+      . || BUILD_SUCCESS=1
+  fi
+
+  if [ $BUILD_SUCCESS -ne 0 ]; then
+    echo "❌ Failed to build Sway container"
+    exit 1
+  fi
+
+  # Verify image was actually created
+  if ! docker image inspect helix-sway:latest &>/dev/null; then
+    echo "❌ helix-sway:latest not found after build - something went wrong"
+    exit 1
   fi
 
   # Capture image hash AFTER build
   local IMAGE_HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
 
-  if [ $? -eq 0 ]; then
-    echo "✅ Sway container built successfully"
-    echo "🪟  Custom Sway image ready: helix-sway:latest"
-    echo ""
-    echo "Features added:"
-    echo "  - Sway tiling window manager with waybar"
-    echo "  - Zed editor with External WebSocket Thread Sync"
-    echo "  - Firefox, Ghostty terminal, OnlyOffice"
-    echo "  - Screenshot server (grim-based) for Moonlight streaming"
-    echo "  - Passwordless sudo for development"
-    echo "  - Docker CLI for container-in-container workflows"
-  else
-    echo "❌ Failed to build Sway container"
-    exit 1
-  fi
+  echo "✅ Sway container built successfully"
+  echo "🪟  Custom Sway image ready: helix-sway:latest"
+  echo ""
+  echo "Features added:"
+  echo "  - Sway tiling window manager with waybar"
+  echo "  - Zed editor with External WebSocket Thread Sync"
+  echo "  - Firefox, Ghostty terminal, OnlyOffice"
+  echo "  - Screenshot server (grim-based) for Moonlight streaming"
+  echo "  - Passwordless sudo for development"
+  echo "  - Docker CLI for container-in-container workflows"
 
   echo "✅ Sway container build completed"
   echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
@@ -981,8 +1093,28 @@ function export-sway-tarball() {
   fi
 
   echo "📦 Exporting helix-sway tarball for bind-mount..."
+
+  # Verify image exists before attempting to save
+  if ! docker image inspect helix-sway:latest &>/dev/null; then
+    echo "❌ helix-sway:latest image not found - build-sway must have failed"
+    return 1
+  fi
+
   docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
-  docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar
+  if ! docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar; then
+    echo "❌ docker save failed"
+    rm -f helix-sway.tar
+    return 1
+  fi
+
+  # Validate tarball is non-empty (docker save can create empty files on failure)
+  TARBALL_SIZE_BYTES=$(stat -c%s helix-sway.tar 2>/dev/null || echo "0")
+  if [ "$TARBALL_SIZE_BYTES" -lt 1000000 ]; then
+    echo "❌ Tarball is suspiciously small (${TARBALL_SIZE_BYTES} bytes) - likely corrupted"
+    rm -f helix-sway.tar
+    return 1
+  fi
+
   echo "$IMAGE_HASH_AFTER" > helix-sway.tar.hash
   echo "${COMMIT_HASH}" > helix-sway.version
   TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
@@ -1203,16 +1335,27 @@ function build-sandbox() {
   echo "📝 [3/4] Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+  # Get image IDs to bust Docker cache when upstream images change
+  # Without this, BuildKit caches the FROM layers even when wolf/moonlight-web are rebuilt
+  local WOLF_IMAGE_ID=$(docker images wolf:helix-fixed -q)
+  local MOONLIGHT_IMAGE_ID=$(docker images helix-moonlight-web:helix-fixed -q)
+  echo "📦 Wolf image ID: ${WOLF_IMAGE_ID:-not found}"
+  echo "📦 Moonlight Web image ID: ${MOONLIGHT_IMAGE_ID:-not found}"
+
   # Build sandbox with tarball embedded
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.sandbox \
+      --build-arg WOLF_IMAGE_ID="${WOLF_IMAGE_ID}" \
+      --build-arg MOONLIGHT_IMAGE_ID="${MOONLIGHT_IMAGE_ID}" \
       -t helix-sandbox:latest \
       -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
       .

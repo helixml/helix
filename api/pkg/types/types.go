@@ -369,6 +369,7 @@ type SessionMetadata struct {
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
+	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
 	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
@@ -1554,6 +1555,11 @@ type AssistantConfig struct {
 	SmallGenerationModelProvider string `json:"small_generation_model_provider" yaml:"small_generation_model_provider"`
 	SmallGenerationModel         string `json:"small_generation_model" yaml:"small_generation_model"`
 
+	// CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+	// Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+	// If empty, defaults to "zed_agent".
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime,omitempty" yaml:"code_agent_runtime,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -2222,13 +2228,31 @@ type ZedSettingsOverride struct {
 
 // ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
 type ZedConfigResponse struct {
-	ContextServers map[string]interface{} `json:"context_servers"`
-	LanguageModels map[string]interface{} `json:"language_models,omitempty"`
-	Assistant      map[string]interface{} `json:"assistant,omitempty"`
-	ExternalSync   map[string]interface{} `json:"external_sync,omitempty"`
-	Agent          map[string]interface{} `json:"agent,omitempty"`
-	Theme          string                 `json:"theme,omitempty"`
-	Version        int64                  `json:"version"` // Unix timestamp of app config update
+	ContextServers  map[string]interface{} `json:"context_servers"`
+	LanguageModels  map[string]interface{} `json:"language_models,omitempty"`
+	Assistant       map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
+	Agent           map[string]interface{} `json:"agent,omitempty"`
+	Theme           string                 `json:"theme,omitempty"`
+	Version         int64                  `json:"version"`                      // Unix timestamp of app config update
+	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
+}
+
+// CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
+// This is dynamically generated based on the spec task's assistant configuration.
+type CodeAgentConfig struct {
+	// Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter")
+	Provider string `json:"provider"`
+	// Model is the model identifier (e.g., "claude-sonnet-4-5-latest", "gpt-4o")
+	Model string `json:"model"`
+	// AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code")
+	AgentName string `json:"agent_name"`
+	// BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
+	BaseURL string `json:"base_url"`
+	// APIType specifies the API format: "anthropic", "openai", or "azure_openai"
+	APIType string `json:"api_type"`
+	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
+	Runtime CodeAgentRuntime `json:"runtime"`
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -2877,6 +2901,7 @@ type ForkSimpleProjectRequest struct {
 	ProjectName     string `json:"project_name"`
 	Description     string `json:"description,omitempty"`
 	OrganizationID  string `json:"organization_id,omitempty"` // Optional: if empty, project is personal
+	HelixAppID      string `json:"helix_app_id,omitempty"`    // Optional: agent app to use for spec tasks (uses default if empty)
 }
 
 // ForkSimpleProjectResponse represents the fork response

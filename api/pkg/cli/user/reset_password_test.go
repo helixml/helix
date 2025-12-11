@@ -19,7 +19,7 @@ func setupTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	apiClient, err := client.NewClient(server.URL+"/api/v1", "test-api-key")
+	apiClient, err := client.NewClient(server.URL+"/api/v1", "test-api-key", false)
 	require.NoError(t, err)
 
 	return server, apiClient

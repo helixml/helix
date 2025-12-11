@@ -10,13 +10,15 @@ import {
   Keyboard,
   Wifi,
   SignalCellularAlt,
+  Speed,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
+import { DualStreamManager } from '../../lib/moonlight-web-ts/stream/dual-stream-manager';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
-import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
+import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
@@ -67,7 +69,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | null>(null); // Stream instance from moonlight-web
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
@@ -98,6 +100,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
+  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
+  // Low mode uses rapid screenshot polling for video while keeping input via the stream
+  // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
+  // Default to 'high' (60fps video) - screenshot mode has app_id issues in lobbies mode
+  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
+  const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
+  const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
+
+  // Screenshot-based low-quality mode state
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Adaptive JPEG quality control - targets 2 FPS (500ms max per frame)
+  const [screenshotQuality, setScreenshotQuality] = useState(70); // JPEG quality 10-90
+  const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
+  const screenshotQualityRef = useRef(70); // Ref for use in async callback
+  // Adaptive mode: auto-enable screenshot overlay when stream latency is high
+  const [adaptiveScreenshotEnabled, setAdaptiveScreenshotEnabled] = useState(false);
+  // Lock-in behavior: once adaptive mode falls back to screenshots, stay there until user explicitly changes mode
+  // This prevents oscillation: when we stop sending video, latency drops, which would cause us to switch back
+  const [adaptiveLockedToScreenshots, setAdaptiveLockedToScreenshots] = useState(false);
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -135,8 +158,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           });
           if (response.ok) {
             const data = await response.json();
-            actualAppId = parseInt(data.wolf_ui_app_id, 10);
-            console.log(`MoonlightStreamViewer: Using Wolf UI app ID ${actualAppId} for lobbies mode, lobby ${wolfLobbyId}`);
+            actualAppId = parseInt(data.placeholder_app_id, 10);
+            console.log(`MoonlightStreamViewer: Using placeholder app ID ${actualAppId} for lobbies mode, lobby ${wolfLobbyId}`);
           } else {
             const errorText = await response.text();
             console.warn(`MoonlightStreamViewer: Failed to fetch Wolf UI app ID: ${errorText}`);
@@ -213,20 +236,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.audioSampleQueueSize = 20;
       settings.playAudioLocal = !audioEnabled;
 
-      // Use H264 Main profile (matches Wolf encoder)
-      // Wolf doesn't support 4:4:4, only 4:2:0 (NV12)
-      const supportedFormats = {
-        H264: true,
-        H264_HIGH8_444: false,  // Wolf doesn't support 4:4:4
-        H265: false,
-        H265_MAIN10: false,
-        H265_REXT8_444: false,
-        H265_REXT10_444: false,
-        AV1_MAIN8: false,
-        AV1_MAIN10: false,
-        AV1_HIGH8_444: false,
-        AV1_HIGH10_444: false
-      };
+      // Detect actual browser codec support
+      // For WebSocket mode: use WebCodecs detection (VideoDecoder.isConfigSupported)
+      // For WebRTC mode: use RTCRtpReceiver detection (default behavior)
+      let supportedFormats;
+      if (streamingMode === 'websocket') {
+        // WebSocket mode uses WebCodecs for decoding - detect actual hardware decoder support
+        console.log('[MoonlightStreamViewer] Detecting WebCodecs supported codecs...');
+        supportedFormats = await getWebCodecsSupportedVideoFormats();
+        console.log('[MoonlightStreamViewer] WebCodecs supported formats:', supportedFormats);
+      } else {
+        // WebRTC mode - use standard video format detection
+        supportedFormats = getStandardVideoFormats();
+      }
 
       // Create Stream instance with mode-aware parameters
       console.log('[MoonlightStreamViewer] Creating Stream instance', {
@@ -237,25 +259,49 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sessionId,
       });
 
-      let stream: Stream | WebSocketStream;
+      let stream: Stream | WebSocketStream | DualStreamManager;
 
       // Check if using WebSocket-only mode
       if (streamingMode === 'websocket') {
         // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
-        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode');
+        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, qualityMode:', qualityMode);
+
+        // Adaptive and High modes: use high-quality 60fps stream
+        // Low mode: still uses stream for input, but screenshot overlay provides video
+        // In adaptive mode, screenshot overlay auto-enables when RTT exceeds threshold
+        const streamSettings = { ...settings };
+        const qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
+
+        if (qualityMode === 'adaptive') {
+          console.log('[MoonlightStreamViewer] Adaptive mode: 60fps stream + auto screenshot fallback');
+        } else if (qualityMode === 'low') {
+          console.log('[MoonlightStreamViewer] Low mode: 60fps stream for input + screenshot overlay');
+        } else {
+          console.log('[MoonlightStreamViewer] High mode: 60fps stream only');
+        }
+
         stream = new WebSocketStream(
           api,
           hostId,
           actualAppId,
-          settings,
+          streamSettings,
           supportedFormats,
           [width, height],
-          sessionId
+          qualitySessionId
         );
 
         // Set canvas for WebSocket stream rendering
         if (canvasRef.current) {
-          stream.setCanvas(canvasRef.current);
+          if (qualityMode !== 'low') {
+            // Normal mode: stream renders frames to canvas
+            stream.setCanvas(canvasRef.current);
+          } else {
+            // Low/screenshot mode: stream is only used for input, not video rendering
+            // But we still need to set canvas dimensions for proper mouse coordinate mapping
+            // (getStreamRect uses canvas.width/height to calculate aspect ratio)
+            canvasRef.current.width = 1920;
+            canvasRef.current.height = 1080;
+          }
         }
       } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
@@ -458,7 +504,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode]);
 
   // Disconnect
   const disconnect = useCallback(() => {
@@ -467,8 +513,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        // Check if it's a WebSocketStream (has close() method)
-        if (streamRef.current instanceof WebSocketStream) {
+        // Check if it's a DualStreamManager
+        if (streamRef.current instanceof DualStreamManager) {
+          console.log('[MoonlightStreamViewer] Closing DualStreamManager...');
+          streamRef.current.close();
+        } else if (streamRef.current instanceof WebSocketStream) {
+          // Check if it's a WebSocketStream (has close() method)
           console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
           streamRef.current.close();
         } else {
@@ -513,13 +563,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setIsConnecting(false);
     setStatus('Disconnected');
     setPendingAutoJoin(false); // Reset auto-join state on disconnect
+    setIsHighLatency(false); // Reset latency warning on disconnect
+    setIsOnFallback(false); // Reset fallback state on disconnect
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
-  // Reconnect
-  const reconnect = useCallback(() => {
+  // Reconnect with configurable delay
+  // Mode switches need longer delay to wait for moonlight-web cleanup (up to 15s)
+  // Normal reconnects (errors, user-initiated) can be faster
+  const reconnect = useCallback((delayMs = 1000) => {
     disconnect();
-    setTimeout(connect, 1000);
+    setTimeout(connect, delayMs);
   }, [disconnect, connect]);
 
   // Toggle fullscreen
@@ -547,29 +601,68 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const previousStreamingModeRef = useRef<StreamingMode>(streamingMode);
 
   // Reconnect when streaming mode changes (user toggled the transport)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
+  // moonlight-web cleanup can take up to 15s (host.cancel() HTTP call), but 5s covers typical cases
   useEffect(() => {
     if (previousStreamingModeRef.current !== streamingMode) {
       console.log('[MoonlightStreamViewer] Streaming mode changed from', previousStreamingModeRef.current, 'to', streamingMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       previousStreamingModeRef.current = streamingMode;
-      reconnect();
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [streamingMode, reconnect]);
 
+  // Track previous quality mode for reconnection
+  const previousQualityModeRef = useRef<'adaptive' | 'high' | 'low'>(qualityMode);
+
+  // Reconnect when quality mode changes (user toggled fps/quality)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
+  useEffect(() => {
+    if (previousQualityModeRef.current !== qualityMode) {
+      console.log('[MoonlightStreamViewer] Quality mode changed from', previousQualityModeRef.current, 'to', qualityMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
+      previousQualityModeRef.current = qualityMode;
+      // Update fallback state immediately for UI feedback
+      setIsOnFallback(qualityMode === 'low');
+      // Reset adaptive lock when user manually changes mode
+      // This allows adaptive mode to start fresh and evaluate latency again
+      setAdaptiveLockedToScreenshots(false);
+      setAdaptiveScreenshotEnabled(false);
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
+    }
+  }, [qualityMode, reconnect]);
+
   // Detect lobby changes and reconnect (for test script restart scenarios)
+  // Uses 5-second delay to wait for moonlight-web cleanup before connecting to new lobby
   useEffect(() => {
     if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
       console.log('[MoonlightStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', wolfLobbyId);
-      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby');
-      reconnect();
+      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby (5s delay)');
+      reconnect(5000); // 5 seconds for lobby switches to allow cleanup
     }
     previousLobbyIdRef.current = wolfLobbyId;
   }, [wolfLobbyId, reconnect]);
 
-  // Auto-connect on mount
+  // Auto-connect when wolfLobbyId becomes available
+  // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
+  // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  const hasConnectedRef = useRef(false);
   useEffect(() => {
+    // Only auto-connect once
+    if (hasConnectedRef.current) return;
+
+    // If wolfLobbyId prop is expected but not yet loaded, wait for it
+    // We detect this by checking if sessionId is provided (external agent mode)
+    // In this mode, wolfLobbyId should be provided by the parent once session data loads
+    if (sessionId && !isPersonalDevEnvironment && !wolfLobbyId) {
+      console.log('[MoonlightStreamViewer] Waiting for wolfLobbyId to load before connecting...');
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Auto-connecting with wolfLobbyId:', wolfLobbyId);
+    hasConnectedRef.current = true;
     connect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps intentional - only connect once on mount
+  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -587,7 +680,194 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
-  // Auto-join lobby after video starts playing (shows zone-plate loading screen briefly)
+  // Screenshot polling for low-quality mode OR adaptive mode with high latency
+  // Targets 2 FPS minimum (500ms max per frame)
+  // Dynamically adjusts JPEG quality based on fetch time
+  const shouldPollScreenshots = qualityMode === 'low' || (qualityMode === 'adaptive' && adaptiveScreenshotEnabled);
+
+  // Notify server to pause/resume video when entering/exiting screenshot mode
+  // This saves bandwidth by not sending video frames we won't display
+  useEffect(() => {
+    const stream = streamRef.current;
+    if (!stream || !(stream instanceof WebSocketStream) || !isConnected) {
+      return;
+    }
+
+    if (shouldPollScreenshots) {
+      console.log('[MoonlightStreamViewer] Entering screenshot mode - pausing video stream');
+      stream.setVideoEnabled(false);
+    } else {
+      console.log('[MoonlightStreamViewer] Exiting screenshot mode - resuming video stream');
+      stream.setVideoEnabled(true);
+    }
+  }, [shouldPollScreenshots, isConnected]);
+
+  useEffect(() => {
+    // Only poll screenshots when needed
+    if (!shouldPollScreenshots || !isConnected || !sessionId) {
+      // Clean up old screenshot URL when exiting screenshot mode
+      if (screenshotUrl) {
+        URL.revokeObjectURL(screenshotUrl);
+        setScreenshotUrl(null);
+      }
+      // Reset quality to default when exiting
+      screenshotQualityRef.current = 70;
+      setScreenshotQuality(70);
+      setScreenshotFps(0);
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Starting screenshot polling:', qualityMode === 'low' ? 'low mode' : 'adaptive fallback');
+
+    let isPolling = true;
+    let lastFrameTime = Date.now();
+    let frameCount = 0;
+    let fpsStartTime = Date.now();
+
+    const fetchScreenshot = async () => {
+      if (!isPolling) return;
+
+      const startTime = Date.now();
+      const currentQuality = screenshotQualityRef.current;
+
+      try {
+        // Pass quality parameter to screenshot endpoint
+        const endpoint = `/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=${currentQuality}`;
+        const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          console.warn('[MoonlightStreamViewer] Screenshot fetch failed:', response.status);
+          // Schedule next fetch after a short delay on error
+          if (isPolling) setTimeout(fetchScreenshot, 200);
+          return;
+        }
+
+        const blob = await response.blob();
+        const fetchTime = Date.now() - startTime;
+        const newUrl = URL.createObjectURL(blob);
+
+        // Update FPS counter
+        frameCount++;
+        const elapsedSinceStart = Date.now() - fpsStartTime;
+        if (elapsedSinceStart >= 1000) {
+          const fps = frameCount / (elapsedSinceStart / 1000);
+          setScreenshotFps(Math.round(fps * 10) / 10);
+          frameCount = 0;
+          fpsStartTime = Date.now();
+        }
+
+        // Adaptive quality control: target 500ms max per frame (2 FPS minimum)
+        // - If fetch took > 500ms: decrease quality to speed up (min 10)
+        // - If fetch took < 300ms: increase quality for better image (max 90)
+        // - Between 300-500ms: keep current quality (sweet spot)
+        let newQuality = currentQuality;
+        if (fetchTime > 500) {
+          // Too slow - decrease quality aggressively
+          newQuality = Math.max(10, currentQuality - 10);
+          console.log(`[Screenshot] Slow fetch (${fetchTime}ms), decreasing quality: ${currentQuality} → ${newQuality}`);
+        } else if (fetchTime < 300 && currentQuality < 90) {
+          // Fast enough - increase quality slightly
+          newQuality = Math.min(90, currentQuality + 5);
+          // Only log quality increases occasionally to reduce spam
+          if (newQuality % 10 === 0) {
+            console.log(`[Screenshot] Fast fetch (${fetchTime}ms), increasing quality: ${currentQuality} → ${newQuality}`);
+          }
+        }
+
+        if (newQuality !== currentQuality) {
+          screenshotQualityRef.current = newQuality;
+          setScreenshotQuality(newQuality);
+        }
+
+        // Preload image before displaying
+        const img = new Image();
+        img.onload = () => {
+          setScreenshotUrl((oldUrl) => {
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+            return newUrl;
+          });
+          // Schedule next frame with rate limiting
+          if (isPolling) {
+            // Cap at 10 FPS max (100ms minimum interval) to prevent CPU hammering from forking grim
+            // If fetch took less than 100ms, wait the remainder; otherwise fetch immediately
+            const minInterval = 100; // 10 FPS max
+            const delay = Math.max(0, minInterval - fetchTime);
+            setTimeout(fetchScreenshot, delay);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(newUrl);
+          // Retry on error
+          if (isPolling) setTimeout(fetchScreenshot, 200);
+        };
+        img.src = newUrl;
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Screenshot fetch error:', err);
+        // Schedule next fetch after a short delay on error
+        if (isPolling) setTimeout(fetchScreenshot, 200);
+      }
+    };
+
+    // Start continuous polling
+    fetchScreenshot();
+
+    return () => {
+      isPolling = false;
+    };
+  }, [shouldPollScreenshots, isConnected, sessionId]);
+
+  // Cleanup screenshot URL on unmount
+  useEffect(() => {
+    return () => {
+      if (screenshotUrl) {
+        URL.revokeObjectURL(screenshotUrl);
+      }
+    };
+  }, [screenshotUrl]);
+
+  // Adaptive mode: monitor RTT and auto-enable screenshot overlay when latency is high
+  // Once locked to screenshots, stay there until user manually changes mode (prevents oscillation)
+  // When we stop sending video, latency drops, which would otherwise trigger switching back
+  useEffect(() => {
+    if (qualityMode !== 'adaptive' || !isConnected || !streamRef.current) {
+      setAdaptiveScreenshotEnabled(false);
+      return;
+    }
+
+    // If already locked to screenshots, stay there (prevent oscillation)
+    if (adaptiveLockedToScreenshots) {
+      if (!adaptiveScreenshotEnabled) {
+        setAdaptiveScreenshotEnabled(true);
+      }
+      return;
+    }
+
+    const ENABLE_THRESHOLD_MS = 150;  // Enable screenshot overlay when RTT > 150ms
+    const CHECK_INTERVAL_MS = 1000;   // Check every second
+
+    const checkRtt = () => {
+      const stream = streamRef.current;
+      if (!stream || !(stream instanceof WebSocketStream)) return;
+
+      const wsStats = stream.getStats();
+      const rtt = wsStats.rttMs;
+
+      // Only check for enabling - once enabled, we lock in (user must manually switch back)
+      if (rtt > ENABLE_THRESHOLD_MS && !adaptiveScreenshotEnabled) {
+        console.log(`[Adaptive] High latency detected (${rtt.toFixed(0)}ms > ${ENABLE_THRESHOLD_MS}ms), locking to screenshot mode`);
+        console.log(`[Adaptive] To try video again, manually switch to High mode then back to Adaptive`);
+        setAdaptiveScreenshotEnabled(true);
+        setAdaptiveLockedToScreenshots(true);  // Lock in - prevent oscillation
+      }
+    };
+
+    const intervalId = setInterval(checkRtt, CHECK_INTERVAL_MS);
+    checkRtt(); // Initial check
+
+    return () => clearInterval(intervalId);
+  }, [qualityMode, isConnected, adaptiveScreenshotEnabled, adaptiveLockedToScreenshots]);
+
+  // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
   useEffect(() => {
     if (!pendingAutoJoin || !sessionId) return;
@@ -795,16 +1075,49 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket mode - poll stats from WebSocketStream
+    // WebSocket mode - poll stats from WebSocketStream or DualStreamManager
     if (streamingMode === 'websocket') {
       const pollWsStats = () => {
-        const wsStream = streamRef.current as WebSocketStream | null;
-        if (!wsStream) return;
+        const currentStream = streamRef.current;
+        if (!currentStream) return;
 
+        // Handle DualStreamManager
+        if (currentStream instanceof DualStreamManager) {
+          const dualStats = currentStream.getStats();
+          setStats({
+            video: {
+              codec: `H264 (WebSocket${dualStats.activeStream === 'fallback' ? ' - Low Quality' : ''})`,
+              width: dualStats.width,
+              height: dualStats.height,
+              fps: dualStats.fps,
+              videoPayloadBitrate: dualStats.videoPayloadBitrateMbps.toFixed(2),
+              totalBitrate: dualStats.totalBitrateMbps.toFixed(2),
+              framesDecoded: dualStats.framesDecoded,
+              framesDropped: dualStats.framesDropped,
+              rttMs: dualStats.rttMs,
+              isHighLatency: dualStats.isHighLatency,
+              // Additional dual-stream info
+              activeStream: dualStats.activeStream,
+              primaryRttMs: dualStats.primaryRttMs,
+              fallbackRttMs: dualStats.fallbackRttMs,
+            },
+            connection: {
+              transport: `WebSocket (L7) - ${dualStats.activeStream === 'primary' ? '60fps' : '~1fps'}`,
+            },
+            timestamp: new Date().toISOString(),
+          });
+          setIsHighLatency(dualStats.isHighLatency);
+          setIsOnFallback(dualStats.activeStream === 'fallback');
+          return;
+        }
+
+        // Handle regular WebSocketStream
+        const wsStream = currentStream as WebSocketStream;
         const wsStats = wsStream.getStats();
+        const isForcedLow = qualityMode === 'low';
         setStats({
           video: {
-            codec: 'H264 (WebSocket)',
+            codec: `H264 (WebSocket${isForcedLow ? ' - ~1fps' : ''})`,
             width: wsStats.width,
             height: wsStats.height,
             fps: wsStats.fps,
@@ -812,12 +1125,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             totalBitrate: wsStats.totalBitrateMbps.toFixed(2),                 // Everything
             framesDecoded: wsStats.framesDecoded,
             framesDropped: wsStats.framesDropped,
+            rttMs: wsStats.rttMs,                                              // RTT in ms
+            isHighLatency: wsStats.isHighLatency,                              // High latency flag
+            // Batching stats for congestion visibility
+            batchingRatio: wsStats.batchingRatio,                              // % of frames batched
+            avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
+            batchesReceived: wsStats.batchesReceived,                          // Total batches
           },
           connection: {
-            transport: 'WebSocket (L7)',
+            transport: `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
           },
           timestamp: new Date().toISOString(),
         });
+        // Update high latency state for warning banner
+        setIsHighLatency(wsStats.isHighLatency);
+        // Show orange border for forced low quality mode
+        setIsOnFallback(isForcedLow);
       };
 
       // Poll every second
@@ -903,7 +1226,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats, streamingMode, width, height]);
+  }, [showStats, streamingMode, width, height, qualityMode]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
@@ -1253,7 +1576,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           gap: 1,
         }}
       >
-        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title={audioEnabled ? 'Mute audio' : 'Unmute audio'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setAudioEnabled(!audioEnabled)}
@@ -1262,7 +1585,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {audioEnabled ? <VolumeUp fontSize="small" /> : <VolumeOff fontSize="small" />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Reconnect to streaming server" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <span>
             <IconButton
               size="small"
@@ -1274,7 +1597,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Stats for nerds - show streaming statistics" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setShowStats(!showStats)}
@@ -1283,7 +1606,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <BarChart fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
@@ -1292,19 +1615,58 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title={streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
-          <IconButton
-            size="small"
-            onClick={() => {
-              // Toggle mode - the useEffect below will handle reconnection
-              setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
-            }}
-            sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
-          >
-            {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
-          </IconButton>
+        <Tooltip title={modeSwitchCooldown ? 'Please wait...' : streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+          <span>
+            <IconButton
+              size="small"
+              disabled={modeSwitchCooldown}
+              onClick={() => {
+                // Toggle mode with cooldown to prevent Wolf deadlock from rapid switching
+                setModeSwitchCooldown(true);
+                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+                setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
+              }}
+              sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
+            >
+              {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
+            </IconButton>
+          </span>
         </Tooltip>
-        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { sx: { zIndex: 10000 } } }}>
+        {/* Quality mode toggle: video (high) <-> screenshots (low) */}
+        {streamingMode === 'websocket' && (
+          <Tooltip
+            title={
+              modeSwitchCooldown
+                ? 'Please wait...'
+                : qualityMode === 'high'
+                ? 'Video mode (60fps) — Click for Screenshot mode'
+                : 'Screenshot mode — Click for Video mode'
+            }
+            arrow
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+          >
+            <span>
+              <IconButton
+                size="small"
+                disabled={modeSwitchCooldown}
+                onClick={() => {
+                  // Toggle between high (video) and low (screenshots)
+                  // With cooldown to prevent Wolf deadlock from rapid switching
+                  setModeSwitchCooldown(true);
+                  setQualityMode(prev => prev === 'high' ? 'low' : 'high');
+                  setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
+                }}
+                sx={{
+                  // Orange for screenshot mode, white for video mode
+                  color: qualityMode === 'low' ? '#ff9800' : 'white',
+                }}
+              >
+                <Speed fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
             onClick={toggleFullscreen}
@@ -1314,6 +1676,44 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </IconButton>
         </Tooltip>
       </Box>
+
+      {/* Screenshot Mode / High Latency Warning Banner */}
+      {shouldPollScreenshots && isConnected && streamingMode === 'websocket' && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            backgroundColor: 'rgba(255, 152, 0, 0.95)',
+            color: 'black',
+            padding: '4px 16px',
+            borderRadius: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 0.5,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Wifi sx={{ fontSize: 16 }} />
+            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+              {qualityMode === 'adaptive'
+                ? `High latency detected — using screenshots (${screenshotFps} FPS)`
+                : `Screenshot mode (${screenshotFps} FPS @ ${screenshotQuality}% quality)`
+              }
+            </Typography>
+          </Box>
+          {qualityMode === 'adaptive' && adaptiveLockedToScreenshots && (
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
+              Video paused to save bandwidth. Click speed icon to retry video.
+            </Typography>
+          )}
+        </Box>
+      )}
 
       {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
       {showLoadingOverlay && (
@@ -1342,6 +1742,43 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               ? 'Stopping old session and starting with fresh startup script'
               : 'Creating new session and running startup script'}
           </Typography>
+        </Box>
+      )}
+
+      {/* Disconnected Overlay - prominent reconnection indicator */}
+      {!isConnecting && !isConnected && !error && retryCountdown === null && !showLoadingOverlay && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 1500,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <CircularProgress size={48} sx={{ color: 'warning.main' }} />
+          <Typography variant="h6" sx={{ color: 'white' }}>
+            Connecting...
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+            {status || 'Attempting to reconnect...'}
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={reconnect}
+            startIcon={<Refresh />}
+            sx={{ mt: 2 }}
+          >
+            Reconnect Now
+          </Button>
         </Box>
       )}
 
@@ -1452,6 +1889,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }}
       />
 
+      {/* Screenshot overlay for low-quality mode */}
+      {/* Shows rapidly-updated screenshots instead of video stream while keeping input working */}
+      {shouldPollScreenshots && screenshotUrl && streamingMode === 'websocket' && (
+        <img
+          src={screenshotUrl}
+          alt="Remote Desktop Screenshot"
+          style={{
+            width: '100%',
+            height: '100%',
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            objectFit: 'contain',
+            pointerEvents: 'none', // Allow clicks to pass through to canvas for input
+            zIndex: 10, // Above canvas but below UI elements
+          }}
+        />
+      )}
+
       {/* Custom cursor dot to show local mouse position */}
       <Box
         sx={{
@@ -1475,7 +1931,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       {/* Input Hint - removed since auto-focus handles keyboard input */}
 
       {/* Stats for Nerds Overlay */}
-      {showStats && stats && (
+      {showStats && (stats || qualityMode === 'low') && (
         <Box
           sx={{
             position: 'absolute',
@@ -1498,7 +1954,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
             <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'}</div>
-            {stats.video.codec && (
+            {stats?.video?.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
@@ -1513,6 +1969,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames
                   {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
                 </div>
+                {/* RTT (WebSocket mode) */}
+                {streamingMode === 'websocket' && stats.video.rttMs !== undefined && (
+                  <div>
+                    <strong>RTT:</strong> {stats.video.rttMs.toFixed(0)} ms
+                    {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
+                  </div>
+                )}
+                {/* Batching stats (WebSocket mode) - shows congestion handling */}
+                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                  <div>
+                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
+                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
+                      : 'OFF'}
+                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
+                  </div>
+                )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
                 {streamingMode === 'webrtc' && (
                   <>
@@ -1526,7 +1998,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 )}
               </>
             )}
-            {!stats.video.codec && <div>Waiting for video data...</div>}
+            {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
+            {/* Screenshot mode stats */}
+            {shouldPollScreenshots && (
+              <>
+                <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                  <strong style={{ color: '#ff9800' }}>📸 Screenshot Mode</strong>
+                </div>
+                <div><strong>FPS:</strong> {screenshotFps} <span style={{ color: '#888' }}>target: ≥2</span></div>
+                <div>
+                  <strong>JPEG Quality:</strong> {screenshotQuality}%
+                  <span style={{ color: '#888' }}> (adaptive 10-90)</span>
+                </div>
+              </>
+            )}
           </Box>
         </Box>
       )}

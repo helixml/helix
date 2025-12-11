@@ -114,6 +114,7 @@ type OpenAIModel struct {
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
 type UpdateProviderEndpoint struct {
+	Name         string               `json:"name"`
 	Description  string               `json:"description"`
 	Models       []string             `json:"models"`
 	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)

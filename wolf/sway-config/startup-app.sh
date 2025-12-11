@@ -13,34 +13,28 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# CRITICAL: Create workspace symlink for Hydra bind-mount compatibility
-# When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
-# By mounting workspace at its actual path (e.g., /filestore/workspaces/spec-tasks/{id})
-# and symlinking /home/retro/work -> that path, user bind-mounts work correctly.
+# Workspace setup: Wolf executor mounts workspace at BOTH paths via bind mount:
+# 1. $WORKSPACE_DIR (e.g., /data/workspaces/spec-tasks/{id}) - for Docker wrapper hacks
+# 2. /home/retro/work - so agent tools see a real directory (not a symlink)
+# This eliminates symlink confusion where tools resolve symlinks and get confused.
 # See: design/2025-12-01-hydra-bind-mount-symlink.md
-if [ -n "$WORKSPACE_DIR" ] && [ -d "$WORKSPACE_DIR" ]; then
-    # Remove existing symlink or directory if it exists
-    if [ -L /home/retro/work ]; then
-        rm -f /home/retro/work
-    elif [ -d /home/retro/work ]; then
-        # If it's a real directory (not a symlink), remove it only if empty
-        rmdir /home/retro/work 2>/dev/null || true
-    fi
-
-    # Create symlink: /home/retro/work -> $WORKSPACE_DIR
-    if [ ! -e /home/retro/work ]; then
-        ln -sf "$WORKSPACE_DIR" /home/retro/work
-        echo "Created workspace symlink: /home/retro/work -> $WORKSPACE_DIR"
-    fi
-
-    # Ensure correct ownership on the actual workspace directory
-    sudo chown retro:retro "$WORKSPACE_DIR"
-else
-    echo "Warning: WORKSPACE_DIR not set or doesn't exist, using /home/retro/work directly"
-    # Fallback: ensure /home/retro/work exists
-    mkdir -p /home/retro/work
-    sudo chown retro:retro /home/retro/work
+# CRITICAL: No fallbacks - these mounts MUST exist or fail fast
+if [ -z "$WORKSPACE_DIR" ]; then
+    echo "FATAL: WORKSPACE_DIR environment variable not set"
+    exit 1
 fi
+if [ ! -d "$WORKSPACE_DIR" ]; then
+    echo "FATAL: WORKSPACE_DIR does not exist: $WORKSPACE_DIR"
+    exit 1
+fi
+if [ ! -d /home/retro/work ]; then
+    echo "FATAL: /home/retro/work bind mount not present - Wolf executor must mount workspace at both paths"
+    exit 1
+fi
+# Ensure correct ownership on both workspace paths (same underlying directory)
+sudo chown retro:retro "$WORKSPACE_DIR"
+sudo chown retro:retro /home/retro/work
+echo "Workspace mounted at both $WORKSPACE_DIR and /home/retro/work"
 
 # CRITICAL: Create Zed config symlinks BEFORE Sway starts
 # Settings-sync-daemon (started by Sway) needs the symlink to exist
@@ -69,6 +63,15 @@ mkdir -p ~/.cache
 ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
+
+# Create symlink for Qwen Code session persistence
+# Qwen stores sessions at ~/.qwen/tmp/<project_hash>/chats/
+# By symlinking to workspace, sessions persist across container restarts
+QWEN_STATE_DIR=$WORK_DIR/.qwen-state
+mkdir -p $QWEN_STATE_DIR
+rm -rf ~/.qwen
+ln -sf $QWEN_STATE_DIR ~/.qwen
+echo "✅ Qwen state symlink created (~/.qwen -> $QWEN_STATE_DIR)"
 
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately

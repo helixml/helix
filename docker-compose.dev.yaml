@@ -126,8 +126,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    # ports:
-    #  - 5432:5432
+    ports:
+     - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:

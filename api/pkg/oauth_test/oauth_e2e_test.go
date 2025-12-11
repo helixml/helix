@@ -275,7 +275,7 @@ paths:
 	mockClient.EXPECT().APIKey().Return("test-key").AnyTimes()
 
 	// Create OAuth manager
-	oauthManager := oauth.NewManager(db)
+	oauthManager := oauth.NewManager(db, cfg.Tools.TLSSkipVerify)
 	err = oauthManager.LoadProviders(context.Background())
 	require.NoError(t, err, "Failed to load OAuth providers")
 

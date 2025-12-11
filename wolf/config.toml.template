@@ -4,6 +4,18 @@ uuid = ''
 paired_clients = []
 pin = []
 
+# =============================================================================
+# NOTE: This template is processed by wolf/docker/init-wolf-config.sh at startup
+# The following values are substituted from environment variables:
+#   - {{HELIX_HOSTNAME}} → WOLF_INSTANCE_ID
+#   - uuid → auto-generated if empty
+#   - pin → MOONLIGHT_INTERNAL_PAIRING_PIN
+#   - gop-size=N → GOP_SIZE (hardware encoders: nvenc, vaapi, qsv)
+#   - key-int-max=N → GOP_SIZE (VA-API encoders)
+#   - keyint=N → GOP_SIZE (software encoders: x264enc, x265enc)
+#   - keyframe-max-dist=N → GOP_SIZE (software av1enc / libaom)
+# =============================================================================
+
 # wolf-ui requires profiles instead of top-level apps array
 # Apps created via API will be added to this profile
 [[profiles]]
@@ -27,7 +39,7 @@ start_audio_server = false
     [profiles.apps.video]
     # Solid purple loading screen (#a100c7)
     # videotestsrc pattern=solid-color with foreground-color as ARGB (0xFFa100c7 = 4288938183)
-    # Produces system RAM frames - consumer pipeline's cudaupload handles GPU upload
+    # Wolf's start_test_pattern_producer() handles GPU upload based on detected GPU type
     source = '''videotestsrc pattern=solid-color foreground-color=4288938183 is-live=true !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 
@@ -41,7 +53,8 @@ video/x-raw, width={width}, height={height}, framerate={fps}/1, format=NV12'''
 start_virtual_compositor = true
 title = 'Select Agent'
 icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
-video_producer_buffer_caps = 'video/x-raw(memory:CUDAMemory)'
+# NOTE: video_producer_buffer_caps is computed automatically per-GPU by Wolf.
+# See configTOML.cpp:compute_pipeline_defaults() - NVIDIA gets CUDAMemory, AMD/Intel get DMABuf.
 
     [profiles.apps.runner]
     type = 'docker'
@@ -91,14 +104,12 @@ video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixe
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    # Intel VA-API BGRA/ARGB bug fix: use msdkvpp instead of vapostproc (GPU-accelerated)
-    # vapostproc has color channel bug on Intel (intel/media-driver#644, #1820)
-    # msdkvpp uses force-aspect-ratio=true by default (no add-borders property)
-    #video_params_zero_copy = '''msdkvpp
-    #video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
-    #
-    # --- FALLBACK: vapostproc (has R/B color swap bug on Intel, but known working) ---
-    # Uncomment below and comment out msdkvpp above to revert:
+    # Intel VA-API: vapostproc works correctly on Mesa 25.2+ (Ubuntu 25.10+, etc.)
+    # Older Mesa versions had a BGRA/ARGB color swap bug (intel/media-driver#644, #1820)
+    # that required using msdkvpp as a workaround - no longer needed on modern distros.
+    # If you hit color issues on older Mesa, try msdkvpp instead:
+    #   video_params_zero_copy = '''msdkvpp !
+    #   video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
     video_params_zero_copy = '''vapostproc add-borders=true !
 video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
     #
@@ -132,35 +143,35 @@ video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'nvav1enc', 'cudaconvertscale', 'cudaupload' ]
-    encoder_pipeline = '''nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    encoder_pipeline = '''nvav1enc gop-size=120 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'nvcodec'
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'qsvav1enc', 'vapostproc' ]
-    encoder_pipeline = '''qsvav1enc gop-size=15 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+    encoder_pipeline = '''qsvav1enc gop-size=120 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'qsv'
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'vaav1enc', 'vapostproc' ]
-    encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'va'
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'vaav1lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'va'
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'av1enc' ]
-    encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
+    encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} keyframe-max-dist=120 !
 av1parse !
 video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
     plugin_name = 'aom'
@@ -175,28 +186,28 @@ chroma-site={color_range}, colorimetry={color_space}'''
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'nvh264enc', 'cudaconvertscale', 'cudaupload' ]
-    encoder_pipeline = '''nvh264enc preset=low-latency-hq zerolatency=true gop-size=15 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
+    encoder_pipeline = '''nvh264enc preset=low-latency-hq zerolatency=true gop-size=120 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'nvcodec'
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'qsvh264enc', 'vapostproc' ]
-    encoder_pipeline = '''qsvh264enc b-frames=0 gop-size=15 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6  !
+    encoder_pipeline = '''qsvh264enc b-frames=0 gop-size=120 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6  !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'qsv'
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'vah264enc', 'vapostproc' ]
-    encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
 
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'vah264lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 h264parse !
 video/x-h264, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
@@ -204,35 +215,35 @@ video/x-h264, profile=main, stream-format=byte-stream'''
     [[gstreamer.video.h264_encoders]]
     check_elements = [ 'x264enc' ]
     encoder_pipeline = '''x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1
-sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0"
+sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=120:open-gop=0"
 b-adapt=false bitrate={bitrate} aud=false !
 video/x-h264, profile=high, stream-format=byte-stream'''
     plugin_name = 'x264'
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'nvh265enc', 'cudaconvertscale', 'cudaupload' ]
-    encoder_pipeline = '''nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    encoder_pipeline = '''nvh265enc gop-size=120 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'nvcodec'
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'qsvh265enc', 'vapostproc' ]
-    encoder_pipeline = '''qsvh265enc b-frames=0 gop-size=15 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+    encoder_pipeline = '''qsvh265enc b-frames=0 gop-size=120 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'qsv'
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'vah265enc', 'vapostproc' ]
-    encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
 
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'vah265lpenc', 'vapostproc' ]
-    encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+    encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=120 rate-control=cqp target-usage=6 !
 h265parse !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'va'
@@ -240,7 +251,7 @@ video/x-h265, profile=main, stream-format=byte-stream'''
     [[gstreamer.video.hevc_encoders]]
     check_elements = [ 'x265enc' ]
     encoder_pipeline = '''x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate}
-option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
+option-string="info=0:keyint=120:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
 video/x-h265, profile=main, stream-format=byte-stream'''
     plugin_name = 'x265'
     video_params = '''videoconvertscale !

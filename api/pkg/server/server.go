@@ -101,35 +101,39 @@ type HelixAPIServer struct {
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	// Comment queue per planning session - serializes comment responses
-	sessionCommentQueue         map[string][]string  // planning_session_id -> queue of comment_ids waiting for response
-	sessionCurrentComment       map[string]string    // planning_session_id -> currently processing comment_id
-	sessionCommentMutex         sync.RWMutex         // Mutex for comment queue operations
-	requestToCommenterMapping   map[string]string    // request_id -> commenter user_id (for design review streaming)
-	inferenceServer             *openai.InternalHelixServer
-	knowledgeManager            knowledge.Manager
-	skillManager                *api_skill.Manager
-	router                      *mux.Router
-	scheduler                   *scheduler.Scheduler
-	pingService                 *version.PingService
-	authenticator               auth.Authenticator
-	oidcClient                  auth.OIDC
-	oauthManager                *oauth.Manager
-	fileServerHandler           http.Handler
-	cache                       *ristretto.Cache[string, string]
-	avatarsBucket               *blob.Bucket
-	trigger                     *trigger.Manager
-	specDrivenTaskService       *services.SpecDrivenTaskService
-	sampleProjectCodeService    *services.SampleProjectCodeService
-	gitRepositoryService        *services.GitRepositoryService
-	koditService                *services.KoditService
-	gitHTTPServer               *services.GitHTTPServer
-	moonlightProxy              *moonlight.MoonlightProxy
-	moonlightServer             *moonlight.MoonlightServer
-	specTaskOrchestrator        *services.SpecTaskOrchestrator
-	externalAgentPool           *services.ExternalAgentPool
-	projectInternalRepoService  *services.ProjectInternalRepoService
-	anthropicProxy              *anthropic.Proxy
-	adminAlerter                *notification.AdminAlerter
+	sessionCommentQueue       map[string][]string // planning_session_id -> queue of comment_ids waiting for response
+	sessionCurrentComment     map[string]string   // planning_session_id -> currently processing comment_id
+	sessionCommentMutex       sync.RWMutex        // Mutex for comment queue operations
+	requestToCommenterMapping map[string]string   // request_id -> commenter user_id (for design review streaming)
+	inferenceServer           *openai.InternalHelixServer
+	knowledgeManager          knowledge.Manager
+	skillManager              *api_skill.Manager
+	router                    *mux.Router
+	scheduler                 *scheduler.Scheduler
+	pingService               *version.PingService
+	authenticator             auth.Authenticator
+	oidcClient                auth.OIDC
+	oauthManager              *oauth.Manager
+	fileServerHandler         http.Handler
+	cache                     *ristretto.Cache[string, string]
+	avatarsBucket             *blob.Bucket
+	trigger                   *trigger.Manager
+	specDrivenTaskService     *services.SpecDrivenTaskService
+	sampleProjectCodeService  *services.SampleProjectCodeService
+	gitRepositoryService      *services.GitRepositoryService
+	koditService              *services.KoditService
+	gitHTTPServer             *services.GitHTTPServer
+	moonlightProxy            *moonlight.MoonlightProxy
+	moonlightServer           *moonlight.MoonlightServer
+	// Rate limiting for streaming connections (prevents Wolf deadlock from rapid reconnects)
+	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
+	streamingRateLimiterMutex  sync.RWMutex
+	specTaskOrchestrator       *services.SpecTaskOrchestrator
+	externalAgentPool          *services.ExternalAgentPool
+	projectInternalRepoService *services.ProjectInternalRepoService
+	anthropicProxy             *anthropic.Proxy
+	adminAlerter               *notification.AdminAlerter
+	wg                         sync.WaitGroup // Control for goroutines to enable tests
 }
 
 func NewServer(
@@ -227,20 +231,11 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
-	// Default QWEN_BASE_URL to SERVER_URL/v1 if not set
-	qwenBaseURL := cfg.ExternalAgents.QwenBaseURL
-	if qwenBaseURL == "" {
-		qwenBaseURL = cfg.WebServer.URL + "/v1"
-	}
-
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		sandboxAPIURL,
 		cfg.WebServer.RunnerToken,
-		qwenBaseURL,
-		cfg.ExternalAgents.QwenModel,
-		cfg.ExternalAgents.QwenAPIKey,
 		store,
 		connectionManager,
 	)
@@ -257,14 +252,19 @@ func NewServer(
 		Controller: controller,
 		Janitor:    janitor,
 
-		externalAgentExecutor:      externalAgentExecutor,
-		externalAgentWSManager:     externalAgentWSManager,
-		externalAgentRunnerManager: externalAgentRunnerManager,
-		contextMappings:            make(map[string]string),
-		sessionCommentQueue:        make(map[string][]string),
-		sessionCurrentComment:      make(map[string]string),
-		requestToCommenterMapping:  make(map[string]string),
-		inferenceServer:            inferenceServer,
+		externalAgentExecutor:       externalAgentExecutor,
+		externalAgentWSManager:      externalAgentWSManager,
+		externalAgentRunnerManager:  externalAgentRunnerManager,
+		contextMappings:             make(map[string]string),
+		sessionToWaitingInteraction: make(map[string]string),
+		requestToSessionMapping:     make(map[string]string),
+		externalAgentSessionMapping: make(map[string]string),
+		externalAgentUserMapping:    make(map[string]string),
+		sessionCommentQueue:         make(map[string][]string),
+		sessionCurrentComment:       make(map[string]string),
+		requestToCommenterMapping:   make(map[string]string),
+		streamingRateLimiter:        make(map[string]time.Time),
+		inferenceServer:             inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
@@ -420,6 +420,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		log.Error().Err(err).Msg("failed to seed models from environment - continuing startup")
 		// Don't fail startup if seeding fails, just log the error
 	}
+
+	// Start background model cache refresh to ensure provider model lists are always cached.
+	// This is critical for:
+	// 1. API-only clients that don't use the UI (which triggers cache population)
+	// 2. Handling HuggingFace model IDs like "Qwen/Qwen3-Coder" correctly
+	// 3. Detecting when providers come back online after being down
+	apiServer.StartModelCacheRefresh(ctx)
 
 	apiServer.startUserWebSocketServer(
 		ctx,
@@ -770,6 +777,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/members/{user_id}", apiServer.updateOrganizationMember).Methods(http.MethodPut)
 
 	authRouter.HandleFunc("/organizations/{id}/roles", apiServer.listOrganizationRoles).Methods(http.MethodGet)
+	authRouter.HandleFunc("/organizations/{id}/guidelines-history", apiServer.getOrganizationGuidelinesHistory).Methods(http.MethodGet)
 
 	// Teams
 	authRouter.HandleFunc("/organizations/{id}/teams", apiServer.listTeams).Methods(http.MethodGet)
@@ -851,8 +859,28 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		defer backendConn.Close()
 		defer resp.Body.Close()
 
-		// Start two goroutines to copy data between the client and the backend.
-		errCh := make(chan error, 2)
+		// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+		var clientMu sync.Mutex
+
+		// Start three goroutines: client→backend, backend→client, and ping
+		errCh := make(chan error, 3)
+
+		// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				<-ticker.C
+				clientMu.Lock()
+				err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				clientMu.Unlock()
+				if err != nil {
+					log.Debug().Err(err).Str("runner_id", runnerID).Msg("NATS WebSocket proxy ping failed, connection closing")
+					errCh <- nil
+					return
+				}
+			}
+		}()
 
 		// Copy messages from the client to the backend.
 		go func() {
@@ -877,8 +905,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 					errCh <- err
 					return
 				}
-				if err := clientConn.WriteMessage(messageType, message); err != nil {
-					errCh <- err
+				// Mutex protects against concurrent ping writes
+				clientMu.Lock()
+				writeErr := clientConn.WriteMessage(messageType, message)
+				clientMu.Unlock()
+				if writeErr != nil {
+					errCh <- writeErr
 					return
 				}
 			}
@@ -938,6 +970,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
@@ -959,6 +992,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
+	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/quick-create", apiServer.quickCreateProject).Methods(http.MethodPost)
 
 	// Workflow automation routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost)
@@ -1024,6 +1062,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/search-snippets", apiServer.searchRepositorySnippets).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/kodit-status", apiServer.getRepositoryIndexingStatus).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/push-pull", apiServer.pushPullGitRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/pull", apiServer.pullFromRemote).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/push", apiServer.pushToRemote).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/commits", apiServer.listGitRepositoryCommits).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
@@ -1411,6 +1451,32 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
+		// Mutex for thread-safe WebSocket writes (pings + NATS messages can race)
+		var wsMu sync.Mutex
+
+		// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					wsMu.Lock()
+					err := wsConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+					wsMu.Unlock()
+					if err != nil {
+						log.Debug().
+							Err(err).
+							Str("runner_id", runnerID).
+							Msg("Failed to send ping to external agent runner, connection may be closing")
+						return
+					}
+				}
+			}
+		}()
+
 		// Declare connectionID before defer so it's in scope
 		var connectionID string
 
@@ -1528,7 +1594,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				Int("payload_length", len(envelope.Payload)).
 				Msg("📦 ZED_FLOW_DEBUG: Created envelope - about to send via WebSocket")
 
+			wsMu.Lock()
 			err := wsConn.WriteJSON(envelope)
+			wsMu.Unlock()
 			if err != nil {
 				consecutiveFailures++
 				log.Error().
@@ -1826,7 +1894,6 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// Control connections are WebSocket too, but without the dialer parameter
 		dialerParam := r.URL.Query().Get("revdial.dialer")
 		if websocket.IsWebSocketUpgrade(r) && dialerParam != "" {
-			log.Debug().Str("dialer_id", dialerParam).Msg("Handling revdial WebSocket DATA connection")
 			// This is a data connection - use the revdial ConnHandler
 			revDialConnHandler.ServeHTTP(w, r)
 			return
@@ -1911,6 +1978,23 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
 				return
 			}
+
+			// Start server-initiated ping goroutine to keep connection alive through proxies/firewalls
+			// This runs until the WebSocket is closed (WriteControl fails)
+			go func(ws *websocket.Conn, rID string) {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					<-ticker.C
+					if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+						log.Debug().
+							Err(err).
+							Str("runner_id", rID).
+							Msg("RevDial WebSocket ping failed, connection closing")
+						return
+					}
+				}
+			}(wsConn, runnerID)
 
 			// Wrap WebSocket as net.Conn using wsconnadapter
 			conn = wsconnadapter.New(wsConn)

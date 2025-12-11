@@ -89,7 +89,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		Name:           demoReq.Prompt[:min(len(demoReq.Prompt), 100)],
 		Description:    demoReq.Prompt,
 		Type:           demoReq.Type,
-		Priority:       demoReq.Priority,
+		Priority:       types.SpecTaskPriority(demoReq.Priority),
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: demoReq.Prompt,
 		CreatedBy:      user.ID,
@@ -425,6 +425,34 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		log.Warn().Err(err).Msg("Failed to get project for resurrection, continuing without repo info")
 	}
 
+	// Ensure task.HelixAppID is set - inherit from project default for old tasks
+	taskUpdated := false
+	if task.HelixAppID == "" && project != nil && project.DefaultHelixAppID != "" {
+		task.HelixAppID = project.DefaultHelixAppID
+		taskUpdated = true
+		log.Info().
+			Str("task_id", task.ID).
+			Str("helix_app_id", project.DefaultHelixAppID).
+			Msg("[Resurrect] Inherited HelixAppID from project default")
+	}
+	if taskUpdated {
+		if err := apiServer.Store.UpdateSpecTask(req.Context(), task); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Msg("Failed to persist inherited HelixAppID (continuing)")
+		}
+		// Also update the planning session's ParentApp if it was empty
+		if task.PlanningSessionID != "" {
+			session, err := apiServer.Store.GetSession(req.Context(), task.PlanningSessionID)
+			if err == nil && session != nil && session.ParentApp == "" {
+				session.ParentApp = task.HelixAppID
+				if _, err := apiServer.Store.UpdateSession(req.Context(), *session); err != nil {
+					log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to update session ParentApp (continuing)")
+				} else {
+					log.Info().Str("session_id", session.ID).Str("parent_app", task.HelixAppID).Msg("[Resurrect] Updated session ParentApp")
+				}
+			}
+		}
+	}
+
 	var repositoryIDs []string
 	var primaryRepoID string
 	if project != nil {
@@ -447,12 +475,13 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           externalAgent.ID,
+		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
 		WorkDir:             externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
 		ProjectPath:         "backend",
-		RepositoryIDs:       repositoryIDs,     // Needed for Zed startup arguments
-		PrimaryRepositoryID: primaryRepoID,     // Needed for design docs path
-		SpecTaskID:          task.ID,           // CRITICAL: Must pass SpecTaskID for correct workspace path computation
+		RepositoryIDs:       repositoryIDs,      // Needed for Zed startup arguments
+		PrimaryRepositoryID: primaryRepoID,      // Needed for design docs path
+		SpecTaskID:          task.ID,            // CRITICAL: Must pass SpecTaskID for correct workspace path computation
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,

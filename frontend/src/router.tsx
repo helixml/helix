@@ -19,7 +19,8 @@ import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import SSHKeys from './pages/SSHKeys'
-import NewAgent from './pages/NewAgent'
+// NewAgent wizard removed - now creating blank agent and going directly to App settings
+// import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
@@ -35,6 +36,7 @@ import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
+import DesignDocPage from './pages/DesignDocPage'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -209,13 +211,15 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <App />
     ),
   }, {
+    // NewAgent wizard removed - Apps.tsx now creates blank agent and navigates to App settings
+    // Keeping route for backwards compatibility (redirects to apps list)
     name: namePrefix + 'new-agent',
     path: routePrefix + '/new-agent',
     meta: {
       drawer: false,
     },
     render: () => (
-      <NewAgent />
+      <Apps />
     ),
   }, {
     name: namePrefix + 'session',
@@ -393,6 +397,14 @@ const routes: IApplicationRoute[] = [
     title: 'Set New Password',
   },
   render: () => <PasswordResetComplete />,
+}, {
+  name: 'design-doc',
+  path: '/design-doc/:specTaskId/:reviewId',
+  meta: {
+    drawer: false,
+    title: 'Design Document',
+  },
+  render: () => <DesignDocPage />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

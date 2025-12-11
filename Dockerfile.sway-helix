@@ -1,4 +1,21 @@
 # ====================================================================
+# Build grim from source with JPEG support
+# ====================================================================
+# Ubuntu's grim package is compiled without libjpeg, so we build from source
+# to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
+FROM ubuntu:25.04 AS grim-build
+RUN apt-get update && apt-get install -y \
+    meson ninja-build pkg-config git \
+    libwayland-dev libcairo-dev libjpeg-turbo8-dev libpng-dev \
+    wayland-protocols scdoc \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone https://git.sr.ht/~emersion/grim /grim && \
+    cd /grim && \
+    meson setup build -Djpeg=enabled -Dman-pages=enabled && \
+    ninja -C build && \
+    cp build/grim /grim-bin
+
+# ====================================================================
 # Go build stage for screenshot-server and settings-sync-daemon
 # ====================================================================
 FROM golang:1.24 AS go-build-env
@@ -129,10 +146,11 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
+# Install grim, lsof, git, bash, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
-    # Screenshot tool for Wayland and debugging utilities
-    grim lsof \
+    # Debugging utilities (grim is built from source with JPEG support)
+    # libjpeg-turbo8 is runtime dependency for our custom grim
+    lsof libjpeg-turbo8 \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
     # Input device testing tools for keyboard state observability
@@ -141,10 +159,6 @@ RUN apt-get update && apt-get install -y \
     bash git openssh-client \
     # Emoji and icon fonts for waybar
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
-    # OnlyOffice Desktop Editors
-    && wget -q -O /tmp/onlyoffice.deb "https://github.com/ONLYOFFICE/DesktopEditors/releases/download/v8.2.1/onlyoffice-desktopeditors_amd64.deb" \
-    && dpkg -i /tmp/onlyoffice.deb || apt-get install -yf \
-    && rm /tmp/onlyoffice.deb \
     # GTK and GUI dependencies for Ghostty
     && apt-get install -y libgtk-4-dev libgtk-4-1 libadwaita-1-0 \
     libgraphene-1.0-0 libcairo2 libcairo-gobject2 \
@@ -179,21 +193,20 @@ RUN apt-get update && \
 # ====================================================================
 # Build Qwen Code from AUDITED source (NOT from npm)
 # ====================================================================
-# SECURITY: We build from the GitHub source we've audited rather than trusting
-# the npm package, which could differ from the source or be compromised.
-# This ensures the code running matches our security audit.
+# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
+# with audited commits and critical bug fixes.
 #
-# CACHE OPTIMIZATION: This slow build (~2-3 min) rarely changes, so it's placed
-# early in the Dockerfile before frequently-changing sway configs and scripts.
+# BUILD APPROACH: Copy pre-built qwen-code from local directory
+# This is faster during development and ensures we're using our fixes.
+# The qwen-code-build directory must be prepared by ./stack build-sway
+#
+# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
+# ensuring Docker rebuilds this layer with the latest code.
+ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
-RUN git clone https://github.com/QwenLM/qwen-code.git . && \
-    # Pin to specific audited commit for reproducibility and audit trail
-    # Commit: c9af7481 "fix: reset authType settings (#1091)"
-    # Audit Date: 2025-01-24
-    # Security Audit: PASSED (zero backdoors, zero hidden telemetry)
-    git checkout c9af7481 && \
-    npm install && \
-    npm run build && \
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    echo "Fixes: [object Object] error display + shell security disabled" && \
     npm install -g . && \
     npm cache clean --force
 
@@ -227,6 +240,8 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+# grim built from source with JPEG support (Ubuntu's package lacks it)
+COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # Copy Zed binary (built with ./stack build-zed before Docker build)
 # CRITICAL: Must be built with --features external_websocket_sync
@@ -303,7 +318,18 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1 \
-    DISABLE_AUTOUPDATER=1
+    DISABLE_AUTOUPDATER=1 \
+    # Skip TLS certificate verification for Node.js (Qwen Code, Claude Code)
+    # Required for enterprise deployments with internal CAs
+    NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    # Skip TLS certificate verification for Zed HTTP clients (Anthropic, OpenAI APIs)
+    # Required for enterprise deployments with internal CAs
+    ZED_HTTP_INSECURE_TLS=1
+
+# ====================================================================
+# Configure Git - Disable TLS verification (self-signed certs in dev)
+# ====================================================================
+RUN git config --system http.sslVerify false
 
 # Configure Kitty terminal (system-wide, since /home/retro is bind-mounted)
 RUN mkdir -p /etc/xdg/kitty && \

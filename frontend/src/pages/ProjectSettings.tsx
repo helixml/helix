@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef } from 'react'
+import React, { FC, useState, useEffect, useRef, useContext, useMemo } from 'react'
 import {
   Container,
   Box,
@@ -14,7 +14,6 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
-  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -25,6 +24,8 @@ import {
   MenuItem,
   FormControlLabel,
   Checkbox,
+  Tooltip,
+  Chip,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -40,10 +41,37 @@ import LinkIcon from '@mui/icons-material/Link'
 import StopIcon from '@mui/icons-material/Stop'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
+import EditIcon from '@mui/icons-material/Edit'
+import HistoryIcon from '@mui/icons-material/History'
+import DescriptionIcon from '@mui/icons-material/Description'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
+import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
+import { AppsContext, ICreateAgentParams, CodeAgentRuntime, generateAgentName } from '../contexts/apps'
+import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../types'
+
+// Recommended models for zed_external agents (state-of-the-art coding models)
+const RECOMMENDED_MODELS = [
+  // Anthropic
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5-20250929',
+  'claude-haiku-4-5-20251001',
+  // OpenAI
+  'openai/gpt-5.1-codex',
+  'openai/gpt-oss-120b',
+  // Google Gemini
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  // Zhipu GLM
+  'glm-4.6',
+  // Qwen (Coder + Large)
+  'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
+  'Qwen/Qwen3-235B-A22B-fp8-tput',
+]
 import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
 import MoonlightStreamViewer from '../components/external-agent/MoonlightStreamViewer'
 import useAccount from '../hooks/useAccount'
@@ -64,6 +92,7 @@ import {
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
   projectExploratorySessionQueryKey,
+  useGetProjectGuidelinesHistory,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import {
@@ -80,6 +109,7 @@ const ProjectSettings: FC = () => {
   const projectId = params.id as string
   const floatingModal = useFloatingModal()
   const queryClient = useQueryClient()
+  const { apps, loadApps, createAgent } = useContext(AppsContext)
 
   const { data: project, isLoading, error } = useGetProject(projectId)
   const { data: repositories = [] } = useGetProjectRepositories(projectId)
@@ -131,6 +161,7 @@ const ProjectSettings: FC = () => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
+  const [guidelines, setGuidelines] = useState('')
   const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
   const [showTestSession, setShowTestSession] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -140,6 +171,10 @@ const ProjectSettings: FC = () => {
   const [savingProject, setSavingProject] = useState(false)
   const [testingStartupScript, setTestingStartupScript] = useState(false)
   const [isSessionRestart, setIsSessionRestart] = useState(false)
+  const [guidelinesHistoryDialogOpen, setGuidelinesHistoryDialogOpen] = useState(false)
+
+  // Guidelines history
+  const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(projectId, guidelinesHistoryDialogOpen)
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
@@ -148,6 +183,47 @@ const ProjectSettings: FC = () => {
     implementation: 5,
   })
 
+  // Default agent state
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
+  const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [newAgentName, setNewAgentName] = useState('-')
+  const [userModifiedName, setUserModifiedName] = useState(false)
+  const [creatingAgent, setCreatingAgent] = useState(false)
+  const [agentError, setAgentError] = useState('')
+
+  // Sort apps: zed_external first, then others
+  const sortedApps = useMemo(() => {
+    if (!apps) return []
+    const zedExternalApps: IApp[] = []
+    const otherApps: IApp[] = []
+    apps.forEach((app) => {
+      const hasZedExternal = app.config?.helix?.assistants?.some(
+        (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
+      ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
+      if (hasZedExternal) {
+        zedExternalApps.push(app)
+      } else {
+        otherApps.push(app)
+      }
+    })
+    return [...zedExternalApps, ...otherApps]
+  }, [apps])
+
+  // Load apps when component mounts
+  useEffect(() => {
+    loadApps()
+  }, [loadApps])
+
+  // Auto-generate name when model or runtime changes (if user hasn't modified it)
+  useEffect(() => {
+    if (!userModifiedName && showCreateAgentForm) {
+      setNewAgentName(generateAgentName(selectedModel, codeAgentRuntime))
+    }
+  }, [selectedModel, codeAgentRuntime, userModifiedName, showCreateAgentForm])
+
   // Initialize form from server data
   // This runs when project loads or refetches (standard React Query pattern)
   useEffect(() => {
@@ -155,7 +231,9 @@ const ProjectSettings: FC = () => {
       setName(project.name || '')
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
+      setGuidelines(project.guidelines || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
+      setSelectedAgentId(project.default_helix_app_id || '')
 
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
@@ -198,7 +276,9 @@ const ProjectSettings: FC = () => {
         name,
         description,
         startup_script: startupScript,
+        guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
+        default_helix_app_id: selectedAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
@@ -223,6 +303,56 @@ const ProjectSettings: FC = () => {
 
   const handleFieldBlur = () => {
     handleSave(false) // Auto-save without showing success message
+  }
+
+  const handleCreateAgent = async () => {
+    if (!newAgentName.trim()) {
+      setAgentError('Please enter a name for the agent')
+      return
+    }
+    if (!selectedModel) {
+      setAgentError('Please select a model')
+      return
+    }
+
+    setCreatingAgent(true)
+    setAgentError('')
+
+    try {
+      const params: ICreateAgentParams = {
+        name: newAgentName.trim(),
+        description: 'Code development agent for spec tasks',
+        agentType: AGENT_TYPE_ZED_EXTERNAL,
+        codeAgentRuntime,
+        model: selectedModel,
+        generationModelProvider: selectedProvider,
+        generationModel: selectedModel,
+        reasoningModelProvider: '',
+        reasoningModel: '',
+        reasoningModelEffort: 'none',
+        smallReasoningModelProvider: '',
+        smallReasoningModel: '',
+        smallReasoningModelEffort: 'none',
+        smallGenerationModelProvider: '',
+        smallGenerationModel: '',
+      }
+
+      const newApp = await createAgent(params)
+      if (newApp) {
+        setSelectedAgentId(newApp.id)
+        setShowCreateAgentForm(false)
+        // Save directly with the new agent ID (don't rely on stale state)
+        await updateProjectMutation.mutateAsync({
+          default_helix_app_id: newApp.id,
+        })
+        snackbar.success('Agent created and set as default')
+      }
+    } catch (err) {
+      console.error('Failed to create agent:', err)
+      setAgentError(err instanceof Error ? err.message : 'Failed to create agent')
+    } finally {
+      setCreatingAgent(false)
+    }
   }
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -519,6 +649,165 @@ const ProjectSettings: FC = () => {
             )}
           </Paper>
 
+          {/* Default Agent */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <SmartToyIcon sx={{ mr: 1 }} />
+              <Typography variant="h6">
+                Default Agent
+              </Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Select the default agent for spec tasks in this project. You can configure MCP servers in the agent settings.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+
+            {!showCreateAgentForm ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Select Agent</InputLabel>
+                  <Select
+                    value={selectedAgentId}
+                    label="Select Agent"
+                    onChange={(e) => {
+                      const newAgentId = e.target.value
+                      setSelectedAgentId(newAgentId)
+                      // Save immediately with the new value (don't rely on stale state)
+                      updateProjectMutation.mutate({
+                        default_helix_app_id: newAgentId || undefined,
+                      })
+                    }}
+                    renderValue={(value) => {
+                      const app = sortedApps.find(a => a.id === value)
+                      return app?.config?.helix?.name || 'Select Agent'
+                    }}
+                  >
+                    {sortedApps.map((app) => (
+                      <MenuItem key={app.id} value={app.id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                          <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
+                          <Tooltip title="Edit agent">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                account.orgNavigate('app', { app_id: app.id })
+                              }}
+                              sx={{ ml: 'auto' }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                    {sortedApps.length === 0 && (
+                      <MenuItem disabled value="">
+                        No agents available
+                      </MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setShowCreateAgentForm(true)}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  Create new agent
+                </Button>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Typography variant="subtitle2">Create New Agent</Typography>
+
+                <Typography variant="body2" color="text.secondary">
+                  Code Agent Runtime
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <Select
+                    value={codeAgentRuntime}
+                    onChange={(e) => setCodeAgentRuntime(e.target.value as CodeAgentRuntime)}
+                    disabled={creatingAgent}
+                  >
+                    <MenuItem value="zed_agent">
+                      <Box>
+                        <Typography variant="body2">Zed Agent (Built-in)</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Uses Zed's native agent panel with direct API integration
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="qwen_code">
+                      <Box>
+                        <Typography variant="body2">Qwen Code</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+
+                <Typography variant="body2" color="text.secondary">
+                  Code Agent Model
+                </Typography>
+                <AdvancedModelPicker
+                  recommendedModels={RECOMMENDED_MODELS}
+                  hint="Choose a capable model for agentic coding."
+                  selectedProvider={selectedProvider}
+                  selectedModelId={selectedModel}
+                  onSelectModel={(provider, model) => {
+                    setSelectedProvider(provider)
+                    setSelectedModel(model)
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                  disabled={creatingAgent}
+                />
+
+                <Typography variant="body2" color="text.secondary">
+                  Agent Name
+                </Typography>
+                <TextField
+                  value={newAgentName}
+                  onChange={(e) => {
+                    setNewAgentName(e.target.value)
+                    setUserModifiedName(true)
+                  }}
+                  size="small"
+                  fullWidth
+                  disabled={creatingAgent}
+                  helperText="Auto-generated from model and runtime. Edit to customize."
+                />
+
+                {agentError && (
+                  <Alert severity="error">{agentError}</Alert>
+                )}
+
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleCreateAgent}
+                    disabled={creatingAgent || !newAgentName.trim() || !selectedModel}
+                    startIcon={creatingAgent ? <CircularProgress size={16} /> : undefined}
+                  >
+                    {creatingAgent ? 'Creating...' : 'Create Agent'}
+                  </Button>
+                  {sortedApps.length > 0 && (
+                    <Button
+                      onClick={() => setShowCreateAgentForm(false)}
+                      disabled={creatingAgent}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+            )}
+          </Paper>
+
           {/* Board Settings */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
@@ -584,6 +873,51 @@ const ProjectSettings: FC = () => {
                 </Box>
               }
             />
+          </Paper>
+
+          {/* Project Guidelines */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <DescriptionIcon sx={{ mr: 1 }} />
+                <Typography variant="h6">
+                  Project Guidelines
+                </Typography>
+              </Box>
+              {project.guidelines_version && project.guidelines_version > 0 && (
+                <Button
+                  size="small"
+                  startIcon={<HistoryIcon />}
+                  onClick={() => setGuidelinesHistoryDialogOpen(true)}
+                >
+                  History (v{project.guidelines_version})
+                </Button>
+              )}
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Guidelines specific to this project. These are combined with organization guidelines and sent to AI agents during planning, implementation, and exploratory sessions.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+            <TextField
+              fullWidth
+              multiline
+              minRows={4}
+              maxRows={12}
+              placeholder="Example:
+- Use React Query for all API calls
+- Follow the existing component patterns in src/components
+- Always add unit tests for new features
+- Use MUI components for UI elements"
+              value={guidelines}
+              onChange={(e) => setGuidelines(e.target.value)}
+              onBlur={handleFieldBlur}
+            />
+            {project.guidelines_updated_at && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                Last updated: {new Date(project.guidelines_updated_at).toLocaleDateString()}
+                {project.guidelines_version ? ` (v${project.guidelines_version})` : ''}
+              </Typography>
+            )}
           </Paper>
 
           {/* Members & Access Control */}
@@ -823,6 +1157,76 @@ const ProjectSettings: FC = () => {
             startIcon={deleteProjectMutation.isPending ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
           >
             {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Guidelines History Dialog */}
+      <Dialog
+        open={guidelinesHistoryDialogOpen}
+        onClose={() => setGuidelinesHistoryDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HistoryIcon />
+            Guidelines Version History
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {guidelinesHistory.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+              No previous versions found. History is created when guidelines are modified.
+            </Typography>
+          ) : (
+            <List>
+              {guidelinesHistory.map((entry, index) => (
+                <ListItem
+                  key={entry.id}
+                  sx={{
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    borderBottom: index < guidelinesHistory.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                    py: 2,
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, width: '100%' }}>
+                    <Chip label={`v${entry.version}`} size="small" color="primary" variant="outlined" />
+                    <Typography variant="body2" color="text.secondary">
+                      {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : 'Unknown date'}
+                    </Typography>
+                    {(entry.updated_by_name || entry.updated_by_email) && (
+                      <Typography variant="caption" color="text.secondary">
+                        by {entry.updated_by_name || 'Unknown'}{entry.updated_by_email ? ` (${entry.updated_by_email})` : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      whiteSpace: 'pre-wrap',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      backgroundColor: 'action.hover',
+                      p: 1.5,
+                      borderRadius: 1,
+                      width: '100%',
+                      maxHeight: 200,
+                      overflow: 'auto',
+                    }}
+                  >
+                    {entry.guidelines || '(empty)'}
+                  </Typography>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGuidelinesHistoryDialogOpen(false)}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

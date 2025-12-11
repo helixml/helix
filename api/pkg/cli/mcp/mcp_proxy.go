@@ -104,7 +104,7 @@ var runProxyCmd = &cobra.Command{
 			return fmt.Errorf("HELIX_APP_ID is not set")
 		}
 
-		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey)
+		apiClient, err := client.NewClient(cfg.URL, cfg.APIKey, cfg.TLSSkipVerify)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create api client")
 			return err
@@ -137,6 +137,12 @@ func (mcps *ModelContextProtocolServer) Start() error {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get app")
 		return err
+	}
+
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		log.Error().Str("app_id", mcps.appID).Msg("app has no assistants configured")
+		return fmt.Errorf("app %s has no assistants configured", mcps.appID)
 	}
 
 	// TODO: configure assistant

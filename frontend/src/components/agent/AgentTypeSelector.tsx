@@ -113,7 +113,8 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
               sx={{
                 mb: 2,
                 border: value === option.value ? 2 : 1,
-                borderColor: value === option.value ? 'primary.main' : 'grey.300',
+                borderColor: value === option.value ? 'primary.main' : 'divider',
+                backgroundColor: 'transparent',
                 transition: 'all 0.2s ease-in-out',
                 '&:hover': {
                   borderColor: 'primary.main',
@@ -169,7 +170,7 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
       {/* External Agent Configuration */}
       {showExternalConfig && (
         <Collapse in={value === AGENT_TYPE_ZED_EXTERNAL}>
-          <Card variant="outlined" sx={{ mt: 2, backgroundColor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+          <Card variant="outlined" sx={{ mt: 2, backgroundColor: 'transparent', border: '1px solid', borderColor: 'divider' }}>
             <CardContent sx={{ color: 'text.primary' }}>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.primary' }}>
                 <CodeIcon />

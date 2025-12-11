@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion, TypesGitRepository, TypesForkSimpleProjectRequest, TypesGuidelinesHistory } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = (orgId?: string) => ['projects', orgId];
@@ -10,6 +10,7 @@ export const sampleProjectsListQueryKey = () => ['sample-projects'];
 export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
 export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
 export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
+export const projectGuidelinesHistoryQueryKey = (projectId: string) => ['project-guidelines-history', projectId];
 
 /**
  * Hook to list all projects for the current user
@@ -212,6 +213,7 @@ export const useInstantiateSampleProject = () => {
         project_name: request.project_name,
         description: request.description,
         organization_id: request.organization_id,
+        helix_app_id: request.helix_app_id,
       });
       return response.data;
     },
@@ -330,6 +332,23 @@ export const useGetStartupScriptHistory = (projectId: string, enabled = true) =>
     queryKey: projectStartupScriptHistoryQueryKey(projectId),
     queryFn: async () => {
       const response = await apiClient.v1ProjectsStartupScriptHistoryDetail(projectId);
+      return response.data || [];
+    },
+    enabled: enabled && !!projectId,
+  });
+};
+
+/**
+ * Hook to get project guidelines version history
+ */
+export const useGetProjectGuidelinesHistory = (projectId: string, enabled = true) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<TypesGuidelinesHistory[]>({
+    queryKey: projectGuidelinesHistoryQueryKey(projectId),
+    queryFn: async () => {
+      const response = await apiClient.v1ProjectsGuidelinesHistoryDetail(projectId);
       return response.data || [];
     },
     enabled: enabled && !!projectId,

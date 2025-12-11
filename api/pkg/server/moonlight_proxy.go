@@ -10,11 +10,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// Minimum time between streaming connections for the same session (prevents Wolf deadlock)
+const streamingRateLimitDuration = 3 * time.Second
 
 // proxyToMoonlightWeb reverse proxies requests to the moonlight-web service
 // Validates Helix user authentication and injects moonlight-web credentials
@@ -123,8 +128,20 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		Str("runner_id", moonlightRunnerID).
 		Msg("Connected to Moonlight Web via RevDial")
 
-	// Handle WebSocket upgrade (for WebRTC signaling)
+	// Handle WebSocket upgrade (for WebRTC signaling and WebSocket streaming)
 	if r.Header.Get("Upgrade") == "websocket" {
+		// Rate limit streaming connections to prevent Wolf deadlock from rapid reconnects
+		// This protects against both accidental (frontend bugs) and malicious (DOS) rapid connections
+		if sessionID != "" {
+			if !apiServer.checkStreamingRateLimit(sessionID) {
+				log.Warn().
+					Str("session_id", sessionID).
+					Str("user_id", user.ID).
+					Msg("Streaming connection rate limited (too frequent reconnects)")
+				http.Error(w, "Too many connection attempts - please wait a few seconds", http.StatusTooManyRequests)
+				return
+			}
+		}
 		apiServer.proxyWebSocketViaRevDial(w, r, conn, user)
 		return
 	}
@@ -272,7 +289,27 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 
 	log.Debug().Msg("WebSocket connection established to Moonlight Web, starting bidirectional proxy")
 
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 3) // 3 for client→backend, backend→client, and ping
+
+	// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+	var clientMu sync.Mutex
+
+	// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			clientMu.Lock()
+			err := clientWS.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			clientMu.Unlock()
+			if err != nil {
+				log.Debug().Err(err).Msg("Moonlight WebSocket proxy ping failed, connection closing")
+				errChan <- nil // Signal connection closed
+				return
+			}
+		}
+	}()
 
 	// Client → Moonlight Web (with credential replacement on first message)
 	go func() {
@@ -344,9 +381,12 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 				return
 			}
 
-			// Forward to client
-			if err := clientWS.WriteMessage(messageType, message); err != nil {
-				errChan <- fmt.Errorf("client write error: %w", err)
+			// Forward to client (mutex protects against concurrent ping writes)
+			clientMu.Lock()
+			writeErr := clientWS.WriteMessage(messageType, message)
+			clientMu.Unlock()
+			if writeErr != nil {
+				errChan <- fmt.Errorf("client write error: %w", writeErr)
 				return
 			}
 		}
@@ -487,7 +527,27 @@ func (apiServer *HelixAPIServer) proxyWebSocket_OLD(w http.ResponseWriter, r *ht
 		Msg("✅ WebSocket proxy established - streaming active")
 
 	// Proxy messages bidirectionally
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3) // 3 for client→backend, backend→client, and ping
+
+	// Mutex for thread-safe writes to client WebSocket (ping and backend→client can race)
+	var clientMu sync.Mutex
+
+	// Start server-initiated ping goroutine to keep client connection alive through proxies/firewalls
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			clientMu.Lock()
+			err := clientConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			clientMu.Unlock()
+			if err != nil {
+				log.Debug().Err(err).Msg("Moonlight WebSocket proxy ping failed, connection closing")
+				errCh <- nil // Signal connection closed
+				return
+			}
+		}
+	}()
 
 	// Client -> Backend (with credential translation)
 	go func() {
@@ -571,8 +631,12 @@ func (apiServer *HelixAPIServer) proxyWebSocket_OLD(w http.ResponseWriter, r *ht
 				Int("message_type", messageType).
 				Int("message_len", len(message)).
 				Msg("📩 Backend -> Client message")
-			if err := clientConn.WriteMessage(messageType, message); err != nil {
-				errCh <- fmt.Errorf("client write error: %w", err)
+			// Mutex protects against concurrent ping writes
+			clientMu.Lock()
+			writeErr := clientConn.WriteMessage(messageType, message)
+			clientMu.Unlock()
+			if writeErr != nil {
+				errCh <- fmt.Errorf("client write error: %w", writeErr)
 				return
 			}
 		}
@@ -708,4 +772,39 @@ func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req
 		log.Error().Err(err).Msg("Failed to copy moonlight-web status response body")
 		return
 	}
+}
+
+// checkStreamingRateLimit checks if a streaming connection is allowed for this session.
+// Returns true if allowed, false if rate limited.
+// Also updates the last connection time for the session.
+func (apiServer *HelixAPIServer) checkStreamingRateLimit(sessionID string) bool {
+	now := time.Now()
+
+	apiServer.streamingRateLimiterMutex.Lock()
+	defer apiServer.streamingRateLimiterMutex.Unlock()
+
+	lastConnection, exists := apiServer.streamingRateLimiter[sessionID]
+	if exists && now.Sub(lastConnection) < streamingRateLimitDuration {
+		// Too soon since last connection
+		log.Debug().
+			Str("session_id", sessionID).
+			Dur("since_last", now.Sub(lastConnection)).
+			Dur("required", streamingRateLimitDuration).
+			Msg("Streaming connection rate limited")
+		return false
+	}
+
+	// Update last connection time
+	apiServer.streamingRateLimiter[sessionID] = now
+
+	// Clean up old entries periodically (every 100 connections, remove entries older than 1 minute)
+	if len(apiServer.streamingRateLimiter) > 100 {
+		for id, t := range apiServer.streamingRateLimiter {
+			if now.Sub(t) > time.Minute {
+				delete(apiServer.streamingRateLimiter, id)
+			}
+		}
+	}
+
+	return true
 }

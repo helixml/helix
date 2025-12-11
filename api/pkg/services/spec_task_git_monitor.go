@@ -18,11 +18,11 @@ import (
 // SpecTaskGitMonitor monitors Git repositories for design doc pushes
 // Automatically creates design reviews when design docs are pushed
 type SpecTaskGitMonitor struct {
-	store           store.Store
-	gitRepoService  *GitRepositoryService
-	pollInterval    time.Duration
-	stopChan        chan struct{}
-	designDocPaths  []string // Paths to monitor for design docs
+	store          store.Store
+	gitRepoService *GitRepositoryService
+	pollInterval   time.Duration
+	stopChan       chan struct{}
+	designDocPaths []string // Paths to monitor for design docs
 }
 
 // NewSpecTaskGitMonitor creates a new Git monitor for spec tasks
@@ -284,11 +284,11 @@ func (m *SpecTaskGitMonitor) containsDesignDocs(files []string) bool {
 // readSpecDocsFromGit reads the spec documents from helix-specs branch
 // Returns requirements, design, and implementation plan content
 // Falls back to empty strings if files cannot be read (caller should handle gracefully)
-func (m *SpecTaskGitMonitor) readSpecDocsFromGit(repoPath string, specTaskID string) (requirementsSpec, technicalDesign, implementationPlan string) {
+func (m *SpecTaskGitMonitor) readSpecDocsFromGit(repoPath string, specTaskID string, designDocPath string) (requirementsSpec, technicalDesign, implementationPlan string) {
 	// Find task directory in helix-specs branch
-	taskDir, err := findTaskDirectory(repoPath, specTaskID)
+	taskDir, err := findTaskDirectory(repoPath, specTaskID, designDocPath)
 	if err != nil {
-		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[GitMonitor] Could not find task directory in helix-specs")
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("design_doc_path", designDocPath).Msg("[GitMonitor] Could not find task directory in helix-specs")
 		return "", "", ""
 	}
 
@@ -348,7 +348,7 @@ func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *typ
 	}
 
 	// Read spec content from helix-specs branch (fresh from git, not stale database fields)
-	requirementsSpec, technicalDesign, implementationPlan := m.readSpecDocsFromGit(repoPath, specTask.ID)
+	requirementsSpec, technicalDesign, implementationPlan := m.readSpecDocsFromGit(repoPath, specTask.ID, specTask.DesignDocPath)
 
 	// Create new design review with content from git
 	review := &types.SpecTaskDesignReview{

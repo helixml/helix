@@ -13,6 +13,7 @@ import {
   Brain,
 } from 'lucide-react'
 import BranchSelect from './BranchSelect'
+import ExternalStatus from './ExternalStatus'
 
 interface CommitsTabProps {
   repository: any
@@ -56,6 +57,11 @@ const CommitsTab: FC<CommitsTabProps> = ({
               setCommitsBranch(branch === '' ? '' : branch)
             }}
             branches={branches}
+          />
+          <ExternalStatus
+            repositoryId={repository?.id || ''}
+            branch={commitsBranch}
+            isExternal={repository?.is_external}
           />
         </Box>
         {commitsLoading ? (

@@ -153,7 +153,7 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 		var err error
 		model, err = c.store.GetModel(context.Background(), req.Request.Model)
 		if err != nil {
-			return fmt.Errorf("error getting model: %w", err)
+			return fmt.Errorf("model '%s' not found in helix provider (local scheduler) - check if this model exists in your configured models or if you meant to route to a different provider: %w", req.Request.Model, err)
 		}
 	}
 

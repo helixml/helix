@@ -36,12 +36,13 @@ type TaskProgress struct {
 
 // ParseTaskProgress reads tasks.md from helix-specs branch and returns progress
 // repoPath is the path to the git repository
-// specTaskID is used to find the task directory
-func ParseTaskProgress(repoPath string, specTaskID string) (*TaskProgress, error) {
+// specTaskID is used to find the task directory (fallback for old tasks)
+// designDocPath is the new human-readable path (e.g., "2025-12-09_install-cowsay_1")
+func ParseTaskProgress(repoPath string, specTaskID string, designDocPath string) (*TaskProgress, error) {
 	// Find task directory in helix-specs branch
-	taskDir, err := findTaskDirectory(repoPath, specTaskID)
+	taskDir, err := findTaskDirectory(repoPath, specTaskID, designDocPath)
 	if err != nil {
-		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("Could not find task directory in helix-specs")
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Str("design_doc_path", designDocPath).Msg("Could not find task directory in helix-specs")
 		return nil, err
 	}
 
@@ -78,8 +79,10 @@ func ParseTaskProgress(repoPath string, specTaskID string) (*TaskProgress, error
 	return progress, nil
 }
 
-// findTaskDirectory finds the task directory in helix-specs branch by matching the specTaskID
-func findTaskDirectory(repoPath string, specTaskID string) (string, error) {
+// findTaskDirectory finds the task directory in helix-specs branch
+// First tries to match by designDocPath (new format: "2025-12-09_install-cowsay_1")
+// Falls back to matching by specTaskID for backwards compatibility with old tasks
+func findTaskDirectory(repoPath string, specTaskID string, designDocPath string) (string, error) {
 	// List files in helix-specs branch
 	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
 	cmd.Dir = repoPath
@@ -88,8 +91,21 @@ func findTaskDirectory(repoPath string, specTaskID string) (string, error) {
 		return "", fmt.Errorf("failed to list helix-specs branch: %w", err)
 	}
 
-	// Find task directory by matching task ID in path
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// First, try to find by designDocPath (new human-readable format)
+	if designDocPath != "" {
+		for _, file := range files {
+			if strings.Contains(file, designDocPath) {
+				parts := strings.Split(file, "/")
+				if len(parts) >= 2 {
+					return strings.Join(parts[:len(parts)-1], "/"), nil
+				}
+			}
+		}
+	}
+
+	// Fall back to matching by specTaskID for backwards compatibility
 	for _, file := range files {
 		if strings.Contains(file, specTaskID) {
 			// Extract directory path (e.g., tasks/2025-11-11_..._taskid/)
@@ -101,7 +117,7 @@ func findTaskDirectory(repoPath string, specTaskID string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("task directory not found for %s", specTaskID)
+	return "", fmt.Errorf("task directory not found for %s (designDocPath: %s)", specTaskID, designDocPath)
 }
 
 // readFileFromBranch reads a file from a specific git branch

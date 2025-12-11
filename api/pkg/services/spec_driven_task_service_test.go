@@ -35,11 +35,11 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	service.SetTestMode(true)
 
 	ctx := context.Background()
-	req := &CreateTaskRequest{
+	req := &types.CreateTaskRequest{
 		ProjectID: "test-project",
 		Prompt:    "Create a user authentication system",
 		Type:      "feature",
-		Priority:  "high",
+		Priority:  types.SpecTaskPriorityHigh,
 		UserID:    "test-user",
 	}
 
@@ -51,7 +51,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, types.TaskStatusBacklog, task.Status)
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
-			assert.Equal(t, "high", task.Priority)
+			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
 			return nil
 		},
 	)

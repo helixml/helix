@@ -18,6 +18,7 @@ import { StreamCapabilities } from "../api_bindings"
 const WsMessageType = {
   VideoFrame: 0x01,
   AudioFrame: 0x02,
+  VideoBatch: 0x03,  // Multiple video frames in one message (congestion handling)
   KeyboardInput: 0x10,
   MouseClick: 0x11,
   MouseAbsolute: 0x12,
@@ -28,6 +29,8 @@ const WsMessageType = {
   ControlMessage: 0x20,
   StreamInit: 0x30,
   StreamError: 0x31,
+  Ping: 0x40,
+  Pong: 0x41,
 } as const
 
 const WsVideoCodec = {
@@ -88,6 +91,7 @@ export class WebSocketStream {
   private appId: number
   private settings: StreamSettings
   private sessionId?: string
+  private supportedVideoFormats: VideoCodecSupport
 
   private ws: WebSocket | null = null
   private eventTarget = new EventTarget()
@@ -134,6 +138,23 @@ export class WebSocketStream {
   private framesDecoded = 0
   private framesDropped = 0
 
+  // RTT (Round-Trip Time) measurement for latency tracking
+  private pingSeq = 0
+  private pendingPings = new Map<number, number>()  // seq → sendTime (performance.now())
+  private rttSamples: number[] = []
+  private currentRttMs = 0
+  private pingIntervalId: ReturnType<typeof setInterval> | null = null
+  private readonly PING_INTERVAL_MS = 1000  // Send ping every second
+  private readonly MAX_RTT_SAMPLES = 10  // Keep last 10 samples for moving average
+  private readonly HIGH_LATENCY_THRESHOLD_MS = 150  // Show warning above this
+
+  // Batching stats for congestion visibility
+  private batchesReceived = 0  // Total number of batch messages received
+  private batchedFramesReceived = 0  // Total frames received in batches
+  private individualFramesReceived = 0  // Total frames received individually
+  private recentBatchSizes: number[] = []  // Last N batch sizes for avg calculation
+  private readonly MAX_BATCH_SIZE_SAMPLES = 20
+
   constructor(
     api: Api,
     hostId: number,
@@ -147,6 +168,7 @@ export class WebSocketStream {
     this.hostId = hostId
     this.appId = appId
     this.settings = settings
+    this.supportedVideoFormats = supportedVideoFormats
     this.sessionId = sessionId
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
@@ -272,6 +294,9 @@ export class WebSocketStream {
     // Start heartbeat monitoring for stale connections
     this.startHeartbeat()
 
+    // Start RTT measurement pings
+    this.startPingInterval()
+
     // Send initialization message
     this.sendInit()
   }
@@ -282,6 +307,9 @@ export class WebSocketStream {
 
     // Stop heartbeat
     this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
 
     this.dispatchInfoEvent({ type: "disconnected" })
 
@@ -349,6 +377,9 @@ export class WebSocketStream {
       case WsMessageType.VideoFrame:
         await this.handleVideoFrame(data)
         break
+      case WsMessageType.VideoBatch:
+        await this.handleVideoBatch(data)
+        break
       case WsMessageType.AudioFrame:
         await this.handleAudioFrame(data)
         break
@@ -365,12 +396,24 @@ export class WebSocketStream {
         // Server → client events (rumble, etc.)
         this.input.handleServerMessage(msgType, data.slice(1))
         break
+      case WsMessageType.Pong:
+        this.handlePong(data)
+        break
       default:
         console.warn("[WebSocketStream] Unknown message type:", msgType)
     }
   }
 
   private sendInit() {
+    // Use actual browser codec support detection (from constructor)
+    // This tells the server which codecs the browser can decode
+    const supportBits = createSupportedVideoFormatsBits(this.supportedVideoFormats)
+
+    console.log('[WebSocketStream] Sending init with supported formats:', {
+      bits: supportBits,
+      formats: this.supportedVideoFormats,
+    })
+
     // Send initialization as JSON for simplicity
     const initMessage = {
       type: "init",
@@ -383,18 +426,7 @@ export class WebSocketStream {
       bitrate: this.settings.bitrate,
       packet_size: this.settings.packetSize,
       play_audio_local: this.settings.playAudioLocal,
-      video_supported_formats: createSupportedVideoFormatsBits({
-        H264: true,
-        H264_HIGH8_444: false,
-        H265: false,
-        H265_MAIN10: false,
-        H265_REXT8_444: false,
-        H265_REXT10_444: false,
-        AV1_MAIN8: false,
-        AV1_MAIN10: false,
-        AV1_HIGH8_444: false,
-        AV1_HIGH10_444: false,
-      }),
+      video_supported_formats: supportBits,
     }
 
     this.ws?.send(JSON.stringify(initMessage))
@@ -459,22 +491,39 @@ export class WebSocketStream {
     const codecString = codecToWebCodecsString(codec)
     console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
 
-    // Check if codec is supported
+    // Check if codec is supported - try hardware first, then software fallback
+    let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
     try {
-      const support = await VideoDecoder.isConfigSupported({
+      const hwSupport = await VideoDecoder.isConfigSupported({
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
         hardwareAcceleration: "prefer-hardware",
       })
 
-      if (!support.supported) {
-        console.error("[WebSocketStream] Video codec not supported:", codecString)
-        this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
-        return
+      if (!hwSupport.supported) {
+        // Hardware not supported, try software decoding
+        console.log("[WebSocketStream] Hardware decoding not supported, trying software fallback")
+        const swSupport = await VideoDecoder.isConfigSupported({
+          codec: codecString,
+          codedWidth: width,
+          codedHeight: height,
+          // No hardwareAcceleration = allow any
+        })
+
+        if (!swSupport.supported) {
+          console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
+          this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          return
+        }
+        useHardwareAcceleration = "no-preference"
+        console.log("[WebSocketStream] Using software video decoding")
+      } else {
+        console.log("[WebSocketStream] Using hardware video decoding")
       }
     } catch (e) {
       console.error("[WebSocketStream] Failed to check codec support:", e)
+      // Continue anyway and let configure() fail if truly unsupported
     }
 
     // Close existing decoder
@@ -501,7 +550,7 @@ export class WebSocketStream {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
-      hardwareAcceleration: "prefer-hardware",
+      hardwareAcceleration: useHardwareAcceleration,
     }
 
     // For H264, specify Annex B format to handle in-band SPS/PPS
@@ -525,7 +574,7 @@ export class WebSocketStream {
         codec: codecString,
         codedWidth: width,
         codedHeight: height,
-        hardwareAcceleration: "prefer-hardware",
+        hardwareAcceleration: useHardwareAcceleration,
       })
       console.log("[WebSocketStream] Video decoder configured (fallback mode)")
     }
@@ -583,10 +632,15 @@ export class WebSocketStream {
   private lastVideoWidth = 0
   private lastVideoHeight = 0
 
-  private async handleVideoFrame(data: Uint8Array) {
+  private async handleVideoFrame(data: Uint8Array, fromBatch = false) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
       // Queue frames or drop them if decoder isn't ready
       return
+    }
+
+    // Track individual vs batched frames for stats
+    if (!fromBatch) {
+      this.individualFramesReceived++
     }
 
     // Parse video frame header
@@ -641,6 +695,51 @@ export class WebSocketStream {
             .catch(err => console.error("[WebSocketStream] Failed to recover video decoder:", err))
         }
       }
+    }
+  }
+
+  /**
+   * Handle a batched video frames message (type 0x03)
+   * Format: type(1) + count(2) + [length(4) + frame_data]...
+   */
+  private async handleVideoBatch(data: Uint8Array) {
+    if (data.length < 3) {
+      console.error("[WebSocketStream] VideoBatch too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const frameCount = view.getUint16(1, false)  // big-endian
+
+    // Track batch stats
+    this.batchesReceived++
+    this.batchedFramesReceived += frameCount
+    this.recentBatchSizes.push(frameCount)
+    if (this.recentBatchSizes.length > this.MAX_BATCH_SIZE_SAMPLES) {
+      this.recentBatchSizes.shift()
+    }
+
+    // Parse and process each frame
+    let offset = 3  // After type + count
+    for (let i = 0; i < frameCount; i++) {
+      if (offset + 4 > data.length) {
+        console.error("[WebSocketStream] VideoBatch truncated at frame", i)
+        break
+      }
+
+      const frameLen = view.getUint32(offset, false)  // big-endian
+      offset += 4
+
+      if (offset + frameLen > data.length) {
+        console.error("[WebSocketStream] VideoBatch frame data truncated at frame", i)
+        break
+      }
+
+      const frameData = data.slice(offset, offset + frameLen)
+      offset += frameLen
+
+      // Process each frame (pass fromBatch=true to skip individual frame counting)
+      await this.handleVideoFrame(frameData, true)
     }
   }
 
@@ -784,6 +883,100 @@ export class WebSocketStream {
   }
 
   // ============================================================================
+  // RTT (Latency) Measurement
+  // ============================================================================
+
+  private sendPing() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const seq = this.pingSeq++
+    const sendTime = performance.now()
+    this.pendingPings.set(seq, sendTime)
+
+    // Ping format: type(1) + seq(4) + clientTime(8) = 13 bytes
+    const buffer = new ArrayBuffer(13)
+    const view = new DataView(buffer)
+    view.setUint8(0, WsMessageType.Ping)
+    view.setUint32(1, seq, false)  // big-endian
+    // We use performance.now() * 1000 for microseconds, but we only need
+    // the send time locally - the server echoes it back for calculation
+    view.setBigUint64(5, BigInt(Math.floor(sendTime * 1000)), false)
+
+    this.ws.send(buffer)
+  }
+
+  private handlePong(data: Uint8Array) {
+    // Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+    if (data.length < 21) {
+      console.warn("[WebSocketStream] Pong too short:", data.length)
+      return
+    }
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const seq = view.getUint32(1, false)  // big-endian
+
+    const sendTime = this.pendingPings.get(seq)
+    if (sendTime === undefined) {
+      console.warn("[WebSocketStream] Received pong for unknown seq:", seq)
+      return
+    }
+
+    this.pendingPings.delete(seq)
+
+    // Calculate RTT
+    const receiveTime = performance.now()
+    const rtt = receiveTime - sendTime
+
+    // Add to samples, keep only the most recent
+    this.rttSamples.push(rtt)
+    if (this.rttSamples.length > this.MAX_RTT_SAMPLES) {
+      this.rttSamples.shift()
+    }
+
+    // Calculate moving average
+    const sum = this.rttSamples.reduce((a, b) => a + b, 0)
+    this.currentRttMs = sum / this.rttSamples.length
+
+    // Dispatch event if latency is high
+    if (this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS) {
+      this.dispatchInfoEvent({
+        type: "addDebugLine",
+        line: `High latency detected: ${this.currentRttMs.toFixed(0)}ms RTT`
+      })
+    }
+  }
+
+  private startPingInterval() {
+    this.stopPingInterval()
+
+    // Send first ping immediately
+    this.sendPing()
+
+    // Then send periodically
+    this.pingIntervalId = setInterval(() => {
+      this.sendPing()
+
+      // Clean up old pending pings (older than 5 seconds = lost)
+      const now = performance.now()
+      for (const [seq, sendTime] of this.pendingPings.entries()) {
+        if (now - sendTime > 5000) {
+          this.pendingPings.delete(seq)
+        }
+      }
+    }, this.PING_INTERVAL_MS)
+  }
+
+  private stopPingInterval() {
+    if (this.pingIntervalId) {
+      clearInterval(this.pingIntervalId)
+      this.pingIntervalId = null
+    }
+    this.pendingPings.clear()
+  }
+
+  // ============================================================================
   // Input Handling - WebSocket transport
   // ============================================================================
 
@@ -879,7 +1072,24 @@ export class WebSocketStream {
     framesDropped: number
     width: number
     height: number
+    rttMs: number                    // Round-trip time in milliseconds
+    isHighLatency: boolean           // True if RTT exceeds threshold
+    // Batching stats for congestion visibility
+    batchesReceived: number          // Total batch messages received
+    batchedFramesReceived: number    // Total frames received in batches
+    individualFramesReceived: number // Total frames received individually
+    avgBatchSize: number             // Average frames per batch (0 = no batching)
+    batchingRatio: number            // Percent of frames that arrived batched (0-100)
   } {
+    // Calculate batching metrics
+    const totalFrames = this.batchedFramesReceived + this.individualFramesReceived
+    const batchingRatio = totalFrames > 0
+      ? Math.round((this.batchedFramesReceived / totalFrames) * 100)
+      : 0
+    const avgBatchSize = this.recentBatchSizes.length > 0
+      ? this.recentBatchSizes.reduce((a, b) => a + b, 0) / this.recentBatchSizes.length
+      : 0
+
     return {
       fps: this.currentFps,
       videoPayloadBitrateMbps: this.currentVideoPayloadBitrateMbps,
@@ -888,6 +1098,14 @@ export class WebSocketStream {
       framesDropped: this.framesDropped,
       width: this.streamerSize[0],
       height: this.streamerSize[1],
+      rttMs: this.currentRttMs,
+      isHighLatency: this.currentRttMs > this.HIGH_LATENCY_THRESHOLD_MS,
+      // Batching stats
+      batchesReceived: this.batchesReceived,
+      batchedFramesReceived: this.batchedFramesReceived,
+      individualFramesReceived: this.individualFramesReceived,
+      avgBatchSize,
+      batchingRatio,
     }
   }
 
@@ -1013,6 +1231,33 @@ export class WebSocketStream {
   }
 
   /**
+   * Enable or disable video frame transmission from the server
+   * When disabled, server stops sending video frames (saves bandwidth in screenshot mode)
+   *
+   * @param enabled - true to enable video, false to disable (screenshot mode)
+   */
+  setVideoEnabled(enabled: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn("[WebSocketStream] Cannot set video enabled - WebSocket not connected")
+      return
+    }
+
+    console.log(`[WebSocketStream] Setting video enabled: ${enabled}`)
+
+    // Send control message to server
+    // Format: type(1) + JSON payload
+    const json = JSON.stringify({ set_video_enabled: enabled })
+    const encoder = new TextEncoder()
+    const jsonBytes = encoder.encode(json)
+
+    const message = new Uint8Array(1 + jsonBytes.length)
+    message[0] = WsMessageType.ControlMessage
+    message.set(jsonBytes, 1)
+
+    this.ws.send(message.buffer)
+  }
+
+  /**
    * Public method to force reconnection
    * Resets the attempt counter and initiates a fresh connection
    */
@@ -1056,6 +1301,9 @@ export class WebSocketStream {
 
     // Stop heartbeat
     this.stopHeartbeat()
+
+    // Stop RTT pings
+    this.stopPingInterval()
 
     // Reset stream state
     this.resetStreamState()

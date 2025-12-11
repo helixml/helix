@@ -141,7 +141,7 @@ export function useListRepositoryCommits(
   });
 }
 
-export function useListRepositoryPullRequests(repositoryId: string) {
+export function useListRepositoryPullRequests(repositoryId: string, options?: { enabled?: boolean }) {
   const api = useApi();
 
   return useQuery({
@@ -150,7 +150,7 @@ export function useListRepositoryPullRequests(repositoryId: string) {
       const response = await api.getApiClient().listGitRepositoryPullRequests(repositoryId);
       return response.data;
     },
-    enabled: !!repositoryId,
+    enabled: options?.enabled !== false && !!repositoryId,
   });
 }
 
@@ -311,6 +311,49 @@ export function usePushPullGitRepository() {
       });
       queryClient.invalidateQueries({ 
         queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch || '') 
+      });
+    },
+  });
+}
+
+export function usePullFromRemote() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, branch, force = false }: { repositoryId: string; branch: string; force?: boolean }) => {
+      const response = await api.getApiClient().pullFromRemote(repositoryId, {
+        branch,
+        force,
+      });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch) 
+      });
+    },
+  });
+}
+
+export function usePushToRemote() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, branch }: { repositoryId: string; branch: string }) => {
+      const response = await api.getApiClient().pushToRemote(repositoryId, { branch });
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch) 
       });
     },
   });
@@ -507,6 +550,7 @@ const gitRepositoryService = {
   useInitializeSampleRepositories,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
+  usePullFromRemote,
   useCreateBranch,
   useCreateGitRepositoryPullRequest,
 

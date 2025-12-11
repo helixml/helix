@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,7 +109,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		}
 	}
 
-	// Check for duplicate repository name for this owner
+	// Check for duplicate repository name for this owner and auto-increment if needed
 	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: request.OrganizationID,
 		OwnerID:        request.OwnerID,
@@ -118,12 +117,24 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}
-	// Check for duplicates
+
+	// Build a set of existing names for quick lookup
+	existingNames := make(map[string]bool)
 	for _, repo := range existingRepos {
-		if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
-			return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
+		if repo.OwnerID == request.OwnerID {
+			existingNames[repo.Name] = true
 		}
 	}
+
+	// Auto-increment name if it already exists
+	baseName := request.Name
+	uniqueName := baseName
+	suffix := 1
+	for existingNames[uniqueName] {
+		uniqueName = fmt.Sprintf("%s-%d", baseName, suffix)
+		suffix++
+	}
+	request.Name = uniqueName
 
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
@@ -285,8 +296,6 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
 	}
 
-	log.Info().Str("repo_id", repoID).Str("local_path", gitRepo.LocalPath).Msg("Got repository metadata from store")
-
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {
 		if gitRepo.LocalPath != "" {
@@ -310,6 +319,154 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	return gitRepo, nil
+}
+
+func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID string, branchName string) (*types.ExternalStatus, error) {
+	status := &types.ExternalStatus{}
+
+	gitRepo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if !gitRepo.IsExternal {
+		return nil, fmt.Errorf("repository is not external")
+	}
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open repository: %w", err)
+	}
+
+	if branchName == "" {
+		branchName = gitRepo.DefaultBranch
+		if branchName == "" {
+			branchName = "main"
+		}
+	}
+
+	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local branch reference: %w", err)
+	}
+	localHash := localRef.Hash()
+
+	auth := s.GetAuthConfig(gitRepo)
+
+	refSpec := config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName))
+	fetchOpts := &git.FetchOptions{
+		RemoteName: "origin",
+		RefSpecs:   []config.RefSpec{refSpec},
+		Force:      true,
+	}
+	if auth != nil {
+		fetchOpts.Auth = auth
+	}
+
+	err = repo.Fetch(fetchOpts)
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return nil, fmt.Errorf("failed to fetch from remote: %w", err)
+	}
+
+	remoteRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get remote branch reference: %w", err)
+	}
+	remoteHash := remoteRef.Hash()
+
+	if localHash == remoteHash {
+		return status, nil
+	}
+
+	ahead, behind, err := s.countCommitsDiff(repo, localHash, remoteHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count commits diff: %w", err)
+	}
+
+	status.CommitsAhead = ahead
+	status.CommitsBehind = behind
+
+	return status, nil
+}
+
+func (s *GitRepositoryService) countCommitsDiff(repo *git.Repository, localHash, remoteHash plumbing.Hash) (ahead, behind int, err error) {
+	mergeBase, err := s.findMergeBase(repo, localHash, remoteHash)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	ahead, err = s.countCommitsBetween(repo, mergeBase, localHash)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to count ahead commits: %w", err)
+	}
+
+	behind, err = s.countCommitsBetween(repo, mergeBase, remoteHash)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to count behind commits: %w", err)
+	}
+
+	return ahead, behind, nil
+}
+
+func (s *GitRepositoryService) findMergeBase(repo *git.Repository, hash1, hash2 plumbing.Hash) (plumbing.Hash, error) {
+	ancestors1 := make(map[plumbing.Hash]bool)
+	ancestors1[hash1] = true
+
+	iter1, err := repo.Log(&git.LogOptions{From: hash1})
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	_ = iter1.ForEach(func(c *object.Commit) error {
+		ancestors1[c.Hash] = true
+		return nil
+	})
+
+	if ancestors1[hash2] {
+		return hash2, nil
+	}
+
+	iter2, err := repo.Log(&git.LogOptions{From: hash2})
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	var mergeBase plumbing.Hash
+	_ = iter2.ForEach(func(c *object.Commit) error {
+		if ancestors1[c.Hash] {
+			mergeBase = c.Hash
+			return fmt.Errorf("found")
+		}
+		return nil
+	})
+
+	if mergeBase.IsZero() {
+		return plumbing.ZeroHash, fmt.Errorf("no common ancestor found")
+	}
+
+	return mergeBase, nil
+}
+
+func (s *GitRepositoryService) countCommitsBetween(repo *git.Repository, from, to plumbing.Hash) (int, error) {
+	if from == to {
+		return 0, nil
+	}
+
+	count := 0
+	iter, err := repo.Log(&git.LogOptions{From: to})
+	if err != nil {
+		return 0, err
+	}
+
+	iter.ForEach(func(c *object.Commit) error {
+		if c.Hash == from {
+			return fmt.Errorf("stop")
+		}
+		count++
+		return nil
+	})
+
+	return count, nil
 }
 
 // UpdateRepository updates an existing repository's metadata
@@ -782,6 +939,9 @@ func (s *GitRepositoryService) initializeGitRepository(
 }
 
 // updateRepositoryFromGit updates repository info from git metadata
+// For external repositories, this clones them as BARE repositories to allow
+// receiving pushes from agents. The actual working copy is created on-demand
+// when needed for operations like CreateOrUpdateFileContents.
 func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitRepository) error {
 	var (
 		repo *git.Repository
@@ -794,9 +954,10 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 			cloneOptions := &git.CloneOptions{
 				URL:      gitRepo.ExternalURL,
 				Progress: os.Stdout,
+				Bare:     true,
 			}
 
-			cloneOptions.Auth = s.getAuthConfig(gitRepo)
+			cloneOptions.Auth = s.GetAuthConfig(gitRepo)
 
 			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
 			if err != nil {
@@ -810,7 +971,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 		}
 	}
 
-	// Get branches
 	refs, err := repo.References()
 	if err == nil {
 		branches := []string{}
@@ -824,7 +984,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 		gitRepo.Branches = branches
 	}
 
-	// Update last activity (could be improved with actual git log)
 	gitRepo.LastActivity = time.Now()
 	gitRepo.UpdatedAt = time.Now()
 
@@ -1847,81 +2006,10 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-func (s *GitRepositoryService) pullChanges(repo *git.Repository, w *git.Worktree, gitRepoConfig *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Checking for new commits")
-
-	// repo, err := git.PlainOpen(gitRepoConfig.LocalPath)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to open git repository %s: %w", gitRepoConfig.LocalPath, err)
-	// }
-
-	// worktree, err := repo.Worktree()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get worktree: %w", err)
-	// }
-
-	auth := s.getAuthConfig(gitRepoConfig)
-
-	// Fetch
-	err := repo.Fetch(&git.FetchOptions{
-		RemoteName: "origin",
-		Progress:   os.Stdout,
-		Auth:       auth,
-	})
-	if err != nil {
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			log.Info().Str("repo_id", gitRepoConfig.ID).Msg("External repository already up to date")
-			// OK
-		} else {
-			return fmt.Errorf("failed to fetch changes: %w", err)
-		}
-	}
-
-	pullOptions := &git.PullOptions{
-		RemoteName: "origin",
-		Auth:       auth,
-	}
-
-	err = w.Pull(pullOptions)
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return fmt.Errorf("failed to pull changes: %w", err)
-	}
-
-	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Pulled latest changes")
-
-	return nil
-}
-
-func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRepo *types.GitRepository, branch string, force bool) error {
-	log.Info().Str("repo_id", gitRepo.ID).Bool("force", force).Msg("Pushing changes to external repository")
-
-	pushOptions := &git.PushOptions{
-		RemoteName: "origin",
-		Progress:   os.Stdout,
-	}
-	if force {
-		pushOptions.RefSpecs = []config.RefSpec{
-			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
-		}
-	}
-	pushOptions.Auth = s.getAuthConfig(gitRepo)
-
-	err := repo.Push(pushOptions)
-	if err != nil {
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			log.Info().Str("repo_id", gitRepo.ID).Msg("External repository already up to date")
-			return nil
-		}
-		return fmt.Errorf("failed to push changes: %w", err)
-	}
-
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pushed changes to external repository")
-
-	return nil
-}
-
-// PushPullRequest pulls from external repository all commits and pushes any commits from the local repository to the external repository (upstream)
-// This is used to update the external repository with the latest commits from the local repository that we have made changes to
+// PushPullRequest syncs with external repository using a temporary working copy.
+// Since Helix uses bare repositories (to accept remote pushes from agents),
+// this creates a temp clone from the external repo, pulls latest changes,
+// merges any local commits, pushes to external, and updates the local bare repo.
 func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -1936,66 +2024,47 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		return fmt.Errorf("branch name is required")
 	}
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	auth := s.GetAuthConfig(gitRepo)
+
+	wc, err := s.getExternalWorkingCopy(gitRepo.ExternalURL, gitRepo.LocalPath, branchName, auth)
 	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
+		return fmt.Errorf("failed to create working copy: %w", err)
 	}
+	defer wc.Cleanup()
 
-	w, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	err = setBranch(w, branchName)
-	if err != nil {
-		return fmt.Errorf("failed to set branch %s: %w", branchName, err)
-	}
-
-	// head, err := repo.Head()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get HEAD: %w", err)
-	// }
-
-	// if head.Name().Short() != branchName {
-	// 	// Try to find the branch
-	// 	branchRef := plumbing.NewBranchReferenceName(branchName)
-	// 	err = w.Checkout(&git.CheckoutOptions{
-	// 		Branch: branchRef,
-	// 	})
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
-	// 	}
-	// }
-
-	// 1. call pullChanges (skip if force push)
 	if !force {
 		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
 			Msg("Pulling changes from external repository")
-		err = s.pullChanges(repo, w, gitRepo)
+
+		err = wc.Pull(auth)
 		if err != nil {
-			// Return error on merge conflict or other pull errors
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
 		}
 	}
 
-	// 2. call pushChangesToExternal
-	err = s.pushChangesToExternal(repo, gitRepo, branchName, force)
+	log.Info().
+		Str("repo_id", gitRepo.ID).
+		Str("branch", branchName).
+		Bool("force", force).
+		Msg("Pushing changes to external repository")
+
+	err = wc.PushToOrigin(branchName, force, auth)
 	if err != nil {
-		return fmt.Errorf("failed to push changes: %w", err)
+		return fmt.Errorf("failed to push changes to external: %w", err)
 	}
 
-	return nil
-}
-
-func setBranch(w *git.Worktree, branchName string) error {
-	err := w.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName(branchName),
-	})
+	err = wc.PushToHelixBare(branchName)
 	if err != nil {
-		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+		return fmt.Errorf("failed to sync changes to local bare repo: %w", err)
 	}
+
+	log.Info().
+		Str("repo_id", gitRepo.ID).
+		Str("branch", branchName).
+		Msg("Successfully synced with external repository")
+
 	return nil
 }
 
@@ -2056,8 +2125,8 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 	return nil
 }
 
-// getAuthConfig returns the authentication configuration for the repository
-func (s *GitRepositoryService) getAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
+// GetAuthConfig returns the authentication configuration for the repository
+func (s *GitRepositoryService) GetAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
 	switch gitRepo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		// If we have a PAT, use it

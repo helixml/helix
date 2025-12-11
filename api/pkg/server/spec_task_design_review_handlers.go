@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -226,26 +227,22 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
 
-		// Get base branch for implementation
+		// Get base branch and primary repo name for implementation
 		var baseBranch string
+		var primaryRepoName string
 		if project.DefaultRepoID != "" {
 			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
 			if err == nil && repo != nil {
 				baseBranch = repo.DefaultBranch
+				primaryRepoName = repo.Name
 			}
 		}
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
 
-		// Generate feature branch name
-		// Use last 16 chars of task ID to get the random ULID portion (avoids timestamp collisions)
-		taskIDSuffix := specTask.ID
-		if len(taskIDSuffix) > 16 {
-			taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-16:]
-		}
-		branchName := fmt.Sprintf("feature/%s-%s", specTask.Name, taskIDSuffix)
-		branchName = sanitizeBranchName(branchName)
+		// Generate feature branch name using task number (e.g., feature/install-uv-123)
+		branchName := services.GenerateFeatureBranchName(specTask)
 
 		// Move to implementation status
 		specTask.Status = types.TaskStatusImplementation
@@ -262,7 +259,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// Send implementation instruction to agent via WebSocket
 		// This sends the detailed prompt with tasks.md progress tracking instructions
 		go func() {
-			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch)
+			err := s.sendApprovalInstructionToAgent(context.Background(), specTask, branchName, baseBranch, primaryRepoName)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -921,25 +918,71 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		Msg("✅ Finalized comment response (cleared request_id)")
 
 	// Response complete - process next comment in queue
+	// CRITICAL: We MUST clear sessionCurrentComment and trigger processNextCommentInQueue
+	// even if we can't look up the review/specTask. Otherwise the queue gets permanently stuck.
+	var sessionID string
+
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
-	if err == nil {
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("comment_id", comment.ID).
+			Str("review_id", comment.ReviewID).
+			Msg("⚠️ Failed to get design review - will try to find sessionID from queue state")
+	} else {
 		specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-		if err == nil && specTask.PlanningSessionID != "" {
-			sessionID := specTask.PlanningSessionID
-
-			// Clear the current comment and process next
-			s.sessionCommentMutex.Lock()
-			delete(s.sessionCurrentComment, sessionID)
-			s.sessionCommentMutex.Unlock()
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("completed_comment", comment.ID).
-				Msg("Comment response complete, checking for next in queue")
-
-			go s.processNextCommentInQueue(ctx, sessionID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("spec_task_id", review.SpecTaskID).
+				Msg("⚠️ Failed to get spec task - will try to find sessionID from queue state")
+		} else if specTask.PlanningSessionID == "" {
+			log.Warn().
+				Str("spec_task_id", specTask.ID).
+				Msg("⚠️ SpecTask has empty PlanningSessionID - will try to find sessionID from queue state")
+		} else {
+			sessionID = specTask.PlanningSessionID
 		}
 	}
+
+	// If we couldn't get sessionID from the spec task, try to find it from the current comment mappings
+	// by checking which session has this comment as the current one
+	if sessionID == "" {
+		s.sessionCommentMutex.RLock()
+		for sessID, currentCommentID := range s.sessionCurrentComment {
+			if currentCommentID == comment.ID {
+				sessionID = sessID
+				log.Info().
+					Str("session_id", sessionID).
+					Str("comment_id", comment.ID).
+					Msg("Found sessionID from sessionCurrentComment mapping")
+				break
+			}
+		}
+		s.sessionCommentMutex.RUnlock()
+	}
+
+	// If we still don't have a sessionID, we can't clear the queue properly
+	// Log an error but don't block - the response was still processed
+	if sessionID == "" {
+		log.Error().
+			Str("comment_id", comment.ID).
+			Str("review_id", comment.ReviewID).
+			Msg("❌ Could not determine sessionID to clear queue - queue may be stuck!")
+		return nil
+	}
+
+	// Clear the current comment and process next
+	s.sessionCommentMutex.Lock()
+	delete(s.sessionCurrentComment, sessionID)
+	s.sessionCommentMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("completed_comment", comment.ID).
+		Msg("Comment response complete, checking for next in queue")
+
+	go s.processNextCommentInQueue(ctx, sessionID)
 
 	return nil
 }
@@ -961,6 +1004,13 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Msg("Backfilling design review from git")
+
+	// Get task to find DesignDocPath for directory lookup
+	task, err := s.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get task for backfill")
+		return
+	}
 
 	// Get current commit hash from helix-specs branch
 	cmd := exec.Command("git", "rev-parse", "helix-specs")
@@ -987,16 +1037,33 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		return
 	}
 
-	// Find task directory by searching for task ID in file paths
+	// Find task directory - first try DesignDocPath, then fall back to specTaskID
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var taskDir string
-	for _, file := range files {
-		if strings.Contains(file, specTaskID) {
-			// Extract directory path
-			parts := strings.Split(file, "/")
-			if len(parts) >= 3 {
-				taskDir = strings.Join(parts[:len(parts)-1], "/")
-				break
+
+	// First try DesignDocPath (new human-readable format)
+	if task.DesignDocPath != "" {
+		for _, file := range files {
+			if strings.Contains(file, task.DesignDocPath) {
+				parts := strings.Split(file, "/")
+				if len(parts) >= 3 {
+					taskDir = strings.Join(parts[:len(parts)-1], "/")
+					break
+				}
+			}
+		}
+	}
+
+	// Fall back to specTaskID for backwards compatibility
+	if taskDir == "" {
+		for _, file := range files {
+			if strings.Contains(file, specTaskID) {
+				// Extract directory path
+				parts := strings.Split(file, "/")
+				if len(parts) >= 3 {
+					taskDir = strings.Join(parts[:len(parts)-1], "/")
+					break
+				}
 			}
 		}
 	}
@@ -1129,9 +1196,13 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 	specTask *types.SpecTask,
 	branchName string,
 	baseBranch string,
+	primaryRepoName string,
 ) error {
+	// Fetch guidelines from project and organization
+	guidelines := s.getGuidelinesForSpecTask(ctx, specTask)
+
 	// Build the prompt using the shared function from services package
-	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch)
+	message := services.BuildApprovalInstructionPrompt(specTask, branchName, baseBranch, guidelines, primaryRepoName)
 
 	_, err := s.sendMessageToSpecTaskAgent(ctx, specTask, message, "")
 	if err != nil {
@@ -1144,4 +1215,36 @@ func (s *HelixAPIServer) sendApprovalInstructionToAgent(
 		Msg("✅ Sent approval instruction to agent via WebSocket")
 
 	return nil
+}
+
+// getGuidelinesForSpecTask fetches concatenated organization + project guidelines
+func (s *HelixAPIServer) getGuidelinesForSpecTask(ctx context.Context, task *types.SpecTask) string {
+	if task.ProjectID == "" {
+		return ""
+	}
+
+	project, err := s.Store.GetProject(ctx, task.ProjectID)
+	if err != nil || project == nil {
+		return ""
+	}
+
+	guidelines := ""
+
+	// Get organization guidelines
+	if project.OrganizationID != "" {
+		org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
+		if err == nil && org != nil && org.Guidelines != "" {
+			guidelines = org.Guidelines
+		}
+	}
+
+	// Append project guidelines
+	if project.Guidelines != "" {
+		if guidelines != "" {
+			guidelines += "\n\n---\n\n"
+		}
+		guidelines += project.Guidelines
+	}
+
+	return guidelines
 }

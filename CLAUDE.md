@@ -32,6 +32,76 @@ bash -c "./stack start"                # OR THIS
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
 
+## 🚨 CRITICAL: Sandbox Build Pipeline - COMMIT EVERYTHING FIRST 🚨
+
+**The sandbox architecture is deeply nested. Changes MUST be committed before rebuilding.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Host Machine                                                     │
+│  └── Wolf Container (runs Docker-in-Docker)                     │
+│       └── helix-sway Container (the sandbox)                    │
+│            ├── Zed binary (built from ~/pm/zed)                 │
+│            ├── Qwen Code (built from ~/pm/qwen-code)            │
+│            └── Settings Sync Daemon (built from helix/api/cmd)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**The problem: `./stack build-sway` copies from LOCAL builds, not git repos:**
+- It copies `~/pm/qwen-code/packages/cli/dist/` → into Docker image
+- It copies `~/pm/zed/target/release/zed` → into Docker image
+- Wolf's inner Docker pulls the helix-sway image by TAG (based on git commit)
+
+**If you don't commit before rebuild:**
+1. Build runs → creates new helix-sway image
+2. Image gets tagged with current git commit hash
+3. BUT if repos aren't committed, the tag doesn't change
+4. Wolf's inner Docker sees same tag → uses cached image
+5. **YOUR CHANGES DON'T RUN** ← This wastes hours of debugging
+
+**CORRECT WORKFLOW for sandbox changes:**
+
+```bash
+# Step 1: COMMIT ALL THREE REPOS FIRST
+cd ~/pm/qwen-code && git add -A && git commit -m "feat: description"
+cd ~/pm/zed && git add -A && git commit -m "feat: description"
+cd ~/pm/helix && git add -A && git commit -m "feat: description"
+
+# Step 2: Build Zed binary (if Zed code changed)
+./stack build-zed
+
+# Step 3: Build sway container (picks up qwen-code, zed binary, helix changes)
+./stack build-sway
+
+# Step 4: VERIFY the build worked
+docker images helix-sway --format "{{.Tag}} {{.CreatedAt}}" | head -1
+# Tag should match your latest helix commit hash
+# CreatedAt should be just now
+
+# Step 5: Start a NEW session (existing containers use old image)
+# Ask user to create new agent session to test
+```
+
+**Common mistakes that waste hours:**
+- ❌ Editing qwen-code but not committing before build-sway
+- ❌ Editing zed but not running build-zed before build-sway
+- ❌ Assuming existing sandbox containers got updated (they didn't)
+- ❌ Not verifying the image tag/timestamp after build
+
+**Signs your changes didn't deploy:**
+- Same bug still happens after "fix"
+- Console logs you added don't appear
+- Image timestamp is old
+
+**ALWAYS verify after building:**
+```bash
+# Check helix-sway image was just created
+docker images helix-sway --format "table {{.Tag}}\t{{.CreatedAt}}" | head -3
+
+# For Wolf changes specifically:
+docker run --rm --entrypoint="" helix-sandbox:latest stat /wolf/wolf | grep Modify
+```
+
 ## 🚨 CRITICAL: NEVER DELETE GIT INDEX LOCK 🚨
 
 **NEVER delete .git/index.lock - it causes git index corruption**
@@ -116,6 +186,90 @@ git push origin fix/descriptive-name
 
 **Exception:** User may explicitly grant permission to push to main for urgent fixes. Always confirm first.
 
+## 🚨 CRITICAL: NEVER AMEND COMMITS ON MAIN 🚨
+
+**NEVER use `git commit --amend` on commits that are on the main branch**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN on main branch
+git commit --amend                     # NEVER DO THIS ON MAIN
+git commit --amend -m "new message"    # OR THIS
+git commit --amend --no-edit           # OR THIS
+
+# ✅ CORRECT: Create a new commit instead
+git commit -m "fix: correct the previous change"
+```
+
+**Why this is forbidden:**
+- Amending rewrites history, which breaks other developers' work
+- Main branch is shared - rewriting it causes merge conflicts for everyone
+- User may have already pulled the commit you're amending
+- Force push would be required, which is also forbidden
+
+**What to do instead:**
+1. **Create a new commit** with the fix
+2. **If you made a mistake in a commit message**, create a new commit with a note
+3. **If the user asks you to amend**, confirm they understand the implications
+4. **Only amend on feature branches** before they're merged to main
+
+**If you accidentally committed to main:**
+- DON'T try to fix it with amend or reset
+- Create a new commit that corrects the mistake
+- Or ASK THE USER how they want to handle it
+
+## 🚨 CRITICAL: NEVER USE git checkout/reset ON ENTIRE DIRECTORY 🚨
+
+**NEVER use `git checkout -- .` or `git reset` with `.` or without specific file paths**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Operations on entire directory
+git checkout HEAD -- .                 # DESTROYS ALL UNCOMMITTED CHANGES
+git checkout -- .                      # DESTROYS ALL UNCOMMITTED CHANGES
+git reset --hard                       # DESTROYS ALL UNCOMMITTED CHANGES
+git reset --hard HEAD                  # DESTROYS ALL UNCOMMITTED CHANGES
+git clean -fd                          # DELETES ALL UNTRACKED FILES
+
+# ✅ CORRECT: Always specify exact file paths
+git checkout HEAD -- path/to/specific/file.tsx
+git restore path/to/specific/file.tsx
+git checkout -- path/to/specific/file.go
+```
+
+**Why this is forbidden:**
+- Other agents or the user may have uncommitted work in progress
+- You only have visibility into files YOU modified in this session
+- Using `.` or omitting paths affects THE ENTIRE REPOSITORY
+- Lost uncommitted changes are nearly impossible to recover
+- This has caused significant data loss - see `design/2025-12-08-git-checkout-data-loss-incident.md`
+
+**Real incident that caused this rule:**
+1. Agent was fixing a single file (MoonlightStreamViewer.tsx)
+2. Attempted `git commit --amend` which failed (protected branch)
+3. Ran `git reset --soft HEAD~1 && git checkout HEAD -- .` to "recover"
+4. The `-- .` reverted ALL uncommitted files in the repo, not just the one being worked on
+5. Lost 7 files of uncommitted work from other sessions
+
+**What to do instead:**
+1. **Always specify exact file paths** in git checkout/reset commands
+2. **Run `git status` first** to see what other changes exist
+3. **If you need to discard YOUR changes**, only discard the specific files you modified
+4. **If unsure**, ASK THE USER before running any git reset/checkout commands
+5. **Never assume** you're the only one with uncommitted changes
+
+**Before any git checkout/reset, ALWAYS:**
+```bash
+# ✅ Check what uncommitted changes exist
+git status
+
+# ✅ If you see files YOU DIDN'T MODIFY, STOP and ask user
+# Those are someone else's work in progress!
+
+# ✅ Only then, restore SPECIFIC files you need to change
+git checkout HEAD -- frontend/src/components/specific/File.tsx
+```
+
+**NEVER use `.` or `--all` or omit paths in git checkout/reset commands.**
+
 ## 🚨 CRITICAL: NEVER RENAME CURRENT WORKING DIRECTORY 🚨
 
 **NEVER rename or move your present working directory - it breaks your shell session**
@@ -188,20 +342,61 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
 
+This applies to BOTH repos:
+- **helix** - for sway config, Wolf executor, API changes
+- **qwen-code** (at `../qwen-code`) - for Qwen Code tool/agent changes
+
 `./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
 ```bash
 # ❌ WRONG: Build without committing
-./stack build-sway                    # Image tag won't update!
-./stack build-sandbox                 # Image tag won't update!
+./stack build-sway                    # Changes won't be detected!
+./stack build-sandbox                 # Changes won't be detected!
 
-# ✅ CORRECT
+# ✅ CORRECT: Commit in BOTH repos if you changed both
+# In helix:
 git add -A && git commit -m "changes" && git push
-./stack build-sway                    # New tag detected, new image runs
-./stack build-sandbox                 # New tag detected, new image runs
+
+# In qwen-code (if modified):
+cd ../qwen-code
+git add -A && git commit -m "changes" && git push
+cd ../helix
+
+./stack build-sway                    # Now detects all changes
 ```
 
-**Why:** The helix-sway image tag is derived from the git commit hash. Without a new commit, the tag doesn't change, the inner Docker won't detect a new image, and your changes won't run in new sandboxes. Push is required for the version link in the UI to work.
+**Why:**
+- The helix-sway image tag is derived from the helix git commit hash
+- Qwen-code rebuild detection compares git commit hashes (uncommitted changes are invisible!)
+- Push is required for the version link in the UI to work
+
+## 🚨 CRITICAL: VERIFY DOCKER CACHE BUSTING ON REBUILDS 🚨
+
+**When rebuilding Wolf, Moonlight Web, or sandbox images, VERIFY the cache was actually busted**
+
+Docker BuildKit can cache `FROM` layers even when the referenced image has been rebuilt with the same tag. This caused hours of debugging when a Wolf fix was deployed but the sandbox kept using the old cached binary.
+
+**After running `./stack build-wolf`, `./stack build-moonlight-web`, or `./stack build-sandbox`, check:**
+
+```bash
+# Check Wolf binary timestamp in the image
+docker run --rm --entrypoint="" wolf:helix-fixed stat /wolf/wolf | grep Modify
+docker run --rm --entrypoint="" helix-sandbox:latest stat /wolf/wolf | grep Modify
+
+# Check Moonlight Web binary timestamp
+docker run --rm --entrypoint="" helix-moonlight-web:helix-fixed stat /app/web-server | grep Modify
+docker run --rm --entrypoint="" helix-sandbox:latest stat /moonlight-web/web-server | grep Modify
+
+# Timestamps should be AFTER your source code changes
+# If they're old, the cache wasn't busted properly
+```
+
+**Signs the cache wasn't busted:**
+- Build output shows `CACHED` for layers that should have rebuilt
+- Binary timestamps are older than your source changes
+- `COPY . /wolf/` or `COPY . /build/` shows `CACHED` when you changed source files
+
+**The build-sandbox script now passes `--build-arg WOLF_IMAGE_ID=...` and `--build-arg MOONLIGHT_IMAGE_ID=...` to bust the cache**, but always verify when debugging deployment issues.
 
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
@@ -388,6 +583,44 @@ docker compose -f docker-compose.dev.yaml logs --tail 30 api
 
 **Why:** Build logs don't catch all runtime errors. JSX syntax errors, missing imports, and broken conditionals only appear when page actually loads in browser.
 
+## CRITICAL: ACP Architecture - IDE ↔ Agent, NOT Agent ↔ LLM
+
+**ACP (Agent Client Protocol) connects the Agent to the IDE, NOT to the LLM!**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        HELIX AGENT ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌──────────┐   OpenAI API    ┌─────────────┐    ACP     ┌──────────┐ │
+│   │   LLM    │ ←──────────────→│ Qwen Code   │←──────────→│   Zed    │ │
+│   │(Claude/  │  function calls │  (Agent)    │  messages  │  (IDE)   │ │
+│   │ Qwen3)   │  & responses    │             │  & prompts │          │ │
+│   └──────────┘                 └─────────────┘            └──────────┘ │
+│                                                                         │
+│   LLM handles:                 Agent handles:       IDE handles:        │
+│   - Understanding prompts      - Tool execution     - UI rendering      │
+│   - Function calling           - State management   - User input        │
+│   - Response generation        - LLM communication  - Thread display    │
+│                                - ACP communication                      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Common confusion to avoid:**
+- ❌ WRONG: "ACP handles tool calls from the LLM"
+- ✅ RIGHT: ACP is a protocol between Zed (IDE) and the Agent (Qwen Code)
+- ✅ RIGHT: Tool calls happen internally between the Agent and the LLM via OpenAI API
+
+**When debugging agent issues:**
+- **Model outputs raw XML in text** → LLM issue (model doesn't understand function calling)
+- **Messages not appearing in Zed** → ACP/Zed issue (protocol or UI rendering)
+- **Tools failing silently** → Agent issue (Qwen Code's tool execution)
+
+**Key files:**
+- `qwen-code/packages/cli/src/` → Qwen Code agent (talks to LLM AND Zed)
+- `zed/crates/agent_servers/src/acp.rs` → Zed's ACP client (talks to agent)
+- `api/cmd/settings-sync-daemon/` → Configures agent_servers in Zed's settings.json
+
 ## Zed Build Process
 
 ```bash
@@ -435,6 +668,31 @@ mockgen -source api/pkg/external-agent/wolf_client_interface.go \
 8. **No unauthorized images**: Never build/push versioned images without permission
 9. **Test after every change**: Big-bang approaches impossible to debug
 10. **Check logs after changes**: Verify hot reload succeeded
+
+## Enterprise Deployment Context
+
+**Helix is typically deployed on enterprise networks.** Design decisions should account for:
+
+1. **Internal DNS servers**: Enterprises have internal DNS for intranet TLDs and internal services
+   - Never hardcode public DNS servers (like 8.8.8.8) as the only option
+   - Always inherit DNS configuration from `/etc/resolv.conf` when possible
+   - Example: Hydra passes sandbox's DNS servers to container daemons and DNS proxies
+
+2. **Proxy servers**: HTTP/HTTPS proxies are common in enterprise environments
+   - Respect `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` environment variables
+   - Container builds should pass through proxy settings
+
+3. **Air-gapped networks**: Some deployments have limited or no internet access
+   - All required images should be pullable from configurable registries
+   - Don't assume external services are reachable
+
+4. **Private certificate authorities**: Enterprises use internal CAs
+   - Support custom CA certificates for TLS verification
+   - Never skip certificate verification as a "solution"
+
+5. **Network segmentation**: Services may be on different network segments
+   - Don't assume all services can directly reach each other
+   - Design for configurable endpoints and routing
 
 ## Wolf Development
 

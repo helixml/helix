@@ -1860,6 +1860,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/clone-groups/{groupId}/progress": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get status breakdown and progress of all cloned tasks",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CloneGroups"
+                ],
+                "summary": "Get progress of all tasks in a clone group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Clone group ID",
+                        "name": "groupId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneGroupProgress"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/config": {
             "get": {
                 "security": [
@@ -3380,6 +3420,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pull": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pulls latest commits from remote repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Pull from remote repository",
+                "operationId": "pullFromRemote",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Force pull (default: false)",
+                        "name": "force",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name (required)",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PullResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/pull-requests": {
             "get": {
                 "security": [
@@ -3476,6 +3582,66 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.CreatePullRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/push": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pushes the local branch to the remote repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Push to remote repository",
+                "operationId": "pushToRemote",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name",
+                        "name": "branch",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PushResponse"
                         }
                     },
                     "400": {
@@ -4618,6 +4784,15 @@ const docTemplate = `{
                     "Moonlight"
                 ],
                 "summary": "Get moonlight-web internal state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4829,6 +5004,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/oauth/sharepoint/resolve-site": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolve a SharePoint site URL to its site ID using Microsoft Graph API",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Resolve SharePoint site URL to site ID",
+                "parameters": [
+                    {
+                        "description": "Request body with site URL and provider ID",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SharePointSiteResolveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SharePointSiteResolveResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations": {
             "get": {
                 "security": [
@@ -4931,6 +5145,64 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{id}/guidelines-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the version history of guidelines for an organization",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Organizations"
+                ],
+                "summary": "Get organization guidelines history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GuidelinesHistory"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
                     }
                 }
             }
@@ -5352,6 +5624,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/quick-create": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a minimal project for a repository that doesn't have one",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Quick-create a project for a repository",
+                "parameters": [
+                    {
+                        "description": "Quick create request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.QuickCreateProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}": {
             "get": {
                 "security": [
@@ -5738,6 +6055,64 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/guidelines-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the version history of guidelines for a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project guidelines history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GuidelinesHistory"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -6696,6 +7071,42 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.QuestionSetExecution"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/repositories/without-projects": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all repositories that don't have an associated project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Repositories"
+                ],
+                "summary": "List repositories without projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by organization ID",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitRepository"
+                            }
                         }
                     }
                 }
@@ -8374,7 +8785,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/services.CreateTaskRequest"
+                            "$ref": "#/definitions/types.CreateTaskRequest"
                         }
                     }
                 ],
@@ -9406,6 +9817,107 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/clone": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Clone a spec task (with its prompt, spec, and plan) to other projects",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Clone a spec task to multiple projects",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Clone request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneTaskRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CloneTaskResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/clone-groups": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all clone groups where this task was the source",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "List clone groups for a task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.CloneGroup"
+                            }
                         }
                     }
                 }
@@ -14114,6 +14626,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.QuickCreateProjectRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.SampleProject": {
             "type": "object",
             "properties": {
@@ -14227,7 +14750,11 @@ const docTemplate = `{
                 },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
                 },
                 "prompt": {
                     "description": "Natural language request",
@@ -14340,6 +14867,31 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "wolf_app_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SharePointSiteResolveRequest": {
+            "type": "object",
+            "properties": {
+                "provider_id": {
+                    "type": "string"
+                },
+                "site_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SharePointSiteResolveResponse": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "site_id": {
+                    "type": "string"
+                },
+                "web_url": {
                     "type": "string"
                 }
             }
@@ -14522,7 +15074,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskStatus"
                 },
                 "task_id": {
                     "type": "string"
@@ -14795,38 +15347,6 @@ const docTemplate = `{
                 "CoordinationEventTypeCompletion",
                 "CoordinationEventTypeSpawn"
             ]
-        },
-        "services.CreateTaskRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "description": "Optional: Helix agent to use for spec generation",
-                    "type": "string"
-                },
-                "just_do_it_mode": {
-                    "description": "Optional: Skip spec planning, go straight to implementation",
-                    "type": "boolean"
-                },
-                "priority": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "prompt": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "use_host_docker": {
-                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
-                    "type": "boolean"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            }
         },
         "services.DocumentHandoffConfig": {
             "type": "object",
@@ -16501,6 +17021,14 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "code_agent_runtime": {
+                    "description": "CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).\nOptions: \"zed_agent\" (Zed's built-in agent) or \"qwen_code\" (qwen command as custom agent).\nIf empty, defaults to \"zed_agent\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                },
                 "context_limit": {
                     "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
                     "type": "integer"
@@ -16962,6 +17490,244 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CloneGroup": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source_project_id": {
+                    "type": "string"
+                },
+                "source_prompt": {
+                    "type": "string"
+                },
+                "source_requirements_spec": {
+                    "type": "string"
+                },
+                "source_task_id": {
+                    "type": "string"
+                },
+                "source_task_name": {
+                    "type": "string"
+                },
+                "source_technical_spec": {
+                    "type": "string"
+                },
+                "total_targets": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneGroupProgress": {
+            "type": "object",
+            "properties": {
+                "clone_group_id": {
+                    "type": "string"
+                },
+                "completed_tasks": {
+                    "type": "integer"
+                },
+                "progress_pct": {
+                    "type": "integer"
+                },
+                "source_task": {
+                    "$ref": "#/definitions/types.CloneGroupSourceTask"
+                },
+                "status_breakdown": {
+                    "description": "status -\u003e count",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneGroupTaskProgress"
+                    }
+                },
+                "total_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneGroupSourceTask": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneGroupTaskProgress": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskCreateProjectSpec": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "Optional, will use repo name if not provided",
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CloneTaskRequest": {
+            "type": "object",
+            "properties": {
+                "auto_start": {
+                    "description": "Auto-start cloned tasks",
+                    "type": "boolean"
+                },
+                "create_projects": {
+                    "description": "Create new projects for repos",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskCreateProjectSpec"
+                    }
+                },
+                "target_project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.CloneTaskResponse": {
+            "type": "object",
+            "properties": {
+                "clone_group_id": {
+                    "type": "string"
+                },
+                "cloned_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskResult"
+                    }
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.CloneTaskError"
+                    }
+                },
+                "total_cloned": {
+                    "type": "integer"
+                },
+                "total_failed": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.CloneTaskResult": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"created\", \"started\", \"failed\"",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentConfig": {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "description": "AgentName is the name used in Zed's agent_servers config (e.g., \"qwen\", \"claude-code\")",
+                    "type": "string"
+                },
+                "api_type": {
+                    "description": "APIType specifies the API format: \"anthropic\", \"openai\", or \"azure_openai\"",
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "BaseURL is the Helix proxy endpoint URL (e.g., \"https://helix.example.com/v1\")",
+                    "type": "string"
+                },
+                "model": {
+                    "description": "Model is the model identifier (e.g., \"claude-sonnet-4-5-latest\", \"gpt-4o\")",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
+                    "type": "string"
+                },
+                "runtime": {
+                    "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.CodeAgentRuntime": {
+            "type": "string",
+            "enum": [
+                "zed_agent",
+                "qwen_code"
+            ],
+            "x-enum-varnames": [
+                "CodeAgentRuntimeZedAgent",
+                "CodeAgentRuntimeQwenCode"
+            ]
+        },
         "types.CommentQueueStatusResponse": {
             "type": "object",
             "properties": {
@@ -17189,6 +17955,38 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateTaskRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "Optional: Helix agent to use for spec generation",
+                    "type": "string"
+                },
+                "just_do_it_mode": {
+                    "description": "Optional: Skip spec planning, go straight to implementation",
+                    "type": "boolean"
+                },
+                "priority": {
+                    "$ref": "#/definitions/types.SpecTaskPriority"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "use_host_docker": {
+                    "description": "Optional: Use host Docker socket (requires privileged sandbox)",
+                    "type": "boolean"
+                },
+                "user_id": {
                     "type": "string"
                 }
             }
@@ -17550,6 +18348,17 @@ const docTemplate = `{
                 "ExternalRepositoryTypeBitbucket"
             ]
         },
+        "types.ExternalStatus": {
+            "type": "object",
+            "properties": {
+                "commits_ahead": {
+                    "type": "integer"
+                },
+                "commits_behind": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Feedback": {
             "type": "string",
             "enum": [
@@ -17653,6 +18462,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "description": {
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "Optional: agent app to use for spec tasks (uses default if empty)",
                     "type": "string"
                 },
                 "organization_id": {
@@ -18286,6 +19099,47 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GuidelinesHistory": {
+            "type": "object",
+            "properties": {
+                "change_note": {
+                    "description": "Optional description of what changed",
+                    "type": "string"
+                },
+                "guidelines": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Set for org-level guidelines",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "Set for project-level guidelines",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "description": "User ID",
+                    "type": "string"
+                },
+                "updated_by_email": {
+                    "description": "User email (not persisted, populated at query time)",
+                    "type": "string"
+                },
+                "updated_by_name": {
+                    "description": "User display name (not persisted, populated at query time)",
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.HelpRequest": {
             "type": "object",
             "properties": {
@@ -18785,6 +19639,9 @@ const docTemplate = `{
                 "s3": {
                     "$ref": "#/definitions/types.KnowledgeSourceS3"
                 },
+                "sharepoint": {
+                    "$ref": "#/definitions/types.KnowledgeSourceSharePoint"
+                },
                 "text": {
                     "type": "string"
                 },
@@ -18822,6 +19679,38 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.KnowledgeSourceSharePoint": {
+            "type": "object",
+            "properties": {
+                "drive_id": {
+                    "description": "DriveID is the document library drive ID (optional, defaults to the site's default drive)",
+                    "type": "string"
+                },
+                "filter_extensions": {
+                    "description": "FilterExtensions limits which file types to include (e.g., [\".pdf\", \".docx\", \".txt\"])",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "folder_path": {
+                    "description": "FolderPath is the path to a specific folder within the drive (optional, defaults to root)",
+                    "type": "string"
+                },
+                "oauth_provider_id": {
+                    "description": "OAuthProviderID is the ID of the Microsoft OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "recursive": {
+                    "description": "Recursive determines whether to include files in subfolders",
+                    "type": "boolean"
+                },
+                "site_id": {
+                    "description": "SiteID is the SharePoint site ID (can be obtained from Graph API or site URL)",
                     "type": "string"
                 }
             }
@@ -19033,6 +19922,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Commit"
                     }
+                },
+                "external_status": {
+                    "$ref": "#/definitions/types.ExternalStatus"
                 }
             }
         },
@@ -19681,6 +20573,22 @@ const docTemplate = `{
                 "display_name": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects",
+                    "type": "string"
+                },
+                "guidelines_updated_at": {
+                    "description": "When guidelines were last updated",
+                    "type": "string"
+                },
+                "guidelines_updated_by": {
+                    "description": "User ID who last updated guidelines",
+                    "type": "string"
+                },
+                "guidelines_version": {
+                    "description": "Incremented on each update",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -19936,6 +20844,10 @@ const docTemplate = `{
                 "default_branch": {
                     "type": "string"
                 },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks in this project (App ID)\nNew spec tasks inherit this agent; can be overridden per-task",
+                    "type": "string"
+                },
                 "default_repo_id": {
                     "description": "Project-level repository management\nDefaultRepoID is the PRIMARY repository - startup script lives at .helix/startup.sh in this repo",
                     "type": "string"
@@ -19954,6 +20866,22 @@ const docTemplate = `{
                 "github_repo_url": {
                     "type": "string"
                 },
+                "guidelines": {
+                    "description": "Guidelines for AI agents - project-specific style guides, conventions, and instructions\nCombined with organization guidelines when constructing prompts",
+                    "type": "string"
+                },
+                "guidelines_updated_at": {
+                    "description": "When guidelines were last updated",
+                    "type": "string"
+                },
+                "guidelines_updated_by": {
+                    "description": "User ID who last updated guidelines",
+                    "type": "string"
+                },
+                "guidelines_version": {
+                    "description": "Incremented on each update",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -19962,6 +20890,10 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "next_task_number": {
+                    "description": "Auto-incrementing task number for human-readable directory names\nEach SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)",
+                    "type": "integer"
                 },
                 "organization_id": {
                     "type": "string"
@@ -19994,6 +20926,10 @@ const docTemplate = `{
                 "default_branch": {
                     "type": "string"
                 },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks",
+                    "type": "string"
+                },
                 "default_repo_id": {
                     "type": "string"
                 },
@@ -20001,6 +20937,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "github_repo_url": {
+                    "type": "string"
+                },
+                "guidelines": {
+                    "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
                 "name": {
@@ -20037,6 +20977,10 @@ const docTemplate = `{
                 "default_branch": {
                     "type": "string"
                 },
+                "default_helix_app_id": {
+                    "description": "Default agent for spec tasks",
+                    "type": "string"
+                },
                 "default_repo_id": {
                     "type": "string"
                 },
@@ -20044,6 +20988,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "github_repo_url": {
+                    "type": "string"
+                },
+                "guidelines": {
+                    "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
                 "metadata": {
@@ -20235,6 +21183,40 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
+                }
+            }
+        },
+        "types.PullResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.PushResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
                 }
             }
         },
@@ -21733,6 +22715,18 @@ const docTemplate = `{
                     "description": "Git tracking",
                     "type": "string"
                 },
+                "clone_group_id": {
+                    "description": "Groups tasks from same clone operation",
+                    "type": "string"
+                },
+                "cloned_from_id": {
+                    "description": "Clone tracking",
+                    "type": "string"
+                },
+                "cloned_from_project_id": {
+                    "description": "Original project",
+                    "type": "string"
+                },
                 "completed_at": {
                     "type": "string"
                 },
@@ -21744,6 +22738,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "design_doc_path": {
                     "type": "string"
                 },
                 "design_docs_pushed_at": {
@@ -21823,12 +22820,19 @@ const docTemplate = `{
                 },
                 "priority": {
                     "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskPriority"
+                        }
+                    ]
                 },
                 "project_id": {
                     "type": "string"
                 },
                 "project_path": {
+                    "type": "string"
+                },
+                "pull_request_id": {
                     "type": "string"
                 },
                 "requirements_spec": {
@@ -21851,7 +22855,15 @@ const docTemplate = `{
                 },
                 "status": {
                     "description": "Spec-driven workflow statuses - see constants below",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskStatus"
+                        }
+                    ]
+                },
+                "task_number": {
+                    "description": "Human-readable directory naming for design docs in helix-specs branch\nTaskNumber is auto-assigned from project.NextTaskNumber when task starts\nDesignDocPath format: \"YYYY-MM-DD_shortname_N\" e.g., \"2025-12-09_install-cowsay_1\"",
+                    "type": "integer"
                 },
                 "technical_design": {
                     "description": "Design document (markdown)",
@@ -22440,6 +23452,21 @@ const docTemplate = `{
                 "SpecTaskPhaseValidation"
             ]
         },
+        "types.SpecTaskPriority": {
+            "type": "string",
+            "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskPriorityLow",
+                "SpecTaskPriorityMedium",
+                "SpecTaskPriorityHigh",
+                "SpecTaskPriorityCritical"
+            ]
+        },
         "types.SpecTaskProgressResponse": {
             "type": "object",
             "properties": {
@@ -22485,10 +23512,56 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SpecTaskStatus": {
+            "type": "string",
+            "enum": [
+                "backlog",
+                "spec_generation",
+                "spec_review",
+                "spec_revision",
+                "spec_approved",
+                "implementation_queued",
+                "implementation",
+                "implementation_review",
+                "done",
+                "spec_failed",
+                "implementation_failed"
+            ],
+            "x-enum-comments": {
+                "TaskStatusBacklog": "Initial state, waiting for spec generation",
+                "TaskStatusDone": "Task completed",
+                "TaskStatusImplementation": "Zed agent coding",
+                "TaskStatusImplementationFailed": "Implementation failed",
+                "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
+                "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusSpecApproved": "Specs approved, ready for implementation",
+                "TaskStatusSpecFailed": "Spec generation failed",
+                "TaskStatusSpecGeneration": "Helix agent generating specs",
+                "TaskStatusSpecReview": "Human reviewing generated specs",
+                "TaskStatusSpecRevision": "Human requested spec changes"
+            },
+            "x-enum-varnames": [
+                "TaskStatusBacklog",
+                "TaskStatusSpecGeneration",
+                "TaskStatusSpecReview",
+                "TaskStatusSpecRevision",
+                "TaskStatusSpecApproved",
+                "TaskStatusImplementationQueued",
+                "TaskStatusImplementation",
+                "TaskStatusImplementationReview",
+                "TaskStatusDone",
+                "TaskStatusSpecFailed",
+                "TaskStatusImplementationFailed"
+            ]
+        },
         "types.SpecTaskUpdateRequest": {
             "type": "object",
             "properties": {
                 "description": {
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "Agent to use for this task",
                     "type": "string"
                 },
                 "just_do_it_mode": {
@@ -22499,10 +23572,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskPriority"
                 },
                 "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/types.SpecTaskStatus"
                 }
             }
         },
@@ -23587,6 +24660,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -24026,6 +25102,14 @@ const docTemplate = `{
                 "assistant": {
                     "type": "object",
                     "additionalProperties": true
+                },
+                "code_agent_config": {
+                    "description": "Code agent configuration for Zed agentic coding",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentConfig"
+                        }
+                    ]
                 },
                 "context_servers": {
                     "type": "object",

@@ -14,6 +14,7 @@ import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
+import useCreateBlankAgent from '../hooks/useCreateBlankAgent'
 
 import {
   IApp,
@@ -22,12 +23,13 @@ import {
 const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
-  const snackbar = useSnackbar()  
-  
+  const snackbar = useSnackbar()
+  const createBlankAgent = useCreateBlankAgent()
+
   const {
     params,
     navigate,
-  } = useRouter()  
+  } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
@@ -45,10 +47,9 @@ const Apps: FC = () => {
     return true
   }
 
-  const onNewAgent = () => {
+  const onNewAgent = async () => {
     if(!checkLoginStatus()) return
-
-    account.orgNavigate('new-agent')
+    await createBlankAgent()
   }
 
   const onNewSecret = () => {

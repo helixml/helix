@@ -1084,6 +1084,13 @@ definitions:
       success:
         type: boolean
     type: object
+  server.QuickCreateProjectRequest:
+    properties:
+      name:
+        type: string
+      repo_id:
+        type: string
+    type: object
   server.SampleProject:
     properties:
       category:
@@ -1161,8 +1168,9 @@ definitions:
           type: string
         type: array
       priority:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPriority'
         description: '"low", "medium", "high", "critical"'
-        type: string
       prompt:
         description: Natural language request
         type: string
@@ -1237,6 +1245,22 @@ definitions:
         description: '"absent", "running", "resumable"'
         type: string
       wolf_app_id:
+        type: string
+    type: object
+  server.SharePointSiteResolveRequest:
+    properties:
+      provider_id:
+        type: string
+      site_url:
+        type: string
+    type: object
+  server.SharePointSiteResolveResponse:
+    properties:
+      display_name:
+        type: string
+      site_id:
+        type: string
+      web_url:
         type: string
     type: object
   server.SimpleSampleProject:
@@ -1355,7 +1379,7 @@ definitions:
       spec_revision_count:
         type: integer
       status:
-        type: string
+        $ref: '#/definitions/types.SpecTaskStatus'
       task_id:
         type: string
       technical_design:
@@ -1540,28 +1564,6 @@ definitions:
     - CoordinationEventTypeBroadcast
     - CoordinationEventTypeCompletion
     - CoordinationEventTypeSpawn
-  services.CreateTaskRequest:
-    properties:
-      app_id:
-        description: 'Optional: Helix agent to use for spec generation'
-        type: string
-      just_do_it_mode:
-        description: 'Optional: Skip spec planning, go straight to implementation'
-        type: boolean
-      priority:
-        type: string
-      project_id:
-        type: string
-      prompt:
-        type: string
-      type:
-        type: string
-      use_host_docker:
-        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
-        type: boolean
-      user_id:
-        type: string
-    type: object
   services.DocumentHandoffConfig:
     properties:
       auto_merge_approved_specs:
@@ -2695,6 +2697,13 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      code_agent_runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: |-
+          CodeAgentRuntime specifies which code agent runtime to use inside Zed (for zed_external agent type).
+          Options: "zed_agent" (Zed's built-in agent) or "qwen_code" (qwen command as custom agent).
+          If empty, defaults to "zed_agent".
       context_limit:
         description: |-
           ContextLimit - the number of messages to include in the context for the AI assistant.
@@ -3040,6 +3049,169 @@ definitions:
         description: '"text" or "image"'
         type: string
     type: object
+  types.CloneGroup:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      source_project_id:
+        type: string
+      source_prompt:
+        type: string
+      source_requirements_spec:
+        type: string
+      source_task_id:
+        type: string
+      source_task_name:
+        type: string
+      source_technical_spec:
+        type: string
+      total_targets:
+        type: integer
+    type: object
+  types.CloneGroupProgress:
+    properties:
+      clone_group_id:
+        type: string
+      completed_tasks:
+        type: integer
+      progress_pct:
+        type: integer
+      source_task:
+        $ref: '#/definitions/types.CloneGroupSourceTask'
+      status_breakdown:
+        additionalProperties:
+          type: integer
+        description: status -> count
+        type: object
+      tasks:
+        items:
+          $ref: '#/definitions/types.CloneGroupTaskProgress'
+        type: array
+      total_tasks:
+        type: integer
+    type: object
+  types.CloneGroupSourceTask:
+    properties:
+      name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.CloneGroupTaskProgress:
+    properties:
+      name:
+        type: string
+      project_id:
+        type: string
+      project_name:
+        type: string
+      status:
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.CloneTaskCreateProjectSpec:
+    properties:
+      name:
+        description: Optional, will use repo name if not provided
+        type: string
+      repo_id:
+        type: string
+    type: object
+  types.CloneTaskError:
+    properties:
+      error:
+        type: string
+      project_id:
+        type: string
+      repo_id:
+        type: string
+    type: object
+  types.CloneTaskRequest:
+    properties:
+      auto_start:
+        description: Auto-start cloned tasks
+        type: boolean
+      create_projects:
+        description: Create new projects for repos
+        items:
+          $ref: '#/definitions/types.CloneTaskCreateProjectSpec'
+        type: array
+      target_project_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  types.CloneTaskResponse:
+    properties:
+      clone_group_id:
+        type: string
+      cloned_tasks:
+        items:
+          $ref: '#/definitions/types.CloneTaskResult'
+        type: array
+      errors:
+        items:
+          $ref: '#/definitions/types.CloneTaskError'
+        type: array
+      total_cloned:
+        type: integer
+      total_failed:
+        type: integer
+    type: object
+  types.CloneTaskResult:
+    properties:
+      project_id:
+        type: string
+      status:
+        description: '"created", "started", "failed"'
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.CodeAgentConfig:
+    properties:
+      agent_name:
+        description: AgentName is the name used in Zed's agent_servers config (e.g.,
+          "qwen", "claude-code")
+        type: string
+      api_type:
+        description: 'APIType specifies the API format: "anthropic", "openai", or
+          "azure_openai"'
+        type: string
+      base_url:
+        description: BaseURL is the Helix proxy endpoint URL (e.g., "https://helix.example.com/v1")
+        type: string
+      model:
+        description: Model is the model identifier (e.g., "claude-sonnet-4-5-latest",
+          "gpt-4o")
+        type: string
+      provider:
+        description: Provider is the LLM provider name (e.g., "anthropic", "openai",
+          "openrouter")
+        type: string
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: 'Runtime specifies which code agent runtime to use: "zed_agent"
+          or "qwen_code"'
+    type: object
+  types.CodeAgentRuntime:
+    enum:
+    - zed_agent
+    - qwen_code
+    type: string
+    x-enum-varnames:
+    - CodeAgentRuntimeZedAgent
+    - CodeAgentRuntimeQwenCode
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3192,6 +3364,28 @@ definitions:
       owner_id:
         type: string
       sample_type:
+        type: string
+    type: object
+  types.CreateTaskRequest:
+    properties:
+      app_id:
+        description: 'Optional: Helix agent to use for spec generation'
+        type: string
+      just_do_it_mode:
+        description: 'Optional: Skip spec planning, go straight to implementation'
+        type: boolean
+      priority:
+        $ref: '#/definitions/types.SpecTaskPriority'
+      project_id:
+        type: string
+      prompt:
+        type: string
+      type:
+        type: string
+      use_host_docker:
+        description: 'Optional: Use host Docker socket (requires privileged sandbox)'
+        type: boolean
+      user_id:
         type: string
     type: object
   types.CreateTeamRequest:
@@ -3436,6 +3630,13 @@ definitions:
     - ExternalRepositoryTypeGitLab
     - ExternalRepositoryTypeADO
     - ExternalRepositoryTypeBitbucket
+  types.ExternalStatus:
+    properties:
+      commits_ahead:
+        type: integer
+      commits_behind:
+        type: integer
+    type: object
   types.Feedback:
     enum:
     - like
@@ -3504,6 +3705,9 @@ definitions:
   types.ForkSimpleProjectRequest:
     properties:
       description:
+        type: string
+      helix_app_id:
+        description: 'Optional: agent app to use for spec tasks (uses default if empty)'
         type: string
       organization_id:
         description: 'Optional: if empty, project is personal'
@@ -3934,6 +4138,35 @@ definitions:
       workload_id:
         type: string
     type: object
+  types.GuidelinesHistory:
+    properties:
+      change_note:
+        description: Optional description of what changed
+        type: string
+      guidelines:
+        type: string
+      id:
+        type: string
+      organization_id:
+        description: Set for org-level guidelines
+        type: string
+      project_id:
+        description: Set for project-level guidelines
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        description: User ID
+        type: string
+      updated_by_email:
+        description: User email (not persisted, populated at query time)
+        type: string
+      updated_by_name:
+        description: User display name (not persisted, populated at query time)
+        type: string
+      version:
+        type: integer
+    type: object
   types.HelpRequest:
     properties:
       app_id:
@@ -4294,6 +4527,8 @@ definitions:
         $ref: '#/definitions/types.KnowledgeSourceGCS'
       s3:
         $ref: '#/definitions/types.KnowledgeSourceS3'
+      sharepoint:
+        $ref: '#/definitions/types.KnowledgeSourceSharePoint'
       text:
         type: string
       web:
@@ -4318,6 +4553,34 @@ definitions:
       bucket:
         type: string
       path:
+        type: string
+    type: object
+  types.KnowledgeSourceSharePoint:
+    properties:
+      drive_id:
+        description: DriveID is the document library drive ID (optional, defaults
+          to the site's default drive)
+        type: string
+      filter_extensions:
+        description: FilterExtensions limits which file types to include (e.g., [".pdf",
+          ".docx", ".txt"])
+        items:
+          type: string
+        type: array
+      folder_path:
+        description: FolderPath is the path to a specific folder within the drive
+          (optional, defaults to root)
+        type: string
+      oauth_provider_id:
+        description: OAuthProviderID is the ID of the Microsoft OAuth provider to
+          use for authentication
+        type: string
+      recursive:
+        description: Recursive determines whether to include files in subfolders
+        type: boolean
+      site_id:
+        description: SiteID is the SharePoint site ID (can be obtained from Graph
+          API or site URL)
         type: string
     type: object
   types.KnowledgeSourceWeb:
@@ -4463,6 +4726,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Commit'
         type: array
+      external_status:
+        $ref: '#/definitions/types.ExternalStatus'
     type: object
   types.LoginRequest:
     properties:
@@ -4913,6 +5178,19 @@ definitions:
         $ref: '#/definitions/gorm.DeletedAt'
       display_name:
         type: string
+      guidelines:
+        description: Guidelines for AI agents - style guides, conventions, and instructions
+          that apply to all projects
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       memberships:
@@ -5085,6 +5363,11 @@ definitions:
         type: string
       default_branch:
         type: string
+      default_helix_app_id:
+        description: |-
+          Default agent for spec tasks in this project (App ID)
+          New spec tasks inherit this agent; can be overridden per-task
+        type: string
       default_repo_id:
         description: |-
           Project-level repository management
@@ -5098,12 +5381,31 @@ definitions:
         type: string
       github_repo_url:
         type: string
+      guidelines:
+        description: |-
+          Guidelines for AI agents - project-specific style guides, conventions, and instructions
+          Combined with organization guidelines when constructing prompts
+        type: string
+      guidelines_updated_at:
+        description: When guidelines were last updated
+        type: string
+      guidelines_updated_by:
+        description: User ID who last updated guidelines
+        type: string
+      guidelines_version:
+        description: Incremented on each update
+        type: integer
       id:
         type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
       name:
         type: string
+      next_task_number:
+        description: |-
+          Auto-incrementing task number for human-readable directory names
+          Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
+        type: integer
       organization_id:
         type: string
       startup_script:
@@ -5126,11 +5428,17 @@ definitions:
     properties:
       default_branch:
         type: string
+      default_helix_app_id:
+        description: Default agent for spec tasks
+        type: string
       default_repo_id:
         type: string
       description:
         type: string
       github_repo_url:
+        type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
         type: string
       name:
         type: string
@@ -5154,11 +5462,17 @@ definitions:
         type: boolean
       default_branch:
         type: string
+      default_helix_app_id:
+        description: Default agent for spec tasks
+        type: string
       default_repo_id:
         type: string
       description:
         type: string
       github_repo_url:
+        type: string
+      guidelines:
+        description: Project-specific AI agent guidelines
         type: string
       metadata:
         $ref: '#/definitions/types.ProjectMetadata'
@@ -5290,6 +5604,28 @@ definitions:
         type: string
       url:
         type: string
+    type: object
+  types.PullResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
+  types.PushResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
     type: object
   types.Question:
     properties:
@@ -6358,6 +6694,15 @@ definitions:
       branch_name:
         description: Git tracking
         type: string
+      clone_group_id:
+        description: Groups tasks from same clone operation
+        type: string
+      cloned_from_id:
+        description: Clone tracking
+        type: string
+      cloned_from_project_id:
+        description: Original project
+        type: string
       completed_at:
         type: string
       created_at:
@@ -6366,6 +6711,8 @@ definitions:
         description: Metadata
         type: string
       description:
+        type: string
+      design_doc_path:
         type: string
       design_docs_pushed_at:
         description: When design docs were pushed to helix-specs branch
@@ -6426,11 +6773,14 @@ definitions:
           The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       priority:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskPriority'
         description: '"low", "medium", "high", "critical"'
-        type: string
       project_id:
         type: string
       project_path:
+        type: string
+      pull_request_id:
         type: string
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
@@ -6446,8 +6796,15 @@ definitions:
       started_at:
         type: string
       status:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskStatus'
         description: Spec-driven workflow statuses - see constants below
-        type: string
+      task_number:
+        description: |-
+          Human-readable directory naming for design docs in helix-specs branch
+          TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+          DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+        type: integer
       technical_design:
         description: Design document (markdown)
         type: string
@@ -6859,6 +7216,18 @@ definitions:
     - SpecTaskPhasePlanning
     - SpecTaskPhaseImplementation
     - SpecTaskPhaseValidation
+  types.SpecTaskPriority:
+    enum:
+    - low
+    - medium
+    - high
+    - critical
+    type: string
+    x-enum-varnames:
+    - SpecTaskPriorityLow
+    - SpecTaskPriorityMedium
+    - SpecTaskPriorityHigh
+    - SpecTaskPriorityCritical
   types.SpecTaskProgressResponse:
     properties:
       active_work_sessions:
@@ -6888,9 +7257,50 @@ definitions:
       spec_task:
         $ref: '#/definitions/types.SpecTask'
     type: object
+  types.SpecTaskStatus:
+    enum:
+    - backlog
+    - spec_generation
+    - spec_review
+    - spec_revision
+    - spec_approved
+    - implementation_queued
+    - implementation
+    - implementation_review
+    - done
+    - spec_failed
+    - implementation_failed
+    type: string
+    x-enum-comments:
+      TaskStatusBacklog: Initial state, waiting for spec generation
+      TaskStatusDone: Task completed
+      TaskStatusImplementation: Zed agent coding
+      TaskStatusImplementationFailed: Implementation failed
+      TaskStatusImplementationQueued: Waiting for Zed agent pickup
+      TaskStatusImplementationReview: Code review (PR created)
+      TaskStatusSpecApproved: Specs approved, ready for implementation
+      TaskStatusSpecFailed: Spec generation failed
+      TaskStatusSpecGeneration: Helix agent generating specs
+      TaskStatusSpecReview: Human reviewing generated specs
+      TaskStatusSpecRevision: Human requested spec changes
+    x-enum-varnames:
+    - TaskStatusBacklog
+    - TaskStatusSpecGeneration
+    - TaskStatusSpecReview
+    - TaskStatusSpecRevision
+    - TaskStatusSpecApproved
+    - TaskStatusImplementationQueued
+    - TaskStatusImplementation
+    - TaskStatusImplementationReview
+    - TaskStatusDone
+    - TaskStatusSpecFailed
+    - TaskStatusImplementationFailed
   types.SpecTaskUpdateRequest:
     properties:
       description:
+        type: string
+      helix_app_id:
+        description: Agent to use for this task
         type: string
       just_do_it_mode:
         description: Pointer to allow explicit false
@@ -6898,9 +7308,9 @@ definitions:
       name:
         type: string
       priority:
-        type: string
+        $ref: '#/definitions/types.SpecTaskPriority'
       status:
-        type: string
+        $ref: '#/definitions/types.SpecTaskStatus'
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -7658,6 +8068,8 @@ definitions:
         items:
           type: string
         type: array
+      name:
+        type: string
     type: object
   types.UpdateTeamRequest:
     properties:
@@ -7952,6 +8364,10 @@ definitions:
       assistant:
         additionalProperties: true
         type: object
+      code_agent_config:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentConfig'
+        description: Code agent configuration for Zed agentic coding
       context_servers:
         additionalProperties: true
         type: object
@@ -9308,6 +9724,31 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/clone-groups/{groupId}/progress:
+    get:
+      description: Get status breakdown and progress of all cloned tasks
+      parameters:
+      - description: Clone group ID
+        in: path
+        name: groupId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CloneGroupProgress'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get progress of all tasks in a clone group
+      tags:
+      - CloneGroups
   /api/v1/config:
     get:
       description: Get config
@@ -10282,6 +10723,49 @@ paths:
       summary: Get repository indexing status
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/pull:
+    post:
+      description: Pulls latest commits from remote repository
+      operationId: pullFromRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Force pull (default: false)'
+        in: query
+        name: force
+        required: true
+        type: boolean
+      - description: Branch name (required)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PullResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Pull from remote repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/pull-requests:
     get:
       description: List all pull requests in a repository
@@ -10358,6 +10842,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Create pull request
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/push:
+    post:
+      description: Pushes the local branch to the remote repository
+      operationId: pushToRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: query
+        name: branch
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PushResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Push to remote repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/push-pull:
@@ -11066,6 +11589,12 @@ paths:
     get:
       description: Returns active streaming sessions, client certificates, and WebSocket
         connection state from moonlight-web
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -11201,6 +11730,31 @@ paths:
       summary: Delete an OAuth provider
       tags:
       - oauth
+  /api/v1/oauth/sharepoint/resolve-site:
+    post:
+      consumes:
+      - application/json
+      description: Resolve a SharePoint site URL to its site ID using Microsoft Graph
+        API
+      parameters:
+      - description: Request body with site URL and provider ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SharePointSiteResolveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SharePointSiteResolveResponse'
+      security:
+      - BearerAuth: []
+      summary: Resolve SharePoint site URL to site ID
+      tags:
+      - oauth
   /api/v1/organizations:
     get:
       responses:
@@ -11263,6 +11817,43 @@ paths:
       summary: Update an organization
       tags:
       - organizations
+  /api/v1/organizations/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for an organization
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization guidelines history
+      tags:
+      - Organizations
   /api/v1/organizations/{id}/members:
     get:
       description: List members of an organization
@@ -11778,6 +12369,43 @@ paths:
       summary: Start project exploratory session
       tags:
       - Projects
+  /api/v1/projects/{id}/guidelines-history:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of guidelines for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project guidelines history
+      tags:
+      - Projects
   /api/v1/projects/{id}/repositories:
     get:
       consumes:
@@ -11961,6 +12589,34 @@ paths:
       security:
       - BearerAuth: []
       summary: Get startup script version history
+      tags:
+      - Projects
+  /api/v1/projects/quick-create:
+    post:
+      consumes:
+      - application/json
+      description: Create a minimal project for a repository that doesn't have one
+      parameters:
+      - description: Quick create request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.QuickCreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Quick-create a project for a repository
       tags:
       - Projects
   /api/v1/provider-endpoints:
@@ -12382,6 +13038,28 @@ paths:
       summary: Get question set execution results
       tags:
       - question-sets
+  /api/v1/repositories/without-projects:
+    get:
+      description: Get all repositories that don't have an associated project
+      parameters:
+      - description: Filter by organization ID
+        in: query
+        name: organization_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitRepository'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List repositories without projects
+      tags:
+      - Repositories
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
@@ -14002,6 +14680,70 @@ paths:
       summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/clone:
+    post:
+      consumes:
+      - application/json
+      description: Clone a spec task (with its prompt, spec, and plan) to other projects
+      parameters:
+      - description: Source task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Clone request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CloneTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CloneTaskResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Clone a spec task to multiple projects
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{taskId}/clone-groups:
+    get:
+      description: Get all clone groups where this task was the source
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.CloneGroup'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List clone groups for a task
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{taskId}/commit-progress:
     post:
       consumes:
@@ -14725,7 +15467,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/services.CreateTaskRequest'
+          $ref: '#/definitions/types.CreateTaskRequest'
       produces:
       - application/json
       responses:
