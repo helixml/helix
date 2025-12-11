@@ -136,8 +136,14 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Screenshot captured successfully (%d bytes, format=%s, quality=%d)", len(data), actualFormat, quality)
 }
 
-// captureScreenshot captures a screenshot using grim, with JPEG->PNG fallback if JPEG not supported
+// captureScreenshot captures a screenshot using grim (Wayland) or scrot (X11)
 func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, string, error) {
+	// Check if we're in X11 mode (Ubuntu GNOME on Xwayland)
+	if isX11Mode() {
+		return captureScreenshotX11(format, quality)
+	}
+
+	// Wayland mode - use grim
 	// Create temporary file for screenshot
 	tmpDir := os.TempDir()
 	ext := "jpg"
@@ -231,6 +237,61 @@ func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, strin
 	}
 
 	return data, format, nil
+}
+
+// captureScreenshotX11 captures a screenshot using scrot (for X11/Xwayland environments)
+func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		return nil, "", fmt.Errorf("DISPLAY not set for X11 screenshot")
+	}
+
+	// Create temporary file for screenshot
+	tmpDir := os.TempDir()
+	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(filename)
+
+	// Use scrot for X11 screenshots
+	// -o = overwrite file, -z = silent mode
+	cmd := exec.Command("scrot", "-o", "-z", filename)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, "", fmt.Errorf("scrot failed: %v, output: %s", err, string(output))
+	}
+
+	// Read the screenshot file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
+	}
+
+	// scrot outputs PNG by default
+	// If JPEG requested and quality specified, convert using ImageMagick if available
+	if format == "jpeg" {
+		jpegFile := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
+		defer os.Remove(jpegFile)
+
+		// Try to convert using ImageMagick's convert command
+		convertCmd := exec.Command("convert", filename, "-quality", fmt.Sprintf("%d", quality), jpegFile)
+		if err := convertCmd.Run(); err != nil {
+			// ImageMagick not available, return PNG instead
+			log.Printf("[X11] ImageMagick not available for JPEG conversion, returning PNG")
+			return data, "png", nil
+		}
+
+		jpegData, err := os.ReadFile(jpegFile)
+		if err != nil {
+			return data, "png", nil // Fall back to PNG
+		}
+
+		log.Printf("[X11] Screenshot captured and converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
+		return jpegData, "jpeg", nil
+	}
+
+	log.Printf("[X11] Screenshot captured as PNG (%d bytes)", len(data))
+	return data, "png", nil
 }
 
 func handleClipboard(w http.ResponseWriter, r *http.Request) {

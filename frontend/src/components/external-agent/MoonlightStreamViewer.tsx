@@ -1371,7 +1371,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         event.preventDefault();
         event.stopPropagation();
 
-        console.log('[Clipboard] Paste keystroke detected, syncing local → remote');
+        // Remember which keystroke the user pressed so we can forward the same one
+        const userPressedShift = event.shiftKey;
+        console.log(`[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`);
 
         // Handle clipboard sync asynchronously (don't block keystroke processing)
         navigator.clipboard.read().then(clipboardItems => {
@@ -1412,32 +1414,34 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           apiClient.v1ExternalAgentsClipboardCreate(sessionId, payload).then(() => {
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
 
-            // Send Ctrl+Shift+V to remote (works in both terminals and regular apps)
+            // Forward the SAME keystroke the user pressed:
+            // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
+            // - User pressed Ctrl+Shift+V → send Ctrl+Shift+V (for terminals)
             const input = streamRef.current?.getInput();
             if (input) {
-              const ctrlShiftVDown = new KeyboardEvent('keydown', {
+              const pasteKeyDown = new KeyboardEvent('keydown', {
                 code: 'KeyV',
-                key: 'V',
+                key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
-                shiftKey: true,
+                shiftKey: userPressedShift,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
               });
-              input.onKeyDown(ctrlShiftVDown);
+              input.onKeyDown(pasteKeyDown);
 
-              const ctrlShiftVUp = new KeyboardEvent('keyup', {
+              const pasteKeyUp = new KeyboardEvent('keyup', {
                 code: 'KeyV',
-                key: 'V',
+                key: userPressedShift ? 'V' : 'v',
                 ctrlKey: true,
-                shiftKey: true,
+                shiftKey: userPressedShift,
                 metaKey: false,
                 bubbles: true,
                 cancelable: true,
               });
-              input.onKeyUp(ctrlShiftVUp);
+              input.onKeyUp(pasteKeyUp);
 
-              console.log('[Clipboard] Forwarded Ctrl+Shift+V to remote');
+              console.log(`[Clipboard] Forwarded Ctrl+${userPressedShift ? 'Shift+' : ''}V to remote`);
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
