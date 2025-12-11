@@ -171,6 +171,8 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
+		user.ProjectID = apiKey.ProjectID
+		user.SpecTaskID = apiKey.SpecTaskID
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
 		if user.ID != "" {

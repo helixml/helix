@@ -126,6 +126,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		OwnerID:         req.User.ID,
 		SessionID:       req.Session.ID,
 		InteractionID:   interactionID,
+		ProjectID:       req.User.ProjectID,
+		SpecTaskID:      req.User.SpecTaskID,
 		OriginalRequest: bts,
 	})
 

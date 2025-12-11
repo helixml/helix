@@ -1096,7 +1096,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		ProjectID:  req.ProjectID,
 		SpecTaskID: req.SpecTaskID,
 	})
-	if err != nil {
+	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
 	}
 
