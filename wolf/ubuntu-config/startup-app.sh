@@ -363,10 +363,10 @@ Type=Application
 Name=Position Windows
 Exec=/tmp/position-windows.sh
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=12
+X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
-    echo "Window positioning autostart entry created"
+    echo "Window positioning autostart entry created (no delay - xdotool --sync waits for windows)"
 else
     echo "position-windows autostart DISABLED by feature flag"
 fi
