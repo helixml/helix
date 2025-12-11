@@ -2322,6 +2322,8 @@ type LLMCall struct {
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
 	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID        string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID       string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`
@@ -2527,6 +2529,8 @@ type UsageMetric struct {
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
 	OrganizationID    string    `json:"organization_id"`
 	InteractionID     string    `json:"interaction_id"`
+	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	UserID            string    `json:"user_id"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`

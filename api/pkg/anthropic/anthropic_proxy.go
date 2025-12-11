@@ -316,6 +316,8 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
 		OrganizationID:   orgID,
+		ProjectID:        vals.ProjectID,
+		SpecTaskID:       vals.SpecTaskID,
 		Model:            string(respMessage.Model),
 		OriginalRequest:  vals.OriginalRequest,
 		Request:          vals.OriginalRequest,

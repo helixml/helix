@@ -535,6 +535,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
 		InteractionID:   lastInteraction.ID,
+		ProjectID:       user.ProjectID,
+		SpecTaskID:      user.SpecTaskID,
 		OriginalRequest: body,
 	})
 
@@ -857,6 +859,8 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 		OwnerID:       ownerID,
 		SessionID:     session.ID,
 		InteractionID: lastInteractionID,
+		ProjectID:     user.ProjectID,
+		SpecTaskID:    user.SpecTaskID,
 	})
 
 	ctx = oai.SetStep(ctx, &oai.Step{
@@ -1292,8 +1296,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
 			"message":       userMessage,
-			"request_id":    requestID,    // For correlation
-			"agent_name":    agentName,    // Which agent to use (zed-agent or qwen)
+			"request_id":    requestID, // For correlation
+			"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
 			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
 		},
 	}

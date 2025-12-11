@@ -42,8 +42,8 @@ type Organization struct {
 
 	// Guidelines for AI agents - style guides, conventions, and instructions that apply to all projects
 	Guidelines          string    `json:"guidelines" gorm:"type:text"`
-	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`          // Incremented on each update
-	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                        // When guidelines were last updated
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
 }
 
@@ -138,7 +138,9 @@ type User struct {
 	// if the ID of the user is contained in the env setting
 	Admin bool `json:"admin"`
 	// if the token is associated with an app
-	AppID string `json:"app_id"`
+	AppID      string `json:"app_id"`
+	ProjectID  string `json:"project_id" gorm:"-"`   // When running in Helix Code sandbox
+	SpecTaskID string `json:"spec_task_id" gorm:"-"` // When running in Helix Code sandbox
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
