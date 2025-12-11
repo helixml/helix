@@ -6,13 +6,13 @@
 # FEATURE FLAGS - Set to "true" to enable, "false" to disable
 # ============================================================================
 # For debugging, set all to false for minimal Ubuntu, then enable one at a time
-ENABLE_SCREENSHOT_SERVER="false"    # Screenshot/clipboard server
-ENABLE_DEVILSPIE2="false"           # Window rule daemon
+ENABLE_SCREENSHOT_SERVER="true"     # Screenshot/clipboard server
+ENABLE_DEVILSPIE2="true"            # Window rule daemon
 ENABLE_POSITION_WINDOWS="false"     # wmctrl window positioning
-ENABLE_SETTINGS_SYNC="false"        # Zed settings sync daemon
-ENABLE_ZED_AUTOSTART="false"        # Auto-launch Zed editor
+ENABLE_SETTINGS_SYNC="true"         # Zed settings sync daemon
+ENABLE_ZED_AUTOSTART="true"         # Auto-launch Zed editor
 ENABLE_TERMINAL_STARTUP="false"     # Terminal with startup script
-ENABLE_REVDIAL="false"              # RevDial client for API communication
+ENABLE_REVDIAL="true"               # RevDial client for API communication
 
 # ============================================================================
 # CRITICAL DEBUG SECTION - MUST BE FIRST (before set -e)
@@ -188,6 +188,32 @@ SCREENSAVER_EOF
 echo "Screensaver proxy disabled"
 
 # ============================================================================
+# Disable GNOME Initial Setup Wizard
+# ============================================================================
+# Mark initial setup as complete to prevent the "Connect Your Online Accounts" wizard
+# The file format is: version-number (e.g., "42" for GNOME 42)
+echo "Marking GNOME initial setup as complete..."
+mkdir -p ~/.config
+echo "42" > ~/.config/gnome-initial-setup-done
+echo "GNOME initial setup marked as complete"
+
+# ============================================================================
+# Disable Ubuntu Update Notifier
+# ============================================================================
+# Prevent the "Ubuntu 24.04 LTS Upgrade Available" dialog from appearing
+# The update-notifier daemon runs 60s after login and prompts for upgrades
+echo "Disabling Ubuntu update notifier..."
+cat > ~/.config/autostart/update-notifier.desktop <<'UPDATE_EOF'
+[Desktop Entry]
+Type=Application
+Name=Update Notifier
+Exec=/bin/true
+NoDisplay=true
+Hidden=true
+UPDATE_EOF
+echo "Update notifier disabled"
+
+# ============================================================================
 # Disable IBus Input Method Framework
 # ============================================================================
 # IBus can interfere with keyboard input in remote streaming environments
@@ -213,15 +239,8 @@ if [ "$ENABLE_DEVILSPIE2" = "true" ]; then
         echo "Devilspie2 config copied to ~/.config/devilspie2/"
     fi
 
-    # Firefox window rule - position in right third of screen
-    cat > ~/.config/devilspie2/firefox.lua << 'DEVILSPIE_EOF'
--- Position Firefox windows in right third of screen
--- Right third: x=1280, width=640, full height
-if (get_application_name() == "Firefox" or get_class_instance_name() == "firefox") then
-    set_window_geometry(1280, 0, 640, 1080)
-end
-DEVILSPIE_EOF
-    echo "devilspie2 Firefox rule created"
+    # NOTE: Firefox positioning is handled by helix-tiling.lua (along with Terminal and Zed)
+    echo "devilspie2 config ready (helix-tiling.lua handles all window positioning)"
 else
     echo "devilspie2 DISABLED by feature flag"
 fi

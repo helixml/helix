@@ -85,6 +85,9 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Disable Ubuntu upgrade notifications (we're pinned to 22.04 LTS)
+RUN sed -i 's/Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades || true
+
 # ====================================================================
 # Create GOW user and directory structure
 # ====================================================================
