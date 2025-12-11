@@ -19,6 +19,8 @@ import (
 // @Param   from query string false "Start date"
 // @Param   to query string false "End date"
 // @Param   org_id query string false "Organization ID"
+// @Param   project_id query string false "Project ID"
+// @Param   spec_task_id query string false "Spec Task ID"
 // @Success 200 {array} types.AggregatedUsageMetric
 // @Failure 400 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
@@ -31,6 +33,8 @@ func (s *HelixAPIServer) getDailyUsage(_ http.ResponseWriter, r *http.Request) (
 	from := time.Now().Add(-time.Hour * 24 * 7) // Last 7 days
 	to := time.Now()
 	orgID := r.URL.Query().Get("org_id")
+	projectID := r.URL.Query().Get("project_id")
+	specTaskID := r.URL.Query().Get("spec_task_id")
 
 	if user == nil {
 		return nil, system.NewHTTPError401("user not found")
@@ -70,6 +74,8 @@ func (s *HelixAPIServer) getDailyUsage(_ http.ResponseWriter, r *http.Request) (
 	metrics, err := s.Store.GetAggregatedUsageMetrics(r.Context(), &store.GetAggregatedUsageMetricsQuery{
 		UserID:         user.ID,
 		OrganizationID: orgID,
+		ProjectID:      projectID,
+		SpecTaskID:     specTaskID,
 		From:           from,
 		To:             to,
 	})
