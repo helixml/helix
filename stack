@@ -252,7 +252,14 @@ function build-runner-image() {
 }
 
 function build-zed() {
-  echo "🔨 Building Zed with External WebSocket Thread Sync..."
+  # ====================================================================
+  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
+  # ====================================================================
+  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
+  # Building in Docker ensures consistent, portable binaries regardless
+  # of the host OS version.
+  # ====================================================================
+  echo "🔨 Building Zed with External WebSocket Thread Sync (Docker build)..."
 
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
@@ -262,159 +269,6 @@ function build-zed() {
   if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
     echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
     echo "Usage: ./stack build-zed [dev|release]"
-    echo ""
-    echo "Build types:"
-    echo "  dev     - Fast incremental builds with debug symbols (default)"
-    echo "  release - Optimized production builds (slower, ~3-5 minutes)"
-    return 1
-  fi
-
-  # Check if Zed source directory exists
-  if [ ! -d "$ZED_SOURCE_DIR" ]; then
-    echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
-    echo "Expected directory structure:"
-    echo "  helix/                 (current directory)"
-    echo "  zed/                   (Zed fork with external_websocket_sync)"
-    return 1
-  fi
-
-  # Check if external_websocket_sync exists in Zed source
-  if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
-    echo "❌ external_websocket_sync crate not found in Zed source"
-    echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
-    return 1
-  fi
-
-  # Check if Rust is installed
-  if ! command -v cargo &> /dev/null; then
-    echo "❌ Rust/Cargo not found. Please install Rust first."
-    echo "Install Rust: https://rustup.rs/"
-    return 1
-  fi
-
-  # Create output directory and ensure we own it
-  # (Docker bind mounts may have created it as root on fresh installs)
-  mkdir -p "$ZED_OUTPUT_DIR"
-  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
-    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable (likely created by Docker as root)"
-    echo "   Fixing permissions..."
-    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
-  fi
-
-  # Change to Zed source directory
-  cd "$ZED_SOURCE_DIR"
-
-  echo "🔨 Building Zed with External WebSocket Thread Sync..."
-  echo "Source directory: $(pwd)"
-  echo "Build type: $BUILD_TYPE"
-
-  # Build Zed based on build type
-  if [ "$BUILD_TYPE" = "release" ]; then
-    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
-    # Use RUSTFLAGS to enable stripping during build (better than post-build strip)
-    if RUSTFLAGS="-C link-arg=-s" RUST_LOG=info cargo build --release --features external_websocket_sync; then
-      BINARY_PATH="target/release/zed"
-    else
-      echo "❌ Zed release build failed"
-      cd - > /dev/null
-      return 1
-    fi
-  else
-    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
-    if RUST_LOG=info cargo build --features external_websocket_sync; then
-      BINARY_PATH="target/debug/zed"
-    else
-      echo "❌ Zed dev build failed"
-      cd - > /dev/null
-      return 1
-    fi
-  fi
-
-  # Check if build was successful
-  if [ ! -f "$BINARY_PATH" ]; then
-    echo "❌ Build failed: Binary not found at $BINARY_PATH"
-    cd - > /dev/null
-    return 1
-  fi
-
-  echo "✅ Zed compilation completed successfully"
-
-  # Copy binary to output directory (atomic rename to avoid "text file busy")
-  cd - > /dev/null
-  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed.new"
-  chmod +x "$ZED_OUTPUT_DIR/zed.new"
-
-  # Atomic rename (works even if old binary is in use by running containers)
-  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
-    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
-  fi
-  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
-  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
-
-  # Get binary info
-  local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
-
-  echo "✅ Zed binary copied to: $ZED_OUTPUT_DIR/zed"
-  echo "📦 Binary size: $BINARY_SIZE"
-
-  # Verify external WebSocket sync is included
-  if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
-    echo "✅ External WebSocket Thread Sync detected in binary"
-  else
-    echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
-  fi
-
-  # Note: Release builds are already stripped via RUSTFLAGS during compilation
-  if [ "$BUILD_TYPE" = "release" ]; then
-    echo "✅ Binary built with symbols stripped (via linker flags)"
-  fi
-
-  # Create test configuration
-  cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
-{
-  "external_websocket_sync": {
-    "enabled": true,
-    "server": {
-      "enabled": true,
-      "host": "127.0.0.1",
-      "port": 3030
-    },
-    "websocket_sync": {
-      "enabled": true,
-      "external_url": "localhost:8080",
-      "use_tls": false,
-      "auto_reconnect": true
-    }
-  }
-}
-EOF
-
-  echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
-  echo "🎉 Zed build completed successfully!"
-  echo ""
-  echo "Next steps:"
-  echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
-  echo "  2. Build Sway container with Zed: ./stack build-sway"
-  echo "  3. Start services: ./stack start"
-}
-
-function build-zed-ubuntu22() {
-  # ====================================================================
-  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
-  # ====================================================================
-  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
-  # Use this for the Ubuntu desktop container which runs Ubuntu 22.04
-  # ====================================================================
-  echo "🔨 Building Zed for Ubuntu 22.04 compatibility (Docker build)..."
-
-  local ZED_SOURCE_DIR="../zed"
-  local ZED_OUTPUT_DIR="./zed-build"
-  local BUILD_TYPE="${1:-dev}"
-
-  # Validate build type
-  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
-    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
-    echo "Usage: ./stack build-zed-ubuntu22 [dev|release]"
     echo ""
     echo "Build types:"
     echo "  dev     - Fast incremental builds with debug symbols (default)"
@@ -534,10 +388,38 @@ function build-zed-ubuntu22() {
     echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
   fi
 
+  # Note: Release builds are already stripped via RUSTFLAGS during compilation
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "✅ Binary built with symbols stripped (via linker flags)"
+  fi
+
+  # Create test configuration
+  cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
+{
+  "external_websocket_sync": {
+    "enabled": true,
+    "server": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 3030
+    },
+    "websocket_sync": {
+      "enabled": true,
+      "external_url": "localhost:8080",
+      "use_tls": false,
+      "auto_reconnect": true
+    }
+  }
+}
+EOF
+
+  echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+  echo "🎉 Zed build completed successfully!"
   echo ""
   echo "Next steps:"
-  echo "  1. Build Ubuntu container: ./stack build-ubuntu"
-  echo "  2. Launch Ubuntu sandbox from UI"
+  echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
+  echo "  2. Build Sway container with Zed: ./stack build-sway"
+  echo "  3. Start services: ./stack start"
 }
 
 function start() {
@@ -2104,7 +1986,7 @@ function help() {
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
-  echo "  build-zed [dev|release] - Build Zed binary (stripped in release mode)"
+  echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"
   echo "  build-zed-agent    - Build Zed agent Docker image"
   echo "  zed-agent-up       - Start Zed agent services"
   echo "  zed-agent-down     - Stop Zed agent services"
