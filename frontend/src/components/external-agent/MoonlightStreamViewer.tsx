@@ -125,6 +125,30 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
   const [stats, setStats] = useState<any>(null);
+
+  // Clipboard toast state
+  const [clipboardToast, setClipboardToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+    visible: boolean;
+  }>({ message: '', type: 'success', visible: false });
+  const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Show clipboard toast notification
+  const showClipboardToast = useCallback((message: string, type: 'success' | 'error') => {
+    // Clear any existing timeout
+    if (clipboardToastTimeoutRef.current) {
+      clearTimeout(clipboardToastTimeoutRef.current);
+    }
+
+    setClipboardToast({ message, type, visible: true });
+
+    // Auto-hide after delay (longer for errors so user can read the reason)
+    const hideDelay = type === 'error' ? 4000 : 2000;
+    clipboardToastTimeoutRef.current = setTimeout(() => {
+      setClipboardToast(prev => ({ ...prev, visible: false }));
+    }, hideDelay);
+  }, []);
   const lastBytesRef = useRef<{ bytes: number; timestamp: number } | null>(null);
 
   const helixApi = useApi();
@@ -1410,6 +1434,88 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         lastEscapeTime = now;
       }
 
+      // Intercept copy keystrokes for clipboard sync (cross-platform)
+      const isCtrlC = event.ctrlKey && !event.shiftKey && event.code === 'KeyC';
+      const isCmdC = event.metaKey && !event.shiftKey && event.code === 'KeyC';
+      const isCtrlShiftC = event.ctrlKey && event.shiftKey && event.code === 'KeyC';
+      const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
+      const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
+
+      if (isCopyKeystroke && sessionId) {
+        // Send the copy keystroke to remote first
+        console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
+        const input = streamRef.current?.getInput();
+        if (input) {
+          // Forward Ctrl+C to remote
+          const ctrlCDown = new KeyboardEvent('keydown', {
+            code: 'KeyC',
+            key: 'c',
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyDown(ctrlCDown);
+
+          const ctrlCUp = new KeyboardEvent('keyup', {
+            code: 'KeyC',
+            key: 'c',
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyUp(ctrlCUp);
+        }
+
+        // Wait briefly for remote clipboard to update, then sync back to local
+        setTimeout(async () => {
+          try {
+            const apiClient = helixApi.getApiClient();
+            const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+            const clipboardData: TypesClipboardData = response.data;
+
+            if (!clipboardData || !clipboardData.type || !clipboardData.data) {
+              console.log('[Clipboard] Remote clipboard empty after copy');
+              showClipboardToast('Copied', 'success');
+              return;
+            }
+
+            if (clipboardData.type === 'image') {
+              const base64Data = clipboardData.data;
+              const byteCharacters = atob(base64Data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: 'image/png' });
+
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              console.log(`[Clipboard] Synced image from remote (${byteArray.length} bytes)`);
+            } else if (clipboardData.type === 'text') {
+              await navigator.clipboard.writeText(clipboardData.data);
+              console.log(`[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`);
+            }
+
+            lastRemoteClipboardHash.current = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
+            showClipboardToast('Copied', 'success');
+          } catch (err) {
+            console.error('[Clipboard] Failed to sync clipboard after copy:', err);
+            // Still show success - the remote copy likely worked even if sync failed
+            showClipboardToast('Copied', 'success');
+          }
+        }, 300); // Wait 300ms for remote clipboard to update
+
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       // Intercept paste keystrokes for clipboard sync (cross-platform)
       const isCtrlV = event.ctrlKey && !event.shiftKey && event.code === 'KeyV';
       const isCmdV = event.metaKey && !event.shiftKey && event.code === 'KeyV';
@@ -1427,6 +1533,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         navigator.clipboard.read().then(clipboardItems => {
           if (clipboardItems.length === 0) {
             console.warn('[Clipboard] Empty clipboard, ignoring paste');
+            showClipboardToast('Clipboard is empty', 'error');
             return;
           }
 
@@ -1451,9 +1558,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             });
           } else {
             console.warn('[Clipboard] Unsupported clipboard type:', item.types);
+            showClipboardToast(`Unsupported clipboard type: ${item.types.join(', ')}`, 'error');
           }
         }).catch(err => {
           console.error('[Clipboard] Failed to read clipboard:', err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showClipboardToast(`Paste failed: ${errMsg}`, 'error');
         });
 
         // Helper function to sync clipboard and forward keystroke
@@ -1461,6 +1571,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           const apiClient = helixApi.getApiClient();
           apiClient.v1ExternalAgentsClipboardCreate(sessionId, payload).then(() => {
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
+            showClipboardToast('Pasted', 'success');
 
             // Send Ctrl+Shift+V to remote (works in both terminals and regular apps)
             const input = streamRef.current?.getInput();
@@ -1491,6 +1602,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            showClipboardToast(`Paste failed: ${errMsg}`, 'error');
           });
         };
 
@@ -1509,6 +1622,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[MoonlightStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
+
+      // Suppress keyup for copy keystrokes (we synthesize complete keydown+keyup in handleKeyDown)
+      const isCtrlC = event.ctrlKey && !event.shiftKey && event.code === 'KeyC';
+      const isCmdC = event.metaKey && !event.shiftKey && event.code === 'KeyC';
+      const isCtrlShiftC = event.ctrlKey && event.shiftKey && event.code === 'KeyC';
+      const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
+      const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
+
+      if (isCopyKeystroke) {
+        // Suppress keyup for copy - we already sent complete keydown+keyup in clipboard handler
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
@@ -2055,6 +2182,39 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           onClose={() => setShowKeyboardPanel(false)}
         />
       )}
+
+      {/* Clipboard Toast Notification */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 40,
+          left: '50%',
+          transform: `translateX(-50%) translateY(${clipboardToast.visible ? '0' : '20px'})`,
+          zIndex: 2500,
+          backgroundColor: clipboardToast.type === 'success'
+            ? 'rgba(46, 125, 50, 0.95)'
+            : 'rgba(211, 47, 47, 0.95)',
+          color: 'white',
+          padding: '8px 20px',
+          borderRadius: 2,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+          opacity: clipboardToast.visible ? 1 : 0,
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          whiteSpace: 'nowrap',
+          maxWidth: '80%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {clipboardToast.type === 'success' ? '✓' : '✕'} {clipboardToast.message}
+      </Box>
     </Box>
   );
 };
