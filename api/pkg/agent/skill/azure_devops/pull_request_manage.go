@@ -48,11 +48,6 @@ func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
 	}
 
-	// repoID, err := uuid.Parse(repositoryID)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to parse repository ID: %w", err)
-	// }
-
 	prs, err := gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
 		SearchCriteria: &git.GitPullRequestSearchCriteria{
 			Status: ptr.To(git.PullRequestStatusValues.Active),
@@ -65,4 +60,22 @@ func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName
 	}
 
 	return *prs, nil
+}
+
+func (c *AzureDevOpsClient) GetPullRequest(ctx context.Context, repositoryName, project string, id int) (*git.GitPullRequest, error) {
+	gitClient, err := git.NewClient(ctx, c.connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
+	}
+
+	pr, err := gitClient.GetPullRequest(ctx, git.GetPullRequestArgs{
+		RepositoryId:  &repositoryName,
+		Project:       &project,
+		PullRequestId: &id,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pull request: %w", err)
+	}
+
+	return pr, nil
 }
