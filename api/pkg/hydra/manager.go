@@ -999,12 +999,23 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 		log.Warn().Err(err).Msg("Failed to configure DNS (non-fatal)")
 	}
 
-	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
-	// When user accesses localhost:8080 in desktop, forward to gateway:8080
-	// where Docker actually binds the port
-	if err := m.configureLocalhostForwarding(containerPID, gateway); err != nil {
-		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
-	}
+	// 10. Localhost forwarding DISABLED
+	// The original implementation added a DNAT rule to forward ALL localhost traffic
+	// to the Hydra gateway. This broke services running inside the desktop container
+	// (e.g., Vite dev server on localhost:3000) because even local connections were
+	// redirected to the gateway where nothing was listening.
+	//
+	// Port-specific forwarding (only forward Docker-exposed ports) would be better
+	// but requires polling the Docker API for exposed ports.
+	//
+	// For now, users who `docker run -p 8080:8080` need to access via gateway IP:
+	//   http://10.200.N.1:8080
+	// instead of localhost:8080.
+	//
+	// TODO: Implement port-specific forwarding by detecting Docker-exposed ports
+	// if err := m.configureLocalhostForwarding(containerPID, gateway); err != nil {
+	// 	log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
+	// }
 
 	// 11. Update bridge state for self-healing
 	m.mutex.Lock()
@@ -1143,11 +1154,11 @@ func (m *Manager) BridgeDesktopPrivileged(ctx context.Context, req *BridgeDeskto
 		log.Warn().Err(err).Msg("Failed to configure DNS for privileged mode (non-fatal)")
 	}
 
-	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
-	// Forward localhost:PORT to hostGateway:PORT (where Docker binds ports)
-	if err := m.configureLocalhostForwarding(containerPID, hostGateway); err != nil {
-		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
-	}
+	// 10. Localhost forwarding DISABLED (see comment in BridgeDesktop for details)
+	// The broad DNAT rule breaks services running inside the desktop container.
+	// if err := m.configureLocalhostForwarding(containerPID, hostGateway); err != nil {
+	// 	log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
+	// }
 
 	log.Info().
 		Str("session_id", req.SessionID).
