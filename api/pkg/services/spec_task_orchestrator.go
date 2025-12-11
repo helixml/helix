@@ -9,7 +9,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -24,7 +23,6 @@ type SpecTaskOrchestrator struct {
 	specTaskService       *SpecDrivenTaskService
 	agentPool             *ExternalAgentPool
 	wolfExecutor          WolfExecutorInterface // Wolf executor for external agents
-	mutex                 sync.RWMutex
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
@@ -191,7 +189,7 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	// Check WIP limits for planning column before auto-starting
 	// Get default project to load board settings
 
-	var planningLimit int = 3
+	var planningLimit = 3
 
 	if project.Metadata.BoardSettings != nil &&
 		project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
@@ -330,182 +328,6 @@ func (o *SpecTaskOrchestrator) cleanupLoop(ctx context.Context) {
 	}
 }
 
-// getOrCreateExternalAgent gets existing external agent or creates new one for SpecTask
-func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, task *types.SpecTask) (*types.SpecTaskExternalAgent, error) {
-	// Try to get existing agent
-	agent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
-	if err == nil && agent.Status == "running" {
-		log.Info().
-			Str("agent_id", agent.ID).
-			Str("spec_task_id", task.ID).
-			Msg("Reusing existing external agent")
-		return agent, nil
-	}
-
-	// Create new external agent
-	agentID := fmt.Sprintf("zed-spectask-%s", task.ID)
-	// CRITICAL: Use /filestore/ prefix (not /opt/helix/filestore/) so translateToHostPath works
-	// wolf_executor.go:translateToHostPath expects paths starting with /filestore/
-	// Also use "spec-tasks" (with hyphen) for consistency with wolf_executor.go
-	workspaceDir := fmt.Sprintf("/filestore/workspaces/spec-tasks/%s", task.ID)
-
-	log.Info().
-		Str("agent_id", agentID).
-		Str("workspace_dir", workspaceDir).
-		Msg("Creating new external agent for SpecTask")
-
-	// Get project to access repository configuration
-	project, err := o.store.GetProject(ctx, task.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project for SpecTask: %w", err)
-	}
-
-	// Get all repositories for this project
-	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get project repositories, continuing without git")
-	}
-
-	// Extract repository IDs
-	var repositoryIDs []string
-	for _, repo := range repos {
-		repositoryIDs = append(repositoryIDs, repo.ID)
-	}
-
-	// Determine primary repository
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(repositoryIDs) > 0 {
-		// Fall back to first repository if no default set
-		primaryRepoID = repositoryIDs[0]
-	}
-
-	log.Info().
-		Strs("repository_ids", repositoryIDs).
-		Str("primary_repository_id", primaryRepoID).
-		Msg("Attaching project repositories to external agent")
-
-	// Get or create API key for user (needed for git HTTP authentication)
-	userAPIKey, err := o.getOrCreateUserAPIKey(ctx, task.CreatedBy)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user API key for git operations: %w", err)
-	}
-
-	log.Info().
-		Str("user_id", task.CreatedBy).
-		Msg("Using user's API key for git operations (RBAC enforced)")
-
-	// Create Wolf agent with per-SpecTask workspace
-	agentReq := &types.ZedAgent{
-		SessionID:           agentID,                // Agent-level session ID (not tied to specific Helix session)
-		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
-		UserID:              task.CreatedBy,
-		WorkDir:             workspaceDir,
-		ProjectPath:         "backend",          // Default primary repo path
-		RepositoryIDs:       repositoryIDs,      // Repositories to clone
-		PrimaryRepositoryID: primaryRepoID,      // Primary repository for design docs
-		SpecTaskID:          task.ID,            // Link to SpecTask
-		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
-		DisplayWidth:        2560,
-		DisplayHeight:       1600,
-		DisplayRefreshRate:  60,
-		Env: []string{
-			// Pass user's API key for git operations (NOT server's RunnerToken)
-			// This ensures RBAC is enforced - agent can only access repos the user can access
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
-		},
-	}
-
-	agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start Wolf agent: %w", err)
-	}
-
-	// Create external agent record
-	externalAgent := &types.SpecTaskExternalAgent{
-		ID:              agentID,
-		SpecTaskID:      task.ID,
-		WolfAppID:       agentResp.WolfAppID,
-		WorkspaceDir:    workspaceDir,
-		HelixSessionIDs: []string{},
-		ZedThreadIDs:    []string{},
-		Status:          "running",
-		Created:         time.Now(),
-		LastActivity:    time.Now(),
-		UserID:          task.CreatedBy,
-	}
-
-	err = o.store.CreateSpecTaskExternalAgent(ctx, externalAgent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create external agent record: %w", err)
-	}
-
-	// Update task with external agent ID
-	task.ExternalAgentID = agentID
-	err = o.store.UpdateSpecTask(ctx, task)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update task with external agent ID")
-	}
-
-	log.Info().
-		Str("agent_id", agentID).
-		Str("wolf_app_id", agentResp.WolfAppID).
-		Msg("External agent created successfully")
-
-	return externalAgent, nil
-}
-
-// createPlanningSession creates a Helix session for the planning phase
-func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
-	// Check for assistants before accessing
-	if len(app.Config.Helix.Assistants) == 0 {
-		return nil, fmt.Errorf("app %s has no assistants configured", app.ID)
-	}
-
-	// Build system prompt for planning phase
-	systemPrompt := o.buildPlanningPrompt(task, app)
-
-	// Extract organization ID from metadata if present
-	orgID := ""
-	if task.Metadata != nil {
-		if id, ok := task.Metadata["organization_id"].(string); ok {
-			orgID = id
-		}
-	}
-
-	// Create session
-	session := &types.Session{
-		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
-		Name:           fmt.Sprintf("Planning: %s", task.Name),
-		Owner:          task.CreatedBy,
-		OwnerType:      types.OwnerTypeUser,
-		ParentApp:      app.ID,
-		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		ModelName:      app.Config.Helix.Assistants[0].Model,
-		OrganizationID: orgID,
-		Metadata: types.SessionMetadata{
-			SystemPrompt:    systemPrompt,
-			SpecTaskID:      task.ID,
-			ExternalAgentID: agent.ID,
-			Phase:           "planning",
-		},
-	}
-
-	createdSession, err := o.store.CreateSession(ctx, *session)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create planning session: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", createdSession.ID).
-		Str("spec_task_id", task.ID).
-		Msg("Created planning session")
-
-	return createdSession, nil
-}
-
 // buildPlanningPrompt builds the system prompt for planning phase with complete git workflow
 func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *types.App) string {
 	basePrompt := ""
@@ -582,67 +404,4 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("**All work persists in `/home/retro/work/` across sessions.**")
 
 	return promptBuilder.String()
-}
-
-// sanitizeForBranchName is already defined in design_docs_helpers.go
-
-// getOrCreateUserAPIKey gets user's existing personal API key for git operations
-// IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID string) (string, error) {
-	// List user's existing API keys
-	keys, err := o.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to list user API keys: %w", err)
-	}
-
-	// Filter out app-scoped API keys - we need a personal API key for full access
-	// App-scoped keys have restricted path access and can't be used for RevDial
-	var personalKeys []*types.ApiKey
-	for _, key := range keys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
-			personalKeys = append(personalKeys, key)
-		}
-	}
-
-	// Use user's first personal API key if available
-	if len(personalKeys) > 0 {
-		log.Debug().
-			Str("user_id", userID).
-			Str("api_key_name", personalKeys[0].Name).
-			Bool("key_is_personal", true).
-			Msg("Using user's existing personal API key for git operations")
-		return personalKeys[0].Key, nil
-	}
-
-	// No personal API keys exist - create one automatically
-	log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
-
-	newKey, err := system.GenerateAPIKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate API key: %w", err)
-	}
-
-	apiKey := &types.ApiKey{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
-		Key:       newKey,
-		Name:      "Auto-generated for agent access",
-		Type:      types.APIkeytypeAPI,
-		// AppID is nil - this is a personal key
-	}
-
-	createdKey, err := o.store.CreateAPIKey(ctx, apiKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to create API key: %w", err)
-	}
-
-	log.Info().
-		Str("user_id", userID).
-		Str("key_name", createdKey.Name).
-		Msg("✅ Created personal API key for agent access")
-
-	return createdKey.Key, nil
 }

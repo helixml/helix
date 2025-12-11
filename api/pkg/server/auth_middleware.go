@@ -148,7 +148,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("keycloak is required for Helix API key authentication")
 		}
 		// we have an API key - we should load it from the database and construct our user that way
-		apiKey, err := auth.store.GetAPIKey(ctx, token)
+		apiKey, err := auth.store.GetAPIKey(ctx, &types.ApiKey{
+			Key: token,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("error getting API key: %s", err.Error())
 		}
@@ -169,6 +171,8 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
+		user.ProjectID = apiKey.ProjectID
+		user.SpecTaskID = apiKey.SpecTaskID
 
 		// Ensure user_meta exists with slug for GitHub-style URLs
 		if user.ID != "" {

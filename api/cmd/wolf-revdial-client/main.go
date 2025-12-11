@@ -22,7 +22,7 @@ import (
 var (
 	apiURL             = flag.String("api-url", "", "Control plane API URL (e.g., http://api.example.com:8080)")
 	wolfID             = flag.String("wolf-id", "", "Unique Wolf instance ID")
-	runnerToken        = flag.String("token", "", "Runner authentication token")
+	runnerToken        = flag.String("token", "", "Runner authenNewClienttication token")
 	localAddr          = flag.String("local", "localhost:8080", "Local Wolf API address")
 	reconnectSec       = flag.Int("reconnect", 5, "Reconnect interval in seconds if connection drops")
 	insecureSkipVerify = flag.Bool("insecure", false, "Skip TLS certificate verification (env: HELIX_INSECURE_TLS)")

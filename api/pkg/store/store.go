@@ -131,6 +131,8 @@ type SearchUsersQuery struct {
 type GetAggregatedUsageMetricsQuery struct {
 	UserID         string
 	OrganizationID string
+	ProjectID      string
+	SpecTaskID     string
 	From           time.Time
 	To             time.Time
 }
@@ -235,7 +237,7 @@ type Store interface {
 
 	// api keys
 	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 

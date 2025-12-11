@@ -272,13 +272,6 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("Launching Zed agent for single session")
 	}
 
-	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "dispatch_to_pool").
-		Str("session_id", sessionID).
-		Str("user_id", session.Owner).
-		Interface("zed_agent", zedAgent).
-		Msg("📡 EXTERNAL_AGENT_DEBUG: About to dispatch to Zed runner pool")
-
 	// Wolf executor will handle authentication via its own mechanisms
 	log.Info().
 		Str("session_id", sessionID).
@@ -293,11 +286,6 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to marshal Zed agent request")
 		return fmt.Errorf("failed to marshal Zed agent request: %w", err)
 	}
-
-	log.Debug().
-		Str("EXTERNAL_AGENT_DEBUG", "marshaled_request").
-		Str("data_length", fmt.Sprintf("%d", len(data))).
-		Msg("📦 EXTERNAL_AGENT_DEBUG: Marshaled Zed agent request")
 
 	header := map[string]string{
 		"kind": "zed_agent",
