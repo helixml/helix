@@ -62,7 +62,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	cloneGroup, err = s.Store.CreateCloneGroup(ctx, cloneGroup)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create clone group")
-		http.Error(w, "Failed to create clone group", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to create clone group: %v", err), http.StatusInternalServerError)
 		return
 	}
 
