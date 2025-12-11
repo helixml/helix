@@ -398,6 +398,148 @@ EOF
   echo "  3. Start services: ./stack start"
 }
 
+function build-zed-ubuntu22() {
+  # ====================================================================
+  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
+  # ====================================================================
+  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
+  # Use this for the Ubuntu desktop container which runs Ubuntu 22.04
+  # ====================================================================
+  echo "🔨 Building Zed for Ubuntu 22.04 compatibility (Docker build)..."
+
+  local ZED_SOURCE_DIR="../zed"
+  local ZED_OUTPUT_DIR="./zed-build"
+  local BUILD_TYPE="${1:-dev}"
+
+  # Validate build type
+  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
+    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
+    echo "Usage: ./stack build-zed-ubuntu22 [dev|release]"
+    echo ""
+    echo "Build types:"
+    echo "  dev     - Fast incremental builds with debug symbols (default)"
+    echo "  release - Optimized production builds (slower)"
+    return 1
+  fi
+
+  # Check if Zed source directory exists
+  if [ ! -d "$ZED_SOURCE_DIR" ]; then
+    echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
+    echo "Expected directory structure:"
+    echo "  helix/                 (current directory)"
+    echo "  zed/                   (Zed fork with external_websocket_sync)"
+    return 1
+  fi
+
+  # Check if external_websocket_sync exists in Zed source
+  if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
+    echo "❌ external_websocket_sync crate not found in Zed source"
+    echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
+    return 1
+  fi
+
+  # Create output directory
+  mkdir -p "$ZED_OUTPUT_DIR"
+  if [ ! -w "$ZED_OUTPUT_DIR" ]; then
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
+  fi
+
+  echo "🐳 Building Zed inside Ubuntu 22.04 container..."
+  echo "   Source: $ZED_SOURCE_DIR"
+  echo "   Output: $ZED_OUTPUT_DIR"
+  echo "   Mode: $BUILD_TYPE"
+
+  # Build the builder image if needed
+  if ! docker image inspect zed-builder:ubuntu22 &> /dev/null; then
+    echo "📦 Building zed-builder:ubuntu22 image (first time only, ~2-3 min)..."
+    docker build -t zed-builder:ubuntu22 -f Dockerfile.zed-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build zed-builder:ubuntu22 image"
+      return 1
+    fi
+  fi
+
+  # Setup cargo cache for faster rebuilds
+  # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
+  local CARGO_CACHE="$HOME/.cargo-docker-cache"
+  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git"
+
+  # Build command based on type
+  # Use a separate target directory to avoid conflicts with host-compiled build scripts
+  # (host build scripts link against glibc 2.39+ which doesn't exist in Ubuntu 22.04)
+  local BUILD_CMD
+  local BINARY_PATH
+  local TARGET_DIR="target-ubuntu22"
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/release/zed"
+  else
+    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR cargo build --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/debug/zed"
+  fi
+
+  # Get absolute path to Zed source
+  local ZED_ABS_PATH
+  ZED_ABS_PATH=$(cd "$ZED_SOURCE_DIR" && pwd)
+
+  # Get absolute path to output directory
+  local OUTPUT_ABS_PATH
+  OUTPUT_ABS_PATH=$(cd "$ZED_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build (this may take a while on first run)..."
+
+  # Run build inside container
+  # Mount:
+  #   - Zed source at /zed
+  #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
+  #   - Cargo git cache at /root/.cargo/git (git dependencies)
+  #   - Output directory at /output
+  # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
+  docker run --rm \
+    -v "$ZED_ABS_PATH:/zed" \
+    -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
+    -v "$CARGO_CACHE/git:/root/.cargo/git" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /zed \
+    zed-builder:ubuntu22 \
+    bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
+    return 1
+  fi
+
+  # Atomic rename (works even if old binary is in use)
+  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
+    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+  fi
+  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
+  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+
+  # Verify the binary
+  local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
+
+  echo "✅ Zed binary built successfully"
+  echo "📦 Binary size: $BINARY_SIZE"
+  echo "🎯 Compatible with: Ubuntu 22.04+ (glibc 2.35+)"
+
+  # Verify external WebSocket sync is included
+  if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
+    echo "✅ External WebSocket Thread Sync detected in binary"
+  else
+    echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
+  fi
+
+  echo ""
+  echo "Next steps:"
+  echo "  1. Build Ubuntu container: ./stack build-ubuntu"
+  echo "  2. Launch Ubuntu sandbox from UI"
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "📺 Session $TMUX_SESSION already exists. Attaching..."
