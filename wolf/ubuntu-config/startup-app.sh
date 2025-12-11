@@ -313,17 +313,18 @@ else
 fi
 
 # Autostart devilspie2 (window rule daemon - must start early, before Firefox)
+# CRITICAL: Set DISPLAY=:9 for X11 window management (autostart doesn't inherit session env)
 if [ "$ENABLE_DEVILSPIE2" = "true" ]; then
     cat > ~/.config/autostart/devilspie2.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Devilspie2 Window Rules
-Exec=devilspie2
+Exec=/bin/bash -c "DISPLAY=:9 devilspie2"
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
-    echo "devilspie2 autostart entry created"
+    echo "devilspie2 autostart entry created (with DISPLAY=:9 for X11 window management)"
 else
     echo "devilspie2 autostart DISABLED by feature flag"
 fi
