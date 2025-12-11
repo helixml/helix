@@ -60,6 +60,24 @@ func extractEnvVar(envVars []string, key string) string {
 	return ""
 }
 
+// sanitizeEnvValue removes characters that could cause issues in environment variables.
+//
+// Shell metacharacters ($, `, etc.) are NOT sanitized because they are safe in this context:
+// - Values are passed via Docker environment variables, not shell parsing
+// - In bash, "$VAR" expansion is simple text substitution - it does NOT re-parse
+//   or execute shell metacharacters within the substituted value
+// - Example: FOO='$(whoami)'; echo "$FOO" outputs literally "$(whoami)", not the result
+//
+// We only sanitize characters that affect environment variable parsing itself:
+// - Newlines: could inject additional environment variables in the KEY=value\nEVIL=x format
+// - Null bytes: could truncate strings in C-based tools
+func sanitizeEnvValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\x00", "")
+	return strings.TrimSpace(value)
+}
+
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
 	lobbyID   string
@@ -584,6 +602,30 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		helixSessionID = agent.HelixSessionID
 	}
 
+	// Look up user to get their name and email for Git configuration
+	// This is required for pushing to enterprise Git systems (Azure DevOps, etc.)
+	user, err := w.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up user for Git config: %w", err)
+	}
+	if user.Email == "" {
+		return nil, fmt.Errorf("user %s has no email configured, required for Git operations", agent.UserID)
+	}
+	gitUserName := user.FullName
+	if gitUserName == "" {
+		// Use username as fallback if full name is not set
+		gitUserName = user.Username
+	}
+	if gitUserName == "" {
+		return nil, fmt.Errorf("user %s has no name configured, required for Git operations", agent.UserID)
+	}
+	gitUserEmail := user.Email
+
+	// Sanitize user-provided values to prevent env var injection via newlines
+	// and other control characters that could cause shell parsing issues
+	gitUserName = sanitizeEnvValue(gitUserName)
+	gitUserEmail = sanitizeEnvValue(gitUserEmail)
+
 	extraEnv := []string{
 		// Agent identification (used for WebSocket connection)
 		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agentInstanceID),
@@ -596,6 +638,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts
 	}
+
+	// Add Git user configuration (validated above, always present)
+	// Required for pushing to enterprise Git systems (Azure DevOps, etc.)
+	extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_NAME=%s", gitUserName))
+	extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
 
 	// Add primary repository name for design docs worktree setup
 	if primaryRepoName != "" {
