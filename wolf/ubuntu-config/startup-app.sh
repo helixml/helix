@@ -247,6 +247,7 @@ fi
 
 if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
     # Create window positioning script (positions Terminal, Zed, and Firefox)
+    # Uses xdotool --sync for event-driven waiting (no arbitrary sleep delays)
     cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
 # Tile windows in thirds after they appear
@@ -254,51 +255,57 @@ if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
 # Left third (0-639): Terminal
 # Middle third (640-1279): Zed
 # Right third (1280-1919): Firefox
+#
+# Uses xdotool search --sync to wait for each window to appear (event-driven)
+# Each wait runs in parallel so windows can appear in any order
 
 # CRITICAL: Set DISPLAY for X11 commands (autostart doesn't inherit session env)
 export DISPLAY=:9
 
-echo "Starting window positioning..."
-
-# Wait for windows to appear (Firefox takes longer due to startup time)
-sleep 12
-
-echo "Listing windows:"
-wmctrl -lx
+echo "Starting window positioning (event-driven with xdotool --sync)..."
 
 # Position Terminal (gnome-terminal) - left third
-# Use wmctrl -lx to match by window class (more reliable than title)
-TERMINAL_WID=$(wmctrl -lx | grep -i "gnome-terminal\|terminal" | head -1 | awk '{print $1}')
-if [ -n "$TERMINAL_WID" ]; then
-    wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
-    echo "Positioned terminal: $TERMINAL_WID -> left third (0-639)"
-else
-    echo "WARNING: Terminal window not found"
-fi
+# xdotool --sync blocks until window appears, with 60s timeout
+(
+    TERMINAL_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "gnome-terminal" 2>/dev/null | head -1)
+    if [ -n "$TERMINAL_WID" ]; then
+        wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
+        echo "Positioned terminal: $TERMINAL_WID -> left third (0-639)"
+    else
+        echo "WARNING: Terminal window not found (timeout)"
+    fi
+) &
 
 # Position Zed - middle third
 # Zed class is "dev.zed.Zed-Dev" (dev) or "dev.zed.Zed" (release)
-ZED_WID=$(wmctrl -lx | grep -i "zed" | head -1 | awk '{print $1}')
-if [ -n "$ZED_WID" ]; then
-    wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
-    echo "Positioned Zed: $ZED_WID -> middle third (640-1279)"
-else
-    echo "WARNING: Zed window not found"
-fi
+(
+    ZED_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "Zed" 2>/dev/null | head -1)
+    if [ -n "$ZED_WID" ]; then
+        wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
+        echo "Positioned Zed: $ZED_WID -> middle third (640-1279)"
+    else
+        echo "WARNING: Zed window not found (timeout)"
+    fi
+) &
 
 # Position Firefox - right third
-FIREFOX_WID=$(wmctrl -lx | grep -i "firefox\|Navigator" | head -1 | awk '{print $1}')
-if [ -n "$FIREFOX_WID" ]; then
-    wmctrl -i -r "$FIREFOX_WID" -e 0,1280,30,640,1050
-    echo "Positioned Firefox: $FIREFOX_WID -> right third (1280-1919)"
-else
-    echo "WARNING: Firefox window not found"
-fi
+(
+    FIREFOX_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "firefox" 2>/dev/null | head -1)
+    if [ -n "$FIREFOX_WID" ]; then
+        wmctrl -i -r "$FIREFOX_WID" -e 0,1280,30,640,1050
+        echo "Positioned Firefox: $FIREFOX_WID -> right third (1280-1919)"
+    else
+        echo "WARNING: Firefox window not found (timeout)"
+    fi
+) &
+
+# Wait for all positioning jobs to complete
+wait
 
 echo "Window positioning complete at $(date)"
 POSITION_EOF
     chmod +x /tmp/position-windows.sh
-    echo "Window positioning script created"
+    echo "Window positioning script created (event-driven with xdotool --sync)"
 else
     echo "position-windows.sh DISABLED by feature flag"
 fi
