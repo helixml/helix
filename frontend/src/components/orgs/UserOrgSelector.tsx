@@ -413,8 +413,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Only show Providers menu item if providers management is enabled or user is admin
-    if (account.serverConfig.providers_management_enabled || account.admin) {
+    // Only show Providers menu item if providers management is enabled
+    // Admins manage inference providers via the admin panel, not here
+    if (account.serverConfig.providers_management_enabled) {
       baseButtons.push({
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
@@ -438,7 +439,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, account.admin])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
