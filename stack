@@ -13,6 +13,13 @@ export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
+# Desktop categories for build-sandbox
+# Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
+# Note: Using arrays because IFS is set to '\n\t' (no space splitting)
+PRODUCTION_DESKTOPS=(sway ubuntu)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce)
+# EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
+
 # Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
@@ -1230,6 +1237,17 @@ function build-moonlight-web() {
   # Moonlight Web runs inside the sandbox container now, not as a standalone service
 }
 
+# Helper function to verify tarball exists after desktop build
+function verify_tarball() {
+  local desktop="$1"
+  if [ ! -f "sandbox-images/helix-${desktop}.tar" ]; then
+    echo "❌ sandbox-images/helix-${desktop}.tar not found after build"
+    rm -f sandbox-images/helix-*.tar
+    exit 1
+  fi
+  echo "✅ helix-${desktop}.tar ($(du -h sandbox-images/helix-${desktop}.tar | cut -f1)) version=$(cat sandbox-images/helix-${desktop}.version)"
+}
+
 function build-sandbox() {
   echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
   echo ""
@@ -1238,9 +1256,24 @@ function build-sandbox() {
   echo "  • Moonlight Web (from ~/pm/moonlight-web-stream)"
   echo "  • RevDial client (built from source)"
   echo "  • Docker-in-Docker with NVIDIA runtime"
-  echo "  • helix-sway image (pre-loaded into Wolf's dockerd)"
-  echo "  • helix-zorin image (pre-loaded into Wolf's dockerd)"
+  echo "  • Desktop images (pre-loaded into Wolf's dockerd)"
   echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
+  echo ""
+  # Convert EXPERIMENTAL_DESKTOPS from space-separated string to array
+  # This allows: EXPERIMENTAL_DESKTOPS="zorin xfce" ./stack build-sandbox
+  local EXPERIMENTAL_DESKTOPS_ARR=()
+  if [ -n "${EXPERIMENTAL_DESKTOPS:-}" ]; then
+    # Use read with default IFS to split on spaces
+    IFS=' ' read -ra EXPERIMENTAL_DESKTOPS_ARR <<< "$EXPERIMENTAL_DESKTOPS"
+  fi
+
+  echo "📋 Build configuration:"
+  echo "   Production desktops: ${PRODUCTION_DESKTOPS[*]}"
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    echo "   Experimental desktops: ${EXPERIMENTAL_DESKTOPS_ARR[*]}"
+  else
+    echo "   Experimental desktops: (none - set EXPERIMENTAL_DESKTOPS to enable)"
+  fi
   echo ""
 
   local COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -1282,100 +1315,46 @@ function build-sandbox() {
   fi
   echo ""
 
-  # Step 2: Build helix-sway and export as tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [2/7] Building helix-sway and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  # Step 2: Build desktop images
+  # Build production desktops (always)
+  local STEP_NUM=2
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📦 Building production desktop: helix-${desktop}..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+      echo "❌ Failed to build helix-${desktop}"
+      return 1
+    fi
+    verify_tarball "$desktop"
+    # Remove old compressed tarball if it exists (migrating to uncompressed)
+    [ -f "sandbox-images/helix-${desktop}.tar.gz" ] && rm -f "sandbox-images/helix-${desktop}.tar.gz" "sandbox-images/helix-${desktop}.tar.gz.hash"
+    echo ""
+    STEP_NUM=$((STEP_NUM + 1))
+  done
 
-  # Build helix-sway image and export tarball (build-desktop now handles tarball export)
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  if ! SKIP_DESKTOP_TRANSFER=1 build-sway; then
-    echo "❌ Failed to build helix-sway"
-    return 1
+  # Build experimental desktops (only if requested)
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🧪 Building experimental desktop: helix-${desktop}..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+        echo "❌ Failed to build helix-${desktop}"
+        return 1
+      fi
+      verify_tarball "$desktop"
+      echo ""
+      STEP_NUM=$((STEP_NUM + 1))
+    done
+  else
+    echo "ℹ️  Experimental desktops skipped (set EXPERIMENTAL_DESKTOPS=\"zorin xfce\" to build)"
+    echo ""
   fi
 
-  # Verify tarball was created (build-desktop exports it)
-  if [ ! -f sandbox-images/helix-sway.tar ]; then
-    echo "❌ sandbox-images/helix-sway.tar not found after build-sway - this shouldn't happen"
-    return 1
-  fi
-
-  # Remove old compressed tarball if it exists (migrating to uncompressed)
-  [ -f sandbox-images/helix-sway.tar.gz ] && rm -f sandbox-images/helix-sway.tar.gz sandbox-images/helix-sway.tar.gz.hash
-
-  TARBALL_SIZE=$(du -h sandbox-images/helix-sway.tar | cut -f1)
-  echo "✅ Using sandbox-images/helix-sway.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-sway.version)"
-  echo ""
-
-  # Step 3: Build helix-zorin and export as tarball
+  # Build unified sandbox container with embedded tarballs
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [3/7] Building helix-zorin and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build helix-zorin image and export tarball (build-desktop now handles tarball export)
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  if ! SKIP_DESKTOP_TRANSFER=1 build-zorin; then
-    echo "❌ Failed to build helix-zorin"
-    return 1
-  fi
-
-  # Verify tarball was created (build-desktop exports it)
-  if [ ! -f sandbox-images/helix-zorin.tar ]; then
-    echo "❌ sandbox-images/helix-zorin.tar not found after build-zorin - this shouldn't happen"
-    return 1
-  fi
-
-  TARBALL_SIZE=$(du -h sandbox-images/helix-zorin.tar | cut -f1)
-  echo "✅ Using sandbox-images/helix-zorin.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-zorin.version)"
-  echo ""
-
-  # Step 4: Build helix-ubuntu and export as tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [4/7] Building helix-ubuntu and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build helix-ubuntu image and export tarball (build-desktop now handles tarball export)
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  if ! SKIP_DESKTOP_TRANSFER=1 build-ubuntu; then
-    echo "❌ Failed to build helix-ubuntu"
-    return 1
-  fi
-
-  # Verify tarball was created (build-desktop exports it)
-  if [ ! -f sandbox-images/helix-ubuntu.tar ]; then
-    echo "❌ sandbox-images/helix-ubuntu.tar not found after build-ubuntu - this shouldn't happen"
-    return 1
-  fi
-
-  TARBALL_SIZE=$(du -h sandbox-images/helix-ubuntu.tar | cut -f1)
-  echo "✅ Using sandbox-images/helix-ubuntu.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-ubuntu.version)"
-  echo ""
-
-  # Step 5: Build helix-xfce and export as tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [5/7] Building helix-xfce and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build helix-xfce image and export tarball (build-desktop now handles tarball export)
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  if ! SKIP_DESKTOP_TRANSFER=1 build-xfce; then
-    echo "❌ Failed to build helix-xfce"
-    return 1
-  fi
-
-  # Verify tarball was created (build-desktop exports it)
-  if [ ! -f sandbox-images/helix-xfce.tar ]; then
-    echo "❌ sandbox-images/helix-xfce.tar not found after build-xfce - this shouldn't happen"
-    return 1
-  fi
-
-  TARBALL_SIZE=$(du -h sandbox-images/helix-xfce.tar | cut -f1)
-  echo "✅ Using sandbox-images/helix-xfce.tar ($TARBALL_SIZE) version=$(cat sandbox-images/helix-xfce.version)"
-  echo ""
-
-  # Step 6: Build unified sandbox container with embedded tarballs
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [6/7] Building helix-sandbox container..."
+  echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Get image IDs to bust Docker cache when upstream images change
@@ -1406,7 +1385,7 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f sandbox-images/helix-sway.tar sandbox-images/helix-zorin.tar sandbox-images/helix-ubuntu.tar sandbox-images/helix-xfce.tar
+    rm -f sandbox-images/helix-*.tar
     return 1
   fi
 
@@ -1426,7 +1405,7 @@ function build-sandbox() {
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing sandbox image to registry..."
 
-    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway + helix-zorin + helix-ubuntu tarballs)
+    # Push helix-sandbox (contains Wolf + Moonlight Web + desktop tarballs)
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1460,10 +1439,24 @@ function build-sandbox() {
   echo "  • Moonlight Web (WebRTC browser streaming)"
   echo "  • RevDial client (control plane connection)"
   echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
-  echo "  • helix-sway image (pre-loaded tarball: $TARBALL_SIZE)"
+  echo "  • Desktop images:"
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
+      local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
+      echo "    - helix-${desktop} (production, $size)"
+    fi
+  done
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
+        local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
+        echo "    - helix-${desktop} (experimental, $size)"
+      fi
+    done
+  fi
   echo ""
   echo "Services managed by GOW's init system:"
-  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads helix-sway"
+  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads desktop images"
   echo "  • 05-init-wolf-config.sh - initializes Wolf config"
   echo "  • 06-init-moonlight-config.sh - initializes Moonlight Web"
   echo "  • 07-start-moonlight-web.sh - starts Moonlight Web daemon"
@@ -2019,6 +2012,7 @@ function help() {
   echo "  STOP_KEYCLOAK=1    - Stop Keycloak when stopping"
   echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
+  echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
 }
 
 # Show help if no arguments provided
