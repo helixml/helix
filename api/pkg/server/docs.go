@@ -11591,6 +11591,18 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -16759,6 +16771,14 @@ const docTemplate = `{
                 "owner_type": {
                     "$ref": "#/definitions/types.OwnerType"
                 },
+                "project_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
                 }
@@ -17721,11 +17741,17 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "zed_agent",
-                "qwen_code"
+                "qwen_code",
+                "claude_code",
+                "gemini_cli",
+                "codex_cli"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
-                "CodeAgentRuntimeQwenCode"
+                "CodeAgentRuntimeQwenCode",
+                "CodeAgentRuntimeClaudeCode",
+                "CodeAgentRuntimeGeminiCLI",
+                "CodeAgentRuntimeCodexCLI"
             ]
         },
         "types.CommentQueueStatusResponse": {
@@ -19850,6 +19876,9 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "prompt_cost": {
                     "type": "number"
                 },
@@ -19872,6 +19901,9 @@ const docTemplate = `{
                     }
                 },
                 "session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
                     "type": "string"
                 },
                 "step": {
@@ -22270,6 +22302,14 @@ const docTemplate = `{
                 "avatar": {
                     "type": "string"
                 },
+                "code_agent_runtime": {
+                    "description": "Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                },
                 "document_group_id": {
                     "type": "string"
                 },
@@ -24571,20 +24611,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -24735,8 +24775,16 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
+                },
+                "spec_task_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
                 },
                 "token": {
                     "description": "the actual token used and its type",
