@@ -275,9 +275,9 @@ kodit:
     kodit:
       enabled: true
       stringData:
-        POSTGRES_USER: cG9zdGdyZXM=  # postgres
-        POSTGRES_PASSWORD: bXlzZWNyZXRwYXNzd29yZA==  # mysecretpassword
-        POSTGRES_DB: a29kaXQ=  # kodit
+        POSTGRES_USER: cG9zdGdyZXM=  # postgres gitleaks:allow
+        POSTGRES_PASSWORD: bXlzZWNyZXRwYXNzd29yZA==  # mysecretpassword gitleaks:allow
+        POSTGRES_DB: a29kaXQ=  # kodit gitleaks:allow
 
   controllers:
     kodit:
