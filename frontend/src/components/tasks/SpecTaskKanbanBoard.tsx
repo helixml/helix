@@ -180,8 +180,9 @@ const DroppableColumn: React.FC<{
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
   focusTaskId?: string;
+  archivingTaskId?: string | null;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -202,6 +203,7 @@ const DroppableColumn: React.FC<{
         onReviewDocs={onReviewDocs}
         projectId={projectId}
         focusStartPlanning={task.id === focusTaskId}
+        isArchiving={task.id === archivingTaskId}
       />
     );
   };
@@ -354,6 +356,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [showArchived, setShowArchived] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
+  const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
 
   // Design review viewer state
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
@@ -816,6 +819,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Actually perform the archive operation (called after confirmation or for unarchive)
   const performArchive = async (task: SpecTaskWithExtras, archived: boolean) => {
+    setArchivingTaskId(task.id!);
     try {
       await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, { archived });
 
@@ -848,6 +852,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     } catch (error) {
       console.error('Failed to archive task:', error);
       setError('Failed to archive task');
+    } finally {
+      setArchivingTaskId(null);
     }
   };
 
@@ -1211,6 +1217,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onReviewDocs={handleReviewDocs}
             projectId={projectId}
             focusTaskId={focusTaskId}
+            archivingTaskId={archivingTaskId}
             theme={theme}
           />
         ))}
@@ -1332,11 +1339,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             Cancel
           </Button>
           <Button
-            onClick={async () => {
+            onClick={() => {
               if (taskToArchive) {
+                // Close dialog immediately so user can continue working
                 setArchiveConfirmOpen(false);
-                await performArchive(taskToArchive, true);
+                const task = taskToArchive;
                 setTaskToArchive(null);
+                // Fire off archive (spinner shows on card via archivingTaskId)
+                performArchive(task, true);
               }
             }}
             variant="contained"
