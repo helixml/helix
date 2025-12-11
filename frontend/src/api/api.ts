@@ -1461,6 +1461,10 @@ export interface TypesApiKey {
   name?: string;
   owner?: string;
   owner_type?: TypesOwnerType;
+  /** Used for isolation and metrics tracking */
+  project_id?: string;
+  /** Used for isolation and metrics tracking */
+  spec_task_id?: string;
   type?: TypesAPIKeyType;
 }
 
@@ -1882,6 +1886,9 @@ export interface TypesCodeAgentConfig {
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
+  CodeAgentRuntimeClaudeCode = "claude_code",
+  CodeAgentRuntimeGeminiCLI = "gemini_cli",
+  CodeAgentRuntimeCodexCLI = "codex_cli",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2754,12 +2761,14 @@ export interface TypesLLMCall {
   model?: string;
   organization_id?: string;
   original_request?: number[];
+  project_id?: string;
   prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
   response?: number[];
   session_id?: string;
+  spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
   /** Total cost of the call (prompt and completion tokens) */
@@ -3741,6 +3750,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
+  code_agent_runtime?: TypesCodeAgentRuntime;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -4670,12 +4681,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4739,7 +4750,11 @@ export interface TypesUser {
   must_change_password?: boolean;
   /** bcrypt hash of the password */
   password_hash?: number[];
+  /** When running in Helix Code sandbox */
+  project_id?: string;
   sb?: boolean;
+  /** When running in Helix Code sandbox */
+  spec_task_id?: string;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -10706,6 +10721,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         to?: string;
         /** Organization ID */
         org_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** Spec Task ID */
+        spec_task_id?: string;
       },
       params: RequestParams = {},
     ) =>

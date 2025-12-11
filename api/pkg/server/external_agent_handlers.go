@@ -17,7 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -26,57 +26,18 @@ import (
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
-	userAPIKeys, err := s.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
+func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
+		UserID:     userID,
+		ProjectID:  agent.ProjectPath,
+		SpecTaskID: agent.SpecTaskID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to list user API keys: %w", err)
-	}
-
-	// Filter out app-scoped API keys - we need a personal API key for full access
-	// App-scoped keys have restricted path access and can't be used for RevDial
-	var personalAPIKeys []*types.ApiKey
-	for _, key := range userAPIKeys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
-			personalAPIKeys = append(personalAPIKeys, key)
-		}
-	}
-
-	// If no personal API keys exist, create one automatically
-	if len(personalAPIKeys) == 0 {
-		log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
-
-		newKey, err := system.GenerateAPIKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate API key: %w", err)
-		}
-
-		apiKey := &types.ApiKey{
-			Owner:     userID,
-			OwnerType: types.OwnerTypeUser,
-			Key:       newKey,
-			Name:      "Auto-generated for agent access",
-			Type:      types.APIkeytypeAPI,
-			// AppID is nil - this is a personal key
-		}
-
-		createdKey, err := s.Store.CreateAPIKey(ctx, apiKey)
-		if err != nil {
-			return fmt.Errorf("failed to create API key: %w", err)
-		}
-
-		log.Info().
-			Str("user_id", userID).
-			Str("key_name", createdKey.Name).
-			Msg("✅ Created personal API key for agent access")
-
-		personalAPIKeys = append(personalAPIKeys, createdKey)
+		return fmt.Errorf("failed to get user API key for external agent: %w", err)
 	}
 
 	// Add USER_API_TOKEN to agent environment using personal API key
-	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", personalAPIKeys[0].Key))
+	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey))
 
 	log.Debug().
 		Str("user_id", userID).

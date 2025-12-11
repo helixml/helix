@@ -77,7 +77,9 @@ func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types
 }
 
 func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey string) error {
-	fetchedAPIKey, err := c.Options.Store.GetAPIKey(ctx, apiKey)
+	fetchedAPIKey, err := c.Options.Store.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey,
+	})
 	if err != nil {
 		return err
 	}
@@ -96,7 +98,9 @@ func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey 
 }
 
 func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	key, err := c.Options.Store.GetAPIKey(ctx, apiKey)
+	key, err := c.Options.Store.GetAPIKey(ctx, &types.ApiKey{
+		Key: apiKey,
+	})
 	if err != nil {
 		return nil, err
 	}
