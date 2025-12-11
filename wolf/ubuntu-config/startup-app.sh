@@ -7,8 +7,8 @@
 # ============================================================================
 # For debugging, set all to false for minimal Ubuntu, then enable one at a time
 ENABLE_SCREENSHOT_SERVER="true"     # Screenshot/clipboard server
-ENABLE_DEVILSPIE2="true"            # Window rule daemon
-ENABLE_POSITION_WINDOWS="false"     # wmctrl window positioning
+ENABLE_DEVILSPIE2="false"           # Window rule daemon (disabled: doesn't work with GNOME/Wayland)
+ENABLE_POSITION_WINDOWS="true"      # wmctrl window positioning (works with GNOME/Xwayland)
 ENABLE_SETTINGS_SYNC="true"         # Zed settings sync daemon
 ENABLE_ZED_AUTOSTART="true"         # Auto-launch Zed editor
 ENABLE_TERMINAL_STARTUP="false"     # Terminal with startup script
@@ -246,26 +246,34 @@ else
 fi
 
 if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
-    # Create window positioning script (positions Terminal and Zed after they launch)
+    # Create window positioning script (positions Terminal, Zed, and Firefox)
     cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
 # Tile windows in thirds after they appear
 # Screen: 1920x1080 (no HiDPI scaling - vanilla Ubuntu)
 # Left third (0-639): Terminal
 # Middle third (640-1279): Zed
-# Right third (1280-1919): Firefox (handled by devilspie2)
+# Right third (1280-1919): Firefox
 
 # CRITICAL: Set DISPLAY for X11 commands (autostart doesn't inherit session env)
 export DISPLAY=:9
 
-sleep 8  # Wait for Zed and Terminal to launch
+echo "Starting window positioning..."
+
+# Wait for windows to appear (Firefox takes longer due to startup time)
+sleep 12
+
+echo "Listing windows:"
+wmctrl -lx
 
 # Position Terminal (gnome-terminal) - left third
 # Use wmctrl -lx to match by window class (more reliable than title)
 TERMINAL_WID=$(wmctrl -lx | grep -i "gnome-terminal\|terminal" | head -1 | awk '{print $1}')
 if [ -n "$TERMINAL_WID" ]; then
     wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
-    echo "Positioned terminal: $TERMINAL_WID"
+    echo "Positioned terminal: $TERMINAL_WID -> left third (0-639)"
+else
+    echo "WARNING: Terminal window not found"
 fi
 
 # Position Zed - middle third
@@ -273,10 +281,21 @@ fi
 ZED_WID=$(wmctrl -lx | grep -i "zed" | head -1 | awk '{print $1}')
 if [ -n "$ZED_WID" ]; then
     wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
-    echo "Positioned Zed: $ZED_WID"
+    echo "Positioned Zed: $ZED_WID -> middle third (640-1279)"
+else
+    echo "WARNING: Zed window not found"
 fi
 
-echo "Window positioning complete"
+# Position Firefox - right third
+FIREFOX_WID=$(wmctrl -lx | grep -i "firefox\|Navigator" | head -1 | awk '{print $1}')
+if [ -n "$FIREFOX_WID" ]; then
+    wmctrl -i -r "$FIREFOX_WID" -e 0,1280,30,640,1050
+    echo "Positioned Firefox: $FIREFOX_WID -> right third (1280-1919)"
+else
+    echo "WARNING: Firefox window not found"
+fi
+
+echo "Window positioning complete at $(date)"
 POSITION_EOF
     chmod +x /tmp/position-windows.sh
     echo "Window positioning script created"
