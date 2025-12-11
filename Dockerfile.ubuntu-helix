@@ -125,11 +125,6 @@ RUN apt-get update && \
     apt-get install -y --allow-downgrades firefox && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy Firefox default preferences (IPv6 for localhost - Node.js/Vite only binds IPv6)
-# Uses Firefox's autoconfig mechanism to set preferences for all profiles
-COPY wolf/ubuntu-config/firefox/autoconfig.js /usr/lib/firefox/defaults/pref/autoconfig.js
-COPY wolf/ubuntu-config/firefox/firefox.cfg /usr/lib/firefox/firefox.cfg
-
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
 # ====================================================================
@@ -183,7 +178,6 @@ COPY wolf/ubuntu-config/gow/ensure-groups /opt/gow/ensure-groups
 COPY wolf/ubuntu-config/entrypoint.sh /entrypoint.sh
 
 # Init scripts
-COPY wolf/ubuntu-config/cont-init.d/05-fix-localhost-ipv6.sh /etc/cont-init.d/05-fix-localhost-ipv6.sh
 COPY wolf/ubuntu-config/cont-init.d/10-setup_user.sh /etc/cont-init.d/10-setup_user.sh
 COPY wolf/ubuntu-config/cont-init.d/15-setup_devices.sh /etc/cont-init.d/15-setup_devices.sh
 COPY wolf/ubuntu-config/cont-init.d/30-nvidia.sh /etc/cont-init.d/30-nvidia.sh
