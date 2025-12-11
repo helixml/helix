@@ -1140,6 +1140,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             batchingRatio: wsStats.batchingRatio,                              // % of frames batched
             avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
             batchesReceived: wsStats.batchesReceived,                          // Total batches
+            // Frame latency and decoder queue (new metrics for debugging)
+            frameLatencyMs: wsStats.frameLatencyMs,                            // Actual frame delivery delay
+            batchingRequested: wsStats.batchingRequested,                      // Client requested batching
+            decodeQueueSize: wsStats.decodeQueueSize,                          // Decoder queue depth
+            maxDecodeQueueSize: wsStats.maxDecodeQueueSize,                    // Peak queue size
           },
           connection: {
             transport: `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
@@ -1992,6 +1997,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                       ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
                       : 'OFF'}
                     {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
+                    {stats.video.batchingRequested && <span style={{ color: '#ff9800' }}> (requested)</span>}
+                  </div>
+                )}
+                {/* Frame latency (WebSocket mode) - actual delivery delay based on PTS */}
+                {streamingMode === 'websocket' && stats.video.frameLatencyMs !== undefined && (
+                  <div>
+                    <strong>Frame Latency:</strong> {stats.video.frameLatencyMs.toFixed(0)} ms
+                    {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Slow</span>}
+                  </div>
+                )}
+                {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
+                {streamingMode === 'websocket' && stats.video.decodeQueueSize !== undefined && (
+                  <div>
+                    <strong>Decode Queue:</strong> {stats.video.decodeQueueSize}
+                    {stats.video.maxDecodeQueueSize > 3 && (
+                      <span style={{ color: '#888' }}> (peak: {stats.video.maxDecodeQueueSize})</span>
+                    )}
+                    {stats.video.decodeQueueSize > 3 && <span style={{ color: '#ff6b6b' }}> ⚠️ Backed up</span>}
                   </div>
                 )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
