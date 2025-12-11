@@ -125,6 +125,11 @@ RUN apt-get update && \
     apt-get install -y --allow-downgrades firefox && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy Firefox default preferences (IPv6 for localhost - Node.js/Vite only binds IPv6)
+# Uses Firefox's autoconfig mechanism to set preferences for all profiles
+COPY wolf/ubuntu-config/firefox/autoconfig.js /usr/lib/firefox/defaults/pref/autoconfig.js
+COPY wolf/ubuntu-config/firefox/firefox.cfg /usr/lib/firefox/firefox.cfg
+
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
 # ====================================================================
