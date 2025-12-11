@@ -131,6 +131,8 @@ type SearchUsersQuery struct {
 type GetAggregatedUsageMetricsQuery struct {
 	UserID         string
 	OrganizationID string
+	ProjectID      string
+	SpecTaskID     string
 	From           time.Time
 	To             time.Time
 }
@@ -465,27 +467,12 @@ type Store interface {
 	GetSpecTaskProgress(ctx context.Context, specTaskID string) (*types.SpecTaskProgressResponse, error)
 	UpdateSpecTaskZedInstance(ctx context.Context, specTaskID string, zedInstanceID string) error
 
-	// SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
-	CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
-	GetSpecTaskExternalAgent(ctx context.Context, specTaskID string) (*types.SpecTaskExternalAgent, error)
-	GetSpecTaskExternalAgentByID(ctx context.Context, agentID string) (*types.SpecTaskExternalAgent, error)
-	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
-	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
-	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
-
 	// Clone Group methods
 	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
 	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
 	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
 	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
 	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
-
-	// External Agent Activity methods (idle detection)
-	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
-	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
-	GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error)
-	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
-	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
 
 	// Agent session methods
 	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
