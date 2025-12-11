@@ -123,6 +123,7 @@ controlplane:
   logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
 
   # Runner token for authentication (should be a secure random string)
+  # Also set this token in the kodit configuration below.
   runnerToken: "your-secure-runner-token-here"
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
@@ -451,3 +452,15 @@ typesense:
     # selector:
     #   matchLabels:
     #     app: typesense
+
+# Kodit configuration
+# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml 
+# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+kodit:
+  enabled: true
+  controllers:
+    kodit:
+      containers:
+        kodit:
+          env:
+            ENRICHMENT_ENDPOINT_API_KEY: "your-secure-runner-token-here"
