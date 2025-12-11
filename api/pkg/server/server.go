@@ -245,13 +245,21 @@ func NewServer(
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
-	apiServer := &HelixAPIServer{
-		Cfg:        cfg,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
+	gitRepositoryService := services.NewGitRepositoryService(
+		store,
+		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
+		cfg.WebServer.URL,         // Server base URL
+		"Helix System",            // Git user name
+		"system@helix.ml",         // Git user email
+	)
 
+	apiServer := &HelixAPIServer{
+		Cfg:                         cfg,
+		Store:                       store,
+		Stripe:                      stripe,
+		Controller:                  controller,
+		Janitor:                     janitor,
+		gitRepositoryService:        gitRepositoryService,
 		externalAgentExecutor:       externalAgentExecutor,
 		externalAgentWSManager:      externalAgentWSManager,
 		externalAgentRunnerManager:  externalAgentRunnerManager,
@@ -299,7 +307,8 @@ func NewServer(
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
 			externalAgentExecutor,      // Wolf executor for launching external agents
-			nil,                        // Will set callback after apiServer is constructed
+			gitRepositoryService,
+			nil, // Will set callback after apiServer is constructed
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -318,15 +327,6 @@ func NewServer(
 	if err := apiServer.moonlightProxy.Start(); err != nil {
 		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
 	}
-
-	// Initialize Git Repository Service using filestore mount
-	apiServer.gitRepositoryService = services.NewGitRepositoryService(
-		store,
-		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
-		cfg.WebServer.URL,         // Server base URL
-		"Helix System",            // Git user name
-		"system@helix.ml",         // Git user email
-	)
 
 	// Initialize git repository base directory
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
@@ -991,7 +991,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
