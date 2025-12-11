@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
@@ -34,6 +35,7 @@ type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
+	gitRepositoryService     *GitRepositoryService        // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
 	SendMessageToAgent       SpecTaskMessageSender        // Callback to send messages to agents via WebSocket
 	helixAgentID             string                       // ID of Helix agent for spec generation
@@ -45,6 +47,7 @@ type SpecDrivenTaskService struct {
 	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService       // Service for inter-session coordination
+	wg                       sync.WaitGroup
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -55,12 +58,14 @@ func NewSpecDrivenTaskService(
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
 	externalAgentExecutor external_agent.Executor,
+	gitRepositoryService *GitRepositoryService,
 	registerRequestMapping RequestMappingRegistrar,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
 		controller:             controller,
 		externalAgentExecutor:  externalAgentExecutor,
+		gitRepositoryService:   gitRepositoryService,
 		RegisterRequestMapping: registerRequestMapping,
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
@@ -822,17 +827,27 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			}
 		}
 
-		var baseBranch string
-		var primaryRepoName string
-		if project.DefaultRepoID != "" {
-			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo != nil {
-				baseBranch = repo.DefaultBranch
-				primaryRepoName = repo.Name
-			}
+		if project.DefaultRepoID == "" {
+			return fmt.Errorf("default repository not set for project")
 		}
-		if baseBranch == "" {
-			baseBranch = "main"
+
+		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			return fmt.Errorf("failed to get default repository: %w", err)
+		}
+
+		if repo.DefaultBranch == "" {
+			return fmt.Errorf("default branch not set for repository, please set it")
+		}
+
+		if repo.ExternalURL != "" {
+			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("ApproveSpecs: pulling from remote")
+
+			err = s.gitRepositoryService.PullFromRemote(ctx, repo.ID, repo.DefaultBranch, false)
+			if err != nil {
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("Failed to pull from remote")
+				return fmt.Errorf("failed to update base branch from external repository '%s', error: %w", repo.ExternalURL, err)
+			}
 		}
 
 		// Generate feature branch name using task number (e.g., feature/install-uv-123)
@@ -859,15 +874,18 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			agentInstructionService := NewAgentInstructionService(s.store)
 
 			// Send approval instruction asynchronously (don't block the response)
+			s.wg.Add(1)
 			go func() {
+				defer s.wg.Done()
+
 				err := agentInstructionService.SendApprovalInstruction(
 					context.Background(),
 					sessionID,
 					task.CreatedBy, // User who created the task
 					task,
 					branchName,
-					baseBranch,
-					primaryRepoName,
+					repo.DefaultBranch,
+					repo.Name,
 				)
 				if err != nil {
 					log.Error().
