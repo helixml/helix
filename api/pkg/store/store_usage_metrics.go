@@ -230,14 +230,20 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 			COUNT(DISTINCT interaction_id) as total_requests
 		`)
 
-	query = query.Where("date >= ? AND date <= ?", q.From, q.To)
-
+	if q.ProjectID != "" {
+		query = query.Where("project_id = ?", q.ProjectID)
+	}
+	if q.SpecTaskID != "" {
+		query = query.Where("spec_task_id = ?", q.SpecTaskID)
+	}
 	if q.UserID != "" {
 		query = query.Where("user_id = ?", q.UserID)
 	}
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
 	}
+
+	query = query.Where("date >= ? AND date <= ?", q.From, q.To)
 
 	err := query.Group("date").
 		Order("date ASC").
