@@ -178,6 +178,7 @@ COPY wolf/ubuntu-config/gow/ensure-groups /opt/gow/ensure-groups
 COPY wolf/ubuntu-config/entrypoint.sh /entrypoint.sh
 
 # Init scripts
+COPY wolf/ubuntu-config/cont-init.d/05-fix-localhost-ipv6.sh /etc/cont-init.d/05-fix-localhost-ipv6.sh
 COPY wolf/ubuntu-config/cont-init.d/10-setup_user.sh /etc/cont-init.d/10-setup_user.sh
 COPY wolf/ubuntu-config/cont-init.d/15-setup_devices.sh /etc/cont-init.d/15-setup_devices.sh
 COPY wolf/ubuntu-config/cont-init.d/30-nvidia.sh /etc/cont-init.d/30-nvidia.sh
