@@ -181,6 +181,102 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, 
 	return prs, nil
 }
 
+func (s *GitRepositoryService) GetPullRequest(ctx context.Context, repoID, id string) (*types.PullRequest, error) {
+
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.ExternalURL == "" {
+		return nil, fmt.Errorf("repository is not external, cannot get pull request")
+	}
+
+	switch repo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		prID, err := strconv.Atoi(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pull request ID: %w (Azure DevOps ID is an integer)", err)
+		}
+		return s.getAzureDevOpsPullRequest(ctx, repo, prID)
+
+	default:
+		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
+	}
+}
+
+func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, id int) (*types.PullRequest, error) {
+	if repo.AzureDevOps == nil {
+		return nil, fmt.Errorf("azure devops repository not found")
+	}
+
+	if repo.AzureDevOps.OrganizationURL == "" {
+		return nil, fmt.Errorf("azure devops organization URL not found")
+	}
+
+	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
+
+	project, err := s.getAzureDevOpsProject(repo)
+	if err != nil {
+		return nil, err
+	}
+
+	repositoryName, err := s.getAzureDevOpsRepositoryName(repo)
+	if err != nil {
+		return nil, err
+	}
+
+	adoPR, err := client.GetPullRequest(ctx, repositoryName, project, id)
+	if err != nil {
+		return nil, err
+	}
+
+	pr := &types.PullRequest{}
+
+	if adoPR.PullRequestId != nil {
+		pr.Number = *adoPR.PullRequestId
+		pr.ID = strconv.Itoa(*adoPR.PullRequestId)
+	}
+
+	if adoPR.Title != nil {
+		pr.Title = *adoPR.Title
+	}
+
+	if adoPR.Description != nil {
+		pr.Description = *adoPR.Description
+	}
+
+	if adoPR.Status != nil {
+		pr.State = string(*adoPR.Status)
+	}
+
+	if adoPR.SourceRefName != nil {
+		pr.SourceBranch = *adoPR.SourceRefName
+	}
+
+	if adoPR.TargetRefName != nil {
+		pr.TargetBranch = *adoPR.TargetRefName
+	}
+
+	if adoPR.CreationDate != nil {
+		pr.CreatedAt = adoPR.CreationDate.Time
+	}
+
+	if adoPR.CreationDate != nil {
+		pr.UpdatedAt = adoPR.CreationDate.Time
+	}
+
+	if adoPR.CreatedBy != nil && adoPR.CreatedBy.DisplayName != nil {
+		pr.Author = *adoPR.CreatedBy.DisplayName
+	}
+
+	if adoPR.Url != nil {
+		pr.URL = fmt.Sprintf("%s/pullrequest/%d", repo.ExternalURL, *adoPR.PullRequestId)
+	}
+
+	return pr, nil
+}
+
 func (s *GitRepositoryService) getAzureDevOpsProject(repo *types.GitRepository) (string, error) {
 	// parse project from ExternalURL
 	// expected format: https://dev.azure.com/{org}/{project}/_git/{repo}
