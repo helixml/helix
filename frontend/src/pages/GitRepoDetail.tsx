@@ -140,7 +140,7 @@ const GitRepoDetail: FC = () => {
   const commitsBranch = branchFromQuery  
 
   // Kodit code intelligence enrichments (internal summary types filtered in backend)
-  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !!isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing })
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
 
