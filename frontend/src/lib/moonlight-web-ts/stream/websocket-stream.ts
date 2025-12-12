@@ -155,6 +155,23 @@ export class WebSocketStream {
   private recentBatchSizes: number[] = []  // Last N batch sizes for avg calculation
   private readonly MAX_BATCH_SIZE_SAMPLES = 20
 
+  // Frame latency tracking (arrival time vs expected based on PTS)
+  // This measures actual frame delivery latency, not just Ping/Pong RTT
+  private firstFramePtsUs: number | null = null       // PTS of first frame (microseconds)
+  private firstFrameArrivalTime: number | null = null // performance.now() when first frame arrived
+  private currentFrameLatencyMs = 0                   // How late current frame arrived (ms)
+  private frameLatencySamples: number[] = []          // Recent samples for smoothing
+  private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
+  private readonly FRAME_LATENCY_THRESHOLD_MS = 200   // Trigger batching above this
+
+  // Decoder queue monitoring - detects if decoder can't keep up
+  private lastDecodeQueueSize = 0
+  private maxDecodeQueueSize = 0                      // Peak queue size seen
+  private readonly DECODE_QUEUE_DROP_THRESHOLD = 3    // Drop frames if queue exceeds this
+
+  // Batching request sent to server
+  private batchingRequested = false
+
   constructor(
     api: Api,
     hostId: number,
@@ -638,6 +655,8 @@ export class WebSocketStream {
       return
     }
 
+    const arrivalTime = performance.now()
+
     // Track individual vs batched frames for stats
     if (!fromBatch) {
       this.individualFramesReceived++
@@ -660,6 +679,62 @@ export class WebSocketStream {
 
     // Track video PAYLOAD bytes only (H.264 data, excluding 15-byte protocol header)
     this.videoPayloadBytes += frameData.length
+
+    // === Frame Latency Tracking ===
+    // Measure how late frames arrive compared to when they should based on PTS
+    const ptsUsNum = Number(ptsUs)
+    if (this.firstFramePtsUs === null) {
+      // First frame: establish baseline
+      this.firstFramePtsUs = ptsUsNum
+      this.firstFrameArrivalTime = arrivalTime
+      this.currentFrameLatencyMs = 0
+    } else {
+      // Calculate expected arrival time based on PTS delta from first frame
+      const ptsDeltaMs = (ptsUsNum - this.firstFramePtsUs) / 1000
+      const expectedArrivalTime = this.firstFrameArrivalTime! + ptsDeltaMs
+
+      // Latency = how much later than expected the frame arrived
+      // Positive = frames arriving late, negative = frames arriving early
+      const latencyMs = arrivalTime - expectedArrivalTime
+
+      // Keep a moving average for stability
+      this.frameLatencySamples.push(latencyMs)
+      if (this.frameLatencySamples.length > this.MAX_FRAME_LATENCY_SAMPLES) {
+        this.frameLatencySamples.shift()
+      }
+      this.currentFrameLatencyMs = this.frameLatencySamples.reduce((a, b) => a + b, 0) / this.frameLatencySamples.length
+
+      // Request batching from server if latency exceeds threshold
+      if (this.currentFrameLatencyMs > this.FRAME_LATENCY_THRESHOLD_MS && !this.batchingRequested) {
+        console.warn(`[WebSocketStream] High frame latency detected (${this.currentFrameLatencyMs.toFixed(0)}ms), requesting batching`)
+        this.sendBatchingRequest(true)
+        this.batchingRequested = true
+      } else if (this.currentFrameLatencyMs < this.FRAME_LATENCY_THRESHOLD_MS / 2 && this.batchingRequested) {
+        // Latency recovered, disable batching request
+        console.log(`[WebSocketStream] Frame latency recovered (${this.currentFrameLatencyMs.toFixed(0)}ms), disabling batching request`)
+        this.sendBatchingRequest(false)
+        this.batchingRequested = false
+      }
+    }
+
+    // === Decoder Queue Monitoring ===
+    // Check if decoder queue is backing up - if so, we need to drop frames
+    const queueSize = this.videoDecoder.decodeQueueSize
+    this.lastDecodeQueueSize = queueSize
+    if (queueSize > this.maxDecodeQueueSize) {
+      this.maxDecodeQueueSize = queueSize
+    }
+
+    // Drop non-keyframes if decoder queue is too long
+    // This prevents the decoder from falling further behind
+    if (queueSize > this.DECODE_QUEUE_DROP_THRESHOLD && !isKeyframe) {
+      this.framesDropped++
+      // Log occasionally to avoid spam
+      if (this.framesDropped % 30 === 1) {
+        console.warn(`[WebSocketStream] Decoder queue full (${queueSize}), dropping delta frame to catch up`)
+      }
+      return
+    }
 
     // Skip delta frames until we receive the first keyframe
     // (keyframe should contain SPS/PPS needed for decoding)
@@ -696,6 +771,26 @@ export class WebSocketStream {
         }
       }
     }
+  }
+
+  /**
+   * Send a batching enable/disable request to the server
+   */
+  private sendBatchingRequest(enable: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const json = JSON.stringify({ set_batching_enabled: enable })
+    const encoder = new TextEncoder()
+    const jsonBytes = encoder.encode(json)
+
+    const message = new Uint8Array(1 + jsonBytes.length)
+    message[0] = WsMessageType.ControlMessage
+    message.set(jsonBytes, 1)
+
+    this.ws.send(message.buffer)
+    console.log(`[WebSocketStream] Sent batching request: ${enable}`)
   }
 
   /**
@@ -1080,6 +1175,12 @@ export class WebSocketStream {
     individualFramesReceived: number // Total frames received individually
     avgBatchSize: number             // Average frames per batch (0 = no batching)
     batchingRatio: number            // Percent of frames that arrived batched (0-100)
+    // Frame latency (measures actual delivery delay, not just RTT)
+    frameLatencyMs: number           // How late frames are arriving based on PTS
+    batchingRequested: boolean       // True if client requested batching from server
+    // Decoder queue stats (detects if decoder can't keep up)
+    decodeQueueSize: number          // Current decoder queue depth
+    maxDecodeQueueSize: number       // Peak queue size seen
   } {
     // Calculate batching metrics
     const totalFrames = this.batchedFramesReceived + this.individualFramesReceived
@@ -1106,6 +1207,12 @@ export class WebSocketStream {
       individualFramesReceived: this.individualFramesReceived,
       avgBatchSize,
       batchingRatio,
+      // Frame latency (the real measure of how delayed frames are)
+      frameLatencyMs: this.currentFrameLatencyMs,
+      batchingRequested: this.batchingRequested,
+      // Decoder queue
+      decodeQueueSize: this.lastDecodeQueueSize,
+      maxDecodeQueueSize: this.maxDecodeQueueSize,
     }
   }
 

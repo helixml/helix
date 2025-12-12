@@ -607,6 +607,387 @@ This ensures:
 
 ---
 
+## Investigation: RTT vs Perceived Latency Mismatch (2025-12-11)
+
+### Empirical Observation
+
+A customer using a high-latency VPN connection reported:
+- **Stats-for-nerds RTT**: Stable at ~60ms
+- **Perceived user latency**: Multiple seconds (user moves mouse → waits seconds → mouse moves on screen)
+- **Batching status**: Not triggering (because RTT stays low)
+
+This is a critical bug: the latency detection mechanism is not detecting actual user-facing latency.
+
+### How RTT is Currently Measured
+
+The RTT measurement uses a Ping/Pong protocol on the same WebSocket connection as video frames:
+
+**Frontend (`websocket-stream.ts` lines 888-940)**:
+```typescript
+// Send ping
+private sendPing() {
+  const seq = this.pingSeq++
+  const sendTime = performance.now()
+  this.pendingPings.set(seq, sendTime)
+  // ... send Ping message
+}
+
+// Handle pong
+private handlePong(data: Uint8Array) {
+  const sendTime = this.pendingPings.get(seq)
+  const receiveTime = performance.now()
+  const rtt = receiveTime - sendTime  // FULL round-trip time
+  // ... update moving average
+}
+```
+
+**Server (`stream.rs` lines 1185-1194)**:
+```rust
+t if t == WsMessageType::Ping as u8 => {
+    if let Ok(ping) = PingMessage::decode(...) {
+        let pong = PongMessage::from_ping(&ping);
+        session.binary(pong.encode().to_vec()).await;
+    }
+    None  // Don't forward to IPC
+}
+```
+
+This measures the **actual full round-trip**: Client → Server → Client. It's not just measuring local buffer write time.
+
+### The Paradox
+
+On the same TCP connection:
+- Ping (13 bytes) → Pong (21 bytes) completes in ~60ms
+- Video frames (10-50KB each) take seconds to be displayed
+
+**This seems impossible on a reliable, ordered TCP connection.** If the connection is congested, ALL data should be delayed equally - small packets cannot "skip ahead" of large ones in TCP.
+
+### Possible Explanations to Investigate
+
+#### 1. Latency is in the rendering pipeline, not the network
+
+If frames arrive on time but take seconds to render/decode, we'd see:
+- Low RTT (network is fine)
+- High perceived latency (frames queued at decoder)
+
+**How to verify**: Add timestamp logging when frame arrives vs when it's displayed.
+- `handleVideoFrame()` entry time
+- `renderVideoFrame()` time
+- Compare with frame PTS
+
+#### 2. RTT measurement is stale or infrequent
+
+RTT is measured every 1000ms (`PING_INTERVAL_MS`). If network conditions change rapidly:
+- RTT could be 60ms at measurement time
+- Network could degrade between measurements
+- Next measurement might not happen for another second
+
+**How to verify**: Increase ping frequency during high-latency scenarios; add RTT variance tracking.
+
+#### 3. WebSocket frame reassembly delays
+
+Large video frames might be fragmented into multiple TCP packets. The WebSocket layer only delivers complete messages. If one TCP packet is delayed:
+- Small Ping/Pong messages (single packet) arrive quickly
+- Large video frames wait for all fragments
+
+**But wait** - this still doesn't explain multi-second delays. TCP retransmit timeout is typically 200ms-1s, not multiple seconds.
+
+#### 4. Buffering at an intermediate proxy
+
+The path includes multiple hops:
+```
+Browser → Azure LB → Helix API → RevDial → Moonlight Web → Wolf
+```
+
+If an intermediate proxy (especially Azure LB or RevDial) buffers video frames differently than control messages, this could cause the mismatch.
+
+**RevDial specifics**: RevDial hijacks a WebSocket and uses it as a TCP tunnel. The Moonlight WebSocket is tunneled through this. Could there be separate connections or prioritization?
+
+**How to verify**: Add server-side timestamps to video frames; compare arrival time at client.
+
+#### 5. The decoder is backed up
+
+WebCodecs `VideoDecoder` has internal queuing. If:
+- Frames arrive on time
+- Decoder queue grows because decode is slow
+- `renderVideoFrame()` callback is delayed
+
+**How to verify**: Check `videoDecoder.decodeQueueSize` if available; track time between frame arrival and render callback.
+
+#### 6. Client-side frame dropping logic
+
+Looking at `handleVideoFrame()` (lines 635-698):
+```typescript
+// Skip delta frames until we receive the first keyframe
+if (!this.receivedFirstKeyframe) {
+  if (!isKeyframe) {
+    console.log("[WebSocketStream] Waiting for first keyframe, skipping delta frame")
+    return
+  }
+}
+```
+
+If keyframes are lost or delayed, all delta frames are dropped, causing apparent "latency" (actually missing frames).
+
+**How to verify**: Check logs for "Waiting for first keyframe" during high-latency scenarios.
+
+### Action Items
+
+1. **Add arrival-time vs PTS logging**: In `handleVideoFrame()`, log `performance.now()` and frame PTS to see if frames arrive on time
+
+2. **Add render-time logging**: In `renderVideoFrame()`, log when frames are actually displayed
+
+3. **Track decoder queue depth**: Monitor if frames are queuing in the decoder
+
+4. **Add server-side send timestamps**: Include server's `Instant::now()` in video frames to calculate true one-way latency
+
+5. **Increase ping frequency during degradation**: If RTT spikes, increase measurement frequency to catch the issue
+
+6. **Check for frame drops**: Log when frames are skipped and why
+
+### Hypothesis Ranking
+
+Based on the empirical evidence (60ms RTT, seconds of perceived latency):
+
+1. **Most likely**: Decoder/render pipeline backup - frames arrive but aren't displayed
+2. **Possible**: Intermediate proxy buffering (Azure LB or RevDial)
+3. **Possible**: Frame dropping due to missing keyframes
+4. **Less likely**: TCP bufferbloat (would affect Ping/Pong equally)
+5. **Unlikely**: RTT measurement bug (code looks correct)
+
+### Current Stats Implementation (2025-12-11)
+
+Reviewed the codebase for any existing drift/latency tracking. **No frame-arrival latency or drift measurement exists.**
+
+**What stats-for-nerds currently shows:**
+- RTT (from Ping/Pong)
+- FPS
+- Bitrate
+- Frames decoded
+- Frames dropped
+- Batching ratio (% of frames received in batches)
+- Average batch size
+
+**What is NOT tracked:**
+- Frame arrival time vs. expected arrival time (based on PTS)
+- Drift: whether the gap between arrival time and PTS is growing
+- Decoder queue depth (`videoDecoder.decodeQueueSize`)
+- Time between frame arrival and frame render
+
+### Proposed New Metric: Frame Latency Drift
+
+To detect the scenario where RTT is fine but frames are delayed, we need to track **frame latency drift**:
+
+```typescript
+// In websocket-stream.ts
+
+// Track frame arrival latency
+private firstFramePts: number | null = null      // PTS of first frame (microseconds)
+private firstFrameArrivalTime: number | null = null  // performance.now() when first frame arrived
+private currentFrameLatencyMs: number = 0        // Current frame latency
+private frameLatencyDriftMs: number = 0          // Rate of change of latency (positive = getting worse)
+private lastFrameLatencyMs: number = 0           // Previous latency for drift calculation
+
+private handleVideoFrame(data: Uint8Array) {
+  const arrivalTime = performance.now()
+  const ptsUs = view.getBigUint64(3, false)
+
+  if (this.firstFramePts === null) {
+    // First frame: establish baseline
+    this.firstFramePts = Number(ptsUs)
+    this.firstFrameArrivalTime = arrivalTime
+    this.currentFrameLatencyMs = 0
+  } else {
+    // Calculate expected arrival time based on PTS delta from first frame
+    const ptsDeltaMs = (Number(ptsUs) - this.firstFramePts) / 1000
+    const expectedArrivalTime = this.firstFrameArrivalTime + ptsDeltaMs
+    const actualArrivalTime = arrivalTime
+
+    // Latency = how much later than expected the frame arrived
+    const latencyMs = actualArrivalTime - expectedArrivalTime
+
+    // Drift = rate of change (positive means latency is increasing)
+    this.frameLatencyDriftMs = latencyMs - this.lastFrameLatencyMs
+    this.lastFrameLatencyMs = latencyMs
+    this.currentFrameLatencyMs = latencyMs
+  }
+
+  // ... rest of frame handling
+}
+
+getStats() {
+  return {
+    // ... existing stats
+    frameLatencyMs: this.currentFrameLatencyMs,      // How late frames are arriving
+    frameLatencyDriftMs: this.frameLatencyDriftMs,   // Rate of change
+  }
+}
+```
+
+**Why this works:**
+- If frames arrive on schedule: latencyMs ≈ 0, driftMs ≈ 0
+- If frames start arriving late: latencyMs grows, driftMs > 0
+- If network recovers: driftMs < 0 (catching up)
+- **Critical**: This measures ACTUAL frame delivery latency, not just Ping/Pong RTT
+
+**Use for batching decision:**
+```typescript
+const shouldBatch = frameLatencyMs > 100 || frameLatencyDriftMs > 10
+```
+
+This would trigger batching when frames are running >100ms behind OR when latency is growing at >10ms per frame.
+
+---
+
+## Implementation: Frame Latency Detection and Client-Requested Batching (2025-12-11)
+
+### Changes Made
+
+#### Client-side (websocket-stream.ts)
+
+1. **Frame Latency Tracking**: Added tracking of actual frame delivery latency by comparing arrival time (`performance.now()`) against expected arrival time (based on PTS delta from first frame). This measures real frame delivery delay, not just Ping/Pong RTT.
+
+2. **Decoder Queue Monitoring**: Added monitoring of `videoDecoder.decodeQueueSize`. If the decoder queue exceeds 3 frames, non-keyframes are dropped to help the decoder catch up.
+
+3. **Client-Requested Batching**: When frame latency exceeds 200ms, the client sends a `set_batching_enabled: true` control message to the server. This overrides the server-side write latency detection which doesn't work reliably.
+
+4. **New Stats in stats-for-nerds**:
+   - Frame Latency (ms): How late frames are arriving based on PTS
+   - Decode Queue: Current decoder queue depth
+   - Batching (requested): Whether client requested batching
+
+#### Server-side (stream.rs)
+
+1. **Client Batching Request Handler**: Added handling for `set_batching_enabled` control message. When received, sets an `AtomicBool` that the IPC forwarder task reads.
+
+2. **Updated Batching Decision**: Batching now triggers if EITHER:
+   - Client requests it (frame latency > 200ms detected)
+   - Server detects high write latency (legacy fallback, > 50ms)
+
+3. **Batching Exit Condition**: Only exits batching mode when BOTH client says OK AND server latency is low.
+
+### Why This Should Help
+
+The original problem: RTT stays at 60ms but user-facing latency is seconds.
+
+Our conclusion: The delay must be happening in the client's decoder/render pipeline, not the network. Evidence:
+- On the same TCP connection, Ping/Pong and video frames cannot have different latencies
+- If RTT is 60ms, frames ARE arriving within that timeframe
+
+Solutions implemented:
+1. **Frame latency tracking**: Will reveal if the issue is late arrival OR decoder backup
+2. **Decoder queue monitoring**: Will detect if WebCodecs decoder can't keep up
+3. **Frame dropping**: If decoder is backed up, skip non-keyframes to catch up
+4. **Client-requested batching**: More reliable than server-side detection
+
+---
+
+## SSE-Based Video Streaming (2025-12-11)
+
+### Rationale
+
+Empirical observation: LLM token streaming over WebSocket exhibited high latency that went away when switching to SSE. The exact cause is unknown, but the same behavior might apply to video streaming.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     SSE + WebSocket Dual-Channel Design                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Browser                         Server (moonlight-web)                     │
+│  ───────                         ─────────────────────                      │
+│                                                                             │
+│  ┌─────────────┐                 ┌─────────────────────┐                    │
+│  │ SSE Client  │ ←── GET /sse ── │ SSE endpoint        │                    │
+│  │ (video only)│     (video      │ (video frames)      │                    │
+│  └─────────────┘      frames)    └─────────────────────┘                    │
+│                                                                             │
+│  ┌─────────────┐                 ┌─────────────────────┐                    │
+│  │ WebSocket   │ ←── bidirectional ─→ │ WS endpoint   │                    │
+│  │ (input+ctrl)│     (input, audio,   │ (no video)    │                    │
+│  └─────────────┘      ping/pong)      └───────────────┘                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Benefits
+
+1. **Traffic Separation**: Video frames (large, unidirectional) don't share the same connection with input events (small, bidirectional)
+2. **Different Buffering Behavior**: SSE may have different browser buffering characteristics than WebSocket
+3. **Simpler Server-Side**: SSE is just HTTP streaming - no WebSocket frame overhead
+
+### Challenges
+
+1. **Binary Data**: SSE is text-based. Need base64 encoding (33% overhead) OR use raw binary chunks with proper content-type
+2. **Connection Management**: Two connections to manage, need to correlate them
+3. **Browser Compatibility**: SSE binary handling varies by browser
+
+### Implementation (2025-12-11)
+
+#### Server-side (moonlight-web/stream.rs)
+
+1. **`/sse/video` endpoint**: For attaching to existing WebSocket sessions (placeholder - needs session broadcast channel)
+
+2. **`/sse/stream` endpoint**: Standalone SSE streaming that creates its own streamer process
+   - Query params: `host_id`, `app_id`, `session_id`, `width`, `height`, `fps`, `bitrate`
+   - Auto-pairs with Wolf using `MOONLIGHT_INTERNAL_PAIRING_PIN`
+   - Sends events: `init`, `video`, `audio`, `control`, `error`
+   - Video/audio data is base64-encoded in JSON payload
+
+3. **Event format**:
+```
+event: video
+data: {"codec":1,"flags":1,"pts":123456,"width":1920,"height":1080,"keyframe":true,"data":"base64..."}
+
+event: audio
+data: {"channels":2,"pts":123456,"data":"base64..."}
+
+event: init
+data: {"video_codec":1,"width":1920,"height":1080,"fps":60,"audio_channels":2,"audio_sample_rate":48000,"touch_supported":false}
+```
+
+#### Helix API Proxy (moonlight_proxy.go)
+
+1. **SSE-aware proxying**: Detects `Content-Type: text/event-stream` responses
+2. **Flush-friendly copy**: Uses `http.Flusher` to prevent buffering
+3. **RevDial pass-through**: SSE streams are proxied through the same RevDial tunnel as WebSocket
+
+#### Client-side (frontend/src/lib/moonlight-web-ts/stream/sse-stream.ts)
+
+1. **SseStream class**: EventSource-based video receiver
+   - Connects to `/moonlight/sse/stream?...` via Helix proxy
+   - Decodes base64 video frames
+   - Feeds WebCodecs VideoDecoder
+   - Tracks stats (fps, frames received/decoded/dropped)
+
+2. **Usage**:
+```typescript
+import { SseStream, buildSseStreamUrl } from './sse-stream'
+
+const url = buildSseStreamUrl('/moonlight', hostId, appId, sessionId, settings)
+const stream = new SseStream(url, settings)
+stream.setCanvas(canvasElement)
+await stream.connect()
+```
+
+### Testing
+
+To test SSE streaming:
+1. Start helix with `./stack start`
+2. Navigate to external agent session
+3. Use browser dev tools: `new EventSource('/moonlight/sse/stream?host_id=0&app_id=1&session_id=test')`
+4. Check for `init` and `video` events
+
+### Future Work
+
+1. Add transport mode toggle in UI (WebSocket / SSE / Auto)
+2. Implement hybrid mode: SSE for video, WebSocket for input
+3. Add latency comparison metrics between transports
+4. Consider binary SSE alternative (browser support varies)
+
+---
+
 ## Related Issues
 
 - TCP keepalives added in commit cba4129dd (separate issue)

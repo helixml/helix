@@ -47,6 +47,7 @@ import HistoryIcon from '@mui/icons-material/History'
 import DescriptionIcon from '@mui/icons-material/Description'
 
 import Page from '../components/system/Page'
+import SavingToast from '../components/widgets/SavingToast'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
@@ -1230,6 +1231,9 @@ const ProjectSettings: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Saving toast - bottom right indicator */}
+      <SavingToast isSaving={savingProject} />
     </Page>
   )
 }

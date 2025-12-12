@@ -56,8 +56,13 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [reposExpanded, setReposExpanded] = useState(false);
 
+  // Search filters
+  const [projectSearch, setProjectSearch] = useState('');
+  const [repoSearch, setRepoSearch] = useState('');
+
   // Result state
   const [cloneResult, setCloneResult] = useState<CloneTaskResponse | null>(null);
+  const [cloneError, setCloneError] = useState<string | null>(null);
 
   // Fetch projects
   const { data: projectsData, isLoading: loadingProjects } = useQuery({
@@ -79,6 +84,26 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   // Fetch repos without projects
   const { data: reposWithoutProjects, isLoading: loadingRepos } = useReposWithoutProjects();
 
+  // Filtered projects based on search
+  const filteredProjects = useMemo(() => {
+    if (!projectSearch.trim()) return availableProjects;
+    const search = projectSearch.toLowerCase();
+    return availableProjects.filter((p: TypesProject) =>
+      p.name?.toLowerCase().includes(search) ||
+      p.description?.toLowerCase().includes(search)
+    );
+  }, [availableProjects, projectSearch]);
+
+  // Filtered repos based on search
+  const filteredRepos = useMemo(() => {
+    if (!repoSearch.trim()) return reposWithoutProjects || [];
+    const search = repoSearch.toLowerCase();
+    return (reposWithoutProjects || []).filter((r: TypesGitRepository) =>
+      r.name?.toLowerCase().includes(search) ||
+      r.description?.toLowerCase().includes(search)
+    );
+  }, [reposWithoutProjects, repoSearch]);
+
   const handleProjectToggle = (projectId: string) => {
     setSelectedProjects(prev =>
       prev.includes(projectId)
@@ -99,6 +124,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   };
 
   const handleClone = async () => {
+    setCloneError(null);
     try {
       const result = await cloneTaskMutation.mutateAsync({
         taskId,
@@ -112,8 +138,11 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
       if (onCloneComplete) {
         onCloneComplete(result);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Clone failed:', error);
+      const errorMessage = error instanceof Error ? error.message :
+        (error as { response?: { data?: string } })?.response?.data || 'Clone operation failed';
+      setCloneError(errorMessage);
     }
   };
 
@@ -121,6 +150,9 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
     setSelectedProjects([]);
     setSelectedRepos([]);
     setCloneResult(null);
+    setCloneError(null);
+    setProjectSearch('');
+    setRepoSearch('');
     onClose();
   };
 
@@ -215,7 +247,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
               {projectsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </IconButton>
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-              Existing Projects ({availableProjects.length})
+              Existing Projects ({projectSearch ? `${filteredProjects.length} of ${availableProjects.length}` : availableProjects.length})
             </Typography>
           </Box>
           <Collapse in={projectsExpanded}>
@@ -228,24 +260,33 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
                 No other projects available
               </Typography>
             ) : (
-              <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
-                {availableProjects.map((project: TypesProject) => (
-                  <ListItem
-                    key={project.id}
-                    onClick={() => handleProjectToggle(project.id!)}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    <Checkbox
-                      checked={selectedProjects.includes(project.id!)}
-                      size="small"
-                    />
-                    <ListItemText
-                      primary={project.name}
-                      secondary={project.description}
-                    />
-                  </ListItem>
-                ))}
-              </List>
+              <>
+                <TextField
+                  size="small"
+                  placeholder="Search projects..."
+                  value={projectSearch}
+                  onChange={(e) => setProjectSearch(e.target.value)}
+                  sx={{ ml: 4, mr: 2, mb: 1, width: 'calc(100% - 48px)' }}
+                />
+                <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
+                  {filteredProjects.map((project: TypesProject) => (
+                    <ListItem
+                      key={project.id}
+                      onClick={() => handleProjectToggle(project.id!)}
+                      sx={{ cursor: 'pointer' }}
+                    >
+                      <Checkbox
+                        checked={selectedProjects.includes(project.id!)}
+                        size="small"
+                      />
+                      <ListItemText
+                        primary={project.name}
+                        secondary={project.description}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </>
             )}
           </Collapse>
         </Box>
@@ -268,7 +309,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
             </IconButton>
             <FolderGit2 size={18} style={{ marginRight: 8 }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-              Create New Projects ({reposWithoutProjects?.length || 0})
+              Create New Projects ({repoSearch ? `${filteredRepos.length} of ${reposWithoutProjects?.length || 0}` : reposWithoutProjects?.length || 0})
             </Typography>
           </Box>
           <Collapse in={reposExpanded}>
@@ -284,24 +325,33 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
                 All repositories have projects
               </Typography>
             ) : (
-              <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
-                {reposWithoutProjects.map((repo: TypesGitRepository) => (
-                  <ListItem
-                    key={repo.id}
-                    onClick={() => handleRepoToggle(repo.id!, repo.name!)}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    <Checkbox
-                      checked={selectedRepos.some(r => r.repo_id === repo.id)}
-                      size="small"
-                    />
-                    <ListItemText
-                      primary={repo.name}
-                      secondary={repo.description}
-                    />
-                  </ListItem>
-                ))}
-              </List>
+              <>
+                <TextField
+                  size="small"
+                  placeholder="Search repositories..."
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  sx={{ ml: 4, mr: 2, mb: 1, width: 'calc(100% - 48px)' }}
+                />
+                <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
+                  {filteredRepos.map((repo: TypesGitRepository) => (
+                    <ListItem
+                      key={repo.id}
+                      onClick={() => handleRepoToggle(repo.id!, repo.name!)}
+                      sx={{ cursor: 'pointer' }}
+                    >
+                      <Checkbox
+                        checked={selectedRepos.some(r => r.repo_id === repo.id)}
+                        size="small"
+                      />
+                      <ListItemText
+                        primary={repo.name}
+                        secondary={repo.description}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </>
             )}
           </Collapse>
         </Box>
@@ -318,6 +368,13 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
           }
           label="Auto-start planning after clone"
         />
+
+        {/* Error Alert */}
+        {cloneError && (
+          <Alert severity="error" sx={{ mt: 2 }} onClose={() => setCloneError(null)}>
+            {cloneError}
+          </Alert>
+        )}
 
         {/* Selection Summary */}
         {totalTargets > 0 && (

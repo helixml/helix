@@ -83,6 +83,8 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
 			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
+			// Store sessions in persistent workspace directory (survives container restarts)
+			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
 		}
 
 		if d.userAPIKey != "" {
