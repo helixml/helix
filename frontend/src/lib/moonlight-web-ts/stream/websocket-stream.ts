@@ -164,10 +164,10 @@ export class WebSocketStream {
   private readonly MAX_FRAME_LATENCY_SAMPLES = 30     // ~0.5 sec at 60fps
   private readonly FRAME_LATENCY_THRESHOLD_MS = 200   // Trigger batching above this
 
-  // Decoder queue monitoring - detects if decoder can't keep up
+  // Decoder queue monitoring - tracks if decoder is backing up (for stats display)
+  // Note: We do NOT drop frames based on queue size - that breaks the decode chain
   private lastDecodeQueueSize = 0
   private maxDecodeQueueSize = 0                      // Peak queue size seen
-  private readonly DECODE_QUEUE_DROP_THRESHOLD = 3    // Drop frames if queue exceeds this
 
   // Batching request sent to server
   private batchingRequested = false
@@ -718,22 +718,13 @@ export class WebSocketStream {
     }
 
     // === Decoder Queue Monitoring ===
-    // Check if decoder queue is backing up - if so, we need to drop frames
+    // Track decoder queue size for stats/debugging
+    // Note: We do NOT drop delta frames - this breaks the decode chain and causes errors
+    // The decoder needs all deltas to properly decode subsequent frames
     const queueSize = this.videoDecoder.decodeQueueSize
     this.lastDecodeQueueSize = queueSize
     if (queueSize > this.maxDecodeQueueSize) {
       this.maxDecodeQueueSize = queueSize
-    }
-
-    // Drop non-keyframes if decoder queue is too long
-    // This prevents the decoder from falling further behind
-    if (queueSize > this.DECODE_QUEUE_DROP_THRESHOLD && !isKeyframe) {
-      this.framesDropped++
-      // Log occasionally to avoid spam
-      if (this.framesDropped % 30 === 1) {
-        console.warn(`[WebSocketStream] Decoder queue full (${queueSize}), dropping delta frame to catch up`)
-      }
-      return
     }
 
     // Skip delta frames until we receive the first keyframe
