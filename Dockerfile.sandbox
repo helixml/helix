@@ -181,14 +181,13 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
-# Copy helix-sway tarball EARLY (rarely changes, ~3GB)
+# Copy desktop image tarballs EARLY (rarely change, ~3GB each)
 # This maximizes cache hits - changes to scripts/binaries below won't
-# invalidate this large layer, making pushes much faster
+# invalidate these large layers, making pushes much faster
 # ====================================================================
-RUN mkdir -p /opt/images
-COPY helix-sway.tar /opt/images/helix-sway.tar
-COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
-COPY helix-sway.version /opt/images/helix-sway.version
+# Copy entire sandbox-images/ folder to /opt/images/
+# Adding new desktops requires no changes here - just add to sandbox-images/
+COPY sandbox-images/ /opt/images/
 
 # ====================================================================
 # Copy Wolf binaries and setup
@@ -215,143 +214,8 @@ COPY --from=wolf-upstream /opt/wolf-defaults/pulse-lowmem.conf /opt/wolf-default
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
-# Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
-COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
-#!/bin/bash
-set -e
-
-echo "🐳 Starting Wolf's isolated dockerd..."
-
-# Clean up stale PID files (common issue with Docker restarts)
-if [ -f /var/run/docker.pid ]; then
-    echo "🧹 Cleaning up stale docker.pid file"
-    rm -f /var/run/docker.pid
-fi
-
-# Clean up stale containerd PID file (prevents "timeout waiting for containerd to start")
-if [ -f /run/docker/containerd/containerd.pid ]; then
-    echo "🧹 Cleaning up stale containerd.pid file"
-    rm -f /run/docker/containerd/containerd.pid
-fi
-
-# Use iptables-legacy for DinD compatibility
-export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
-echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
-
-# Configure dockerd with NVIDIA runtime
-mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'DAEMON_JSON'
-{
-  "runtimes": {
-    "nvidia": {
-      "path": "nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  },
-  "storage-driver": "overlay2",
-  "log-level": "error"
-}
-DAEMON_JSON
-
-echo "Configured Wolf's dockerd with nvidia runtime support"
-
-# Start dockerd with auto-restart supervisor loop in background
-# This ensures dockerd restarts if it crashes (which would break all sandboxes)
-(
-    while true; do
-        # Clean up stale PID files before each restart attempt
-        rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
-
-        echo "[$(date -Iseconds)] Starting dockerd..."
-        dockerd --config-file /etc/docker/daemon.json \
-            --host=unix:///var/run/docker.sock
-        EXIT_CODE=$?
-        echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
-        sleep 2
-    done
-) 2>&1 | sed -u 's/^/[DOCKERD] /' &
-
-DOCKERD_WRAPPER_PID=$!
-echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
-
-# Wait for dockerd to be ready
-TIMEOUT=30
-ELAPSED=0
-until docker info >/dev/null 2>&1; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
-        echo "Check dockerd logs above for details"
-        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
-    fi
-    echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-done
-
-echo "✅ Wolf's dockerd is ready!"
-docker info 2>&1 | head -5
-
-# Enable forwarding for nested containers
-iptables -P FORWARD ACCEPT
-echo "✅ iptables FORWARD policy set to ACCEPT"
-
-# Create helix_default network
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network (subnet 172.20.0.0/16)..."
-    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1
-    echo "✅ helix_default network created"
-else
-    echo "helix_default network already exists"
-fi
-
-# Load helix-sway image into sandbox's dockerd (with version-based management)
-if [ -f /opt/images/helix-sway.tar ]; then
-    # Read expected version from embedded metadata
-    SWAY_VERSION="latest"
-    if [ -f /opt/images/helix-sway.version ]; then
-        SWAY_VERSION=$(cat /opt/images/helix-sway.version)
-        echo "📦 helix-sway version: ${SWAY_VERSION}"
-    fi
-
-    # Check if versioned image already loaded (optimization to skip expensive docker load)
-    SHOULD_LOAD=true
-    EXPECTED_HASH=""
-    if [ -f /opt/images/helix-sway.tar.hash ]; then
-        EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.hash)
-    fi
-
-    # Check for versioned tag first (more reliable than :latest)
-    CURRENT_HASH=$(docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
-
-    if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
-        echo "✅ helix-sway:${SWAY_VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
-        SHOULD_LOAD=false
-    else
-        echo "📦 Loading helix-sway:${SWAY_VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
-    fi
-
-    if [ "$SHOULD_LOAD" = true ]; then
-        if docker load -i /opt/images/helix-sway.tar 2>&1 | tee /tmp/docker-load.log; then
-            # Verify both tags exist after load
-            if docker images "helix-sway:${SWAY_VERSION}" --format '{{.ID}}' | grep -q .; then
-                echo "✅ helix-sway:${SWAY_VERSION} loaded successfully"
-            else
-                # Tarball may be from before versioning - tag it now
-                echo "🏷️  Tagging helix-sway:latest as helix-sway:${SWAY_VERSION}"
-                docker tag helix-sway:latest "helix-sway:${SWAY_VERSION}" 2>/dev/null || true
-            fi
-        else
-            echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
-            echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
-        fi
-    fi
-
-    # Note: Wolf executor reads /opt/images/helix-sway.version directly
-    echo "✅ helix-sway:${SWAY_VERSION} ready for Wolf executor"
-else
-    echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
-fi
-DOCKERD_SCRIPT
+# Start dockerd script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
+COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
 RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh
 
 # ====================================================================
@@ -395,199 +259,21 @@ RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra /usr/local/bin/s
 # ====================================================================
 
 # 06: Initialize Moonlight Web config (startup moved to startup-app.sh to run AFTER Wolf)
-# Use the upstream init script with modified Wolf address (127.0.0.1 instead of wolf)
-RUN cat > /etc/cont-init.d/06-init-moonlight-config.sh << 'EOF'
-#!/bin/bash
-set -e
-echo "🌙 Initializing Moonlight Web config..."
-
-DATA_FILE="/opt/moonlight-web/server/data.json"
-CONFIG_FILE="/opt/moonlight-web/server/config.json"
-DATA_TEMPLATE="/opt/moonlight-web/templates/data.json.template"
-CONFIG_TEMPLATE="/opt/moonlight-web/templates/config.json.template"
-
-mkdir -p /opt/moonlight-web/server
-
-# Initialize data.json if it doesn't exist or is empty
-if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
-    echo "🔧 Initializing moonlight-web data.json from template..."
-    # Wolf is on 127.0.0.1 in unified sandbox container
-    # Must use 127.0.0.1 NOT localhost - Wolf only listens on IPv4, and "localhost"
-    # resolves to IPv6 first on modern Linux, causing "LikelyOffline" errors
-    sed 's/"address": "wolf"/"address": "127.0.0.1"/' "$DATA_TEMPLATE" > "$DATA_FILE"
-    # Use WOLF_INSTANCE_ID for consistency with Wolf hostname
-    WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-    sed -i "s/{{HELIX_HOSTNAME}}/$WOLF_INSTANCE_ID/g" "$DATA_FILE"
-    echo "✅ moonlight-web data.json initialized"
-fi
-
-# Initialize config.json with dynamic TURN server IP
-if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
-    echo "🔧 Initializing moonlight-web config.json from template..."
-
-    # Use environment variables or defaults for dev mode
-    MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix:helix}
-    TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-    TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-
-    # Auto-detect public IP if TURN_PUBLIC_IP not set
-    if [ -z "$TURN_PUBLIC_IP" ]; then
-        echo "⏳ Auto-detecting public IP for TURN server..."
-        TURN_PUBLIC_IP=$(curl -s --max-time 2 https://api.ipify.org 2>/dev/null || echo "127.0.0.1")
-        echo "✅ Using TURN IP: $TURN_PUBLIC_IP"
-    fi
-
-    # Substitute template variables
-    sed -e "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" \
-        -e "s/{{MOONLIGHT_CREDENTIALS}}/$MOONLIGHT_CREDENTIALS/g" \
-        -e "s/{{TURN_PASSWORD}}/$TURN_PASSWORD/g" \
-        "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
-    echo "✅ moonlight-web config.json initialized"
-fi
-
-# NOTE: Moonlight Web startup moved to startup-app.sh to ensure Wolf is running first
-# This avoids the "LikelyOffline" error caused by Moonlight trying to connect before Wolf
-echo "✅ Moonlight Web config ready (startup deferred to after Wolf)"
-EOF
+COPY sandbox/06-init-moonlight-config.sh /etc/cont-init.d/06-init-moonlight-config.sh
 RUN chmod +x /etc/cont-init.d/06-init-moonlight-config.sh
 
 # 06b: Auto-pair Moonlight Web with Wolf (runs AFTER both are started)
-# This script is sourced by startup-app.sh after Wolf starts
-RUN cat > /opt/moonlight-web/auto-pair.sh << 'EOF'
-#!/bin/bash
-# Auto-pair Moonlight Web with Wolf
-# Based on original moonlight-web-stream/server-templates/init-moonlight-config.sh logic
-
-DATA_FILE="/opt/moonlight-web/server/data.json"
-
-# Check if already paired (skip if paired section exists in data.json)
-if grep -q '"paired"' "$DATA_FILE" 2>/dev/null; then
-    echo "ℹ️  moonlight-web already paired with Wolf, skipping auto-pair"
-    exit 0
-fi
-
-echo "🔗 Auto-pairing moonlight-web with Wolf..."
-
-# Wait for Wolf to be ready (check if Wolf's Moonlight port 47989 is accepting connections)
-# Original script checked TCP port, not API endpoint (API takes longer to init)
-echo "⏳ Waiting for Wolf to be ready..."
-for i in {1..60}; do
-    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' 2>/dev/null; then
-        echo "✅ Wolf port 47989 is responding"
-        # Wait additional 5 seconds for HTTPS endpoint to fully initialize
-        # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
-        echo "⏳ Waiting 5s for Wolf HTTPS endpoint to initialize..."
-        sleep 5
-        echo "✅ Wolf is ready for pairing"
-        break
-    fi
-    if [ $i -eq 60 ]; then
-        echo "❌ Wolf failed to start within 60 seconds, skipping auto-pair"
-        exit 0  # Don't fail the container, just skip pairing
-    fi
-    sleep 1
-done
-
-# Trigger pairing via Moonlight Web API (which will connect to Wolf and complete pairing)
-CREDS="${MOONLIGHT_CREDENTIALS:-helix}"
-PAIR_RESPONSE=$(curl -s -X POST http://localhost:8080/api/pair \
-    -H "Authorization: Bearer $CREDS" \
-    -H "Content-Type: application/json" \
-    -d '{"host_id":0}' 2>&1)
-
-echo "📡 Pairing response: $PAIR_RESPONSE"
-
-# Wait a moment for pairing to complete and data.json to be updated
-sleep 1
-
-# Check if pairing succeeded by looking for paired section in data.json
-# (more reliable than parsing chunked HTTP response)
-if grep -q '"paired"' "$DATA_FILE"; then
-    echo "✅ Auto-pairing with Wolf completed successfully"
-else
-    echo "❌ Auto-pairing failed - paired section not found in data.json"
-    echo "   This may be expected if Wolf is not fully initialized yet"
-    echo "   Pairing can be completed manually via Moonlight Web UI"
-fi
-EOF
+COPY sandbox/auto-pair.sh /opt/moonlight-web/auto-pair.sh
 RUN chmod +x /opt/moonlight-web/auto-pair.sh
 
 # 07: Start Wolf RevDial client (optional, only if HELIX_API_URL is set)
-# NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web
 # NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Skip if no control plane configured (local dev mode)
-# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
-if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
-    echo "ℹ️  No HELIX_API_URL set, skipping RevDial clients (local mode)"
-    return 0
-fi
-
-WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-echo "🔗 Starting Wolf RevDial client..."
-echo "   Control Plane: $HELIX_API_URL"
-echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
-
-# Start Wolf API RevDial client with automatic restart (proxies Wolf Unix socket)
-# Use cgo DNS resolver to work around Go DNS issues in Docker
-# Use sed -u for unbuffered output (otherwise logs don't appear)
-(
-    while true; do
-        echo "[$(date -Iseconds)] Starting Wolf RevDial client..."
-        GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
-            -server "$HELIX_API_URL/api/v1/revdial" \
-            -runner-id "wolf-$WOLF_INSTANCE_ID" \
-            -token "$RUNNER_TOKEN" \
-            -local "unix:///var/run/wolf/wolf.sock"
-        EXIT_CODE=$?
-        echo "[$(date -Iseconds)] ⚠️  Wolf RevDial client exited with code $EXIT_CODE, restarting in 2s..."
-        sleep 2
-    done
-) 2>&1 | sed -u 's/^/[WOLF-REVDIAL] /' &
-echo "✅ Wolf RevDial client started with auto-restart"
-
-# NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web starts
-# This ensures Moonlight Web is ready to accept connections before RevDial connects
-echo "ℹ️  Moonlight Web RevDial will start after Moonlight Web (in startup-app.sh)"
-EOF
+COPY sandbox/07-start-revdial-clients.sh /etc/cont-init.d/07-start-revdial-clients.sh
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
 # 08: Start Wolf instance heartbeat daemon (Go binary with disk space monitoring)
 # NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-RUN cat > /etc/cont-init.d/08-start-wolf-heartbeat.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Skip if no control plane configured (local dev mode)
-# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
-if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
-    echo "ℹ️  No HELIX_API_URL set, skipping Wolf heartbeat (local mode)"
-    return 0
-fi
-
-WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
-echo "💓 Starting Wolf heartbeat daemon for instance: $WOLF_INSTANCE_ID"
-
-# Start the Go heartbeat daemon with auto-restart supervisor loop
-# It monitors disk space on /var and / and reports to API
-# The daemon can be safely killed (e.g., by transfer-sway-to-sandbox for version reload)
-# and will automatically restart within 2 seconds
-(
-    while true; do
-        echo "[$(date -Iseconds)] Starting heartbeat daemon..."
-        /usr/local/bin/sandbox-heartbeat
-        EXIT_CODE=$?
-        echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
-        sleep 2
-    done
-) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
-
-HEARTBEAT_PID=$!
-echo "✅ Wolf heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
-EOF
+COPY sandbox/08-start-wolf-heartbeat.sh /etc/cont-init.d/08-start-wolf-heartbeat.sh
 RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 
 # 09: Setup telemetry firewall for nested agent containers
@@ -597,294 +283,15 @@ RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
 
 # 10: Start Hydra multi-Docker isolation daemon (optional, only if HYDRA_ENABLED is set)
 # NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-# Using "exit" in a sourced script terminates the entire entrypoint process.
-RUN cat > /etc/cont-init.d/10-start-hydra.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# Skip if Hydra is not enabled
-# NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
-if [ "$HYDRA_ENABLED" != "true" ]; then
-    echo "ℹ️  Hydra not enabled (HYDRA_ENABLED != true), skipping multi-Docker isolation"
-    return 0
-fi
-
-echo "🐉 Starting Hydra multi-Docker isolation daemon..."
-
-# Create required directories
-mkdir -p /var/run/hydra/active
-mkdir -p /hydra-data
-
-# Start Hydra daemon in background with auto-restart
-(
-    while true; do
-        echo "[$(date -Iseconds)] Starting Hydra daemon..."
-        /usr/local/bin/hydra \
-            --socket /var/run/hydra/hydra.sock \
-            --socket-dir /var/run/hydra/active \
-            --data-dir /hydra-data \
-            --log-level info
-        EXIT_CODE=$?
-        echo "[$(date -Iseconds)] ⚠️  Hydra exited with code $EXIT_CODE, restarting in 2s..."
-        sleep 2
-    done
-) 2>&1 | sed -u 's/^/[HYDRA] /' &
-
-HYDRA_PID=$!
-echo "✅ Hydra daemon started (PID: $HYDRA_PID)"
-
-# Wait for Hydra socket to be ready
-TIMEOUT=30
-ELAPSED=0
-until [ -S /var/run/hydra/hydra.sock ]; do
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo "❌ ERROR: Hydra socket not ready within $TIMEOUT seconds"
-        return 1
-    fi
-    echo "Waiting for Hydra socket... ($ELAPSED/$TIMEOUT)"
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-done
-
-echo "✅ Hydra socket ready at /var/run/hydra/hydra.sock"
-
-# Log privileged mode status
-if [ "$HYDRA_PRIVILEGED_MODE_ENABLED" = "true" ]; then
-    echo "⚠️  Hydra PRIVILEGED MODE ENABLED - host Docker access available for Helix development"
-else
-    echo "ℹ️  Hydra running in normal mode (isolated Docker instances per scope)"
-fi
-
-# Note: Hydra includes its own built-in RevDial client
-# It reads HELIX_API_URL, RUNNER_TOKEN, WOLF_INSTANCE_ID from environment
-echo "✅ Hydra daemon ready (RevDial client built-in)"
-EOF
+COPY sandbox/10-start-hydra.sh /etc/cont-init.d/10-start-hydra.sh
 RUN chmod +x /etc/cont-init.d/10-start-hydra.sh
 
 # ====================================================================
-# Create main startup script (starts Wolf in foreground)
+# Main startup script (starts Wolf in foreground)
 # (Replaces /opt/gow/startup-app.sh - Wolf is the main process)
 # ====================================================================
 
-RUN cat > /opt/gow/startup-app.sh << 'EOF'
-#!/bin/bash
-set -e
-
-# This script is executed by GOW's /entrypoint.sh after all cont-init.d scripts
-# At this point:
-#   - dockerd is running (started by 04-start-dockerd.sh)
-#   - Wolf config is initialized (05-init-wolf-config.sh)
-#   - Moonlight Web config is initialized (06-init-moonlight-config.sh)
-#   - RevDial clients started (07-start-revdial-clients.sh) - Wolf RevDial only
-#
-# IMPORTANT: Moonlight Web MUST start AFTER Wolf to avoid "LikelyOffline" errors
-# Moonlight Web tries to connect to Wolf on startup to cache host info.
-# If Wolf isn't ready, the connection fails and is cached as "offline".
-
-echo "🐺 Starting Wolf (main process with automatic restart)..."
-
-# Clean up stale wayland sockets from XDG_RUNTIME_DIR
-# Wolf creates wayland-N sockets for each lobby. When lobbies fail or timeout,
-# these sockets aren't always cleaned up, causing ListeningSocketSource::new_auto()
-# to eventually fail with a panic.
-if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
-    WAYLAND_COUNT=$(ls -d $XDG_RUNTIME_DIR/wayland-* 2>/dev/null | wc -l)
-    if [ "$WAYLAND_COUNT" -gt 0 ]; then
-        echo "🧹 Cleaning up $WAYLAND_COUNT stale wayland sockets from $XDG_RUNTIME_DIR..."
-        rm -rf $XDG_RUNTIME_DIR/wayland-* 2>/dev/null || true
-        echo "✅ Wayland sockets cleaned"
-    fi
-fi
-
-# Make sure Wolf config folder and socket directory exist
-export WOLF_CFG_FOLDER=$HOST_APPS_STATE_FOLDER/cfg
-mkdir -p $WOLF_CFG_FOLDER
-mkdir -p /var/run/wolf
-export WOLF_CFG_FILE=$WOLF_CFG_FOLDER/config.toml
-export WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem
-export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
-
-# Set default values for environment variables
-# Auto-detect software rendering mode based on GPU_VENDOR
-if [ "$GPU_VENDOR" = "none" ] || [ -z "$GPU_VENDOR" ] && [ ! -e /dev/dri/renderD128 ]; then
-    echo "🖥️  Software rendering mode detected (GPU_VENDOR=$GPU_VENDOR)"
-    export WOLF_RENDER_NODE="SOFTWARE"
-    export WOLF_ENCODER_NODE="SOFTWARE"
-    export GST_GL_DRM_DEVICE=""
-    # Force Mesa to use llvmpipe for software rendering
-    export LIBGL_ALWAYS_SOFTWARE=1
-    export MESA_GL_VERSION_OVERRIDE=4.5
-else
-    export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-    export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
-    export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
-fi
-echo "🎮 Wolf render configuration: WOLF_RENDER_NODE=$WOLF_RENDER_NODE"
-
-# Update fake-udev path
-export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
-cp /wolf/fake-udev $WOLF_DOCKER_FAKE_UDEV_PATH
-
-# Track restart state
-WOLF_RESTART_COUNT=0
-MAX_RESTARTS=10
-RESTART_WINDOW=300  # 5 minutes
-RESTART_TIMESTAMPS=()
-
-# Function to start Wolf with supervision
-start_wolf() {
-    cd /wolf
-    /wolf/wolf &
-    WOLF_PID=$!
-    echo "🐺 Wolf started (PID: $WOLF_PID)"
-}
-
-# Function to wait for Wolf HTTP server
-wait_for_wolf() {
-    echo "⏳ Waiting for Wolf HTTP server..."
-    for i in {1..30}; do
-        if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/47989' 2>/dev/null; then
-            echo "✅ Wolf HTTP server is ready"
-            return 0
-        fi
-        if [ $i -eq 30 ]; then
-            echo "⚠️  Wolf HTTP server not ready after 30s"
-            return 1
-        fi
-        sleep 1
-    done
-}
-
-# Function to start Moonlight Web with auto-restart (called once on first Wolf start)
-MOONLIGHT_STARTED=false
-start_moonlight_web() {
-    if [ "$MOONLIGHT_STARTED" = true ]; then
-        return
-    fi
-
-    echo "🌙 Starting Moonlight Web with auto-restart..."
-    (
-        cd /opt/moonlight-web
-        while true; do
-            echo "[$(date -Iseconds)] Starting Moonlight Web..."
-            ./moonlight-web
-            EXIT_CODE=$?
-            echo "[$(date -Iseconds)] ⚠️  Moonlight Web exited with code $EXIT_CODE, restarting in 2s..."
-            sleep 2
-        done
-    ) 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
-    echo "✅ Moonlight Web started with auto-restart"
-
-    # Start Moonlight Web RevDial client with auto-restart (if HELIX_API_URL is set)
-    if [ -n "$HELIX_API_URL" ]; then
-        echo "🔗 Starting Moonlight Web RevDial client with auto-restart..."
-        (
-            while true; do
-                echo "[$(date -Iseconds)] Starting Moonlight Web RevDial client..."
-                /usr/local/bin/revdial-client \
-                    -server "$HELIX_API_URL/api/v1/revdial" \
-                    -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
-                    -token "${RUNNER_TOKEN:-}" \
-                    -local "127.0.0.1:8080"
-                EXIT_CODE=$?
-                echo "[$(date -Iseconds)] ⚠️  Moonlight Web RevDial client exited with code $EXIT_CODE, restarting in 2s..."
-                sleep 2
-            done
-        ) 2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
-        echo "✅ Moonlight Web RevDial client started with auto-restart"
-    fi
-
-    # Start auto-pairing in background (gives Moonlight Web time to fully initialize)
-    (sleep 3 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed -u 's/^/[PAIRING] /' &
-
-    MOONLIGHT_STARTED=true
-}
-
-# Function to check if we should restart (rate limiting)
-should_restart() {
-    local NOW=$(date +%s)
-
-    # Remove old timestamps outside the window
-    local NEW_TIMESTAMPS=()
-    for TS in "${RESTART_TIMESTAMPS[@]}"; do
-        if [ $((NOW - TS)) -lt $RESTART_WINDOW ]; then
-            NEW_TIMESTAMPS+=("$TS")
-        fi
-    done
-    RESTART_TIMESTAMPS=("${NEW_TIMESTAMPS[@]}")
-
-    # Check if we've exceeded max restarts in window
-    if [ ${#RESTART_TIMESTAMPS[@]} -ge $MAX_RESTARTS ]; then
-        echo "❌ Wolf has crashed $MAX_RESTARTS times in the last $RESTART_WINDOW seconds"
-        echo "   Giving up to prevent crash loop. Check logs for root cause."
-        return 1
-    fi
-
-    # Record this restart
-    RESTART_TIMESTAMPS+=("$NOW")
-    return 0
-}
-
-# Initial Wolf start
-start_wolf
-wait_for_wolf
-
-# Start Moonlight Web after Wolf is ready
-start_moonlight_web
-
-# Start background cleanup daemon for stale wayland sockets
-# Wolf doesn't always clean up sockets when lobby creation fails (timeout/panic)
-# This runs every 5 minutes to prevent accumulation of stale sockets
-(
-    while true; do
-        sleep 300  # 5 minutes
-        if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ]; then
-            # Get active lobby count from Wolf API
-            ACTIVE_LOBBIES=$(curl -s --unix-socket /var/run/wolf/wolf.sock 'http://localhost/api/v1/lobbies' 2>/dev/null | grep -o '"id"' | wc -l || echo "0")
-            # Count wayland socket PAIRS (socket + lock file = 2 entries per display)
-            SOCKET_COUNT=$(ls $XDG_RUNTIME_DIR/wayland-*.lock 2>/dev/null | wc -l || echo "0")
-
-            # If there are more sockets than active lobbies, we have orphans
-            if [ "$SOCKET_COUNT" -gt "$ACTIVE_LOBBIES" ]; then
-                ORPHANS=$((SOCKET_COUNT - ACTIVE_LOBBIES))
-                echo "[$(date -Iseconds)] Found $ORPHANS orphaned wayland sockets (active: $ACTIVE_LOBBIES, sockets: $SOCKET_COUNT)"
-                # Only clean up if there are MANY more sockets than lobbies (safety margin)
-                if [ "$ORPHANS" -gt 10 ]; then
-                    echo "[$(date -Iseconds)] Cleaning up stale wayland sockets..."
-                    # Clean ALL sockets - Wolf will recreate for active lobbies
-                    rm -rf $XDG_RUNTIME_DIR/wayland-* 2>/dev/null || true
-                    echo "[$(date -Iseconds)] Wayland sockets cleaned"
-                fi
-            fi
-        fi
-    done
-) 2>&1 | sed -u 's/^/[WAYLAND-CLEANUP] /' &
-echo "✅ Wayland socket cleanup daemon started (runs every 5 minutes)"
-
-# Main supervision loop - restart Wolf if it crashes
-while true; do
-    wait $WOLF_PID
-    EXIT_CODE=$?
-
-    echo "⚠️  Wolf exited with code $EXIT_CODE at $(date -Iseconds)"
-
-    # Check if we should restart
-    if ! should_restart; then
-        echo "🛑 Too many restarts, exiting container"
-        exit 1
-    fi
-
-    WOLF_RESTART_COUNT=$((WOLF_RESTART_COUNT + 1))
-    echo "🔄 Restarting Wolf (restart #$WOLF_RESTART_COUNT)..."
-
-    # Brief pause before restart
-    sleep 2
-
-    # Restart Wolf
-    start_wolf
-    wait_for_wolf || echo "⚠️  Wolf may not be fully ready, continuing supervision..."
-done
-EOF
+COPY sandbox/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
 # ====================================================================
@@ -901,7 +308,7 @@ ENV GST_GL_API=gles2 \
     WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem \
     WOLF_PULSE_IMAGE=ghcr.io/games-on-whales/pulseaudio:master \
     WOLF_RENDER_NODE=/dev/dri/renderD128 \
-    WOLF_STOP_CONTAINER_ON_EXIT=TRUE \
+    # WOLF_STOP_CONTAINER_ON_EXIT is set dynamically in startup-app.sh based on HELIX_KEEP_DEAD_CONTAINERS
     WOLF_DOCKER_SOCKET=/var/run/docker.sock \
     RUST_BACKTRACE=full \
     RUST_LOG=WARN \
@@ -924,7 +331,8 @@ ENV HELIX_API_URL="" \
     HELIX_HOSTNAME="" \
     MOONLIGHT_CREDENTIALS="helix" \
     HYDRA_ENABLED="true" \
-    HYDRA_PRIVILEGED_MODE_ENABLED="false"
+    HYDRA_PRIVILEGED_MODE_ENABLED="false" \
+    HELIX_KEEP_DEAD_CONTAINERS="false"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/wolf/

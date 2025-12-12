@@ -103,6 +103,9 @@ type DockerInstance struct {
 	DesktopContainerID string `json:"desktop_container_id"` // Container ID/name that was bridged
 	DesktopPID         int    `json:"desktop_pid"`          // PID of bridged container (for detecting restart)
 	VethBridgeName     string `json:"veth_bridge_name"`     // Bridge-side veth name for cleanup
+
+	// Localhost port forwarding state
+	ForwardedPorts []uint16 `json:"forwarded_ports"` // Currently forwarded localhost ports (Docker-exposed)
 }
 
 // InstanceKey returns a unique key for this instance
