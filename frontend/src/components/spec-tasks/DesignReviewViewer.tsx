@@ -866,6 +866,19 @@ export default function DesignReviewViewer({
     })
   }
 
+  // Double-click on title bar toggles maximize
+  const handleTitleBarDoubleClick = useCallback(() => {
+    if (position === 'full') {
+      // Restore to center/floating
+      setPosition('center')
+      setIsSnapped(false)
+    } else {
+      // Maximize to full screen
+      setPosition('full')
+      setIsSnapped(true)
+    }
+  }, [position])
+
   // Prevent text selection globally while dragging
   useEffect(() => {
     if (isDragging) {
@@ -1037,6 +1050,7 @@ export default function DesignReviewViewer({
         {/* Draggable Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleTitleBarDoubleClick}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -1046,7 +1060,7 @@ export default function DesignReviewViewer({
             borderBottom: 1,
             borderColor: 'divider',
             bgcolor: 'background.default',
-            cursor: 'move',
+            cursor: position === 'full' ? 'default' : 'move',
             userSelect: 'none',
           }}
         >

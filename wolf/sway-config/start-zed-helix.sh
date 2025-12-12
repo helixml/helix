@@ -590,9 +590,8 @@ if [ "$SHOW_ACP_DEBUG_LOGS" = "true" ] || [ -n "$HELIX_DEBUG" ]; then
               while [ ! -d ~/.local/share/zed/logs ]; do
                   sleep 1
               done
-              # Tail all log files, filtering for agent-related entries
-              tail -F ~/.local/share/zed/logs/*.log 2>/dev/null | \
-                  grep --line-buffered -iE "(agent|acp|qwen|session|error|Error|ERROR|panic|PANIC|crash|CRASH|\\[ACP\\])"
+              # Tail all log files - unfiltered for full visibility
+              tail -F ~/.local/share/zed/logs/*.log 2>/dev/null
           ' &
     echo "ACP log viewer started in background"
 fi

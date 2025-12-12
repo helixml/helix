@@ -293,11 +293,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
+	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
+	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
+
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: "",             // Don't override agent's system prompt
-		AgentType:    "zed_external", // Use Zed agent for git access
-		Stream:       false,
-		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		SystemPrompt:     "",             // Don't override agent's system prompt
+		AgentType:        "zed_external", // Use Zed agent for git access
+		Stream:           false,
+		SpecTaskID:       task.ID,           // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -558,11 +562,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
+	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
+	codeAgentRuntimeJDI := s.getCodeAgentRuntimeForTask(ctx, task)
+
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: "",             // Don't override agent's system prompt
-		AgentType:    "zed_external", // Use Zed agent for git access
-		Stream:       false,
-		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		SystemPrompt:     "",             // Don't override agent's system prompt
+		AgentType:        "zed_external", // Use Zed agent for git access
+		Stream:           false,
+		SpecTaskID:       task.ID,              // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -1150,4 +1158,43 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		Msg("✅ Created personal API key for agent access")
 
 	return createdKey.Key, nil
+}
+
+// getCodeAgentRuntimeForTask gets the CodeAgentRuntime from the task's associated app configuration.
+// This is used to send the correct agent_name in open_thread commands when resuming sessions.
+func (s *SpecDrivenTaskService) getCodeAgentRuntimeForTask(ctx context.Context, task *types.SpecTask) types.CodeAgentRuntime {
+	if task.HelixAppID == "" {
+		log.Debug().Str("spec_task_id", task.ID).Msg("Spec task has no HelixAppID, defaulting to zed_agent runtime")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	app, err := s.store.GetApp(ctx, task.HelixAppID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", task.ID).
+			Str("helix_app_id", task.HelixAppID).
+			Msg("Failed to get app for code agent runtime, defaulting to zed_agent")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	// Find the zed_external assistant in the app config
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			if assistant.CodeAgentRuntime != "" {
+				log.Debug().
+					Str("spec_task_id", task.ID).
+					Str("helix_app_id", task.HelixAppID).
+					Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
+					Msg("Found code agent runtime from app config")
+				return assistant.CodeAgentRuntime
+			}
+			break
+		}
+	}
+
+	log.Debug().
+		Str("spec_task_id", task.ID).
+		Str("helix_app_id", task.HelixAppID).
+		Msg("No code agent runtime configured in app, defaulting to zed_agent")
+	return types.CodeAgentRuntimeZedAgent
 }
