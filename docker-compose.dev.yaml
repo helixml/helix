@@ -183,7 +183,7 @@ services:
       - SYNC_PERIODIC_RETRY_ATTEMPTS=3
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
-      - API_KEYS=${KODIT_API_KEYS:-dev-key}
+      - API_KEYS=${KODIT_API_KEYS:-}
     volumes:
       - helix-socket:/socket
       - ${KODIT_DATA:-helix-kodit-data}:/data
