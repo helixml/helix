@@ -94,7 +94,7 @@ func (apiServer *HelixAPIServer) wolfInstanceHeartbeat(rw http.ResponseWriter, r
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	// Parse optional request body for metadata (sway_version, disk_usage, etc.)
+	// Parse optional request body for metadata (desktop_versions, disk_usage, etc.)
 	var req types.WolfHeartbeatRequest
 	if r.Body != nil && r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -122,6 +122,14 @@ func (apiServer *HelixAPIServer) wolfInstanceHeartbeat(rw http.ResponseWriter, r
 		log.Error().Err(err).Str("wolf_id", id).Msg("error updating Wolf heartbeat")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Log versions if provided (helps debugging)
+	if len(req.DesktopVersions) > 0 {
+		log.Debug().
+			Str("wolf_id", id).
+			Interface("desktop_versions", req.DesktopVersions).
+			Msg("Wolf heartbeat received with desktop versions")
 	}
 
 	// Check for disk alert level changes and send notifications

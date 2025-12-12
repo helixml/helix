@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -80,9 +82,11 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	switch d.codeAgentConfig.Runtime {
 	case "qwen_code":
 		// Qwen Code: Uses the qwen command as a custom agent_server
+		// Rewrite localhost URLs for container networking (dev mode fix)
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
-			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
+			"OPENAI_BASE_URL":          baseURL,
 			// Store sessions in persistent workspace directory (survives container restarts)
 			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
 		}
@@ -95,7 +99,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
-			d.codeAgentConfig.BaseURL, d.codeAgentConfig.Model)
+			baseURL, d.codeAgentConfig.Model)
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
@@ -114,6 +118,47 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// The container env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) are set by wolf_executor
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
+	}
+}
+
+// rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
+// This fixes the issue where the API server returns its SERVER_URL (localhost:8080 in dev),
+// which is unreachable from inside containers. We use HELIX_API_URL's host instead,
+// which we know works because the daemon connected with it.
+// Only rewrites if URL contains "localhost" - production URLs pass through unchanged.
+func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
+	if !strings.Contains(originalURL, "localhost") {
+		return originalURL // Production URL, leave unchanged
+	}
+
+	// Parse our known-working API URL to get the host
+	apiParsed, err := url.Parse(d.apiURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		return originalURL
+	}
+
+	// Parse the original URL
+	origParsed, err := url.Parse(originalURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		return originalURL
+	}
+
+	// Replace the host with our working API host
+	origParsed.Host = apiParsed.Host
+
+	rewritten := origParsed.String()
+	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
+	return rewritten
+}
+
+// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
+func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
+	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
+		if extURL, ok := wsSync["external_url"].(string); ok {
+			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
+		}
 	}
 }
 
