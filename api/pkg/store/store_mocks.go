@@ -1736,18 +1736,18 @@ func (mr *MockStoreMockRecorder) GenerateRandomState(ctx any) *gomock.Call {
 }
 
 // GetAPIKey mocks base method.
-func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
+func (m *MockStore) GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
+	ret := m.ctrl.Call(m, "GetAPIKey", ctx, q)
 	ret0, _ := ret[0].(*types.ApiKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAPIKey indicates an expected call of GetAPIKey.
-func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetAPIKey(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, q)
 }
 
 // GetAccessGrantRoleBindings mocks base method.
@@ -2440,21 +2440,6 @@ func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
 }
 
-// IncrementProjectTaskNumber mocks base method.
-func (m *MockStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IncrementProjectTaskNumber", ctx, projectID)
-	ret0, _ := ret[0].(int)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IncrementProjectTaskNumber indicates an expected call of IncrementProjectTaskNumber.
-func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
-}
-
 // GetProviderDailyUsageMetrics mocks base method.
 func (m *MockStore) GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from, to time.Time) ([]*types.AggregatedUsageMetric, error) {
 	m.ctrl.T.Helper()
@@ -3143,6 +3128,21 @@ func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string
 func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
+}
+
+// IncrementProjectTaskNumber mocks base method.
+func (m *MockStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementProjectTaskNumber", ctx, projectID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementProjectTaskNumber indicates an expected call of IncrementProjectTaskNumber.
+func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
 }
 
 // IncrementWolfSandboxCount mocks base method.

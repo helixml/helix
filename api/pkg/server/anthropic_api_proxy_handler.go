@@ -54,6 +54,8 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		SessionID:       "n/a",
 		InteractionID:   "n/a",
 		OriginalRequest: bts,
+		ProjectID:       user.ProjectID,
+		SpecTaskID:      user.SpecTaskID,
 	})
 
 	// Restore the buffer

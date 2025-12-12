@@ -38,6 +38,8 @@ type ContextValues struct {
 	OwnerID         string
 	SessionID       string
 	InteractionID   string
+	ProjectID       string
+	SpecTaskID      string
 	OriginalRequest []byte
 }
 

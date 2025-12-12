@@ -3420,6 +3420,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pull": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pulls latest commits from remote repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Pull from remote repository",
+                "operationId": "pullFromRemote",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Force pull (default: false)",
+                        "name": "force",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name (required)",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PullResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/pull-requests": {
             "get": {
                 "security": [
@@ -3516,6 +3582,66 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/types.CreatePullRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/push": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pushes the local branch to the remote repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Push to remote repository",
+                "operationId": "pushToRemote",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name",
+                        "name": "branch",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PushResponse"
                         }
                     },
                     "400": {
@@ -11465,6 +11591,18 @@ const docTemplate = `{
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -16633,6 +16771,14 @@ const docTemplate = `{
                 "owner_type": {
                     "$ref": "#/definitions/types.OwnerType"
                 },
+                "project_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
                 }
@@ -17595,11 +17741,17 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "zed_agent",
-                "qwen_code"
+                "qwen_code",
+                "claude_code",
+                "gemini_cli",
+                "codex_cli"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
-                "CodeAgentRuntimeQwenCode"
+                "CodeAgentRuntimeQwenCode",
+                "CodeAgentRuntimeClaudeCode",
+                "CodeAgentRuntimeGeminiCLI",
+                "CodeAgentRuntimeCodexCLI"
             ]
         },
         "types.CommentQueueStatusResponse": {
@@ -18221,6 +18373,17 @@ const docTemplate = `{
                 "ExternalRepositoryTypeADO",
                 "ExternalRepositoryTypeBitbucket"
             ]
+        },
+        "types.ExternalStatus": {
+            "type": "object",
+            "properties": {
+                "commits_ahead": {
+                    "type": "integer"
+                },
+                "commits_behind": {
+                    "type": "integer"
+                }
+            }
         },
         "types.Feedback": {
             "type": "string",
@@ -19713,6 +19876,9 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "prompt_cost": {
                     "type": "number"
                 },
@@ -19735,6 +19901,9 @@ const docTemplate = `{
                     }
                 },
                 "session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
                     "type": "string"
                 },
                 "step": {
@@ -19785,6 +19954,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Commit"
                     }
+                },
+                "external_status": {
+                    "$ref": "#/definitions/types.ExternalStatus"
                 }
             }
         },
@@ -21046,6 +21218,40 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PullResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.PushResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.Question": {
             "type": "object",
             "properties": {
@@ -22096,6 +22302,14 @@ const docTemplate = `{
                 "avatar": {
                     "type": "string"
                 },
+                "code_agent_runtime": {
+                    "description": "Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                },
                 "document_group_id": {
                     "type": "string"
                 },
@@ -22656,6 +22870,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "project_path": {
+                    "type": "string"
+                },
+                "pull_request_id": {
                     "type": "string"
                 },
                 "requirements_spec": {
@@ -24394,20 +24611,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -24558,8 +24775,16 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
+                },
+                "spec_task_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
                 },
                 "token": {
                     "description": "the actual token used and its type",

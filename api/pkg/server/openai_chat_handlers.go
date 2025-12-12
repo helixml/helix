@@ -120,6 +120,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         ownerID,
+		ProjectID:       user.ProjectID,
+		SpecTaskID:      user.SpecTaskID,
 		SessionID:       responseID,
 		InteractionID:   "n/a",
 		OriginalRequest: body,

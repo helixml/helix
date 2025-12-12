@@ -1461,6 +1461,10 @@ export interface TypesApiKey {
   name?: string;
   owner?: string;
   owner_type?: TypesOwnerType;
+  /** Used for isolation and metrics tracking */
+  project_id?: string;
+  /** Used for isolation and metrics tracking */
+  spec_task_id?: string;
   type?: TypesAPIKeyType;
 }
 
@@ -1882,6 +1886,9 @@ export interface TypesCodeAgentConfig {
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
+  CodeAgentRuntimeClaudeCode = "claude_code",
+  CodeAgentRuntimeGeminiCLI = "gemini_cli",
+  CodeAgentRuntimeCodexCLI = "codex_cli",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2139,6 +2146,11 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeGitLab = "gitlab",
   ExternalRepositoryTypeADO = "ado",
   ExternalRepositoryTypeBitbucket = "bitbucket",
+}
+
+export interface TypesExternalStatus {
+  commits_ahead?: number;
+  commits_behind?: number;
 }
 
 export enum TypesFeedback {
@@ -2749,12 +2761,14 @@ export interface TypesLLMCall {
   model?: string;
   organization_id?: string;
   original_request?: number[];
+  project_id?: string;
   prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
   response?: number[];
   session_id?: string;
+  spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
   /** Total cost of the call (prompt and completion tokens) */
@@ -2775,6 +2789,7 @@ export enum TypesLLMCallStep {
 
 export interface TypesListCommitsResponse {
   commits?: TypesCommit[];
+  external_status?: TypesExternalStatus;
 }
 
 export interface TypesLoginRequest {
@@ -3288,6 +3303,20 @@ export interface TypesPullRequest {
   url?: string;
 }
 
+export interface TypesPullResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
+export interface TypesPushResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
 export interface TypesQuestion {
   created?: string;
   id?: string;
@@ -3721,6 +3750,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
+  code_agent_runtime?: TypesCodeAgentRuntime;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -3963,6 +3994,7 @@ export interface TypesSpecTask {
   priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  pull_request_id?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -4649,12 +4681,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4718,7 +4750,11 @@ export interface TypesUser {
   must_change_password?: boolean;
   /** bcrypt hash of the password */
   password_hash?: number[];
+  /** When running in Helix Code sandbox */
+  project_id?: string;
   sb?: boolean;
+  /** When running in Helix Code sandbox */
+  spec_task_id?: string;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -6922,6 +6958,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Pulls latest commits from remote repository
+     *
+     * @tags git-repositories
+     * @name PullFromRemote
+     * @summary Pull from remote repository
+     * @request POST:/api/v1/git/repositories/{id}/pull
+     * @secure
+     */
+    pullFromRemote: (
+      id: string,
+      query: {
+        /** Force pull (default: false) */
+        force: boolean;
+        /** Branch name (required) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPullResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull`,
+        method: "POST",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all pull requests in a repository
      *
      * @tags git-repositories
@@ -6955,6 +7019,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pushes the local branch to the remote repository
+     *
+     * @tags git-repositories
+     * @name PushToRemote
+     * @summary Push to remote repository
+     * @request POST:/api/v1/git/repositories/{id}/push
+     * @secure
+     */
+    pushToRemote: (
+      id: string,
+      query: {
+        /** Branch name */
+        branch: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPushResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/push`,
+        method: "POST",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -10631,6 +10721,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         to?: string;
         /** Organization ID */
         org_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** Spec Task ID */
+        spec_task_id?: string;
       },
       params: RequestParams = {},
     ) =>
