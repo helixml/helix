@@ -319,7 +319,7 @@ func TestSessionMetadataExtensions(t *testing.T) {
 func TestMultiSessionWorkflow(t *testing.T) {
 	t.Run("SpecTaskLifecycle", func(t *testing.T) {
 		// Test the progression through SpecTask statuses
-		statuses := []string{
+		statuses := []types.SpecTaskStatus{
 			types.TaskStatusBacklog,
 			types.TaskStatusSpecGeneration,
 			types.TaskStatusSpecReview,

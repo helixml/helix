@@ -22,12 +22,17 @@ func New() *cobra.Command {
 	cmd.AddCommand(newStartCommand())
 	cmd.AddCommand(newScreenshotCommand())
 	cmd.AddCommand(newListCommand())
+	cmd.AddCommand(newResumeCommand())
+	cmd.AddCommand(newListAgentsCommand())
 
 	return cmd
 }
 
 func newStartCommand() *cobra.Command {
 	var taskName string
+	var projectID string
+	var agentID string
+	var prompt string
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -35,10 +40,12 @@ func newStartCommand() *cobra.Command {
 		Long: `Start a spec task planning session which creates a sandbox desktop.
 
 If no task-id is provided, a new spec task will be created.
+Use --project to specify which project to create the task in.
+Use --agent to specify which Helix agent/app to use (e.g., app_01xxx).
 
 Example workflow:
   1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
-  2. Start a spec task:      helix spectask start <task-id> -n "Add dark mode"
+  2. Start a spec task:      helix spectask start --project prj_xxx --agent app_xxx -n "Add dark mode"
   3. Connect via browser:    Visit /wolf-ui and enter the lobby PIN shown
   4. Or use Moonlight:       helix moonlight list-pending && helix moonlight pair <pin>`,
 		Args: cobra.MaximumNArgs(1),
@@ -51,13 +58,23 @@ Example workflow:
 				taskID = args[0]
 			} else {
 				// Create a new spec task
+				if projectID == "" {
+					return fmt.Errorf("--project is required when creating a new task")
+				}
 				fmt.Println("Creating new spec task...")
-				task, err := createSpecTask(apiURL, token, taskName, "Testing RevDial connectivity")
+				taskPrompt := prompt
+				if taskPrompt == "" {
+					taskPrompt = "Testing RevDial connectivity"
+				}
+				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, agentID)
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
 				taskID = task.ID
 				fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
+				if agentID != "" {
+					fmt.Printf("   Agent: %s\n", agentID)
+				}
 			}
 
 			// Start planning - this triggers async session creation
@@ -101,6 +118,9 @@ Example workflow:
 	}
 
 	cmd.Flags().StringVarP(&taskName, "name", "n", "CLI Test Task", "Task name")
+	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
+	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
+	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 
 	return cmd
 }
@@ -259,14 +279,21 @@ type SessionMetadata struct {
 	SpecTaskID      string `json:"spec_task_id"`
 }
 
-func createSpecTask(apiURL, token, name, description string) (*SpecTask, error) {
+func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*SpecTask, error) {
 	payload := map[string]string{
-		"name":        name,
-		"description": description,
+		"name":   name,
+		"prompt": prompt, // API expects "prompt" not "description"
+	}
+	if projectID != "" {
+		payload["project_id"] = projectID
+	}
+	if agentID != "" {
+		payload["app_id"] = agentID // API expects "app_id" not "helix_app_id"
 	}
 	jsonData, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest("POST", apiURL+"/api/v1/spec-tasks", bytes.NewBuffer(jsonData))
+	// Use /from-prompt endpoint which handles spec task creation from prompts
+	req, err := http.NewRequest("POST", apiURL+"/api/v1/spec-tasks/from-prompt", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -361,4 +388,143 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 	}
 
 	return nil, fmt.Errorf("timeout waiting for sandbox to start (task: %s)", taskID)
+}
+
+func newResumeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "resume <session-id>",
+		Short: "Resume an existing session (tests session restore functionality)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sessionID := args[0]
+			apiURL := getAPIURL()
+			token := getToken()
+
+			fmt.Printf("Resuming session %s...\n", sessionID)
+
+			url := fmt.Sprintf("%s/api/v1/sessions/%s/resume", apiURL, sessionID)
+			req, err := http.NewRequest("POST", url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+
+			client := &http.Client{Timeout: 60 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to resume session: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return fmt.Errorf("resume failed: %d - %s", resp.StatusCode, string(body))
+			}
+
+			var result map[string]interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to parse response: %w", err)
+			}
+
+			fmt.Printf("✅ Session resumed successfully!\n")
+			if lobbyPIN, ok := result["wolf_lobby_pin"].(string); ok && lobbyPIN != "" {
+				fmt.Printf("   Lobby PIN: %s\n", lobbyPIN)
+				fmt.Printf("   Connect via Wolf-UI: %s/wolf-ui\n", apiURL)
+			}
+			if lobbyID, ok := result["wolf_lobby_id"].(string); ok {
+				fmt.Printf("   Lobby ID: %s\n", lobbyID)
+			}
+
+			return nil
+		},
+	}
+}
+
+type App struct {
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	Config AppConfig `json:"config"`
+}
+
+type AppConfig struct {
+	Helix HelixConfig `json:"helix"`
+}
+
+type HelixConfig struct {
+	Assistants []Assistant `json:"assistants"`
+}
+
+type Assistant struct {
+	Name             string `json:"name"`
+	AgentType        string `json:"agent_type"`
+	CodeAgentRuntime string `json:"code_agent_runtime"`
+	Model            string `json:"model"`
+}
+
+type AppsResponse struct {
+	Apps []App `json:"apps"`
+}
+
+func newListAgentsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "list-agents",
+		Short:   "List available Helix agents/apps",
+		Aliases: []string{"agents"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			apiURL := getAPIURL()
+			token := getToken()
+
+			req, err := http.NewRequest("GET", apiURL+"/api/v1/apps", nil)
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			var apps []App
+			if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
+				return fmt.Errorf("failed to parse apps: %w", err)
+			}
+
+			fmt.Println("Available Agents (Apps with zed_external assistants):")
+			fmt.Println()
+
+			count := 0
+			for _, app := range apps {
+				// Find zed_external assistants
+				for _, assistant := range app.Config.Helix.Assistants {
+					if assistant.AgentType == "zed_external" {
+						count++
+						fmt.Printf("App: %s\n", app.Name)
+						fmt.Printf("  ID: %s\n", app.ID)
+						fmt.Printf("  Assistant: %s\n", assistant.Name)
+						if assistant.CodeAgentRuntime != "" {
+							fmt.Printf("  Runtime: %s\n", assistant.CodeAgentRuntime)
+						}
+						if assistant.Model != "" {
+							fmt.Printf("  Model: %s\n", assistant.Model)
+						}
+						fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
+						fmt.Println()
+						break
+					}
+				}
+			}
+
+			if count == 0 {
+				fmt.Println("No agents with zed_external assistants found.")
+				fmt.Println("Create an agent with a zed_external assistant in the Helix UI first.")
+			} else {
+				fmt.Printf("Found %d agent(s) with external assistant support.\n", count)
+			}
+
+			return nil
+		},
+	}
 }

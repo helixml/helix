@@ -11,6 +11,9 @@ import {
   CircularProgress,
   LinearProgress,
   keyframes,
+  Dialog,
+  DialogTitle,
+  DialogContent,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -25,10 +28,14 @@ import {
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
   RadioButtonUnchecked as UncheckedIcon,
+  ContentCopy as CopyIcon,
+  AccountTree as BatchIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import CloneTaskDialog from '../specTask/CloneTaskDialog'
+import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -67,6 +74,10 @@ interface SpecTaskWithExtras {
   metadata?: { error?: string }
   merged_to_main?: boolean
   just_do_it_mode?: boolean
+  started_at?: string
+  design_docs_pushed_at?: string
+  clone_group_id?: string
+  cloned_from_id?: string
 }
 
 interface KanbanColumn {
@@ -85,6 +96,7 @@ interface TaskCardProps {
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
   focusStartPlanning?: boolean // When true, focus the Start Planning button
+  isArchiving?: boolean // When true, show spinner on archive button (parent is archiving this task)
 }
 
 // Interface for checklist items from API
@@ -100,6 +112,45 @@ interface ChecklistProgress {
   completed_tasks: number
   in_progress_task?: ChecklistItem
   progress_pct: number
+}
+
+const formatDuration = (startedAt: string): string => {
+  const start = new Date(startedAt).getTime()
+  const now = Date.now()
+  const diffMs = now - start
+  
+  if (diffMs < 0) return '0s'
+  
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  
+  if (hours > 0) {
+    return `${hours}h${minutes}m`
+  }
+  return `${minutes}m${seconds}s`
+}
+
+const useRunningDuration = (startedAt: string | undefined, enabled: boolean): string | null => {
+  const [duration, setDuration] = useState<string | null>(null)
+  
+  useEffect(() => {
+    if (!enabled || !startedAt) {
+      setDuration(null)
+      return
+    }
+    
+    setDuration(formatDuration(startedAt))
+    
+    const interval = setInterval(() => {
+      setDuration(formatDuration(startedAt))
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [startedAt, enabled])
+  
+  return duration
 }
 
 // Gorgeous task progress display with fade effect and spinner
@@ -346,8 +397,11 @@ export default function TaskCard({
   onReviewDocs,
   projectId,
   focusStartPlanning = false,
+  isArchiving = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
+  const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
 
@@ -371,6 +425,11 @@ export default function TaskCard({
     enabled: showProgress,
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
   })
+
+  const runningDuration = useRunningDuration(
+    task.started_at,
+    task.status === 'implementation'
+  )
 
   // Check if planning column is full
   const planningColumn = columns.find((col) => col.id === 'planning')
@@ -468,12 +527,58 @@ export default function TaskCard({
                 </IconButton>
               </Tooltip>
             )}
-            <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
+            {/* Clone batch progress - visible for cloned tasks */}
+            {task.clone_group_id && (
+              <Tooltip title="View Clone Batch Progress">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowCloneBatchProgress(true)
+                  }}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color: 'secondary.main',
+                    '&:hover': {
+                      color: 'secondary.dark',
+                      backgroundColor: 'rgba(156, 39, 176, 0.08)',
+                    },
+                  }}
+                >
+                  <BatchIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Clone button - always visible */}
+            <Tooltip title="Clone to Other Projects">
               <IconButton
                 size="small"
                 onClick={(e) => {
                   e.stopPropagation()
+                  setShowCloneDialog(true)
+                }}
+                sx={{
+                  width: 24,
+                  height: 24,
+                  color: 'text.secondary',
+                  '&:hover': {
+                    color: 'primary.main',
+                    backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                  },
+                }}
+              >
+                <CopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
+              <IconButton
+                size="small"
+                disabled={isArchiving}
+                onClick={(e) => {
+                  e.stopPropagation()
                   if (onArchiveTask) {
+                    // Parent handles the async operation and manages isArchiving state
                     onArchiveTask(task, !task.archived)
                   }
                 }}
@@ -487,7 +592,13 @@ export default function TaskCard({
                   },
                 }}
               >
-                {task.archived ? <RestoreIcon sx={{ fontSize: 16 }} /> : <CloseIcon sx={{ fontSize: 16 }} />}
+                {isArchiving ? (
+                  <CircularProgress size={14} sx={{ color: 'text.secondary' }} />
+                ) : task.archived ? (
+                  <RestoreIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                )}
               </IconButton>
             </Tooltip>
           </Box>
@@ -522,6 +633,11 @@ export default function TaskCard({
                 ? 'In Progress'
                 : 'Done'}
             </Typography>
+            {runningDuration && (
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
+                • {runningDuration}
+              </Typography>
+            )}
           </Box>
         </Box>
 
@@ -614,24 +730,30 @@ export default function TaskCard({
         {/* Implementation phase */}
         {task.status === 'implementation' && (
           <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ViewIcon />}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (onTaskClick) onTaskClick(task)
-              }}
-              fullWidth
-            >
-              View Agent Session
-            </Button>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>              
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                disabled={isArchiving}
+                startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (onArchiveTask) {
+                    // Parent handles the async operation and manages isArchiving state
+                    onArchiveTask(task, true)
+                  }
+                }}
+                sx={{ flex: 1 }}
+              >
+                {isArchiving ? 'Rejecting...' : 'Reject'}
+              </Button>
+
               <Button
                 size="small"
                 variant="contained"
                 color="success"
-                startIcon={<ApproveIcon />}
+                startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
                 onClick={(e) => {
                   e.stopPropagation()
                   approveImplementationMutation.mutate()
@@ -639,22 +761,7 @@ export default function TaskCard({
                 disabled={approveImplementationMutation.isPending}
                 sx={{ flex: 1 }}
               >
-                Accept
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                startIcon={<CloseIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (onArchiveTask) {
-                    onArchiveTask(task, true)
-                  }
-                }}
-                sx={{ flex: 1 }}
-              >
-                Reject
+                {approveImplementationMutation.isPending ? 'Accepting...' : 'Accept'}
               </Button>
             </Box>
           </Box>
@@ -680,7 +787,7 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="success"
-              startIcon={<ApproveIcon />}
+              startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
               onClick={(e) => {
                 e.stopPropagation()
                 approveImplementationMutation.mutate()
@@ -688,13 +795,13 @@ export default function TaskCard({
               disabled={approveImplementationMutation.isPending}
               fullWidth
             >
-              Approve Implementation
+              {approveImplementationMutation.isPending ? 'Approving...' : 'Approve Implementation'}
             </Button>
             <Button
               size="small"
               variant="outlined"
               color="error"
-              startIcon={<StopIcon />}
+              startIcon={stopAgentMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <StopIcon />}
               onClick={(e) => {
                 e.stopPropagation()
                 stopAgentMutation.mutate()
@@ -702,7 +809,7 @@ export default function TaskCard({
               disabled={stopAgentMutation.isPending}
               fullWidth
             >
-              Stop Agent
+              {stopAgentMutation.isPending ? 'Stopping...' : 'Stop Agent'}
             </Button>
           </Box>
         )}
@@ -732,6 +839,43 @@ export default function TaskCard({
           </Box>
         )}
       </CardContent>
+
+      {/* Clone Task Dialog */}
+      <CloneTaskDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        taskId={task.id}
+        taskName={task.name}
+        sourceProjectId={projectId || ''}
+      />
+
+      {/* Clone Batch Progress Dialog */}
+      {task.clone_group_id && (
+        <Dialog
+          open={showCloneBatchProgress}
+          onClose={() => setShowCloneBatchProgress(false)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            Clone Batch Progress
+            <IconButton size="small" onClick={() => setShowCloneBatchProgress(false)}>
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent>
+            <CloneGroupProgressFull
+              groupId={task.clone_group_id}
+              onTaskClick={(taskId, projectId) => {
+                setShowCloneBatchProgress(false)
+                if (onTaskClick) {
+                  onTaskClick({ ...task, id: taskId })
+                }
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   )
 }

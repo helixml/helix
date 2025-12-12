@@ -61,20 +61,17 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 
-	// Create a custom HTTP client with increased timeout
-	httpClient := &http.Client{
-		Timeout: 5 * time.Minute, // 5 minute timeout for embedding requests
-	}
+	// Clone the default transport to preserve all default settings (timeouts, connection pooling,
+	// keep-alives, proxy settings from HTTP_PROXY/HTTPS_PROXY env vars, etc.)
+	// This is critical - creating a minimal &http.Transport{} loses proxy settings and other defaults
+	// that enterprise environments may depend on.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 
-	// Configure TLS if skip verify is enabled
+	// Configure TLS skip verify if enabled
 	if opts.TLSSkipVerify {
-		// Clone the default transport to preserve all default settings (timeouts, connection pooling, etc.)
-		// then add InsecureSkipVerify
-		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
-		httpClient.Transport = transport
 		log.Info().
 			Str("base_url", baseURL).
 			Bool("tls_skip_verify", true).
@@ -84,6 +81,12 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 			Str("base_url", baseURL).
 			Bool("tls_skip_verify", false).
 			Msg("OpenAI client using default TLS verification (set TOOLS_TLS_SKIP_VERIFY=true in .env or extraEnv for enterprise deployments)")
+	}
+
+	// Create HTTP client with the configured transport and increased timeout
+	httpClient := &http.Client{
+		Timeout:   5 * time.Minute, // 5 minute timeout for embedding requests
+		Transport: transport,
 	}
 
 	// Use our interceptor with the custom timeout and universal rate limiter

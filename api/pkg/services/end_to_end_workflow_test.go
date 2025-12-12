@@ -22,7 +22,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 
 	t.Run("Phase1_SpecTaskCreation", func(t *testing.T) {
 		// Simulate SpecTask creation from user prompt
-		createRequest := &CreateTaskRequest{
+		createRequest := &types.CreateTaskRequest{
 			ProjectID: projectID,
 			Prompt:    taskPrompt,
 			Type:      "feature",

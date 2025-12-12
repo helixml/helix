@@ -231,16 +231,16 @@ func (apiServer *HelixAPIServer) storeDiskUsageHistory(ctx context.Context, wolf
 		}
 
 		history := &types.DiskUsageHistory{
-			ID:              uuid.New().String(),
-			WolfInstanceID:  wolfInstanceID,
-			Timestamp:       now,
-			MountPoint:      disk.MountPoint,
-			TotalBytes:      disk.TotalBytes,
-			UsedBytes:       disk.UsedBytes,
-			AvailBytes:      disk.AvailBytes,
-			UsedPercent:     disk.UsedPercent,
-			AlertLevel:      disk.AlertLevel,
-			ContainerUsage:  containerJSON,
+			ID:             uuid.New().String(),
+			WolfInstanceID: wolfInstanceID,
+			Timestamp:      now,
+			MountPoint:     disk.MountPoint,
+			TotalBytes:     disk.TotalBytes,
+			UsedBytes:      disk.UsedBytes,
+			AvailBytes:     disk.AvailBytes,
+			UsedPercent:    disk.UsedPercent,
+			AlertLevel:     disk.AlertLevel,
+			ContainerUsage: containerJSON,
 		}
 
 		if err := apiServer.Store.CreateDiskUsageHistory(ctx, history); err != nil {

@@ -20,6 +20,11 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -28,7 +33,10 @@ import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
-import { TypesSpecTask } from '../../services'
+import SaveIcon from '@mui/icons-material/Save'
+import CancelIcon from '@mui/icons-material/Cancel'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
@@ -36,30 +44,40 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
-import { useGetSession } from '../../services/sessionService'
+import { useQueryClient } from '@tanstack/react-query'
+import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionService'
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
+import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
 interface SpecTaskDetailDialogProps {
   task: TypesSpecTask | null
   open: boolean
-  onClose: () => void
-  onEdit?: (task: TypesSpecTask) => void
+  onClose: () => void  
 }
 
 const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   task,
   open,
-  onClose,
-  onEdit,
+  onClose,  
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
   const streaming = useStreaming()
   const apps = useApps()
+  const updateSpecTask = useUpdateSpecTask()
+  const queryClient = useQueryClient()
+
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    description: '',
+    priority: '',
+  })
 
   // Agent selection state
   const [selectedAgent, setSelectedAgent] = useState(task?.helix_app_id || '')
@@ -103,7 +121,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
-  const [refreshedTask, setRefreshedTask] = useState<TypesSpecTask | null>(task)
   const nodeRef = useRef(null)
 
   // Resize hook for window resizing
@@ -141,41 +158,33 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
 
+  // Session restart state
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
+  const [isRestarting, setIsRestarting] = useState(false)
+
   // Just Do It mode state (initialized from task, synced via API)
   const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
 
-  // Poll for task updates to detect when spec_session_id is populated
-  useEffect(() => {
-    if (!task?.id) return
-
-    const pollTask = async () => {
-      try {
-        const response = await api.getApiClient().v1SpecTasksDetail(task.id!)
-        if (response.data) {
-          console.log('[SpecTaskDetailDialog] Polled task:', {
-            id: response.data.id,
-            status: response.data.status,
-            planning_session_id: response.data.planning_session_id,
-            has_session: !!response.data.planning_session_id
-          })
-          setRefreshedTask(response.data)
-        }
-      } catch (err) {
-        console.error('Failed to poll task:', err)
-      }
-    }
-
-    // Initial fetch
-    pollTask()
-
-    // Poll every 2 seconds
-    const interval = setInterval(pollTask, 2000)
-    return () => clearInterval(interval)
-  }, [task?.id])
+  // Use useSpecTask hook with auto-refresh, but disable when in edit mode
+  const { data: refreshedTask } = useSpecTask(task?.id || '', {
+    enabled: !!task?.id && open,
+    refetchInterval: isEditMode ? false : 2000,
+  })
 
   // Use refreshed task data for rendering
   const displayTask = refreshedTask || task
+
+  // Initialize edit form data when task changes or edit mode is enabled
+  useEffect(() => {
+    if (displayTask && isEditMode) {
+      setEditFormData({
+        name: displayTask.name || '',
+        description: displayTask.description || displayTask.original_prompt || '',
+        priority: displayTask.priority || 'medium',
+      })
+    }
+  }, [displayTask, isEditMode])
 
   // Get the active session ID (single session used for entire workflow)
   const activeSessionId = displayTask?.planning_session_id
@@ -186,6 +195,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const swayVersion = sessionData?.config?.sway_version
   const gpuVendor = sessionData?.config?.gpu_vendor
   const renderNode = sessionData?.config?.render_node
+  const wolfLobbyId = sessionData?.config?.wolf_lobby_id
 
   // Debug logging
   useEffect(() => {
@@ -361,6 +371,42 @@ I'll give you feedback and we can iterate on any changes needed.`
     }
   }
 
+  // Handle session restart (stop container, then resume)
+  const handleRestartSession = useCallback(async () => {
+    if (!activeSessionId || isRestarting) return
+
+    setIsRestarting(true)
+    setRestartConfirmOpen(false)
+
+    try {
+      // Step 1: Stop the external agent container
+      snackbar.info('Stopping agent session...')
+      await api.getApiClient().v1SessionsStopExternalAgentDelete(activeSessionId)
+
+      // Small delay to ensure container is fully stopped
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Step 2: Resume the session (starts a new container)
+      snackbar.info('Starting new agent session...')
+      await api.getApiClient().v1SessionsResumeCreate(activeSessionId)
+
+      // Step 3: Invalidate session query to refetch wolf_lobby_id
+      // This triggers MoonlightStreamViewer to detect the lobby change and reconnect
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(activeSessionId) })
+
+      snackbar.success('Session restarted successfully')
+    } catch (err: any) {
+      console.error('Failed to restart session:', err)
+      const errorMessage = err?.response?.data?.error
+        || err?.response?.data?.message
+        || err?.message
+        || 'Failed to restart session'
+      snackbar.error(errorMessage)
+    } finally {
+      setIsRestarting(false)
+    }
+  }, [activeSessionId, isRestarting, api, snackbar])
+
   // Toggle Just Do It mode and persist to backend
   const handleToggleJustDoIt = useCallback(async () => {
     if (!task?.id || updatingJustDoIt) return
@@ -369,8 +415,11 @@ I'll give you feedback and we can iterate on any changes needed.`
     setUpdatingJustDoIt(true)
 
     try {
-      await api.getApiClient().v1SpecTasksUpdate(task.id, {
-        just_do_it_mode: newValue,
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          just_do_it_mode: newValue,
+        },
       })
       setJustDoItMode(newValue)
       snackbar.success(newValue ? 'Just Do It mode enabled' : 'Just Do It mode disabled')
@@ -380,7 +429,7 @@ I'll give you feedback and we can iterate on any changes needed.`
     } finally {
       setUpdatingJustDoIt(false)
     }
-  }, [task?.id, justDoItMode, updatingJustDoIt, api, snackbar])
+  }, [task?.id, justDoItMode, updatingJustDoIt, updateSpecTask, snackbar])
 
   // Handle agent change and persist to backend
   const handleAgentChange = useCallback(async (newAgentId: string) => {
@@ -391,9 +440,12 @@ I'll give you feedback and we can iterate on any changes needed.`
     setSelectedAgent(newAgentId) // Optimistic update
 
     try {
-      await api.getApiClient().v1SpecTasksUpdate(task.id, {
-        helix_app_id: newAgentId,
-      } as any) // helix_app_id may need to be added to TypesSpecTaskUpdateRequest
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          helix_app_id: newAgentId,
+        },
+      })
       snackbar.success('Agent updated')
     } catch (err) {
       console.error('Failed to update agent:', err)
@@ -402,7 +454,45 @@ I'll give you feedback and we can iterate on any changes needed.`
     } finally {
       setUpdatingAgent(false)
     }
-  }, [task?.id, selectedAgent, updatingAgent, api, snackbar])
+  }, [task?.id, selectedAgent, updatingAgent, updateSpecTask, snackbar])
+
+  // Handle edit mode toggle
+  const handleEditToggle = useCallback(() => {
+    setIsEditMode(true)
+  }, [])
+
+  // Handle cancel edit
+  const handleCancelEdit = useCallback(() => {
+    setIsEditMode(false)
+    if (displayTask) {
+      setEditFormData({
+        name: displayTask.name || '',
+        description: displayTask.description || displayTask.original_prompt || '',
+        priority: displayTask.priority || 'medium',
+      })
+    }
+  }, [displayTask])
+
+  // Handle save edit
+  const handleSaveEdit = useCallback(async () => {
+    if (!task?.id) return
+
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: {
+          name: editFormData.name,
+          description: editFormData.description,
+          priority: editFormData.priority as TypesSpecTaskPriority,
+        },
+      })
+      setIsEditMode(false)
+      snackbar.success('Task updated successfully')
+    } catch (err) {
+      console.error('Failed to update task:', err)
+      snackbar.error('Failed to update task')
+    }
+  }, [task?.id, editFormData, updateSpecTask, snackbar])
 
   // Keyboard shortcuts for task actions (with Ctrl/Cmd modifiers to work while typing)
   useEffect(() => {
@@ -450,6 +540,19 @@ I'll give you feedback and we can iterate on any changes needed.`
       y: e.clientY - windowPos.y
     })
   }
+
+  // Double-click on title bar toggles maximize
+  const handleTitleBarDoubleClick = useCallback(() => {
+    if (position === 'full') {
+      // Restore to center/floating
+      setPosition('center')
+      setIsSnapped(false)
+    } else {
+      // Maximize to full screen
+      setPosition('full')
+      setIsSnapped(true)
+    }
+  }, [position])
 
   // Prevent text selection globally while dragging
   useEffect(() => {
@@ -603,6 +706,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleTitleBarDoubleClick}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -619,7 +723,7 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <Typography variant="subtitle1">
                 {displayTask.name}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
@@ -627,36 +731,88 @@ I'll give you feedback and we can iterate on any changes needed.`
                   label={formatStatus(displayTask.status)}
                   color={getStatusColor(displayTask.status)}
                   size="small"
-                  sx={{ height: 20, fontSize: '0.7rem' }}
+                  sx={{ height: 20 }}
                 />
                 <Chip
                   label={displayTask.priority || 'Medium'}
                   color={getPriorityColor(displayTask.priority)}
                   size="small"
-                  sx={{ height: 20, fontSize: '0.7rem' }}
+                  sx={{ height: 20 }}
                 />
                 {displayTask.type && (
-                  <Chip label={displayTask.type} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                  <Chip label={displayTask.type} size="small" variant="outlined" sx={{ height: 20 }} />
                 )}
               </Box>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation()
-                setTileMenuAnchor(e.currentTarget)
-              }}
-              title="Tile Window"
-              sx={{ padding: '4px' }}
-            >
-              <GridViewOutlined sx={{ fontSize: 16 }} />
-            </IconButton>
-            {onEdit && (
-              <IconButton size="small" onClick={() => onEdit(displayTask)} sx={{ padding: '4px' }}>
-                <EditIcon sx={{ fontSize: 16 }} />
-              </IconButton>
+          <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center' }}>
+            {isEditMode ? (
+              <>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<CancelIcon />}
+                  onClick={handleCancelEdit}
+                  sx={{ minWidth: 'auto', px: 1, mr: 1 }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="secondary"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveEdit}
+                  disabled={updateSpecTask.isPending}
+                  sx={{ minWidth: 'auto', px: 1, mr: 1 }}
+                >
+                  {updateSpecTask.isPending ? 'Saving...' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setTileMenuAnchor(e.currentTarget)
+                  }}
+                  title="Tile Window"
+                  sx={{ padding: '4px' }}
+                >
+                  <GridViewOutlined sx={{ fontSize: 16 }} />
+                </IconButton>
+                {displayTask.status === TypesSpecTaskStatus.TaskStatusBacklog && (
+                  <IconButton
+                    size="small"
+                    onClick={handleEditToggle}
+                    sx={{ padding: '4px' }}
+                    title="Edit task"
+                  >
+                    <EditIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                )}
+                {activeSessionId && (
+                  <Tooltip
+                    title="Restart agent session (stops container, starts fresh)"
+                    slotProps={{ popper: { sx: { zIndex: 100001 } } }}
+                  >
+                    <IconButton
+                      size="small"
+                      onClick={() => setRestartConfirmOpen(true)}
+                      disabled={isRestarting}
+                      sx={{ padding: '4px' }}
+                      color={isRestarting ? 'default' : 'warning'}
+                    >
+                      {isRestarting ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <RestartAltIcon sx={{ fontSize: 16 }} />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
             )}
             <IconButton size="small" onClick={onClose} sx={{ padding: '4px' }}>
               <CloseIcon sx={{ fontSize: 16 }} />
@@ -677,15 +833,13 @@ I'll give you feedback and we can iterate on any changes needed.`
           {/* Tab 0: Active Session (only if session exists) */}
           {activeSessionId && currentTab === 0 && (
             <>
-              {/* ExternalAgentDesktopViewer */}
-              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                <ExternalAgentDesktopViewer
-                  sessionId={activeSessionId}
-                  height="100%"
-                  mode="stream"
-                  onClientIdCalculated={setClientUniqueId}
-                />
-              </Box>
+              {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
+              <ExternalAgentDesktopViewer
+                sessionId={activeSessionId}
+                wolfLobbyId={wolfLobbyId}
+                mode="stream"
+                onClientIdCalculated={setClientUniqueId}
+              />
 
               {/* Message input box */}
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
@@ -730,7 +884,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                       startIcon={<PlayArrow />}
                       onClick={handleStartPlanning}
                       endIcon={
-                        <Box component="span" sx={{ fontSize: '0.65rem', opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                        <Box component="span" sx={{ opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
                           {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
                         </Box>
                       }
@@ -751,7 +905,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <Typography variant="body2">Just Do It</Typography>
-                            <Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
+                            <Box component="span" sx={{ opacity: 0.6, fontFamily: 'monospace', border: '1px solid', borderColor: 'divider', borderRadius: '3px', px: 0.5 }}>
                               {navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'}
                             </Box>
                           </Box>
@@ -784,11 +938,11 @@ I'll give you feedback and we can iterate on any changes needed.`
                           setDesignReviewViewerOpen(true)
                         } else {
                           console.error('No design reviews found for task:', task.id)
-                          setSnackbar({ message: 'No design review found', severity: 'error' })
+                          snackbar.error('No design review found')
                         }
                       } catch (error) {
                         console.error('Failed to fetch design reviews:', error)
-                        setSnackbar({ message: 'Failed to load design review', severity: 'error' })
+                        snackbar.error('Failed to load design review')
                       }
                     }}
                   >
@@ -799,14 +953,45 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               <Divider sx={{ mb: 3 }} />
 
-              {/* Full Description/Prompt */}
+              {/* Task Name - Editable */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Name
+                </Typography>
+                {isEditMode ? (
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Task name"
+                  />
+                ) : (
+                  <Typography variant="body1">
+                    {displayTask.name || 'Unnamed task'}
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Full Description/Prompt - Editable */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description
                 </Typography>
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {displayTask.description || displayTask.original_prompt || 'No description provided'}
-                </Typography>
+                {isEditMode ? (
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Task description"
+                  />
+                ) : (
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {displayTask.description || displayTask.original_prompt || 'No description provided'}
+                  </Typography>
+                )}
               </Box>
 
               {/* Context (from metadata) */}
@@ -835,8 +1020,41 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               <Divider sx={{ my: 2 }} />
 
-              {/* Labels */}
-              {displayTask.labels && displayTask.labels.length > 0 && (
+              {/* Priority - Editable */}
+              <Box sx={{ mb: 2 }}>
+                {isEditMode ? (
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Priority</InputLabel>
+                    <Select
+                      value={editFormData.priority}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
+                      label="Priority"
+                      MenuProps={{ sx: { zIndex: 100001 } }}
+                    >
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>Critical</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>High</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityMedium}>Medium</MenuItem>
+                      <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityLow}>Low</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : (
+                  <>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Priority
+                    </Typography>
+                    <Chip
+                      label={displayTask.priority || 'Medium'}
+                      color={getPriorityColor(displayTask.priority)}
+                      size="small"
+                    />
+                  </>
+                )}
+              </Box>
+
+              {/* Labels 
+              TODO: show once we can create/update them
+              */}
+              {/* {displayTask.labels && displayTask.labels.length > 0 && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                     Labels
@@ -847,7 +1065,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                     ))}
                   </Box>
                 </Box>
-              )}
+              )} */}
 
               {/* Estimated Hours */}
               {displayTask.estimated_hours && (
@@ -868,6 +1086,7 @@ I'll give you feedback and we can iterate on any changes needed.`
                     label="Agent"
                     disabled={updatingAgent}
                     endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
+                    MenuProps={{ sx: { zIndex: 100001 } }}
                   >
                     {sortedApps.map((app) => (
                       <MenuItem key={app.id} value={app.id}>
@@ -891,27 +1110,42 @@ I'll give you feedback and we can iterate on any changes needed.`
               {/* Debug Information */}
               <Divider sx={{ my: 2 }} />
               <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
-                <Typography variant="caption" color="grey.400" display="block" gutterBottom sx={{ fontWeight: 600 }}>
+                <Typography variant="caption" color="grey.400" display="block" gutterBottom>
                   Debug Information
                 </Typography>
-                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
+                {displayTask.task_number && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Task Number: {displayTask.task_number}
+                  </Typography>
+                )}
+                {displayTask.design_doc_path && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Design Doc Path: {displayTask.design_doc_path}
+                  </Typography>
+                )}
+                {displayTask.branch_name && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Branch: {displayTask.branch_name}
+                  </Typography>
+                )}
                 {activeSessionId && (
                   <>
-                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Active Session ID: {activeSessionId}
                     </Typography>
-                    {displayTask.planning_session_id && displayTask.spec_session_id && (
-                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', display: 'block', fontStyle: 'italic' }}>
-                        (using planning_session_id, spec_session_id also available)
+                    {displayTask.planning_session_id && (
+                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', display: 'block', fontStyle: 'italic' }}>
+                        (using planning_session_id)
                       </Typography>
                     )}
-                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                       Moonlight Client ID: {clientUniqueId || 'calculating...'}
                     </Typography>
                     {swayVersion && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         Sway Version:{' '}
                         <a
                           href={`https://github.com/helixml/helix/commit/${swayVersion}`}
@@ -924,12 +1158,12 @@ I'll give you feedback and we can iterate on any changes needed.`
                       </Typography>
                     )}
                     {gpuVendor && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         GPU Vendor: {gpuVendor}
                       </Typography>
                     )}
                     {renderNode && (
-                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                      <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         Render Node: {renderNode}
                       </Typography>
                     )}
@@ -979,7 +1213,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         }}
         taskId={task?.id || ''}
         taskName={task?.name || ''}
-        sessionId={task?.spec_session_id}
+        sessionId={task?.planning_session_id}
         onApprove={async () => {
           if (!task) return
           await api.getApiClient().v1SpecTasksApproveSpecsCreate(task.id!, {
@@ -1021,6 +1255,37 @@ I'll give you feedback and we can iterate on any changes needed.`
           reviewId={activeReviewId}
         />
       )}
+
+      {/* Restart Session Confirmation Dialog */}
+      <Dialog
+        open={restartConfirmOpen}
+        onClose={() => setRestartConfirmOpen(false)}
+        sx={{ zIndex: 100002 }}
+      >
+        <DialogTitle>Restart Agent Session?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will stop the current agent container and start a fresh one.
+            <br /><br />
+            <strong>Note:</strong> Any unsaved files in the sandbox may be lost. Please make sure
+            you save all your files before restarting. Everything in the work folder will survive the restart.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRestartConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRestartSession}
+            color="warning"
+            variant="contained"
+            disabled={isRestarting}
+            startIcon={isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon />}
+          >
+            {isRestarting ? 'Restarting...' : 'Restart Session'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }

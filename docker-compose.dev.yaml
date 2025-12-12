@@ -128,8 +128,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    # ports:
-    #  - 5432:5432
+    ports:
+     - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:
@@ -292,7 +292,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=TRUE
-      - GOP_SIZE=${GOP_SIZE:-60}
+      - GOP_SIZE=${GOP_SIZE:-120}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
@@ -414,7 +414,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=TRUE
-      - GOP_SIZE=${GOP_SIZE:-60}
+      - GOP_SIZE=${GOP_SIZE:-120}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
@@ -535,7 +535,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=FALSE
-      - GOP_SIZE=${GOP_SIZE:-60}
+      - GOP_SIZE=${GOP_SIZE:-120}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}

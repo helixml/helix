@@ -32,6 +32,8 @@ import {
   MoreVertical,
   GitPullRequest,
   ExternalLink,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import {
   getEnrichmentTypeIcon,
@@ -40,9 +42,12 @@ import {
 import {
   useCreateGitRepositoryPullRequest,
   useListRepositoryPullRequests,
+  usePushToRemote,
+  usePullFromRemote,
 } from '../../services/gitRepositoryService'
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
+import ExternalStatus from './ExternalStatus'
 
 const getFallbackBranch = (defaultBranch: string | undefined, branches: string[] | null | undefined): string => {
   if (!branches || branches.length === 0) {
@@ -126,30 +131,20 @@ const CodeTab: FC<CodeTabProps> = ({
   handleNavigateToDirectory,
   handleSelectFile,
   handleNavigateUp,
-  handlePushPull,
-  handleCreateBranch,
-  handleCreateFile,
-  getPathBreadcrumbs,
-  createBranchDialogOpen,
-  setCreateBranchDialogOpen,
-  newBranchName,
+  handlePushPull,  
+  getPathBreadcrumbs,  
+  setCreateBranchDialogOpen,  
   setNewBranchName,
-  newBranchBase,
-  setNewBranchBase,
-  createFileDialogOpen,
-  setCreateFileDialogOpen,
-  newFilePath,
+  setNewBranchBase,  
+  setCreateFileDialogOpen,  
   setNewFilePath,
-  newFileContent,
   setNewFileContent,
-  isEditingFile,
-  setIsEditingFile,
-  creatingFile,
-  createBranchMutation,
-  createOrUpdateFileMutation,
+  setIsEditingFile,  
 }) => {
   const createPullRequestMutation = useCreateGitRepositoryPullRequest()
   const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
+  const pushToRemoteMutation = usePushToRemote()
+  const pullFromRemoteMutation = usePullFromRemote()
   const snackbar = useSnackbar()
   const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
 
@@ -194,6 +189,37 @@ const CodeTab: FC<CodeTabProps> = ({
     } catch (error) {
       console.error('Failed to create PR:', error)
       snackbar.error('Failed to create pull request')
+    }
+  }
+
+  const handlePushToRemote = async () => {
+    if (!repository?.id || !currentBranch) return
+
+    try {
+      await pushToRemoteMutation.mutateAsync({
+        repositoryId: repository.id,
+        branch: currentBranch,
+      })
+      snackbar.success('Successfully pushed to remote')
+    } catch (error) {
+      console.error('Failed to push:', error)
+      snackbar.error('Failed to push to remote')
+    }
+  }
+
+  const handlePullFromRemote = async () => {
+    if (!repository?.id || !currentBranch) return
+
+    try {
+      await pullFromRemoteMutation.mutateAsync({
+        repositoryId: repository.id,
+        branch: currentBranch,
+        force: false,
+      })
+      snackbar.success('Successfully pulled from remote')
+    } catch (error) {
+      console.error('Failed to pull:', error)
+      snackbar.error('Failed to pull from remote')
     }
   }
 
@@ -245,6 +271,12 @@ const CodeTab: FC<CodeTabProps> = ({
                   setCurrentPath('.')
                   setSelectedFile(null)
                 }}
+              />
+              
+              <ExternalStatus
+                repositoryId={repository?.id || ''}
+                branch={currentBranch}
+                isExternal={isExternal}
               />
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
@@ -323,20 +355,52 @@ const CodeTab: FC<CodeTabProps> = ({
                 </MenuItem>
 
                 {isExternal && (
-                  <MenuItem
-                    onClick={() => {
-                      handleMenuClose()
-                      handlePushPull()
-                    }}
-                    disabled={pushPullMutation.isPending}
-                  >
-                    <ListItemIcon>
-                      <ArrowUpDown size={16} />
-                    </ListItemIcon>
-                    <ListItemText>
-                      {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                    </ListItemText>
-                  </MenuItem>
+                  <>
+                    <MenuItem
+                      onClick={() => {
+                        handleMenuClose()
+                        handlePushToRemote()
+                      }}
+                      disabled={pushToRemoteMutation.isPending}
+                    >
+                      <ListItemIcon>
+                        <ArrowUp size={16} />
+                      </ListItemIcon>
+                      <ListItemText>
+                        {pushToRemoteMutation.isPending ? 'Pushing...' : 'Push'}
+                      </ListItemText>
+                    </MenuItem>
+
+                    <MenuItem
+                      onClick={() => {
+                        handleMenuClose()
+                        handlePullFromRemote()
+                      }}
+                      disabled={pullFromRemoteMutation.isPending}
+                    >
+                      <ListItemIcon>
+                        <ArrowDown size={16} />
+                      </ListItemIcon>
+                      <ListItemText>
+                        {pullFromRemoteMutation.isPending ? 'Pulling...' : 'Pull'}
+                      </ListItemText>
+                    </MenuItem>
+
+                    <MenuItem
+                      onClick={() => {
+                        handleMenuClose()
+                        handlePushPull()
+                      }}
+                      disabled={pushPullMutation.isPending}
+                    >
+                      <ListItemIcon>
+                        <ArrowUpDown size={16} />
+                      </ListItemIcon>
+                      <ListItemText>
+                        {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                      </ListItemText>
+                    </MenuItem>
+                  </>
                 )}
               </Menu>
             </Box>

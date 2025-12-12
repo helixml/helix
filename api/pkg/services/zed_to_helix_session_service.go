@@ -322,6 +322,9 @@ func (s *ZedToHelixSessionService) createSessionPair(
 	parentWorkSession *types.SpecTaskWorkSession,
 	creationMethod string,
 ) (*types.SpecTaskWorkSession, *types.Session, error) {
+	// Get the code agent runtime from the spec task's app
+	codeAgentRuntime := s.getCodeAgentRuntimeForSpecTask(ctx, specTask)
+
 	// Create Helix session first
 	helixSession := &types.Session{
 		ID:      system.GenerateSessionID(),
@@ -332,12 +335,13 @@ func (s *ZedToHelixSessionService) createSessionPair(
 		Created: time.Now(),
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:     "zed_external", // Single agent type for entire workflow
-			SpecTaskID:    creationContext.SpecTaskID,
-			SessionRole:   "implementation",
-			ZedThreadID:   creationContext.ZedThreadID,
-			ZedInstanceID: creationContext.ZedInstanceID,
-			SystemPrompt:  s.generateSystemPrompt(creationContext, specTask),
+			AgentType:        "zed_external", // Single agent type for entire workflow
+			SpecTaskID:       creationContext.SpecTaskID,
+			SessionRole:      "implementation",
+			ZedThreadID:      creationContext.ZedThreadID,
+			ZedInstanceID:    creationContext.ZedInstanceID,
+			SystemPrompt:     s.generateSystemPrompt(creationContext, specTask),
+			CodeAgentRuntime: codeAgentRuntime, // Store for thread resume
 		},
 	}
 
@@ -729,6 +733,45 @@ func (s *ZedToHelixSessionService) OnZedThreadSpawned(
 }
 
 // Helper functions
+
+// getCodeAgentRuntimeForSpecTask looks up the spec task's app and extracts the CodeAgentRuntime.
+// This is stored in the session metadata so we can send the correct agent_name in open_thread commands.
+func (s *ZedToHelixSessionService) getCodeAgentRuntimeForSpecTask(ctx context.Context, specTask *types.SpecTask) types.CodeAgentRuntime {
+	if specTask.HelixAppID == "" {
+		log.Debug().Str("spec_task_id", specTask.ID).Msg("Spec task has no HelixAppID, defaulting to zed_agent runtime")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	app, err := s.store.GetApp(ctx, specTask.HelixAppID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", specTask.ID).
+			Str("helix_app_id", specTask.HelixAppID).
+			Msg("Failed to get app for code agent runtime, defaulting to zed_agent")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	// Find the zed_external assistant in the app config
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			if assistant.CodeAgentRuntime != "" {
+				log.Debug().
+					Str("spec_task_id", specTask.ID).
+					Str("helix_app_id", specTask.HelixAppID).
+					Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
+					Msg("Found code agent runtime from app config")
+				return assistant.CodeAgentRuntime
+			}
+			break
+		}
+	}
+
+	log.Debug().
+		Str("spec_task_id", specTask.ID).
+		Str("helix_app_id", specTask.HelixAppID).
+		Msg("No code agent runtime configured in app, defaulting to zed_agent")
+	return types.CodeAgentRuntimeZedAgent
+}
 
 func extractStringFromData(data map[string]interface{}, key string, defaultValue string) string {
 	if value, ok := data[key].(string); ok {

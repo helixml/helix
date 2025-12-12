@@ -332,6 +332,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleMaximize}
           sx={{
             display: 'flex',
             justifyContent: 'space-between',

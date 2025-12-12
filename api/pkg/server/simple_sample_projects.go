@@ -30,11 +30,11 @@ type SimpleSampleProject struct {
 
 // SampleTaskPrompt follows Kiro's approach - just natural language prompts
 type SampleTaskPrompt struct {
-	Prompt      string   `json:"prompt"`      // Natural language request
-	Priority    string   `json:"priority"`    // "low", "medium", "high", "critical"
-	Labels      []string `json:"labels"`      // Tags for organization
-	Context     string   `json:"context"`     // Additional context about the codebase
-	Constraints string   `json:"constraints"` // Any specific constraints or requirements
+	Prompt      string                 `json:"prompt"`      // Natural language request
+	Priority    types.SpecTaskPriority `json:"priority"`    // "low", "medium", "high", "critical"
+	Labels      []string               `json:"labels"`      // Tags for organization
+	Context     string                 `json:"context"`     // Additional context about the codebase
+	Constraints string                 `json:"constraints"` // Any specific constraints or requirements
 }
 
 // SIMPLE_SAMPLE_PROJECTS - realistic projects with natural prompts like Kiro expects

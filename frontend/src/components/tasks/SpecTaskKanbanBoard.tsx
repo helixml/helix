@@ -84,6 +84,52 @@ import { useSampleTypes } from '../../hooks/useSampleTypes';
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
 type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
+// Helper function to map backend status to frontend phase
+// IMPORTANT: This must be used consistently everywhere to prevent tasks from disappearing
+function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed'; hasSpecs: boolean } {
+  let phase: SpecTaskPhase = 'backlog';
+  let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+  let hasSpecs = status !== 'backlog';
+
+  // Spec generation phase
+  if (status === 'spec_generation') {
+    phase = 'planning';
+    planningStatus = 'active';
+  }
+  // Spec review/revision phase
+  else if (status === 'spec_review' || status === 'spec_revision') {
+    phase = 'review';
+    planningStatus = 'pending_review';
+  }
+  // Implementation phase (all implementation-related statuses)
+  else if (
+    status === 'spec_approved' ||
+    status === 'implementation_queued' ||
+    status === 'implementation' ||
+    status === 'implementing' ||
+    status === 'implementation_review' ||
+    status === 'implementation_failed'
+  ) {
+    phase = 'implementation';
+    planningStatus = 'completed';
+  }
+  // Completed phase
+  else if (status === 'done' || status === 'completed') {
+    phase = 'completed';
+    planningStatus = 'completed';
+  }
+  // Failed spec generation - show in backlog with error state
+  else if (status === 'spec_failed') {
+    phase = 'backlog';
+    planningStatus = 'failed';
+    hasSpecs = false; // Allow it to show in backlog column
+  }
+  // Default: backlog (for 'backlog' status and any unknown status)
+  // hasSpecs is already set based on status !== 'backlog'
+
+  return { phase, planningStatus, hasSpecs };
+}
+
 interface SpecTaskWithExtras extends SpecTask {
   hasSpecs: boolean;
   phase: SpecTaskPhase;
@@ -134,8 +180,9 @@ const DroppableColumn: React.FC<{
   onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
   focusTaskId?: string;
+  archivingTaskId?: string | null;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -156,6 +203,7 @@ const DroppableColumn: React.FC<{
         onReviewDocs={onReviewDocs}
         projectId={projectId}
         focusStartPlanning={task.id === focusTaskId}
+        isArchiving={task.id === archivingTaskId}
       />
     );
   };
@@ -295,8 +343,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const theme = useTheme();
   const api = useApi();
   const account = useAccount();
-  
-  console.log('🔥 KANBAN COMPONENT MOUNTED with props:', { userId });
+
+  // Track initial load to avoid showing loading spinner on refreshes
+  const hasLoadedOnceRef = React.useRef(false);
 
   // State
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
@@ -307,6 +356,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [showArchived, setShowArchived] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
+  const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
 
   // Design review viewer state
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
@@ -411,7 +461,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     const loadTasks = async () => {
       try {
-        setLoading(true);
+        // Only show loading spinner on initial load
+        // This prevents the board from disappearing during refreshes
+        if (!hasLoadedOnceRef.current) {
+          setLoading(true);
+        }
         const response = await api.get('/api/v1/spec-tasks', {
           params: {
             project_id: projectId || 'default',
@@ -422,33 +476,16 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
-        // Better phase mapping based on actual status
+        // Use consistent phase mapping helper
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
-          let phase: SpecTaskPhase = 'backlog';
-          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-          if (task.status === 'spec_generation') {
-            phase = 'planning';
-            planningStatus = 'active';
-          } else if (task.status === 'spec_review') {
-            phase = 'review';
-            planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'done' || task.status === 'completed') {
-            phase = 'completed';
-            planningStatus = 'completed';
-          }
+          const { phase, planningStatus: mappedStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
 
           // Check for errors in metadata (tasks stay in backlog with error)
-          if (task.status === 'backlog' && task.metadata?.error) {
-            planningStatus = 'failed';
-          }
+          const planningStatus = (task.status === 'backlog' && task.metadata?.error) ? 'failed' : mappedStatus;
 
           return {
             ...task,
-            hasSpecs: task.status !== 'backlog',
+            hasSpecs,
             phase,
             planningStatus,
             activeSessionsCount: 0,
@@ -458,6 +495,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         });
 
         setTasks(enhancedTasks);
+        hasLoadedOnceRef.current = true;
       } catch (err) {
         console.error('Failed to load tasks:', err);
         setError('Failed to load tasks');
@@ -485,32 +523,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
+        // Use consistent phase mapping helper
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
-          let phase: SpecTaskPhase = 'backlog';
-          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-          if (task.status === 'spec_generation') {
-            phase = 'planning';
-            planningStatus = 'active';
-          } else if (task.status === 'spec_review') {
-            phase = 'review';
-            planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'done' || task.status === 'completed') {
-            phase = 'completed';
-            planningStatus = 'completed';
-          }
-
-          // Check for errors in metadata (tasks stay in backlog with error)
-          if (task.status === 'backlog' && task.metadata?.error) {
-            planningStatus = 'failed';
-          }
+          const { phase, planningStatus: mappedStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
+          const planningStatus = (task.status === 'backlog' && task.metadata?.error) ? 'failed' : mappedStatus;
 
           return {
             ...task,
-            hasSpecs: task.status !== 'backlog',
+            hasSpecs,
             phase,
             planningStatus,
             activeSessionsCount: 0,
@@ -530,9 +550,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Update sample types when data loads
   useEffect(() => {
-    console.log('Raw sampleTypesData:', sampleTypesData);
-    if (sampleTypesData && sampleTypesData.length > 0) {
-      console.log('Setting sample types:', sampleTypesData);
+    if (sampleTypesData && sampleTypesData.length > 0) {      
       setSampleTypes(sampleTypesData);
     }
   }, [sampleTypesData]);
@@ -581,30 +599,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           const tasksData = refreshResponse.data || refreshResponse;
           const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
           
+          // Use consistent phase mapping helper
           const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
-            let phase: SpecTaskPhase = 'backlog';
-            let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-            
-            if (task.status === 'spec_generation') {
-              phase = 'planning';
-              planningStatus = 'active';
-            } else if (task.status === 'spec_review') {
-              phase = 'review';
-              planningStatus = 'pending_review';
-            } else if (task.status === 'spec_approved') {
-              phase = 'implementation';
-              planningStatus = 'completed';
-            } else if (task.status === 'implementing') {
-              phase = 'implementation';
-              planningStatus = 'completed';
-            } else if (task.status === 'done' || task.status === 'completed') {
-              phase = 'completed';
-              planningStatus = 'completed';
-            }
-            
+            const { phase, planningStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
+
             return {
               ...task,
-              hasSpecs: task.status !== 'backlog',
+              hasSpecs,
               phase,
               planningStatus,
               activeSessionsCount: 0,
@@ -818,6 +819,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Actually perform the archive operation (called after confirmation or for unarchive)
   const performArchive = async (task: SpecTaskWithExtras, archived: boolean) => {
+    setArchivingTaskId(task.id!);
     try {
       await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, { archived });
 
@@ -832,30 +834,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const tasksData = response.data || response;
       const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
+      // Use consistent phase mapping helper
       const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-        let phase: SpecTaskPhase = 'backlog';
-        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-        if (t.status === 'spec_generation') {
-          phase = 'planning';
-          planningStatus = 'active';
-        } else if (t.status === 'spec_review') {
-          phase = 'review';
-          planningStatus = 'pending_review';
-        } else if (t.status === 'spec_approved') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'implementing') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'done' || t.status === 'completed') {
-          phase = 'completed';
-          planningStatus = 'completed';
-        }
+        const { phase, planningStatus, hasSpecs } = mapStatusToPhase(t.status || 'backlog');
 
         return {
           ...t,
-          hasSpecs: t.status === 'spec_approved' || t.status === 'implementing' || t.status === 'done' || t.status === 'completed',
+          hasSpecs,
           planningStatus,
           phase,
           activeSessionsCount: 0,
@@ -867,6 +852,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     } catch (error) {
       console.error('Failed to archive task:', error);
       setError('Failed to archive task');
+    } finally {
+      setArchivingTaskId(null);
     }
   };
 
@@ -897,30 +884,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
+        // Use consistent phase mapping helper
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-          let phase: SpecTaskPhase = 'backlog';
-          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-          if (t.status === 'spec_generation') {
-            phase = 'planning';
-            planningStatus = 'active';
-          } else if (t.status === 'spec_review') {
-            phase = 'review';
-            planningStatus = 'pending_review';
-          } else if (t.status === 'spec_approved') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (t.status === 'implementing') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (t.status === 'done' || t.status === 'completed') {
-            phase = 'completed';
-            planningStatus = 'completed';
-          }
+          const { phase, planningStatus, hasSpecs } = mapStatusToPhase(t.status || 'backlog');
 
           return {
             ...t,
-            hasSpecs: t.status !== 'backlog',
+            hasSpecs,
             phase,
             planningStatus,
             activeSessionsCount: 0,
@@ -1247,6 +1217,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onReviewDocs={handleReviewDocs}
             projectId={projectId}
             focusTaskId={focusTaskId}
+            archivingTaskId={archivingTaskId}
             theme={theme}
           />
         ))}
@@ -1368,11 +1339,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             Cancel
           </Button>
           <Button
-            onClick={async () => {
+            onClick={() => {
               if (taskToArchive) {
+                // Close dialog immediately so user can continue working
                 setArchiveConfirmOpen(false);
-                await performArchive(taskToArchive, true);
+                const task = taskToArchive;
                 setTaskToArchive(null);
+                // Fire off archive (spinner shows on card via archivingTaskId)
+                performArchive(task, true);
               }
             }}
             variant="contained"

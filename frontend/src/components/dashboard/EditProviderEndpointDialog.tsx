@@ -69,6 +69,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
+    name: endpoint?.name || '',
     base_url: endpoint?.base_url || '',
     api_key: '',
     api_key_file: endpoint?.api_key_file || '',
@@ -84,11 +85,12 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   React.useEffect(() => {
     if (endpoint) {
       // Convert headers object to array format
-      const headersArray = endpoint.headers 
+      const headersArray = endpoint.headers
         ? Object.entries(endpoint.headers).map(([key, value]) => ({ key, value }))
         : [];
-      
-      setFormData({       
+
+      setFormData({
+        name: endpoint.name,
         base_url: endpoint.base_url,
         api_key: '',
         api_key_file: endpoint.api_key_file || '',
@@ -155,6 +157,11 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   };
 
   const validateForm = useCallback(() => {
+    if (!formData.name.trim()) {
+      setError('Name is required');
+      return false;
+    }
+
     if (!formData.base_url.trim()) {
       setError('Base URL is required');
       return false;
@@ -191,6 +198,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
       });
 
       const body = {
+        name: formData.name,
         base_url: formData.base_url,
         api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
         api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
@@ -209,6 +217,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
 
   const handleClose = () => {
     setFormData({
+      name: endpoint?.name || '',
       base_url: endpoint?.base_url || '',
       api_key: '',
       api_key_file: endpoint?.api_key_file || '',
@@ -233,10 +242,22 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
           <TextField
             name="id"
             label="Endpoint ID"
-            value={endpoint.id}            
-            fullWidth            
-            autoComplete="off"            
+            value={endpoint.id}
+            fullWidth
+            autoComplete="off"
             disabled
+          />
+
+          <TextField
+            name="name"
+            label="Name"
+            value={formData.name}
+            onChange={handleTextFieldChange}
+            fullWidth
+            required
+            autoComplete="off"
+            placeholder="my-provider"
+            helperText="A unique name to identify this provider endpoint"
           />
 
           <TextField

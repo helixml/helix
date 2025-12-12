@@ -29,6 +29,8 @@ import GitHubIcon from '@mui/icons-material/GitHub'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
 import CommentIcon from '@mui/icons-material/Comment'
+import ShareIcon from '@mui/icons-material/Share'
+import CheckIcon from '@mui/icons-material/Check'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -59,6 +61,8 @@ import CommentLogSidebar from './CommentLogSidebar'
 import ReviewActionFooter from './ReviewActionFooter'
 import ReviewSubmitDialog from './ReviewSubmitDialog'
 import RejectDesignDialog from './RejectDesignDialog'
+import { useSpecTask } from '../../services/specTaskService'
+import { TypesSpecTaskStatus } from '../../api/api'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -135,12 +139,17 @@ export default function DesignReviewViewer({
   const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(new Set(['requirements']))
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(new Map())
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null)
   const markdownRef = useRef<HTMLDivElement>(null)
   const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const { data: task } = useSpecTask(specTaskId, {
+    enabled: !!specTaskId && open,    
+  })
 
   // First fetch comments to know if we should poll for review updates
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId, {
@@ -207,6 +216,15 @@ export default function DesignReviewViewer({
     if (documentRef.current) {
       documentRef.current.scrollTop = 0
     }
+  }
+
+  // Handle share link - copy shareable URL to clipboard
+  const handleShareLink = () => {
+    const shareUrl = `${window.location.origin}/design-doc/${specTaskId}/${reviewId}`
+    navigator.clipboard.writeText(shareUrl)
+    setShareLinkCopied(true)
+    setTimeout(() => setShareLinkCopied(false), 2000)
+    snackbar.success('Share link copied to clipboard')
   }
 
   // Debug logging
@@ -848,6 +866,19 @@ export default function DesignReviewViewer({
     })
   }
 
+  // Double-click on title bar toggles maximize
+  const handleTitleBarDoubleClick = useCallback(() => {
+    if (position === 'full') {
+      // Restore to center/floating
+      setPosition('center')
+      setIsSnapped(false)
+    } else {
+      // Maximize to full screen
+      setPosition('full')
+      setIsSnapped(true)
+    }
+  }, [position])
+
   // Prevent text selection globally while dragging
   useEffect(() => {
     if (isDragging) {
@@ -1019,6 +1050,7 @@ export default function DesignReviewViewer({
         {/* Draggable Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleTitleBarDoubleClick}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -1028,7 +1060,7 @@ export default function DesignReviewViewer({
             borderBottom: 1,
             borderColor: 'divider',
             bgcolor: 'background.default',
-            cursor: 'move',
+            cursor: position === 'full' ? 'default' : 'move',
             userSelect: 'none',
           }}
         >
@@ -1049,6 +1081,13 @@ export default function DesignReviewViewer({
           </Box>
 
           <Box display="flex" alignItems="center" gap={1}>
+            {/* Share Link Button */}
+            <Tooltip title={shareLinkCopied ? 'Link copied!' : 'Copy shareable link'}>
+              <IconButton size="small" onClick={handleShareLink}>
+                {shareLinkCopied ? <CheckIcon color="success" /> : <ShareIcon />}
+              </IconButton>
+            </Tooltip>
+
             {/* Comment Log Toggle */}
             <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)}>
               <Badge badgeContent={activeDocComments.length} color="primary">
@@ -1367,7 +1406,7 @@ export default function DesignReviewViewer({
         </Box>
 
         {/* Global Review Actions Footer */}
-        {review && (
+        {review && task?.status !== TypesSpecTaskStatus.TaskStatusDone && (
           <ReviewActionFooter
             reviewStatus={review.status}
             unresolvedCount={unresolvedCount}

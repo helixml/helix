@@ -104,6 +104,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
   // Low mode uses rapid screenshot polling for video while keeping input via the stream
   // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
+  // Default to 'high' (60fps video) - screenshot mode has app_id issues in lobbies mode
   const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
@@ -124,6 +125,30 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
   const [stats, setStats] = useState<any>(null);
+
+  // Clipboard toast state
+  const [clipboardToast, setClipboardToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+    visible: boolean;
+  }>({ message: '', type: 'success', visible: false });
+  const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Show clipboard toast notification
+  const showClipboardToast = useCallback((message: string, type: 'success' | 'error') => {
+    // Clear any existing timeout
+    if (clipboardToastTimeoutRef.current) {
+      clearTimeout(clipboardToastTimeoutRef.current);
+    }
+
+    setClipboardToast({ message, type, visible: true });
+
+    // Auto-hide after delay (longer for errors so user can read the reason)
+    const hideDelay = type === 'error' ? 4000 : 2000;
+    clipboardToastTimeoutRef.current = setTimeout(() => {
+      setClipboardToast(prev => ({ ...prev, visible: false }));
+    }, hideDelay);
+  }, []);
   const lastBytesRef = useRef<{ bytes: number; timestamp: number } | null>(null);
 
   const helixApi = useApi();
@@ -131,6 +156,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Connect to stream
   const connect = useCallback(async () => {
+    // Generate fresh UUID for EVERY connection attempt
+    // This prevents Wolf session ID conflicts when reconnecting to the same Helix session
+    // (Wolf requires unique client_unique_id per connection to avoid stale state corruption)
+    componentInstanceIdRef.current = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+
     setIsConnecting(true);
     setError(null);
     setStatus('Connecting to streaming server...');
@@ -289,10 +323,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           qualitySessionId
         );
 
-        // Set canvas for WebSocket stream rendering (skip in low mode - screenshots provide video)
-        // In low mode, stream is only used for input, not video rendering
-        if (canvasRef.current && qualityMode !== 'low') {
-          stream.setCanvas(canvasRef.current);
+        // Set canvas for WebSocket stream rendering
+        if (canvasRef.current) {
+          if (qualityMode !== 'low') {
+            // Normal mode: stream renders frames to canvas
+            stream.setCanvas(canvasRef.current);
+          } else {
+            // Low/screenshot mode: stream is only used for input, not video rendering
+            // But we still need to set canvas dimensions for proper mouse coordinate mapping
+            // (getStreamRect uses canvas.width/height to calculate aspect ratio)
+            canvasRef.current.width = 1920;
+            canvasRef.current.height = 1080;
+          }
         }
       } else if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
@@ -559,10 +601,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
-  // Reconnect
-  const reconnect = useCallback(() => {
+  // Reconnect with configurable delay
+  // Mode switches need longer delay to wait for moonlight-web cleanup (up to 15s)
+  // Normal reconnects (errors, user-initiated) can be faster
+  const reconnect = useCallback((delayMs = 1000) => {
     disconnect();
-    setTimeout(connect, 1000);
+    setTimeout(connect, delayMs);
   }, [disconnect, connect]);
 
   // Toggle fullscreen
@@ -590,11 +634,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const previousStreamingModeRef = useRef<StreamingMode>(streamingMode);
 
   // Reconnect when streaming mode changes (user toggled the transport)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
+  // moonlight-web cleanup can take up to 15s (host.cancel() HTTP call), but 5s covers typical cases
   useEffect(() => {
     if (previousStreamingModeRef.current !== streamingMode) {
       console.log('[MoonlightStreamViewer] Streaming mode changed from', previousStreamingModeRef.current, 'to', streamingMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       previousStreamingModeRef.current = streamingMode;
-      reconnect();
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [streamingMode, reconnect]);
 
@@ -602,9 +649,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const previousQualityModeRef = useRef<'adaptive' | 'high' | 'low'>(qualityMode);
 
   // Reconnect when quality mode changes (user toggled fps/quality)
+  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
   useEffect(() => {
     if (previousQualityModeRef.current !== qualityMode) {
       console.log('[MoonlightStreamViewer] Quality mode changed from', previousQualityModeRef.current, 'to', qualityMode);
+      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       previousQualityModeRef.current = qualityMode;
       // Update fallback state immediately for UI feedback
       setIsOnFallback(qualityMode === 'low');
@@ -612,25 +661,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // This allows adaptive mode to start fresh and evaluate latency again
       setAdaptiveLockedToScreenshots(false);
       setAdaptiveScreenshotEnabled(false);
-      reconnect();
+      reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [qualityMode, reconnect]);
 
   // Detect lobby changes and reconnect (for test script restart scenarios)
+  // Uses 5-second delay to wait for moonlight-web cleanup before connecting to new lobby
   useEffect(() => {
     if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
       console.log('[MoonlightStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', wolfLobbyId);
-      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby');
-      reconnect();
+      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby (5s delay)');
+      reconnect(5000); // 5 seconds for lobby switches to allow cleanup
     }
     previousLobbyIdRef.current = wolfLobbyId;
   }, [wolfLobbyId, reconnect]);
 
-  // Auto-connect on mount
+  // Auto-connect when wolfLobbyId becomes available
+  // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
+  // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  const hasConnectedRef = useRef(false);
   useEffect(() => {
+    // Only auto-connect once
+    if (hasConnectedRef.current) return;
+
+    // If wolfLobbyId prop is expected but not yet loaded, wait for it
+    // We detect this by checking if sessionId is provided (external agent mode)
+    // In this mode, wolfLobbyId should be provided by the parent once session data loads
+    if (sessionId && !isPersonalDevEnvironment && !wolfLobbyId) {
+      console.log('[MoonlightStreamViewer] Waiting for wolfLobbyId to load before connecting...');
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Auto-connecting with wolfLobbyId:', wolfLobbyId);
+    hasConnectedRef.current = true;
     connect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps intentional - only connect once on mount
+  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1095,6 +1160,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             framesDropped: wsStats.framesDropped,
             rttMs: wsStats.rttMs,                                              // RTT in ms
             isHighLatency: wsStats.isHighLatency,                              // High latency flag
+            // Batching stats for congestion visibility
+            batchingRatio: wsStats.batchingRatio,                              // % of frames batched
+            avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
+            batchesReceived: wsStats.batchesReceived,                          // Total batches
+            // Frame latency and decoder queue (new metrics for debugging)
+            frameLatencyMs: wsStats.frameLatencyMs,                            // Actual frame delivery delay
+            batchingRequested: wsStats.batchingRequested,                      // Client requested batching
+            decodeQueueSize: wsStats.decodeQueueSize,                          // Decoder queue depth
+            maxDecodeQueueSize: wsStats.maxDecodeQueueSize,                    // Peak queue size
           },
           connection: {
             transport: `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
@@ -1360,6 +1434,88 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         lastEscapeTime = now;
       }
 
+      // Intercept copy keystrokes for clipboard sync (cross-platform)
+      const isCtrlC = event.ctrlKey && !event.shiftKey && event.code === 'KeyC';
+      const isCmdC = event.metaKey && !event.shiftKey && event.code === 'KeyC';
+      const isCtrlShiftC = event.ctrlKey && event.shiftKey && event.code === 'KeyC';
+      const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
+      const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
+
+      if (isCopyKeystroke && sessionId) {
+        // Send the copy keystroke to remote first
+        console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
+        const input = streamRef.current?.getInput();
+        if (input) {
+          // Forward Ctrl+C to remote
+          const ctrlCDown = new KeyboardEvent('keydown', {
+            code: 'KeyC',
+            key: 'c',
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyDown(ctrlCDown);
+
+          const ctrlCUp = new KeyboardEvent('keyup', {
+            code: 'KeyC',
+            key: 'c',
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyUp(ctrlCUp);
+        }
+
+        // Wait briefly for remote clipboard to update, then sync back to local
+        setTimeout(async () => {
+          try {
+            const apiClient = helixApi.getApiClient();
+            const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+            const clipboardData: TypesClipboardData = response.data;
+
+            if (!clipboardData || !clipboardData.type || !clipboardData.data) {
+              console.log('[Clipboard] Remote clipboard empty after copy');
+              showClipboardToast('Copied', 'success');
+              return;
+            }
+
+            if (clipboardData.type === 'image') {
+              const base64Data = clipboardData.data;
+              const byteCharacters = atob(base64Data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: 'image/png' });
+
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]);
+              console.log(`[Clipboard] Synced image from remote (${byteArray.length} bytes)`);
+            } else if (clipboardData.type === 'text') {
+              await navigator.clipboard.writeText(clipboardData.data);
+              console.log(`[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`);
+            }
+
+            lastRemoteClipboardHash.current = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
+            showClipboardToast('Copied', 'success');
+          } catch (err) {
+            console.error('[Clipboard] Failed to sync clipboard after copy:', err);
+            // Still show success - the remote copy likely worked even if sync failed
+            showClipboardToast('Copied', 'success');
+          }
+        }, 300); // Wait 300ms for remote clipboard to update
+
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       // Intercept paste keystrokes for clipboard sync (cross-platform)
       const isCtrlV = event.ctrlKey && !event.shiftKey && event.code === 'KeyV';
       const isCmdV = event.metaKey && !event.shiftKey && event.code === 'KeyV';
@@ -1379,6 +1535,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         navigator.clipboard.read().then(clipboardItems => {
           if (clipboardItems.length === 0) {
             console.warn('[Clipboard] Empty clipboard, ignoring paste');
+            showClipboardToast('Clipboard is empty', 'error');
             return;
           }
 
@@ -1403,9 +1560,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             });
           } else {
             console.warn('[Clipboard] Unsupported clipboard type:', item.types);
+            showClipboardToast(`Unsupported clipboard type: ${item.types.join(', ')}`, 'error');
           }
         }).catch(err => {
           console.error('[Clipboard] Failed to read clipboard:', err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showClipboardToast(`Paste failed: ${errMsg}`, 'error');
         });
 
         // Helper function to sync clipboard and forward keystroke
@@ -1413,6 +1573,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           const apiClient = helixApi.getApiClient();
           apiClient.v1ExternalAgentsClipboardCreate(sessionId, payload).then(() => {
             console.log(`[Clipboard] Synced ${payload.type} to remote`);
+            showClipboardToast('Pasted', 'success');
 
             // Forward the SAME keystroke the user pressed:
             // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
@@ -1445,6 +1606,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
           }).catch(err => {
             console.error('[Clipboard] Failed to sync clipboard:', err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            showClipboardToast(`Paste failed: ${errMsg}`, 'error');
           });
         };
 
@@ -1463,6 +1626,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[MoonlightStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
+
+      // Suppress keyup for copy keystrokes (we synthesize complete keydown+keyup in handleKeyDown)
+      const isCtrlC = event.ctrlKey && !event.shiftKey && event.code === 'KeyC';
+      const isCmdC = event.metaKey && !event.shiftKey && event.code === 'KeyC';
+      const isCtrlShiftC = event.ctrlKey && event.shiftKey && event.code === 'KeyC';
+      const isCmdShiftC = event.metaKey && event.shiftKey && event.code === 'KeyC';
+      const isCopyKeystroke = isCtrlC || isCmdC || isCtrlShiftC || isCmdShiftC;
+
+      if (isCopyKeystroke) {
+        // Suppress keyup for copy - we already sent complete keydown+keyup in clipboard handler
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
@@ -1713,6 +1890,43 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
+      {/* Disconnected Overlay - prominent reconnection indicator */}
+      {!isConnecting && !isConnected && !error && retryCountdown === null && !showLoadingOverlay && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 1500,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <CircularProgress size={48} sx={{ color: 'warning.main' }} />
+          <Typography variant="h6" sx={{ color: 'white' }}>
+            Connecting...
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+            {status || 'Attempting to reconnect...'}
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={reconnect}
+            startIcon={<Refresh />}
+            sx={{ mt: 2 }}
+          >
+            Reconnect Now
+          </Button>
+        </Box>
+      )}
+
       {/* Status Overlay */}
       {(isConnecting || error || retryCountdown !== null) && (
         <Box
@@ -1827,12 +2041,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           src={screenshotUrl}
           alt="Remote Desktop Screenshot"
           style={{
-            width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
-            height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+            width: '100%',
+            height: '100%',
             position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
+            left: 0,
+            top: 0,
             objectFit: 'contain',
             pointerEvents: 'none', // Allow clicks to pass through to canvas for input
             zIndex: 10, // Above canvas but below UI elements
@@ -1908,6 +2121,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                     {stats.video.isHighLatency && <span style={{ color: '#ff9800' }}> ⚠️ High latency</span>}
                   </div>
                 )}
+                {/* Batching stats (WebSocket mode) - shows congestion handling */}
+                {streamingMode === 'websocket' && stats.video.batchingRatio !== undefined && (
+                  <div>
+                    <strong>Batching:</strong> {stats.video.batchingRatio > 0
+                      ? `${stats.video.batchingRatio}% (avg ${stats.video.avgBatchSize?.toFixed(1) || 0} frames/batch)`
+                      : 'OFF'}
+                    {stats.video.batchingRatio > 0 && <span style={{ color: '#ff9800' }}> 📦</span>}
+                    {stats.video.batchingRequested && <span style={{ color: '#ff9800' }}> (requested)</span>}
+                  </div>
+                )}
+                {/* Frame latency (WebSocket mode) - actual delivery delay based on PTS */}
+                {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
+                {streamingMode === 'websocket' && stats.video.frameLatencyMs !== undefined && (
+                  <div>
+                    <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
+                    {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
+                    {stats.video.frameLatencyMs < -500 && <span style={{ color: '#4caf50' }}> (buffered)</span>}
+                  </div>
+                )}
+                {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
+                {streamingMode === 'websocket' && stats.video.decodeQueueSize !== undefined && (
+                  <div>
+                    <strong>Decode Queue:</strong> {stats.video.decodeQueueSize}
+                    {stats.video.maxDecodeQueueSize > 3 && (
+                      <span style={{ color: '#888' }}> (peak: {stats.video.maxDecodeQueueSize})</span>
+                    )}
+                    {stats.video.decodeQueueSize > 3 && <span style={{ color: '#ff6b6b' }}> ⚠️ Backed up</span>}
+                  </div>
+                )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
                 {streamingMode === 'webrtc' && (
                   <>
@@ -1946,6 +2188,39 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           onClose={() => setShowKeyboardPanel(false)}
         />
       )}
+
+      {/* Clipboard Toast Notification */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 40,
+          left: '50%',
+          transform: `translateX(-50%) translateY(${clipboardToast.visible ? '0' : '20px'})`,
+          zIndex: 2500,
+          backgroundColor: clipboardToast.type === 'success'
+            ? 'rgba(46, 125, 50, 0.95)'
+            : 'rgba(211, 47, 47, 0.95)',
+          color: 'white',
+          padding: '8px 20px',
+          borderRadius: 2,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+          opacity: clipboardToast.visible ? 1 : 0,
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          whiteSpace: 'nowrap',
+          maxWidth: '80%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {clipboardToast.type === 'success' ? '✓' : '✕'} {clipboardToast.message}
+      </Box>
     </Box>
   );
 };

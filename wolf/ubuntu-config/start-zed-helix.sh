@@ -1,6 +1,8 @@
 #!/bin/bash
 # Startup script for Zed editor connected to Helix controlplane (Ubuntu GNOME version)
-set -e
+#
+# Don't use set -e here - we need to handle failures gracefully
+# set -e
 
 # Redirect all output to log file AND stdout (using tee)
 STARTUP_LOG="$HOME/.helix-startup.log"
@@ -64,6 +66,10 @@ else
     echo "Git user.email: agent@helix.ml (default)"
 fi
 
+# Configure git to use merge commits (not rebase) for concurrent agent work
+git config --global pull.rebase false
+echo "Git pull strategy: merge (for concurrent agent compatibility)"
+
 # Configure git credentials for HTTP operations (MUST happen before cloning!)
 # Use user's API token for RBAC-enforced git operations
 if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
@@ -110,10 +116,31 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
-        # If already cloned, skip (preserve agent's work)
+        # If already cloned, pull latest .helix/startup.sh (preserve agent's other work)
         # This is important for SpecTask workflow: planning -> implementation reuses same workspace
         if [ -d "$CLONE_DIR/.git" ]; then
-            echo "  Already cloned at $CLONE_DIR (skipping)"
+            echo "  ✅ Already cloned at $CLONE_DIR"
+            echo "  📥 Fetching latest startup script..."
+            if git -C "$CLONE_DIR" fetch origin 2>&1; then
+                # Use get_default_branch function (handles Azure DevOps repos)
+                if type get_default_branch &>/dev/null; then
+                    DEFAULT_BRANCH=$(get_default_branch "$CLONE_DIR")
+                else
+                    # Fallback if helper not loaded
+                    DEFAULT_BRANCH=$(git -C "$CLONE_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+                    if [ -z "$DEFAULT_BRANCH" ]; then
+                        DEFAULT_BRANCH="main"
+                    fi
+                fi
+                echo "  📍 Default branch: $DEFAULT_BRANCH"
+                if git -C "$CLONE_DIR" checkout "origin/$DEFAULT_BRANCH" -- .helix/startup.sh 2>/dev/null; then
+                    echo "  ✅ Updated startup script from origin/$DEFAULT_BRANCH"
+                else
+                    echo "  ℹ️  No startup script changes to pull (or file doesn't exist)"
+                fi
+            else
+                echo "  ⚠️  Failed to fetch latest changes (continuing with cached version)"
+            fi
             continue
         fi
 
@@ -493,6 +520,29 @@ else
     for folder in "${ZED_FOLDERS[@]}"; do
         echo "  - $(basename "$folder")"
     done
+fi
+
+# Launch ACP log viewer in gnome-terminal (for debugging agent issues)
+# This runs in background and provides visibility into Qwen Code/agent behavior
+if [ "$SHOW_ACP_DEBUG_LOGS" = "true" ] || [ -n "$HELIX_DEBUG" ]; then
+    echo "Starting ACP log viewer in gnome-terminal..."
+    gnome-terminal --class=acp-log-viewer \
+          --title="ACP Agent Logs" \
+          -- bash -c '
+              echo "═══════════════════════════════════════════════════════════════"
+              echo "  ACP Agent Log Viewer - Tailing Zed and Qwen Code logs"
+              echo "═══════════════════════════════════════════════════════════════"
+              echo ""
+              echo "Waiting for Zed logs to appear..."
+              echo ""
+              # Wait for logs directory to exist
+              while [ ! -d ~/.local/share/zed/logs ]; do
+                  sleep 1
+              done
+              # Tail all log files - unfiltered for full visibility
+              tail -F ~/.local/share/zed/logs/*.log 2>/dev/null
+          ' &
+    echo "ACP log viewer started in background"
 fi
 
 # Launch Zed in a restart loop for development

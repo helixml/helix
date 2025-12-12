@@ -87,24 +87,99 @@ return &RetryableClient{
 
 3. **Struct embedding by value**: The `openAIClientInterceptor` embeds `http.Client` by value, and we copy `*httpClient` into it. While the Transport interface value should be preserved, there could be edge cases.
 
-## Fixes Applied
+## Root Cause Confirmed
 
-### 1. Use Clone() for Transport (Already in HEAD, not in 2.5.25)
+**Helm values file misconfiguration - `extraEnv` was at root level instead of under `controlplane:`**
 
+The customer's Helm values file had:
+```yaml
+# WRONG - at root level (ignored by Helm template)
+extraEnv:
+- name: "TOOLS_TLS_SKIP_VERIFY"
+  value: "true"
+- name: "MOONLIGHT_CREDENTIALS"
+  value: "helix"
+```
+
+But the Helm chart expects:
+```yaml
+# CORRECT - under controlplane section
+controlplane:
+  extraEnv:
+  - name: "TOOLS_TLS_SKIP_VERIFY"
+    value: "true"
+```
+
+The template at `charts/helix-controlplane/templates/deployment.yaml:322` uses `.Values.controlplane.extraEnv`:
+```yaml
+{{- with .Values.controlplane.extraEnv }}
+{{- toYaml . | nindent 12 }}
+{{- end }}
+```
+
+Root-level `extraEnv` is completely ignored, so the environment variable was never set on the pod.
+
+### Why MCP Appeared to Work
+
+The `MOONLIGHT_CREDENTIALS` setting appeared to work because there's a fallback default in the code:
 ```go
-// Current HEAD code:
-if opts.TLSSkipVerify {
-    transport := http.DefaultTransport.(*http.Transport).Clone()
-    transport.TLSClientConfig = &tls.Config{
-        InsecureSkipVerify: true,
+// api/pkg/server/moonlight_proxy.go:426-435
+func (apiServer *HelixAPIServer) getMoonlightCredentials() string {
+    creds := os.Getenv("MOONLIGHT_CREDENTIALS")
+    if creds == "" {
+        creds = "helix"  // Default fallback
     }
-    httpClient.Transport = transport
+    return creds
 }
 ```
 
-This preserves default settings (proxy, timeouts, connection pooling) while adding InsecureSkipVerify.
+The customer was setting it to `"helix"`, which is already the default - so it worked by accident, not because the config was being applied.
 
-### 2. Added Diagnostic Logging (This Commit)
+### Earlier Theory (Disproven)
+
+Initially suspected the Clone() fix was missing from 2.5.25, but testing with self-signed certificates proved the 2.5.25 code would have worked correctly IF the environment variable had been set. The code was never the issue - it was the Helm configuration.
+
+## Customer Fix
+
+**Correct the Helm values file indentation:**
+```yaml
+controlplane:
+  extraEnv:
+  - name: "TOOLS_TLS_SKIP_VERIFY"
+    value: "true"
+```
+
+## Defensive Code Improvements (Not the Fix, But Good Practice)
+
+### 1. ALWAYS Clone Transport
+
+Even when TLSSkipVerify is false, we now ALWAYS clone the default transport:
+
+```go
+// Always clone first to preserve all default settings
+transport := http.DefaultTransport.(*http.Transport).Clone()
+
+// Only modify TLS config if skip verify is enabled
+if opts.TLSSkipVerify {
+    transport.TLSClientConfig = &tls.Config{
+        InsecureSkipVerify: true,
+    }
+}
+
+// Create client with the pre-configured transport (never nil)
+httpClient := &http.Client{
+    Timeout:   5 * time.Minute,
+    Transport: transport,
+}
+```
+
+This ensures:
+- Transport is NEVER nil (no reliance on implicit DefaultTransport behavior)
+- Proxy settings from HTTP_PROXY/HTTPS_PROXY are always respected
+- Connection pooling and keep-alive settings are always inherited
+- Enterprise network configurations work correctly
+
+### 3. Added Diagnostic Logging (This Commit)
 
 Added logging at multiple points to diagnose future TLS issues:
 

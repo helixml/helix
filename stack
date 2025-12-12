@@ -20,6 +20,40 @@ PRODUCTION_DESKTOPS=(sway ubuntu)
 AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce)
 # EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
+# Configure host networking for Docker-in-Docker support
+function setup_dev_networking() {
+  echo "🌐 Configuring networking for Docker-in-Docker support..."
+
+  # Check if already configured
+  local NEEDS_SETUP=false
+
+  if [[ $(cat /proc/sys/net/ipv4/conf/all/route_localnet 2>/dev/null) != "1" ]]; then
+    NEEDS_SETUP=true
+  fi
+
+  if [[ "$NEEDS_SETUP" == "true" ]]; then
+    # route_localnet: Allow 127.x.x.x addresses on non-loopback interfaces
+    # Required for localhost:PORT forwarding to container networks via DNAT
+    sudo sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    echo "✅ Docker-in-Docker networking configured (route_localnet, ip_forward)"
+  else
+    echo "✅ Docker-in-Docker networking already configured"
+  fi
+
+  # Also ensure inotify limits are sufficient for Zed file watching
+  local CURRENT_WATCHES=$(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "0")
+  local TARGET_WATCHES=1048576
+
+  if [[ "$CURRENT_WATCHES" -lt "$TARGET_WATCHES" ]]; then
+    echo "📁 Increasing inotify limits for Zed file watching..."
+    sudo sysctl -w fs.inotify.max_user_watches=$TARGET_WATCHES >/dev/null 2>&1 || true
+    sudo sysctl -w fs.inotify.max_user_instances=8192 >/dev/null 2>&1 || true
+    echo "✅ inotify limits increased"
+  fi
+}
+
 # Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
@@ -299,7 +333,8 @@ function build-zed() {
     return 1
   fi
 
-  # Create output directory
+  # Create output directory and ensure we own it
+  # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
   if [ ! -w "$ZED_OUTPUT_DIR" ]; then
     echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable"
@@ -479,6 +514,9 @@ function start() {
 
   export MANUALRUN=1
   export LOG_LEVEL=debug
+
+  # Configure host networking for Docker-in-Docker
+  setup_dev_networking
 
   echo "🐳 Starting docker compose"
 
@@ -965,6 +1003,54 @@ function build-desktop() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
+  # Prepare qwen-code build directory from local fork
+  # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
+  echo "🔨 Preparing qwen-code build from local repository..."
+
+  if [ ! -d "$HOME/pm/qwen-code" ]; then
+    echo "❌ qwen-code not found at $HOME/pm/qwen-code"
+    echo "   Clone it with: cd ~/pm && git clone git@github.com:helixml/qwen-code.git"
+    exit 1
+  fi
+
+  echo "✅ Found qwen-code at $HOME/pm/qwen-code"
+
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "./qwen-code-build/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "./qwen-code-build/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild - compare git hashes to detect ANY changes
+  local NEEDS_REBUILD=false
+  if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+  fi
+
+  if [ "$NEEDS_REBUILD" = "true" ]; then
+    echo "🔨 Building qwen-code from source..."
+    rm -rf ./qwen-code-build
+    (
+      cd "$HOME/pm/qwen-code"
+      npm install
+      npm run build
+    )
+    cp -r "$HOME/pm/qwen-code" ./qwen-code-build
+    # Save the git commit hash for future change detection
+    echo "$QWEN_CODE_HASH" > ./qwen-code-build/.git-commit-hash
+    echo "✅ qwen-code built and copied to ./qwen-code-build (${QWEN_CODE_HASH:0:8})"
+  else
+    echo "✅ Using existing qwen-code build at ./qwen-code-build"
+  fi
+
+  # Log qwen-code commit for Docker cache busting (hash already computed above)
+  echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
+
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
   local COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -973,12 +1059,14 @@ function build-desktop() {
   # Build the desktop image
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
+  # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
   echo "🔨 Building ${IMAGE_NAME}:latest..."
 
   # Registry tagging only for sway (primary production image)
   if [ "$DESKTOP_NAME" = "sway" ] && [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f "$DOCKERFILE" \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -986,13 +1074,15 @@ function build-desktop() {
       .
   elif [ "$DESKTOP_NAME" = "sway" ]; then
     docker build --provenance=false -f "$DOCKERFILE" \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       .
   else
-    # Non-sway desktops: just latest and commit hash tags
+    # Non-sway desktops: just latest and commit hash tags (also with qwen-code)
     docker build --provenance=false -f "$DOCKERFILE" \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       .

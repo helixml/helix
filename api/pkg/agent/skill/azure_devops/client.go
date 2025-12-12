@@ -15,6 +15,11 @@ type AzureDevOpsClient struct { //nolint:revive
 }
 
 func NewAzureDevOpsClientFromApp(app *types.App) (*AzureDevOpsClient, error) {
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		return nil, fmt.Errorf("app %s has no assistants configured", app.ID)
+	}
+
 	// Find credentials in the app spec
 	for _, tool := range app.Config.Helix.Assistants[0].Tools {
 		if tool.Config.AzureDevOps != nil &&

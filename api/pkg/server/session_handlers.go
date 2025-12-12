@@ -535,6 +535,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
 		InteractionID:   lastInteraction.ID,
+		ProjectID:       user.ProjectID,
+		SpecTaskID:      user.SpecTaskID,
 		OriginalRequest: body,
 	})
 
@@ -857,6 +859,8 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 		OwnerID:       ownerID,
 		SessionID:     session.ID,
 		InteractionID: lastInteractionID,
+		ProjectID:     user.ProjectID,
+		SpecTaskID:    user.SpecTaskID,
 	})
 
 	ctx = oai.SetStep(ctx, &oai.Step{
@@ -1292,8 +1296,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Data: map[string]interface{}{
 			"acp_thread_id": session.Metadata.ZedThreadID, // ACP thread ID (null on first message, triggers thread creation)
 			"message":       userMessage,
-			"request_id":    requestID,    // For correlation
-			"agent_name":    agentName,    // Which agent to use (zed-agent or qwen)
+			"request_id":    requestID, // For correlation
+			"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
 			// NOTE: helix_session_id is sent via SyncMessage.SessionID, not in Data
 		},
 	}
@@ -1907,6 +1911,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	if response.WolfLobbyPIN != "" {
 		session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
 	}
+	// CRITICAL: Clear PausedScreenshotPath when resuming
+	// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
+	session.Metadata.PausedScreenshotPath = ""
 	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		log.Error().
@@ -1924,6 +1931,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	// If session has a ZedThreadID, send open_thread command to Zed
 	// This tells Zed to open the last thread in the AgentPanel UI
 	if session.Metadata.ZedThreadID != "" {
+		// Get the agent name from the session's code agent runtime
+		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
+
 		go func() {
 			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
 			// Retry mechanism: try multiple times with delays
@@ -1933,12 +1943,13 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				time.Sleep(retryDelay)
 
-				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID)
+				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
 				if err == nil {
 					// Success - command sent
 					log.Info().
 						Str("session_id", id).
 						Str("thread_id", session.Metadata.ZedThreadID).
+						Str("agent_name", agentName).
 						Int("attempt", attempt).
 						Msg("✅ Sent open_thread command to Zed")
 					return
@@ -1977,8 +1988,10 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 }
 
 // sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
-// to tell it to open a specific thread in the AgentPanel UI
-func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string) error {
+// to tell it to open a specific thread in the AgentPanel UI.
+// agentName specifies which ACP agent to use (e.g., "qwen", "claude", "gemini", "codex")
+// or empty string for NativeAgent (Zed's built-in agent).
+func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string, agentName string) error {
 	// Find the external agent WebSocket connection
 	conn, exists := s.externalAgentWSManager.getConnection(sessionID)
 	if !exists {
@@ -1986,11 +1999,17 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 	}
 
 	// Create the open_thread command
+	data := map[string]interface{}{
+		"acp_thread_id": acpThreadID,
+	}
+	// Only include agent_name if it's set (ACP agents need this, NativeAgent doesn't)
+	if agentName != "" {
+		data["agent_name"] = agentName
+	}
+
 	command := types.ExternalAgentCommand{
 		Type: "open_thread",
-		Data: map[string]interface{}{
-			"acp_thread_id": acpThreadID,
-		},
+		Data: data,
 	}
 
 	// Send the command via WebSocket
@@ -1999,6 +2018,7 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 		log.Info().
 			Str("session_id", sessionID).
 			Str("acp_thread_id", acpThreadID).
+			Str("agent_name", agentName).
 			Msg("📤 Queued open_thread command for Zed")
 		return nil
 	default:

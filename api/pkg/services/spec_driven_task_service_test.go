@@ -31,15 +31,16 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
+		nil, // gitRepositoryService not needed for tests
 	)
 	service.SetTestMode(true)
 
 	ctx := context.Background()
-	req := &CreateTaskRequest{
+	req := &types.CreateTaskRequest{
 		ProjectID: "test-project",
 		Prompt:    "Create a user authentication system",
 		Type:      "feature",
-		Priority:  "high",
+		Priority:  types.SpecTaskPriorityHigh,
 		UserID:    "test-user",
 	}
 
@@ -51,7 +52,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 			assert.Equal(t, types.TaskStatusBacklog, task.Status)
 			assert.Equal(t, "test-user", task.CreatedBy)
 			assert.Equal(t, "feature", task.Type)
-			assert.Equal(t, "high", task.Priority)
+			assert.Equal(t, types.SpecTaskPriorityHigh, task.Priority)
 			return nil
 		},
 	)
@@ -89,6 +90,7 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
+		nil, // gitRepositoryService not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -145,6 +147,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
+		nil, // gitRepositoryService not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -216,6 +219,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
 		nil, // registerRequestMapping not needed for tests
+		nil, // gitRepositoryService not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -258,12 +262,12 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil, nil)
 	agent := service.selectZedAgent()
 	assert.Equal(t, "agent1", agent)
 
 	// Test with no agents
-	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil)
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil, nil)
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)

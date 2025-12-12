@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/helixml/helix/api/pkg/store"
@@ -22,15 +23,20 @@ func TestCreateFileAndBrowseTree(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	testDir := t.TempDir()
-	repoPath := filepath.Join(testDir, "test-repo")
+	bareRepoPath := filepath.Join(testDir, "test-repo.git")
+	tempWorkPath := filepath.Join(testDir, "temp-work")
 
-	repo, err := git.PlainInit(repoPath, false)
+	bareRepo, err := git.PlainInit(bareRepoPath, true)
 	require.NoError(t, err)
 
-	worktree, err := repo.Worktree()
+	require.NoError(t, os.MkdirAll(tempWorkPath, 0755))
+	workRepo, err := git.PlainInit(tempWorkPath, false)
 	require.NoError(t, err)
 
-	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test Repo"), 0644))
+	worktree, err := workRepo.Worktree()
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "README.md"), []byte("# Test Repo"), 0644))
 	_, err = worktree.Add("README.md")
 	require.NoError(t, err)
 
@@ -42,17 +48,26 @@ func TestCreateFileAndBrowseTree(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	headRef, err := repo.Head()
+	_, err = workRepo.CreateRemote(&config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{bareRepoPath},
+	})
+	require.NoError(t, err)
+
+	err = workRepo.Push(&git.PushOptions{RemoteName: "origin"})
+	require.NoError(t, err)
+
+	headRef, err := bareRepo.Head()
 	require.NoError(t, err)
 
 	masterRef := plumbing.NewBranchReferenceName("master")
-	err = repo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
+	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
 	require.NoError(t, err)
 
 	repoID := "test-repo-id"
 	gitRepo := &types.GitRepository{
 		ID:            repoID,
-		LocalPath:     repoPath,
+		LocalPath:     bareRepoPath,
 		DefaultBranch: "master",
 	}
 
@@ -109,15 +124,20 @@ func TestBranchIsolation(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	testDir := t.TempDir()
-	repoPath := filepath.Join(testDir, "test-repo")
+	bareRepoPath := filepath.Join(testDir, "test-repo.git")
+	tempWorkPath := filepath.Join(testDir, "temp-work")
 
-	repo, err := git.PlainInit(repoPath, false)
+	bareRepo, err := git.PlainInit(bareRepoPath, true)
 	require.NoError(t, err)
 
-	worktree, err := repo.Worktree()
+	require.NoError(t, os.MkdirAll(tempWorkPath, 0755))
+	workRepo, err := git.PlainInit(tempWorkPath, false)
 	require.NoError(t, err)
 
-	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Test Repo"), 0644))
+	worktree, err := workRepo.Worktree()
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tempWorkPath, "README.md"), []byte("# Test Repo"), 0644))
 	_, err = worktree.Add("README.md")
 	require.NoError(t, err)
 
@@ -129,17 +149,26 @@ func TestBranchIsolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	headRef, err := repo.Head()
+	_, err = workRepo.CreateRemote(&config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{bareRepoPath},
+	})
+	require.NoError(t, err)
+
+	err = workRepo.Push(&git.PushOptions{RemoteName: "origin"})
+	require.NoError(t, err)
+
+	headRef, err := bareRepo.Head()
 	require.NoError(t, err)
 
 	masterRef := plumbing.NewBranchReferenceName("master")
-	err = repo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
+	err = bareRepo.Storer.SetReference(plumbing.NewHashReference(masterRef, headRef.Hash()))
 	require.NoError(t, err)
 
 	repoID := "test-repo-id"
 	gitRepo := &types.GitRepository{
 		ID:            repoID,
-		LocalPath:     repoPath,
+		LocalPath:     bareRepoPath,
 		DefaultBranch: "master",
 	}
 

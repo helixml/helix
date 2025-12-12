@@ -218,6 +218,21 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateCloneGroup mocks base method.
+func (m *MockStore) CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCloneGroup", ctx, group)
+	ret0, _ := ret[0].(*types.CloneGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateCloneGroup indicates an expected call of CreateCloneGroup.
+func (mr *MockStoreMockRecorder) CreateCloneGroup(ctx, group any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCloneGroup", reflect.TypeOf((*MockStore)(nil).CreateCloneGroup), ctx, group)
+}
+
 // CreateCrispThread mocks base method.
 func (m *MockStore) CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error) {
 	m.ctrl.T.Helper()
@@ -1721,18 +1736,18 @@ func (mr *MockStoreMockRecorder) GenerateRandomState(ctx any) *gomock.Call {
 }
 
 // GetAPIKey mocks base method.
-func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
+func (m *MockStore) GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
+	ret := m.ctrl.Call(m, "GetAPIKey", ctx, q)
 	ret0, _ := ret[0].(*types.ApiKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAPIKey indicates an expected call of GetAPIKey.
-func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetAPIKey(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, q)
 }
 
 // GetAccessGrantRoleBindings mocks base method.
@@ -1913,6 +1928,36 @@ func (m *MockStore) GetAppWithTools(ctx context.Context, id string) (*types.App,
 func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
+}
+
+// GetCloneGroup mocks base method.
+func (m *MockStore) GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCloneGroup", ctx, id)
+	ret0, _ := ret[0].(*types.CloneGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCloneGroup indicates an expected call of GetCloneGroup.
+func (mr *MockStoreMockRecorder) GetCloneGroup(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCloneGroup", reflect.TypeOf((*MockStore)(nil).GetCloneGroup), ctx, id)
+}
+
+// GetCloneGroupProgress mocks base method.
+func (m *MockStore) GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCloneGroupProgress", ctx, groupID)
+	ret0, _ := ret[0].(*types.CloneGroupProgress)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCloneGroupProgress indicates an expected call of GetCloneGroupProgress.
+func (mr *MockStoreMockRecorder) GetCloneGroupProgress(ctx, groupID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCloneGroupProgress", reflect.TypeOf((*MockStore)(nil).GetCloneGroupProgress), ctx, groupID)
 }
 
 // GetCommentByInteractionID mocks base method.
@@ -3085,6 +3130,21 @@ func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
 }
 
+// IncrementProjectTaskNumber mocks base method.
+func (m *MockStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementProjectTaskNumber", ctx, projectID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementProjectTaskNumber indicates an expected call of IncrementProjectTaskNumber.
+func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
+}
+
 // IncrementWolfSandboxCount mocks base method.
 func (m *MockStore) IncrementWolfSandboxCount(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -3233,6 +3293,21 @@ func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.Ap
 func (mr *MockStoreMockRecorder) ListApps(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListApps), ctx, q)
+}
+
+// ListCloneGroupsForTask mocks base method.
+func (m *MockStore) ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCloneGroupsForTask", ctx, taskID)
+	ret0, _ := ret[0].([]*types.CloneGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCloneGroupsForTask indicates an expected call of ListCloneGroupsForTask.
+func (mr *MockStoreMockRecorder) ListCloneGroupsForTask(ctx, taskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCloneGroupsForTask", reflect.TypeOf((*MockStore)(nil).ListCloneGroupsForTask), ctx, taskID)
 }
 
 // ListDataEntities mocks base method.
@@ -3535,6 +3610,21 @@ func (m *MockStore) ListQuestionSets(ctx context.Context, req *types.ListQuestio
 func (mr *MockStoreMockRecorder) ListQuestionSets(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListQuestionSets", reflect.TypeOf((*MockStore)(nil).ListQuestionSets), ctx, req)
+}
+
+// ListReposWithoutProjects mocks base method.
+func (m *MockStore) ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListReposWithoutProjects", ctx, organizationID)
+	ret0, _ := ret[0].([]*types.GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListReposWithoutProjects indicates an expected call of ListReposWithoutProjects.
+func (mr *MockStoreMockRecorder) ListReposWithoutProjects(ctx, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReposWithoutProjects", reflect.TypeOf((*MockStore)(nil).ListReposWithoutProjects), ctx, organizationID)
 }
 
 // ListRoles mocks base method.

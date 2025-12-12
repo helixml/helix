@@ -131,6 +131,8 @@ type SearchUsersQuery struct {
 type GetAggregatedUsageMetricsQuery struct {
 	UserID         string
 	OrganizationID string
+	ProjectID      string
+	SpecTaskID     string
 	From           time.Time
 	To             time.Time
 }
@@ -235,7 +237,7 @@ type Store interface {
 
 	// api keys
 	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
@@ -473,6 +475,13 @@ type Store interface {
 	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
 	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
 
+	// Clone Group methods
+	CreateCloneGroup(ctx context.Context, group *types.CloneGroup) (*types.CloneGroup, error)
+	GetCloneGroup(ctx context.Context, id string) (*types.CloneGroup, error)
+	ListCloneGroupsForTask(ctx context.Context, taskID string) ([]*types.CloneGroup, error)
+	GetCloneGroupProgress(ctx context.Context, groupID string) (*types.CloneGroupProgress, error)
+	ListReposWithoutProjects(ctx context.Context, organizationID string) ([]*types.GitRepository, error)
+
 	// External Agent Activity methods (idle detection)
 	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
 	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
@@ -549,6 +558,9 @@ type Store interface {
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, repoID string) error
 	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
+	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+	// Used to assign unique task numbers for human-readable design doc paths
+	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)

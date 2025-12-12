@@ -8,7 +8,6 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { Plus, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -175,7 +174,8 @@ const Projects: FC = () => {
     name: string,
     type: TypesExternalRepositoryType,
     username?: string,
-    password?: string
+    password?: string,
+    azureDevOps?: TypesAzureDevOps
   ): Promise<TypesGitRepository | null> => {
     if (!url.trim() || !account.user?.id) return null
 
@@ -192,15 +192,18 @@ const Projects: FC = () => {
         external_type: type,
         username,
         password,
+        azure_devops: azureDevOps,
       })
 
       // Invalidate repo queries (use base key to match all variants)
       await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
 
       return response.data
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to link repository:', error)
-      return null
+      // Re-throw with the actual error message so the dialog can display it
+      const message = error?.response?.data?.message || error?.response?.data || error?.message || 'Failed to link repository'
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message))
     }
   }
 
