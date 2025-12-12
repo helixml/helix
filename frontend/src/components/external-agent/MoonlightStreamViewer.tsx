@@ -2128,10 +2128,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Frame latency (WebSocket mode) - actual delivery delay based on PTS */}
+                {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
                 {streamingMode === 'websocket' && stats.video.frameLatencyMs !== undefined && (
                   <div>
-                    <strong>Frame Latency:</strong> {stats.video.frameLatencyMs.toFixed(0)} ms
-                    {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Slow</span>}
+                    <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
+                    {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
+                    {stats.video.frameLatencyMs < -500 && <span style={{ color: '#4caf50' }}> (buffered)</span>}
                   </div>
                 )}
                 {/* Decoder queue (WebSocket mode) - detects if decoder can't keep up */}
