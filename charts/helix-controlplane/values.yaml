@@ -286,7 +286,6 @@ kodit:
           image:
             repository: registry.helixml.tech/helix/kodit
             tag: latest  # Replace with a version from https://github.com/helixml/kodit/releases.
-          
           # Replace this with your own secret.
           envFrom:
             - secretRef:
@@ -296,21 +295,6 @@ kodit:
             DATA_DIR: /data
             DB_URL: postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-kodit-vectorchord:5432/$(POSTGRES_DB)
             DEFAULT_SEARCH_PROVIDER: vectorchord
-
-            # External helix enrichment provider
-            ENRICHMENT_ENDPOINT_BASE_URL: http://{{ .Release.Name }}:80/v1
-            ENRICHMENT_ENDPOINT_MODEL: hosted_vllm/Qwen/Qwen3-8B
-            ENRICHMENT_ENDPOINT_API_KEY: ""
-            ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS: 4
-            ENRICHMENT_ENDPOINT_TIMEOUT: 300
-
-            # Sync configuration
-            SYNC_PERIODIC_ENABLED: true
-            SYNC_PERIODIC_INTERVAL_SECONDS: 1800  # 30 minutes
-            SYNC_PERIODIC_RETRY_ATTEMPTS: 3
-
-            LOG_LEVEL: INFO # INFO or DEBUG
-            LOG_FORMAT: json
 
     vectorchord:
       enabled: true

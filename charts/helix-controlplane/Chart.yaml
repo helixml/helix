@@ -36,4 +36,4 @@ dependencies:
   - name: kodit
     condition: kodit.enabled
     repository: https://helixml.github.io/kodit
-    version: 0.1.0
+    version: 0.1.1
