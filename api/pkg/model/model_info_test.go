@@ -36,20 +36,6 @@ func Test_GetOpus45(t *testing.T) {
 	assert.Equal(t, "0.000025", modelInfo.Pricing.Completion)
 }
 
-func Test_GetOpus_4_5(t *testing.T) {
-	b, err := NewBaseModelInfoProvider()
-	assert.NoError(t, err)
-
-	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
-		Provider: "anthropic",
-		Model:    "anthropic/claude-opus-4-5",
-	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, "Anthropic: Claude Opus 4.5", modelInfo.Name)
-	assert.Equal(t, "0.000025", modelInfo.Pricing.Completion)
-}
-
 func Test_GetGptOSS20B(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)
