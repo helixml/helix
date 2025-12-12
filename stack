@@ -3,6 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export PROJECTS_ROOT="$(dirname "$DIR")"
 export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
@@ -214,8 +215,8 @@ function build() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     # Check for Zed dependency and build if needed
-    if [ ! -d "../zed" ]; then
-      echo "❌ ERROR: Zed source code not found at ../zed/"
+    if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+      echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
       echo ""
       echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
       echo ""
@@ -302,7 +303,7 @@ function build-zed() {
   # ====================================================================
   echo "🔨 Building Zed with External WebSocket Thread Sync (Docker build)..."
 
-  local ZED_SOURCE_DIR="../zed"
+  local ZED_SOURCE_DIR="$PROJECTS_ROOT/zed"
   local ZED_OUTPUT_DIR="./zed-build"
   local BUILD_TYPE="${1:-dev}"
 
@@ -473,13 +474,13 @@ function start() {
   fi
 
   # Check for Zed dependency and build if needed
-  if [ ! -d "../zed" ]; then
-    echo "❌ ERROR: Zed source code not found at ../zed/"
+  if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+    echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
     echo ""
     echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/helixml/zed.git"
     echo "  cd helix"
     echo "  ./stack start"
@@ -768,12 +769,10 @@ function stop() {
 
 function up() {
   # Check if Wolf source code exists, if not clone it
-  if [ ! -d "../wolf" ]; then
-    echo "🐺 Wolf source code not found at ../wolf/"
+  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
+    echo "🐺 Wolf source code not found at $PROJECTS_ROOT/wolf/"
     echo "📥 Cloning Wolf repository..."
-    cd ..
-    git clone https://github.com/games-on-whales/wolf.git
-    cd helix
+    git clone https://github.com/games-on-whales/wolf.git "$PROJECTS_ROOT/wolf"
     echo "✅ Wolf repository cloned successfully"
   fi
 
@@ -897,13 +896,13 @@ function build-wolf() {
   echo "🐺 Building Wolf container with latest source code..."
 
   # Check if Wolf source directory exists
-  if [ ! -d "../wolf" ]; then
-    echo "❌ ERROR: Wolf source code not found at ../wolf/"
+  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
+    echo "❌ ERROR: Wolf source code not found at $PROJECTS_ROOT/wolf/"
     echo ""
     echo "The Wolf integration requires the Wolf source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
     echo "  ./stack build-wolf"
@@ -915,7 +914,7 @@ function build-wolf() {
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
   echo "🔨 Building Wolf container from source..."
-  cd ../wolf
+  cd "$PROJECTS_ROOT/wolf"
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
@@ -943,6 +942,127 @@ function build-wolf() {
   # Note: Wolf image is an intermediate build artifact, embedded in helix-sandbox
   # It's not pushed to registry separately - only the sandbox container is pushed
   # Wolf runs inside the sandbox container now, not as a standalone service
+}
+
+function build-qwen-code() {
+  # ====================================================================
+  # Build Qwen Code inside container for consistent, reproducible builds
+  # ====================================================================
+  # This avoids issues with host npm/node versions and husky prepare scripts.
+  # The build produces a pre-bundled qwen-code that can be installed globally
+  # in the sway container without triggering prepare hooks.
+  # ====================================================================
+  echo "📦 Building Qwen Code (containerized build)..."
+
+  local QWEN_SOURCE_DIR="$PROJECTS_ROOT/qwen-code"
+  local QWEN_OUTPUT_DIR="./qwen-code-build"
+
+  # Check if qwen-code source directory exists
+  if [ ! -d "$QWEN_SOURCE_DIR" ]; then
+    echo "❌ qwen-code source directory not found at: $QWEN_SOURCE_DIR"
+    echo "Clone it next to helix with: cd $PROJECTS_ROOT && git clone git@github.com:helixml/qwen-code.git"
+    return 1
+  fi
+
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$QWEN_SOURCE_DIR" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "$QWEN_OUTPUT_DIR/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "$QWEN_OUTPUT_DIR/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild
+  local NEEDS_REBUILD=false
+  if [ ! -d "$QWEN_OUTPUT_DIR" ] || [ ! -f "$QWEN_OUTPUT_DIR/package.json" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ ! -d "$QWEN_OUTPUT_DIR/dist" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code dist directory missing (bundle not built)"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+  fi
+
+  if [ "$NEEDS_REBUILD" != "true" ]; then
+    echo "✅ Using existing qwen-code build at $QWEN_OUTPUT_DIR (${SAVED_HASH:0:8})"
+    return 0
+  fi
+
+  echo "🐳 Building qwen-code inside Node.js 20 container..."
+  echo "   Source: $QWEN_SOURCE_DIR"
+  echo "   Output: $QWEN_OUTPUT_DIR"
+
+  # Build the builder image if needed
+  if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
+    echo "📦 Building qwen-code-builder:node20 image (first time only)..."
+    docker build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build qwen-code-builder:node20 image"
+      return 1
+    fi
+  fi
+
+  # Setup npm cache for faster rebuilds
+  local NPM_CACHE="$HOME/.npm-docker-cache"
+  mkdir -p "$NPM_CACHE"
+
+  # Create output directory
+  mkdir -p "$QWEN_OUTPUT_DIR"
+  if [ ! -w "$QWEN_OUTPUT_DIR" ]; then
+    echo "⚠️  $QWEN_OUTPUT_DIR exists but is not writable"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$QWEN_OUTPUT_DIR"
+  fi
+
+  # Get absolute paths
+  local QWEN_ABS_PATH=$(cd "$QWEN_SOURCE_DIR" && pwd)
+  local OUTPUT_ABS_PATH=$(cd "$QWEN_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build..."
+
+  # Run build inside container
+  # 1. npm ci --ignore-scripts: Install deps without running prepare hook
+  # 2. npm run bundle: Build the dist/ directory manually
+  # Then copy the required files to output
+  docker run --rm \
+    -v "$QWEN_ABS_PATH:/qwen-code:ro" \
+    -v "$NPM_CACHE:/root/.npm" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /build \
+    qwen-code-builder:node20 \
+    bash -c '
+      set -e
+      echo "📋 Copying source to build directory..."
+      cp -r /qwen-code/. /build/
+
+      echo "📦 Installing dependencies (skipping prepare scripts)..."
+      npm ci --ignore-scripts
+
+      echo "🔨 Building bundle..."
+      npm run bundle
+
+      echo "📤 Copying build artifacts to output..."
+      # Copy everything needed for npm install -g
+      cp -r package.json package-lock.json dist/ /output/
+      # Copy packages directory (workspaces)
+      cp -r packages/ /output/ 2>/dev/null || true
+      # Copy node_modules (required for workspaces to work)
+      cp -r node_modules/ /output/
+
+      echo "✅ Build complete!"
+    '
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
+    return 1
+  fi
+
+  # Save the git commit hash for future change detection
+  echo "$QWEN_CODE_HASH" > "$QWEN_OUTPUT_DIR/.git-commit-hash"
+
+  echo "✅ qwen-code built successfully (${QWEN_CODE_HASH:0:8})"
+  echo "📦 Output: $QWEN_OUTPUT_DIR"
 }
 
 function build-xfce() {
@@ -1003,52 +1123,15 @@ function build-desktop() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
-  # Prepare qwen-code build directory from local fork
+  # Build qwen-code using containerized build (avoids husky/prepare script issues)
   # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
-  echo "🔨 Preparing qwen-code build from local repository..."
-
-  if [ ! -d "$HOME/pm/qwen-code" ]; then
-    echo "❌ qwen-code not found at $HOME/pm/qwen-code"
-    echo "   Clone it with: cd ~/pm && git clone git@github.com:helixml/qwen-code.git"
+  if ! build-qwen-code; then
+    echo "❌ Failed to build qwen-code"
     exit 1
   fi
 
-  echo "✅ Found qwen-code at $HOME/pm/qwen-code"
-
-  # Get current qwen-code git commit hash
-  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
-  local SAVED_HASH=""
-  if [ -f "./qwen-code-build/.git-commit-hash" ]; then
-    SAVED_HASH=$(cat "./qwen-code-build/.git-commit-hash")
-  fi
-
-  # Check if we need to rebuild - compare git hashes to detect ANY changes
-  local NEEDS_REBUILD=false
-  if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
-    NEEDS_REBUILD=true
-    echo "📦 qwen-code-build directory missing or incomplete"
-  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
-    NEEDS_REBUILD=true
-    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
-  fi
-
-  if [ "$NEEDS_REBUILD" = "true" ]; then
-    echo "🔨 Building qwen-code from source..."
-    rm -rf ./qwen-code-build
-    (
-      cd "$HOME/pm/qwen-code"
-      npm install
-      npm run build
-    )
-    cp -r "$HOME/pm/qwen-code" ./qwen-code-build
-    # Save the git commit hash for future change detection
-    echo "$QWEN_CODE_HASH" > ./qwen-code-build/.git-commit-hash
-    echo "✅ qwen-code built and copied to ./qwen-code-build (${QWEN_CODE_HASH:0:8})"
-  else
-    echo "✅ Using existing qwen-code build at ./qwen-code-build"
-  fi
-
-  # Log qwen-code commit for Docker cache busting (hash already computed above)
+  # Get qwen-code hash for Docker cache busting
+  local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
   # Capture image hash BEFORE build to detect if it actually changed
@@ -1270,13 +1353,13 @@ function build-moonlight-web() {
   echo "🌙 Building Moonlight Web container..."
 
   # Check if moonlight-web source directory exists
-  if [ ! -d "../moonlight-web-stream" ]; then
-    echo "❌ ERROR: Moonlight Web source code not found at ../moonlight-web-stream/"
+  if [ ! -d "$PROJECTS_ROOT/moonlight-web-stream" ]; then
+    echo "❌ ERROR: Moonlight Web source code not found at $PROJECTS_ROOT/moonlight-web-stream/"
     echo ""
     echo "The Moonlight Web integration requires the source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
     echo "  cd helix"
     echo "  ./stack build-moonlight-web"
@@ -1295,7 +1378,7 @@ function build-moonlight-web() {
   else
     echo "🔨 Building Moonlight Web container from source (DEBUG MODE)..."
   fi
-  cd ../moonlight-web-stream
+  cd "$PROJECTS_ROOT/moonlight-web-stream"
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
@@ -1560,7 +1643,7 @@ function build-sandbox() {
 # - wolf: wolf-ui-working (adds client_unique_id for secure auto-join)
 # - moonlight-web-stream: feature/kickoff (threads Wolf client_id through stack)
 # - zed: feature/external-thread-sync (external agent WebSocket sync support)
-# Verify branches before running: cd ../wolf && git branch --show-current
+# Verify branches before running: cd $PROJECTS_ROOT/wolf && git branch --show-current
 function build-and-push-helix-code() {
   # Optional: pass a tag override as first argument to force tagging even if commit doesn't match
   local TAG_OVERRIDE="${1:-}"
@@ -1830,7 +1913,7 @@ function test-integration() {
 # Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
 
 function ollama-sync() {
-  local OLLAMA_PATH="../ollama"
+  local OLLAMA_PATH="$PROJECTS_ROOT/ollama"
   local TARGET_DIR="api/pkg/ollamav11"
 
   # Check if we're in the right directory (should have api/ subdirectory)
