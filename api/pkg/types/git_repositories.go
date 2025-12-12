@@ -117,6 +117,7 @@ type GitRepositoryUpdateRequest struct {
 	ExternalType  ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
 	AzureDevOps   *AzureDevOps           `json:"azure_devops,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	KoditIndexing *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)
 }
 
 type ListGitRepositoriesRequest struct {
