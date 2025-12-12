@@ -7,6 +7,6 @@ dependencies:
   version: 2.31.4
 - name: kodit
   repository: https://helixml.github.io/kodit
-  version: 0.1.0
-digest: sha256:d63bc9357451ffba95f9791faf351db77139fece90915ef5157ec805e9ea21f3
-generated: "2025-12-11T18:12:57.941388756+01:00"
+  version: 0.1.1
+digest: sha256:30909d593a8124e7e749168db7528e4ec5124271d360955d4500e3be61ed9d2c
+generated: "2025-12-12T15:56:52.311600865+01:00"

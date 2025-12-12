@@ -148,20 +148,6 @@ controlplane:
     # existingSecret: "huggingface-token"
     # existingSecretTokenKey: "token"  # defaults to "token" if not specified
 
-  # Keycloak configuration
-  keycloak:
-    # Internal Keycloak service URL
-    url: "http://keycloak:80/auth"
-    # frontendUrl defaults to global.serverUrl + "/auth" if not specified
-    # frontendUrl: "https://helix.mydomain.com/auth"
-    user: "admin"
-    password: "your-secure-keycloak-admin-password"
-
-    # Option: Use existing secret for Keycloak credentials
-    # existingSecret: "keycloak-auth-secret"
-    # existingSecretUserKey: "user"      # defaults to "user" if not specified
-    # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
-
   # Admin configuration
   admin:
     # Where to source admin users from: "env" or "keycloak"
@@ -458,9 +444,3 @@ typesense:
 # and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
 kodit:
   enabled: true
-  controllers:
-    kodit:
-      containers:
-        kodit:
-          env:
-            ENRICHMENT_ENDPOINT_API_KEY: "your-secure-runner-token-here"
