@@ -177,14 +177,6 @@ services:
       - DATA_DIR=/data
       - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
-      # External enrichment provider (TogetherAI direct)
-      # TODO: Switch to Helix proxy once we figure out litellm model name format
-      # Should be: ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1 with runner token
-      # Currently fails with "model not found" - need to investigate Helix model routing
-      - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
-      - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
-      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
-      - ENRICHMENT_ENDPOINT_TIMEOUT=120
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
       - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
