@@ -1385,6 +1385,32 @@ EOF
             echo "✓ inotify limits already sufficient (watches=$CURRENT_WATCHES, instances=$CURRENT_INSTANCES)"
         fi
     fi
+
+    # Configure networking for Docker-in-Docker localhost forwarding
+    # route_localnet allows 127.x.x.x addresses to be routed to non-loopback interfaces
+    # This is required for DNAT rules that forward localhost:PORT to container networks
+    echo "Configuring networking for Docker-in-Docker support..."
+
+    # Apply immediately
+    sudo sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+    sudo sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+    # Make permanent via sysctl.d
+    SYSCTL_NET_CONF="/etc/sysctl.d/99-helix-networking.conf"
+    if [ ! -f "$SYSCTL_NET_CONF" ] || ! grep -q "route_localnet" "$SYSCTL_NET_CONF"; then
+        cat << EOF | sudo tee "$SYSCTL_NET_CONF" > /dev/null
+# Helix Code: Networking configuration for Docker-in-Docker
+# route_localnet: Allow 127.x.x.x addresses on non-loopback interfaces
+# Required for localhost:PORT forwarding to container networks via DNAT
+net.ipv4.conf.all.route_localnet = 1
+net.ipv4.conf.default.route_localnet = 1
+net.ipv4.ip_forward = 1
+EOF
+        echo "✓ Docker-in-Docker networking configured and persisted to $SYSCTL_NET_CONF"
+    else
+        echo "✓ Docker-in-Docker networking already configured in $SYSCTL_NET_CONF"
+    fi
 fi
 
 # Create installation directories (platform-specific)

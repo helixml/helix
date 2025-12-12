@@ -697,6 +697,11 @@ export interface ServerPushPullResponse {
   success?: boolean;
 }
 
+export interface ServerQuickCreateProjectRequest {
+  name?: string;
+  repo_id?: string;
+}
+
 export interface ServerSampleProject {
   /** "web", "api", "mobile", "data", "ai" */
   category?: string;
@@ -737,7 +742,7 @@ export interface ServerSampleTaskPrompt {
   /** Tags for organization */
   labels?: string[];
   /** "low", "medium", "high", "critical" */
-  priority?: string;
+  priority?: TypesSpecTaskPriority;
   /** Natural language request */
   prompt?: string;
 }
@@ -856,7 +861,7 @@ export interface ServerTaskSpecsResponse {
   spec_approved_at?: string;
   spec_approved_by?: string;
   spec_revision_count?: number;
-  status?: string;
+  status?: TypesSpecTaskStatus;
   task_id?: string;
   technical_design?: string;
 }
@@ -963,20 +968,6 @@ export enum ServicesCoordinationEventType {
   CoordinationEventTypeBroadcast = "broadcast",
   CoordinationEventTypeCompletion = "completion",
   CoordinationEventTypeSpawn = "spawn",
-}
-
-export interface ServicesCreateTaskRequest {
-  /** Optional: Helix agent to use for spec generation */
-  app_id?: string;
-  /** Optional: Skip spec planning, go straight to implementation */
-  just_do_it_mode?: boolean;
-  priority?: string;
-  project_id?: string;
-  prompt?: string;
-  type?: string;
-  /** Optional: Use host Docker socket (requires privileged sandbox) */
-  use_host_docker?: boolean;
-  user_id?: string;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -1470,6 +1461,10 @@ export interface TypesApiKey {
   name?: string;
   owner?: string;
   owner_type?: TypesOwnerType;
+  /** Used for isolation and metrics tracking */
+  project_id?: string;
+  /** Used for isolation and metrics tracking */
+  spec_task_id?: string;
   type?: TypesAPIKeyType;
 }
 
@@ -1799,6 +1794,80 @@ export interface TypesClipboardData {
   type?: string;
 }
 
+export interface TypesCloneGroup {
+  created_at?: string;
+  created_by?: string;
+  id?: string;
+  source_project_id?: string;
+  source_prompt?: string;
+  source_requirements_spec?: string;
+  source_task_id?: string;
+  source_task_name?: string;
+  source_technical_spec?: string;
+  total_targets?: number;
+}
+
+export interface TypesCloneGroupProgress {
+  clone_group_id?: string;
+  completed_tasks?: number;
+  progress_pct?: number;
+  source_task?: TypesCloneGroupSourceTask;
+  /** status -> count */
+  status_breakdown?: Record<string, number>;
+  tasks?: TypesCloneGroupTaskProgress[];
+  total_tasks?: number;
+}
+
+export interface TypesCloneGroupSourceTask {
+  name?: string;
+  project_id?: string;
+  project_name?: string;
+  task_id?: string;
+}
+
+export interface TypesCloneGroupTaskProgress {
+  name?: string;
+  project_id?: string;
+  project_name?: string;
+  status?: string;
+  task_id?: string;
+}
+
+export interface TypesCloneTaskCreateProjectSpec {
+  /** Optional, will use repo name if not provided */
+  name?: string;
+  repo_id?: string;
+}
+
+export interface TypesCloneTaskError {
+  error?: string;
+  project_id?: string;
+  repo_id?: string;
+}
+
+export interface TypesCloneTaskRequest {
+  /** Auto-start cloned tasks */
+  auto_start?: boolean;
+  /** Create new projects for repos */
+  create_projects?: TypesCloneTaskCreateProjectSpec[];
+  target_project_ids?: string[];
+}
+
+export interface TypesCloneTaskResponse {
+  clone_group_id?: string;
+  cloned_tasks?: TypesCloneTaskResult[];
+  errors?: TypesCloneTaskError[];
+  total_cloned?: number;
+  total_failed?: number;
+}
+
+export interface TypesCloneTaskResult {
+  project_id?: string;
+  /** "created", "started", "failed" */
+  status?: string;
+  task_id?: string;
+}
+
 export interface TypesCodeAgentConfig {
   /** AgentName is the name used in Zed's agent_servers config (e.g., "qwen", "claude-code") */
   agent_name?: string;
@@ -1817,6 +1886,9 @@ export interface TypesCodeAgentConfig {
 export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeZedAgent = "zed_agent",
   CodeAgentRuntimeQwenCode = "qwen_code",
+  CodeAgentRuntimeClaudeCode = "claude_code",
+  CodeAgentRuntimeGeminiCLI = "gemini_cli",
+  CodeAgentRuntimeCodexCLI = "codex_cli",
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -1918,6 +1990,20 @@ export interface TypesCreateSampleRepositoryRequest {
   organization_id?: string;
   owner_id?: string;
   sample_type?: string;
+}
+
+export interface TypesCreateTaskRequest {
+  /** Optional: Helix agent to use for spec generation */
+  app_id?: string;
+  /** Optional: Skip spec planning, go straight to implementation */
+  just_do_it_mode?: boolean;
+  priority?: TypesSpecTaskPriority;
+  project_id?: string;
+  prompt?: string;
+  type?: string;
+  /** Optional: Use host Docker socket (requires privileged sandbox) */
+  use_host_docker?: boolean;
+  user_id?: string;
 }
 
 export interface TypesCreateTeamRequest {
@@ -2060,6 +2146,11 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeGitLab = "gitlab",
   ExternalRepositoryTypeADO = "ado",
   ExternalRepositoryTypeBitbucket = "bitbucket",
+}
+
+export interface TypesExternalStatus {
+  commits_ahead?: number;
+  commits_behind?: number;
 }
 
 export enum TypesFeedback {
@@ -2670,12 +2761,14 @@ export interface TypesLLMCall {
   model?: string;
   organization_id?: string;
   original_request?: number[];
+  project_id?: string;
   prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
   response?: number[];
   session_id?: string;
+  spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
   /** Total cost of the call (prompt and completion tokens) */
@@ -2696,6 +2789,7 @@ export enum TypesLLMCallStep {
 
 export interface TypesListCommitsResponse {
   commits?: TypesCommit[];
+  external_status?: TypesExternalStatus;
 }
 
 export interface TypesLoginRequest {
@@ -3094,6 +3188,11 @@ export interface TypesProject {
   id?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
+  /**
+   * Auto-incrementing task number for human-readable directory names
+   * Each SpecTask gets assigned the next number (install-cowsay_1, add-api_2, etc.)
+   */
+  next_task_number?: number;
   organization_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
@@ -3202,6 +3301,20 @@ export interface TypesPullRequest {
   title?: string;
   updated_at?: string;
   url?: string;
+}
+
+export interface TypesPullResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
+export interface TypesPushResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
 }
 
 export interface TypesQuestion {
@@ -3637,6 +3750,8 @@ export interface TypesSessionMetadata {
   /** which assistant are we talking to? */
   assistant_id?: string;
   avatar?: string;
+  /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
+  code_agent_runtime?: TypesCodeAgentRuntime;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -3827,11 +3942,18 @@ export interface TypesSpecTask {
   archived?: boolean;
   /** Git tracking */
   branch_name?: string;
+  /** Groups tasks from same clone operation */
+  clone_group_id?: string;
+  /** Clone tracking */
+  cloned_from_id?: string;
+  /** Original project */
+  cloned_from_project_id?: string;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
   description?: string;
+  design_doc_path?: string;
   /** When design docs were pushed to helix-specs branch */
   design_docs_pushed_at?: string;
   /** Simple tracking */
@@ -3869,9 +3991,10 @@ export interface TypesSpecTask {
    */
   planning_session_id?: string;
   /** "low", "medium", "high", "critical" */
-  priority?: string;
+  priority?: TypesSpecTaskPriority;
   project_id?: string;
   project_path?: string;
+  pull_request_id?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -3881,7 +4004,13 @@ export interface TypesSpecTask {
   spec_revision_count?: number;
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
-  status?: string;
+  status?: TypesSpecTaskStatus;
+  /**
+   * Human-readable directory naming for design docs in helix-specs branch
+   * TaskNumber is auto-assigned from project.NextTaskNumber when task starts
+   * DesignDocPath format: "YYYY-MM-DD_shortname_N" e.g., "2025-12-09_install-cowsay_1"
+   */
+  task_number?: number;
   /** Design document (markdown) */
   technical_design?: string;
   /** "feature", "bug", "refactor" */
@@ -4107,6 +4236,13 @@ export enum TypesSpecTaskPhase {
   SpecTaskPhaseValidation = "validation",
 }
 
+export enum TypesSpecTaskPriority {
+  SpecTaskPriorityLow = "low",
+  SpecTaskPriorityMedium = "medium",
+  SpecTaskPriorityHigh = "high",
+  SpecTaskPriorityCritical = "critical",
+}
+
 export interface TypesSpecTaskProgressResponse {
   active_work_sessions?: TypesSpecTaskWorkSession[];
   /** Progress from tasks.md */
@@ -4120,6 +4256,20 @@ export interface TypesSpecTaskProgressResponse {
   spec_task?: TypesSpecTask;
 }
 
+export enum TypesSpecTaskStatus {
+  TaskStatusBacklog = "backlog",
+  TaskStatusSpecGeneration = "spec_generation",
+  TaskStatusSpecReview = "spec_review",
+  TaskStatusSpecRevision = "spec_revision",
+  TaskStatusSpecApproved = "spec_approved",
+  TaskStatusImplementationQueued = "implementation_queued",
+  TaskStatusImplementation = "implementation",
+  TaskStatusImplementationReview = "implementation_review",
+  TaskStatusDone = "done",
+  TaskStatusSpecFailed = "spec_failed",
+  TaskStatusImplementationFailed = "implementation_failed",
+}
+
 export interface TypesSpecTaskUpdateRequest {
   description?: string;
   /** Agent to use for this task */
@@ -4127,8 +4277,8 @@ export interface TypesSpecTaskUpdateRequest {
   /** Pointer to allow explicit false */
   just_do_it_mode?: boolean;
   name?: string;
-  priority?: string;
-  status?: string;
+  priority?: TypesSpecTaskPriority;
+  status?: TypesSpecTaskStatus;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4569,6 +4719,7 @@ export interface TypesUpdateProviderEndpoint {
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
   models?: string[];
+  name?: string;
 }
 
 export interface TypesUpdateTeamRequest {
@@ -4599,7 +4750,11 @@ export interface TypesUser {
   must_change_password?: boolean;
   /** bcrypt hash of the password */
   password_hash?: number[];
+  /** When running in Helix Code sandbox */
+  project_id?: string;
   sb?: boolean;
+  /** When running in Helix Code sandbox */
+  spec_task_id?: string;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -6051,6 +6206,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get status breakdown and progress of all cloned tasks
+     *
+     * @tags CloneGroups
+     * @name V1CloneGroupsProgressDetail
+     * @summary Get progress of all tasks in a clone group
+     * @request GET:/api/v1/clone-groups/{groupId}/progress
+     * @secure
+     */
+    v1CloneGroupsProgressDetail: (groupId: string, params: RequestParams = {}) =>
+      this.request<TypesCloneGroupProgress, TypesAPIError>({
+        path: `/api/v1/clone-groups/${groupId}/progress`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get config
      *
      * @tags config
@@ -6785,6 +6958,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Pulls latest commits from remote repository
+     *
+     * @tags git-repositories
+     * @name PullFromRemote
+     * @summary Pull from remote repository
+     * @request POST:/api/v1/git/repositories/{id}/pull
+     * @secure
+     */
+    pullFromRemote: (
+      id: string,
+      query: {
+        /** Force pull (default: false) */
+        force: boolean;
+        /** Branch name (required) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPullResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull`,
+        method: "POST",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all pull requests in a repository
      *
      * @tags git-repositories
@@ -6818,6 +7019,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pushes the local branch to the remote repository
+     *
+     * @tags git-repositories
+     * @name PushToRemote
+     * @summary Push to remote repository
+     * @request POST:/api/v1/git/repositories/{id}/push
+     * @secure
+     */
+    pushToRemote: (
+      id: string,
+      query: {
+        /** Branch name */
+        branch: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPushResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/push`,
+        method: "POST",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -8145,6 +8372,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create a minimal project for a repository that doesn't have one
+     *
+     * @tags Projects
+     * @name V1ProjectsQuickCreateCreate
+     * @summary Quick-create a project for a repository
+     * @request POST:/api/v1/projects/quick-create
+     * @secure
+     */
+    v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, TypesAPIError>({
+        path: `/api/v1/projects/quick-create`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -8464,6 +8711,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get all repositories that don't have an associated project
+     *
+     * @tags Repositories
+     * @name V1RepositoriesWithoutProjectsList
+     * @summary List repositories without projects
+     * @request GET:/api/v1/repositories/without-projects
+     * @secure
+     */
+    v1RepositoriesWithoutProjectsList: (
+      query?: {
+        /** Filter by organization ID */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitRepository[], any>({
+        path: `/api/v1/repositories/without-projects`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -9601,6 +9873,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Clone a spec task (with its prompt, spec, and plan) to other projects
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksCloneCreate
+     * @summary Clone a spec task to multiple projects
+     * @request POST:/api/v1/spec-tasks/{taskId}/clone
+     * @secure
+     */
+    v1SpecTasksCloneCreate: (taskId: string, request: TypesCloneTaskRequest, params: RequestParams = {}) =>
+      this.request<TypesCloneTaskResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/clone`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all clone groups where this task was the source
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksCloneGroupsDetail
+     * @summary List clone groups for a task
+     * @request GET:/api/v1/spec-tasks/{taskId}/clone-groups
+     * @secure
+     */
+    v1SpecTasksCloneGroupsDetail: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesCloneGroup[], any>({
+        path: `/api/v1/spec-tasks/${taskId}/clone-groups`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Commit a progress update to git with current implementation status
      *
      * @tags spec-driven-tasks
@@ -10045,7 +10355,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Create spec-driven task from simple prompt
      * @request POST:/api/v1/spec-tasks/from-prompt
      */
-    v1SpecTasksFromPromptCreate: (request: ServicesCreateTaskRequest, params: RequestParams = {}) =>
+    v1SpecTasksFromPromptCreate: (request: TypesCreateTaskRequest, params: RequestParams = {}) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/from-prompt`,
         method: "POST",
@@ -10411,6 +10721,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         to?: string;
         /** Organization ID */
         org_id?: string;
+        /** Project ID */
+        project_id?: string;
+        /** Spec Task ID */
+        spec_task_id?: string;
       },
       params: RequestParams = {},
     ) =>

@@ -321,17 +321,25 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
 		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		// CRITICAL: Use user API token for WebSocket auth, NOT runner token
+		// Runner tokens authenticate as "runner-system" which bypasses user-level RBAC
+		// User tokens ensure proper attribution and RBAC enforcement
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", userAPIToken),
 		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
+		// CRITICAL: Skip TLS certificate verification for enterprise internal CAs
+		// Enterprise deployments use internal CAs that Zed's rustls won't recognize
+		// This allows connections to internal HTTPS URLs without certificate errors
+		"ZED_HELIX_SKIP_TLS_VERIFY=true",
 		"RUST_LOG=info", // Enable Rust logging for Zed
+		// Show ACP debug logs in Kitty window (for debugging agent issues)
+		"SHOW_ACP_DEBUG_LOGS=true",
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
 		// API URL for settings sync daemon and other services
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
-		// Workspace directory for symlink creation (Hydra bind-mount compatibility)
-		// startup-app.sh creates: ln -sf $WORKSPACE_DIR /home/retro/work
+		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
 	}
 
@@ -351,13 +359,14 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 	}
 
 	// Build standard mounts (common to all Sway apps)
-	// CRITICAL: Mount workspace at SAME path for Hydra bind-mount compatibility
-	// When Hydra is enabled, Docker CLI resolves symlinks before sending to daemon.
-	// By mounting at the same path and symlinking /home/retro/work -> workspace path,
-	// user bind-mounts like "docker run -v /home/retro/work/foo:/app" resolve correctly.
+	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility:
+	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
+	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
+	// This eliminates symlink confusion where tools resolve the symlink and get confused.
 	// See: design/2025-12-01-hydra-bind-mount-symlink.md
 	mounts := []string{
 		fmt.Sprintf("%s:%s", config.WorkspaceDir, config.WorkspaceDir),
+		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
 		fmt.Sprintf("%s:/var/run/docker.sock", dockerSocket),
 	}
 
@@ -525,11 +534,11 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	}
 
 	executor := &WolfExecutor{
-		store:                        storeInst,
-		sessions:                     make(map[string]*ZedSession),
-		zedImage:                     zedImage,
-		helixAPIURL:                  helixAPIURL,
-		helixAPIToken:                helixAPIToken,
+		store:                       storeInst,
+		sessions:                    make(map[string]*ZedSession),
+		zedImage:                    zedImage,
+		helixAPIURL:                 helixAPIURL,
+		helixAPIToken:               helixAPIToken,
 		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
 		lobbyCache:                  make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:               5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
@@ -1826,13 +1835,8 @@ func validateDisplayParams(width, height, fps int) error {
 func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
 	// Try in-memory cache first (fast path)
 	w.mutex.RLock()
-	for agentSessionID, session := range w.sessions {
+	for _, session := range w.sessions {
 		if session.HelixSessionID == helixSessionID {
-			log.Debug().
-				Str("helix_session_id", helixSessionID).
-				Str("agent_session_id", agentSessionID).
-				Str("container_hostname", session.ContainerName).
-				Msg("Found external agent container by Helix session ID (in-memory cache)")
 			w.mutex.RUnlock()
 			return session.ContainerName, nil
 		}
@@ -2260,10 +2264,6 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 						// Check for HELIX_SESSION_ID=<session_id>
 						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", sessionID)
 						if envStr == expectedEnv {
-							log.Debug().
-								Str("lobby_id", lobby.ID).
-								Str("session_id", sessionID).
-								Msg("Found existing lobby for session")
 							foundLobbyID = lobby.ID
 							break
 						}

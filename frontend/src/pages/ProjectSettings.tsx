@@ -47,6 +47,7 @@ import HistoryIcon from '@mui/icons-material/History'
 import DescriptionIcon from '@mui/icons-material/Description'
 
 import Page from '../components/system/Page'
+import SavingToast from '../components/widgets/SavingToast'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker'
@@ -341,8 +342,11 @@ const ProjectSettings: FC = () => {
       if (newApp) {
         setSelectedAgentId(newApp.id)
         setShowCreateAgentForm(false)
-        // Auto-save project with new agent
-        await handleSave(true)
+        // Save directly with the new agent ID (don't rely on stale state)
+        await updateProjectMutation.mutateAsync({
+          default_helix_app_id: newApp.id,
+        })
+        snackbar.success('Agent created and set as default')
       }
     } catch (err) {
       console.error('Failed to create agent:', err)
@@ -667,9 +671,12 @@ const ProjectSettings: FC = () => {
                     value={selectedAgentId}
                     label="Select Agent"
                     onChange={(e) => {
-                      setSelectedAgentId(e.target.value)
-                      // Defer save to avoid state race
-                      setTimeout(() => handleSave(false), 0)
+                      const newAgentId = e.target.value
+                      setSelectedAgentId(newAgentId)
+                      // Save immediately with the new value (don't rely on stale state)
+                      updateProjectMutation.mutate({
+                        default_helix_app_id: newAgentId || undefined,
+                      })
                     }}
                     renderValue={(value) => {
                       const app = sortedApps.find(a => a.id === value)
@@ -1224,6 +1231,9 @@ const ProjectSettings: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Saving toast - bottom right indicator */}
+      <SavingToast isSaving={savingProject} />
     </Page>
   )
 }

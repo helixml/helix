@@ -146,16 +146,13 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization }) => {
           </Box>
         </Paper>
       ) : (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          Organization guidelines are only available when viewing an organization workspace.
-          For personal workspaces, you can set project-specific guidelines in each project's settings.
-        </Alert>
+        <></>
       )}
 
       <Divider sx={{ my: 3 }} />
 
       {/* Project Guidelines Info */}
-      <Paper sx={{ p: 3, backgroundColor: 'action.hover' }}>
+      <Paper sx={{ p: 3, backgroundColor: 'transparent', border: '1px solid', borderColor: 'grey.600' }}>
         <Typography variant="h6" sx={{ mb: 1 }}>
           Project-Specific Guidelines
         </Typography>

@@ -70,26 +70,48 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	specTask.Status = types.TaskStatusDone
 	specTask.CompletedAt = &now
 
+	if project.DefaultRepoID == "" {
+		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
+		return
+	}
+
+	repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		writeErrResponse(w, fmt.Errorf("failed to get default repository: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	if repo.DefaultBranch == "" {
+		writeErrResponse(w, fmt.Errorf("default branch not set for repository"), http.StatusInternalServerError)
+		return
+	}
+
+	// If repo is external, push the branch and create a pull request
+	switch {
+	case repo.AzureDevOps != nil:
+		// Pull request should have been created on pushes, nothing to do here
+		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		writeResponse(w, specTask, http.StatusOK)
+		return
+	default:
+		// Proceed with merging into the default branch
+	}
+
+	// Updating spec task
 	if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	// Get repo info for base branch
-	var baseBranch string
-	if project.DefaultRepoID != "" {
-		repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err == nil && repo != nil {
-			baseBranch = repo.DefaultBranch
-		}
-	}
-	if baseBranch == "" {
-		baseBranch = "main"
-	}
-
 	// Send merge instruction to agent via WebSocket
+	s.wg.Add(1)
 	go func() {
-		message := services.BuildMergeInstructionPrompt(specTask.BranchName, baseBranch)
+		defer s.wg.Done()
+
+		message := services.BuildMergeInstructionPrompt(specTask.BranchName, repo.DefaultBranch)
 		_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 		if err != nil {
 			log.Error().
@@ -106,8 +128,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}()
 
 	// Return updated task
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(specTask)
+	writeResponse(w, specTask, http.StatusOK)
 }
 
 // stopAgentSession - stop the agent session for a spec task

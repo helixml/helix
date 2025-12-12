@@ -87,6 +87,8 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
 			"OPENAI_BASE_URL":          baseURL,
+			// Store sessions in persistent workspace directory (survives container restarts)
+			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
 		}
 
 		if d.userAPIKey != "" {
@@ -105,6 +107,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"args": []string{
 					"--experimental-acp",
 					"--no-telemetry",
+					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
 			},

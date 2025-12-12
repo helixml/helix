@@ -9,17 +9,24 @@ import {
 import {
   GitPullRequest,
   ExternalLink,
+  Link as LinkIcon,
 } from 'lucide-react'
 import { useListRepositoryPullRequests } from '../../services/gitRepositoryService'
+import type { TypesGitRepository } from '../../api/api'
 
 interface PullRequestsProps {
-  repository: any
+  repository: TypesGitRepository  
 }
 
 const PullRequests: FC<PullRequestsProps> = ({
   repository,
 }) => {
-  const { data: pullRequests = [], isLoading: pullRequestsLoading } = useListRepositoryPullRequests(repository?.id || '')
+  const hasExternalUrl = !!(repository?.external_url && repository.external_url.trim() !== '')
+  
+  const { data: pullRequests = [], isLoading: pullRequestsLoading } = useListRepositoryPullRequests(
+    repository?.id || '',
+    { enabled: hasExternalUrl }
+  )
 
   const handlePRClick = (url: string | undefined) => {
     if (url) {
@@ -30,6 +37,24 @@ const PullRequests: FC<PullRequestsProps> = ({
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return 'Unknown date'
     return new Date(dateString).toLocaleString()
+  }
+
+  if (!hasExternalUrl) {
+    return (
+      <Box>
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ textAlign: 'center', py: 8 }}>
+            <LinkIcon size={48} color="#656d76" style={{ marginBottom: 16 }} />
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 500 }}>
+              No external repository
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 500, mx: 'auto' }}>
+              This repository does not have an external repository configured. Pull requests cannot be managed.
+            </Typography>           
+          </Box>
+        </Paper>
+      </Box>
+    )
   }
 
   return (

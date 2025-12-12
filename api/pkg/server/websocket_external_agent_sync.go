@@ -359,8 +359,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 								Data: map[string]interface{}{
 									"message":       fullMessage,
 									"request_id":    requestID,
-									"acp_thread_id": nil,        // null = create new thread
-									"agent_name":    agentName,  // Which agent to use (zed-agent or qwen)
+									"acp_thread_id": nil,       // null = create new thread
+									"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
 								},
 							}
 
@@ -546,6 +546,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleMessageCompleted(sessionID, syncMsg)
 	case "chat_response_error":
 		return apiServer.handleChatResponseError(sessionID, syncMsg)
+	case "ping":
+		return nil
 	default:
 		log.Warn().Str("event_type", syncMsg.EventType).Msg("Unknown sync message type")
 		return nil
@@ -719,17 +721,17 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Msg("🆕 [HELIX] Creating initial interaction for new Zed thread")
 
 	interaction := &types.Interaction{
-		ID:             "", // Will be generated
-		GenerationID:   0,
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		Scheduled:      time.Now(),
-		Completed:      time.Time{},
-		SessionID:      createdSession.ID,
-		UserID:         createdSession.Owner,
-		Mode:           types.SessionModeInference,
-		PromptMessage:  "New conversation started via Zed", // Default message
-		State:          types.InteractionStateWaiting,
+		ID:              "", // Will be generated
+		GenerationID:    0,
+		Created:         time.Now(),
+		Updated:         time.Now(),
+		Scheduled:       time.Now(),
+		Completed:       time.Time{},
+		SessionID:       createdSession.ID,
+		UserID:          createdSession.Owner,
+		Mode:            types.SessionModeInference,
+		PromptMessage:   "New conversation started via Zed", // Default message
+		State:           types.InteractionStateWaiting,
 		ResponseMessage: "",
 	}
 
@@ -1114,6 +1116,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 		// CRITICAL: Map this interaction so the AI response goes to it!
 		apiServer.contextMappingsMutex.Lock()
+		if apiServer.sessionToWaitingInteraction == nil {
+			apiServer.sessionToWaitingInteraction = make(map[string]string)
+		}
 		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
 		apiServer.contextMappingsMutex.Unlock()
 		log.Info().

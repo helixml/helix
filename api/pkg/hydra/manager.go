@@ -1499,3 +1499,14 @@ func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string,
 	return nil
 }
 
+// runNsenterSh runs a shell command in the container's network namespace
+func (m *Manager) runNsenterSh(pid int, cmd string) error {
+	nsenterArgs := []string{"-t", fmt.Sprintf("%d", pid), "-n", "--", "sh", "-c", cmd}
+	execCmd := exec.Command("nsenter", nsenterArgs...)
+	output, err := execCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nsenter sh failed: %w (output: %s)", err, string(output))
+	}
+	return nil
+}
+

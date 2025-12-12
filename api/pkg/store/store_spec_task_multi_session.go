@@ -468,6 +468,29 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 		}
 	}
 
+	// Get CodeAgentRuntime from the app's assistant configuration
+	// This is used to send the correct agent_name in open_thread commands on resume
+	var codeAgentRuntime types.CodeAgentRuntime
+	if specTask.HelixAppID != "" {
+		app, err := s.GetApp(ctx, specTask.HelixAppID)
+		if err != nil {
+			log.Warn().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for CodeAgentRuntime")
+		} else if app != nil {
+			// Find the zed_external assistant to get its CodeAgentRuntime
+			for _, assistant := range app.Config.Helix.Assistants {
+				if assistant.AgentType == types.AgentTypeZedExternal {
+					codeAgentRuntime = assistant.CodeAgentRuntime
+					log.Debug().
+						Str("spec_task_id", specTaskID).
+						Str("app_id", specTask.HelixAppID).
+						Str("code_agent_runtime", string(codeAgentRuntime)).
+						Msg("Found CodeAgentRuntime from app assistant config")
+					break
+				}
+			}
+		}
+	}
+
 	// Update spec task with Zed instance configuration
 	if config.ProjectPath != "" {
 		specTask.ProjectPath = config.ProjectPath
@@ -523,6 +546,7 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 					SessionRole:             "implementation",
 					ImplementationTaskIndex: implTask.Index,
 					SystemPrompt:            "", // Will be set when session starts
+					CodeAgentRuntime:        codeAgentRuntime, // For open_thread on resume
 				},
 			}
 
@@ -596,6 +620,29 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		}
 	}
 
+	// Get CodeAgentRuntime from the app's assistant configuration
+	// This is used to send the correct agent_name in open_thread commands on resume
+	var codeAgentRuntimeSpawn types.CodeAgentRuntime
+	if specTask.HelixAppID != "" {
+		app, err := s.GetApp(ctx, specTask.HelixAppID)
+		if err != nil {
+			log.Warn().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get app for CodeAgentRuntime")
+		} else if app != nil {
+			// Find the zed_external assistant to get its CodeAgentRuntime
+			for _, assistant := range app.Config.Helix.Assistants {
+				if assistant.AgentType == types.AgentTypeZedExternal {
+					codeAgentRuntimeSpawn = assistant.CodeAgentRuntime
+					log.Debug().
+						Str("spec_task_id", parentSession.SpecTaskID).
+						Str("app_id", specTask.HelixAppID).
+						Str("code_agent_runtime", string(codeAgentRuntimeSpawn)).
+						Msg("Found CodeAgentRuntime from app assistant config for spawned session")
+					break
+				}
+			}
+		}
+	}
+
 	// Create new work session
 	workSession := &types.SpecTaskWorkSession{
 		SpecTaskID:          parentSession.SpecTaskID,
@@ -635,10 +682,11 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:    "zed_external", // Same external agent as planning
-			SpecTaskID:   parentSession.SpecTaskID,
-			SessionRole:  "implementation",
-			SystemPrompt: "", // Will be set when session starts
+			AgentType:        "zed_external", // Same external agent as planning
+			SpecTaskID:       parentSession.SpecTaskID,
+			SessionRole:      "implementation",
+			SystemPrompt:     "", // Will be set when session starts
+			CodeAgentRuntime: codeAgentRuntimeSpawn, // For open_thread on resume
 		},
 	}
 

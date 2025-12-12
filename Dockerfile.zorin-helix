@@ -114,6 +114,35 @@ COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daem
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 
+# ====================================================================
+# Install Node.js for qwen-code
+# ====================================================================
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Install qwen-code (Helix's Qwen Code agent CLI)
+# ====================================================================
+# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
+# with audited commits and critical bug fixes.
+#
+# BUILD APPROACH: Copy pre-built qwen-code from local directory
+# This is faster during development and ensures we're using our fixes.
+# The qwen-code-build directory must be prepared by ./stack build-zorin
+#
+# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
+# ensuring Docker rebuilds this layer with the latest code.
+ARG QWEN_CODE_HASH=unknown
+WORKDIR /opt/qwen-code
+COPY qwen-code-build/ ./
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    echo "Fixes: [object Object] error display + shell security disabled" && \
+    npm install -g . && \
+    npm cache clean --force
+
+WORKDIR /
+
 # Copy Zed binary (built with ./stack build-zed before Docker build)
 # CRITICAL: Must be built with --features external_websocket_sync
 RUN mkdir -p /zed-build

@@ -139,6 +139,12 @@ func (mcps *ModelContextProtocolServer) Start() error {
 		return err
 	}
 
+	// Check for assistants before accessing
+	if len(app.Config.Helix.Assistants) == 0 {
+		log.Error().Str("app_id", mcps.appID).Msg("app has no assistants configured")
+		return fmt.Errorf("app %s has no assistants configured", mcps.appID)
+	}
+
 	// TODO: configure assistant
 	mcpTools, err := mcps.getModelContextProtocolTools(&app.Config.Helix.Assistants[0])
 	if err != nil {

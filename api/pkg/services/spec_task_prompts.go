@@ -1,52 +1,36 @@
 package services
 
 import (
-	"fmt"
-	"time"
+	"bytes"
+	"text/template"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// BuildPlanningPrompt creates the planning phase prompt for the Zed agent.
-// This is the canonical planning prompt - used by both:
-// - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
-// - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
-// guidelines contains concatenated organization + project guidelines (can be empty)
-func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
-	// Generate task directory name
-	dateStr := time.Now().Format("2006-01-02")
-	sanitizedName := sanitizeForBranchName(task.Name)
-	if len(sanitizedName) > 50 {
-		sanitizedName = sanitizedName[:50]
-	}
-	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
+// PlanningPromptData contains all data needed for the planning prompt template
+type PlanningPromptData struct {
+	Guidelines  string // Formatted guidelines section (includes header if non-empty)
+	TaskDirName string // Directory name for task (e.g., "0042-add-dark-mode")
+	ProjectID   string
+	TaskType    string
+	Priority    string
+	TaskName    string // Human-readable task name for commit message
+}
 
-	// Build guidelines section if provided
-	guidelinesSection := ""
-	if guidelines != "" {
-		guidelinesSection = fmt.Sprintf(`
-## Guidelines
+// planningPromptTemplate is the compiled template for planning prompts
+var planningPromptTemplate = template.Must(template.New("planning").Parse(`You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
 
-Follow these guidelines when creating specifications:
-
-%s
-
----
-
-`, guidelines)
-	}
-
-	return fmt.Sprintf(`You are a software specification expert. Create SHORT, SIMPLE spec documents as Markdown files, then push to Git.
-%[9]s
+Speak English.
+{{.Guidelines}}
 
 ## CRITICAL: Where To Work
 
-ALL work happens in ~/work/. No other paths.
+ALL work happens in /home/retro/work/. No other paths.
 
-- ~/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
-- ~/work/<repo>/ = Code repos (don't touch these - implementation happens later)
+- /home/retro/work/helix-specs/ = Your design docs go here (ALREADY EXISTS - don't create it)
+- /home/retro/work/<repo>/ = Code repos (don't touch these - implementation happens later)
 
-Your task directory: ~/work/helix-specs/design/tasks/%[5]s/
+Your task directory: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
 
 ## CRITICAL: What To Create
 
@@ -64,31 +48,31 @@ Match solution complexity to task complexity:
 
 ## Git Workflow
 
-%[1]sbash
-cd ~/work/helix-specs
-mkdir -p design/tasks/%[5]s
-cd design/tasks/%[5]s
+` + "```bash" + `
+cd /home/retro/work/helix-specs
+mkdir -p design/tasks/{{.TaskDirName}}
+cd design/tasks/{{.TaskDirName}}
 
 # Create requirements.md, design.md, tasks.md here
 
-cd ~/work/helix-specs
-git add -A && git commit -m "Design docs for %[8]s" && git push origin helix-specs
-%[1]s
+cd /home/retro/work/helix-specs
+git add -A && git commit -m "Design docs for {{.TaskName}}" && git push origin helix-specs
+` + "```" + `
 
 If push fails (another agent pushed first):
-%[1]sbash
+` + "```bash" + `
 git pull origin helix-specs --rebase && git push origin helix-specs
-%[1]s
+` + "```" + `
 
 ## tasks.md Format
 
-%[1]smarkdown
+` + "```markdown" + `
 # Implementation Tasks
 
 - [ ] First task
 - [ ] Second task
 - [ ] Third task
-%[1]s
+` + "```" + `
 
 ## After Pushing
 
@@ -96,12 +80,49 @@ Tell the user the design is ready for review. The backend detects your push and 
 
 ---
 
-**Project ID:** %[2]s | **Type:** %[3]s | **Priority:** %[4]s | **SpecTask ID:** %[8]s
-`,
-		"```",
-		task.ProjectID, task.Type, task.Priority, // [2], [3], [4]
-		taskDirName,                              // [5] - directory name
-		"", "", "",                               // [6], [7] unused
-		task.ID,                                  // [8] - task ID
-		guidelinesSection)                        // [9] - guidelines
+**Project ID:** {{.ProjectID}} | **Type:** {{.TaskType}} | **Priority:** {{.Priority}}
+`))
+
+// BuildPlanningPrompt creates the planning phase prompt for the Zed agent.
+// This is the canonical planning prompt - used by both:
+// - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
+// - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
+// guidelines contains concatenated organization + project guidelines (can be empty)
+func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
+	// Use DesignDocPath if set (new human-readable format), fall back to task ID
+	taskDirName := task.DesignDocPath
+	if taskDirName == "" {
+		taskDirName = task.ID // Backwards compatibility for old tasks
+	}
+
+	// Build guidelines section if provided
+	guidelinesSection := ""
+	if guidelines != "" {
+		guidelinesSection = `
+## Guidelines
+
+Follow these guidelines when creating specifications:
+
+` + guidelines + `
+
+---
+
+`
+	}
+
+	data := PlanningPromptData{
+		Guidelines:  guidelinesSection,
+		TaskDirName: taskDirName,
+		ProjectID:   task.ProjectID,
+		TaskType:    string(task.Type),
+		Priority:    string(task.Priority),
+		TaskName:    task.Name,
+	}
+
+	var buf bytes.Buffer
+	if err := planningPromptTemplate.Execute(&buf, data); err != nil {
+		// Fallback to a simple error message if template fails
+		return "Error generating planning prompt: " + err.Error()
+	}
+	return buf.String()
 }

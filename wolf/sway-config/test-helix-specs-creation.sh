@@ -162,6 +162,87 @@ run_test "Repo with staged changes" '
     git add staged.txt
 '
 
+# Test 8: Azure DevOps style repo (master branch, no origin/HEAD symbolic ref)
+run_test "Azure DevOps style (master, no origin/HEAD)" '
+    git checkout -b master 2>/dev/null
+    echo "test" > file.txt
+    git add file.txt
+    git commit -m "Initial commit"
+    git push origin master
+    # Simulate Azure DevOps: remove origin/HEAD symbolic ref
+    rm -f .git/refs/remotes/origin/HEAD
+'
+
+echo ""
+echo "=============================================="
+echo "Testing get_default_branch function"
+echo "=============================================="
+
+# Test get_default_branch directly
+test_get_default_branch() {
+    local TEST_NAME=$1
+    local EXPECTED=$2
+    local SETUP_CMD=$3
+
+    echo ""
+    echo "TEST: $TEST_NAME"
+
+    cd /tmp
+    rm -rf test-default-branch-repo
+    mkdir test-default-branch-repo
+    cd test-default-branch-repo
+
+    git init --bare remote.git 2>/dev/null
+    git clone remote.git work 2>/dev/null
+    cd work
+
+    eval "$SETUP_CMD"
+
+    REPO_PATH="$(pwd)"
+    RESULT=$(get_default_branch "$REPO_PATH")
+
+    if [ "$RESULT" = "$EXPECTED" ]; then
+        echo "  PASSED: got '$RESULT' (expected '$EXPECTED')"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo "  FAILED: got '$RESULT' (expected '$EXPECTED')"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+
+    rm -rf /tmp/test-default-branch-repo
+}
+
+test_get_default_branch "Repo with main branch" "main" '
+    git checkout -b main 2>/dev/null
+    echo "test" > file.txt
+    git add file.txt
+    git commit -m "Initial commit"
+    git push origin main
+'
+
+test_get_default_branch "Repo with master branch (no origin/HEAD)" "master" '
+    git checkout -b master 2>/dev/null
+    echo "test" > file.txt
+    git add file.txt
+    git commit -m "Initial commit"
+    git push origin master
+    rm -f .git/refs/remotes/origin/HEAD
+'
+
+test_get_default_branch "Repo with both main and master (prefers main)" "main" '
+    git checkout -b main 2>/dev/null
+    echo "test" > file.txt
+    git add file.txt
+    git commit -m "Initial commit on main"
+    git push origin main
+    git checkout -b master
+    echo "test2" > file2.txt
+    git add file2.txt
+    git commit -m "Commit on master"
+    git push origin master
+    rm -f .git/refs/remotes/origin/HEAD
+'
+
 echo ""
 echo "=============================================="
 echo "Test Results: $TESTS_PASSED passed, $TESTS_FAILED failed"
