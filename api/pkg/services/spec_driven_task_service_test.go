@@ -233,6 +233,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 		TechnicalDesign:    "Generated design",
 		ImplementationPlan: "Generated plan",
 		SpecRevisionCount:  0,
+		HelixAppID:         "test-helix-app", // Set to avoid GetProject call
 	}
 
 	rejectionResponse := &types.SpecApprovalResponse{

@@ -86,6 +86,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Provider prefix lookup - return not found by default (model namespaces like "meta-llama" are not providers)
 	suite.store.EXPECT().GetProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	// ListProviderEndpoints is called to check for model in user's custom providers
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
@@ -111,6 +113,8 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.providerManager = providerManager
 	// It's called once during tool setup
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).Times(1)
+	// ListProviders is called to check for model in global providers
+	providerManager.EXPECT().ListProviders(gomock.Any(), gomock.Any()).Return([]types.Provider{}, nil).AnyTimes()
 
 	runnerController, err := scheduler.NewRunnerController(context.Background(), &scheduler.RunnerControllerConfig{
 		PubSub:        suite.pubsub,
@@ -138,10 +142,11 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.NoError(err)
 
 	suite.server = &HelixAPIServer{
-		Cfg:        cfg,
-		pubsub:     suite.pubsub,
-		Controller: c,
-		Store:      suite.store,
+		Cfg:             cfg,
+		pubsub:          suite.pubsub,
+		Controller:      c,
+		Store:           suite.store,
+		providerManager: providerManager,
 	}
 }
 
@@ -1370,6 +1375,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_ProviderPrefix_SystemProvider(
 		Owner:     string(types.OwnerTypeSystem),
 		OwnerType: types.OwnerTypeSystem,
 	}).Return(&types.ProviderEndpoint{Name: "openrouter"}, nil)
+	// ListProviderEndpoints is called to check for model in user's custom providers
+	storeMock.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	originalStore := suite.server.Store
 	suite.server.Store = storeMock
