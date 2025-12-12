@@ -312,29 +312,6 @@ func (m *SpecTaskMultiSessionManager) UpdateZedThreadStatus(
 	return nil
 }
 
-// Private helper methods
-
-// createZedInstance is now delegated to ZedIntegrationService
-// This method is kept for backward compatibility but delegates to the service
-func (m *SpecTaskMultiSessionManager) createZedInstance(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	config *types.SpecTaskImplementationSessionsCreateRequest,
-) (string, error) {
-	return m.zedIntegrationService.CreateZedInstanceForSpecTask(ctx, specTask, config.WorkspaceConfig)
-}
-
-// createZedThreadForWorkSession is now delegated to ZedIntegrationService
-// This method is kept for backward compatibility but delegates to the service
-func (m *SpecTaskMultiSessionManager) createZedThreadForWorkSession(
-	ctx context.Context,
-	workSession *types.SpecTaskWorkSession,
-	zedInstanceID string,
-) error {
-	_, err := m.zedIntegrationService.CreateZedThreadForWorkSession(ctx, workSession, zedInstanceID)
-	return err
-}
-
 func (m *SpecTaskMultiSessionManager) startImplementationSessions(
 	ctx context.Context,
 	specTask *types.SpecTask,

@@ -187,8 +187,8 @@ type SwayWolfAppConfig struct {
 	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
-	ExtraMounts []string // Additional directory mounts
-	ZedImage    string   // Override for helix-sway image (uses instance's SwayVersion)
+	ExtraMounts       []string // Additional directory mounts
+	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
 	// NOTE: Startup script lives in primary code repo at .helix/startup.sh
 	DisplayWidth  int
 	DisplayHeight int
@@ -424,18 +424,18 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	}
 
 	executor := &WolfExecutor{
-		store:                        storeInst,
-		sessions:                     make(map[string]*ZedSession),
-		zedImage:                     zedImage,
-		helixAPIURL:                  helixAPIURL,
-		helixAPIToken:                helixAPIToken,
+		store:                       storeInst,
+		sessions:                    make(map[string]*ZedSession),
+		zedImage:                    zedImage,
+		helixAPIURL:                 helixAPIURL,
+		helixAPIToken:               helixAPIToken,
 		workspaceBasePathForCloning: "/filestore/workspaces", // Used to generate workspace paths (translated to /data/... by translateToHostPath)
-		lobbyCache:                   make(map[string]*lobbyCacheEntry),
-		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
-		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
-		wolfScheduler:                store.NewWolfScheduler(storeInst),
-		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
-		hydraEnabled:                 hydraEnabled,
+		lobbyCache:                  make(map[string]*lobbyCacheEntry),
+		lobbyCacheTTL:               5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
+		creationLocks:               make(map[string]*sync.Mutex), // Per-session locks for lobby creation
+		wolfScheduler:               store.NewWolfScheduler(storeInst),
+		connman:                     connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
+		hydraEnabled:                hydraEnabled,
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -1869,13 +1869,8 @@ func validateDisplayParams(width, height, fps int) error {
 func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
 	// Try in-memory cache first (fast path)
 	w.mutex.RLock()
-	for agentSessionID, session := range w.sessions {
+	for _, session := range w.sessions {
 		if session.HelixSessionID == helixSessionID {
-			log.Debug().
-				Str("helix_session_id", helixSessionID).
-				Str("agent_session_id", agentSessionID).
-				Str("container_hostname", session.ContainerName).
-				Msg("Found external agent container by Helix session ID (in-memory cache)")
 			w.mutex.RUnlock()
 			return session.ContainerName, nil
 		}
@@ -2303,10 +2298,6 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 						// Check for HELIX_SESSION_ID=<session_id>
 						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", sessionID)
 						if envStr == expectedEnv {
-							log.Debug().
-								Str("lobby_id", lobby.ID).
-								Str("session_id", sessionID).
-								Msg("Found existing lobby for session")
 							foundLobbyID = lobby.ID
 							break
 						}

@@ -2519,6 +2519,12 @@ definitions:
         type: string
       owner_type:
         $ref: '#/definitions/types.OwnerType'
+      project_id:
+        description: Used for isolation and metrics tracking
+        type: string
+      spec_task_id:
+        description: Used for isolation and metrics tracking
+        type: string
       type:
         $ref: '#/definitions/types.APIKeyType'
     type: object
@@ -3208,10 +3214,16 @@ definitions:
     enum:
     - zed_agent
     - qwen_code
+    - claude_code
+    - gemini_cli
+    - codex_cli
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
     - CodeAgentRuntimeQwenCode
+    - CodeAgentRuntimeClaudeCode
+    - CodeAgentRuntimeGeminiCLI
+    - CodeAgentRuntimeCodexCLI
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3630,6 +3642,13 @@ definitions:
     - ExternalRepositoryTypeGitLab
     - ExternalRepositoryTypeADO
     - ExternalRepositoryTypeBitbucket
+  types.ExternalStatus:
+    properties:
+      commits_ahead:
+        type: integer
+      commits_behind:
+        type: integer
+    type: object
   types.Feedback:
     enum:
     - like
@@ -4667,6 +4686,8 @@ definitions:
         items:
           type: integer
         type: array
+      project_id:
+        type: string
       prompt_cost:
         type: number
       prompt_tokens:
@@ -4682,6 +4703,8 @@ definitions:
           type: integer
         type: array
       session_id:
+        type: string
+      spec_task_id:
         type: string
       step:
         $ref: '#/definitions/types.LLMCallStep'
@@ -4719,6 +4742,8 @@ definitions:
         items:
           $ref: '#/definitions/types.Commit'
         type: array
+      external_status:
+        $ref: '#/definitions/types.ExternalStatus'
     type: object
   types.LoginRequest:
     properties:
@@ -5596,6 +5621,28 @@ definitions:
       url:
         type: string
     type: object
+  types.PullResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
+  types.PushResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
+    type: object
   types.Question:
     properties:
       created:
@@ -6343,6 +6390,11 @@ definitions:
         type: string
       avatar:
         type: string
+      code_agent_runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: Which code agent runtime is used (zed_agent, qwen_code, claude_code,
+          etc.)
       document_group_id:
         type: string
       document_ids:
@@ -6748,6 +6800,8 @@ definitions:
       project_id:
         type: string
       project_path:
+        type: string
+      pull_request_id:
         type: string
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
@@ -7971,20 +8025,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -8085,8 +8139,14 @@ definitions:
         items:
           type: integer
         type: array
+      project_id:
+        description: When running in Helix Code sandbox
+        type: string
       sb:
         type: boolean
+      spec_task_id:
+        description: When running in Helix Code sandbox
+        type: string
       token:
         description: the actual token used and its type
         type: string
@@ -10690,6 +10750,49 @@ paths:
       summary: Get repository indexing status
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/pull:
+    post:
+      description: Pulls latest commits from remote repository
+      operationId: pullFromRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Force pull (default: false)'
+        in: query
+        name: force
+        required: true
+        type: boolean
+      - description: Branch name (required)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PullResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Pull from remote repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/pull-requests:
     get:
       description: List all pull requests in a repository
@@ -10766,6 +10869,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Create pull request
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/push:
+    post:
+      description: Pushes the local branch to the remote repository
+      operationId: pushToRemote
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name
+        in: query
+        name: branch
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PushResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Push to remote repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/push-pull:
@@ -15813,6 +15955,14 @@ paths:
       - description: Organization ID
         in: query
         name: org_id
+        type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: Spec Task ID
+        in: query
+        name: spec_task_id
         type: string
       produces:
       - application/json
