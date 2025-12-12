@@ -25,6 +25,7 @@ import EditProviderEndpointDialog from './EditProviderEndpointDialog';
 import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
 import EditProviderModelsDialog from './EditProviderModelsDialog';
 import { useApi } from '../../hooks/useApi';
+import useAccount from '../../hooks/useAccount';
 import { useListProviders } from '../../services/providersService';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
@@ -69,9 +70,11 @@ const ProviderEndpointsTable: FC = () => {
   const [editModelsDialogOpen, setEditModelsDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});  
+  const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
   const api = useApi()
-  const apiClient = api.getApiClient()    
+  const apiClient = api.getApiClient()
+  const account = useAccount()
+  const providersManagementEnabled = account.serverConfig.providers_management_enabled ?? false    
 
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
     loadModels: false,
@@ -175,6 +178,7 @@ const ProviderEndpointsTable: FC = () => {
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
           existingEndpoints={providerEndpoints as IProviderEndpoint[]}
+          providersManagementEnabled={providersManagementEnabled}
         />
       </Paper>
     );
@@ -292,6 +296,7 @@ const ProviderEndpointsTable: FC = () => {
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
         existingEndpoints={providerEndpoints as IProviderEndpoint[]}
+        providersManagementEnabled={providersManagementEnabled}
       />
       <Menu
         anchorEl={anchorEl}

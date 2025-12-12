@@ -197,11 +197,21 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         }
       });
 
+      // For api_key: only send if user explicitly entered a new key, or '' to clear when auth_type is 'none'
+      // If auth_type is 'api_key' but field is empty, send undefined to preserve existing key
       const body = {
         name: formData.name,
         base_url: formData.base_url,
-        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
-        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
+        api_key: formData.auth_type === 'none'
+          ? ''
+          : (formData.auth_type === 'api_key' && formData.api_key)
+            ? formData.api_key
+            : undefined,
+        api_key_file: formData.auth_type === 'none'
+          ? ''
+          : (formData.auth_type === 'api_key_file' && formData.api_key_file)
+            ? formData.api_key_file
+            : undefined,
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
       }
