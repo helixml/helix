@@ -5,5 +5,8 @@ dependencies:
 - name: common
   repository: oci://registry-1.docker.io/bitnamicharts
   version: 2.31.4
-digest: sha256:79ec534bf681c98d8e0a36cbcf641b99edadcbb1a301f5bbca719fc854623bfe
-generated: "2025-10-30T23:44:48.957724Z"
+- name: kodit
+  repository: https://helixml.github.io/kodit
+  version: 0.1.1
+digest: sha256:30909d593a8124e7e749168db7528e4ec5124271d360955d4500e3be61ed9d2c
+generated: "2025-12-12T15:56:52.311600865+01:00"

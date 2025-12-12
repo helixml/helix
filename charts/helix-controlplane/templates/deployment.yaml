@@ -316,6 +316,17 @@ spec:
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
             {{- end }}
+            {{- if .Values.kodit.enabled }}
+            - name: KODIT_ENABLED
+              value: "true"
+            - name: KODIT_BASE_URL
+              value: {{ .Values.controlplane.kodit.baseURL | default (printf "http://%s-kodit:8080" .Release.Name) | quote }}
+            - name: KODIT_GIT_URL
+              value: {{ .Values.controlplane.kodit.gitURL | default (printf "http://%s:80" .Release.Name) | quote }}
+            {{- else }}
+            - name: KODIT_ENABLED
+              value: "false"
+            {{- end }}
             {{- with .Values.controlplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
