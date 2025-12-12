@@ -205,10 +205,12 @@ RUN apt-get update && \
 ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
+# Create global qwen command by symlinking pre-built dist/cli.js
+# We don't use 'npm install -g .' because it tries to run prepare scripts
 RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
     echo "Fixes: [object Object] error display + shell security disabled" && \
-    npm install -g . && \
-    npm cache clean --force
+    chmod +x dist/cli.js && \
+    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
 # ====================================================================
 # Frequently-changing files below (cache invalidation expected)
