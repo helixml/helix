@@ -33,6 +33,7 @@ interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
   existingEndpoints: IProviderEndpoint[];
+  providersManagementEnabled?: boolean; // When false, hide "User" option (only admins can create global)
 }
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
@@ -41,16 +42,19 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   open,
   onClose,
   existingEndpoints,
+  providersManagementEnabled = true,
 }) => {
   const { mutate: createProviderEndpoint } = useCreateProviderEndpoint();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  // When providers management is disabled, default to global (only admins can use this dialog)
+  const defaultEndpointType = providersManagementEnabled ? 'user' : 'global';
   const [formData, setFormData] = useState({
     name: '',
     base_url: '',
     api_key: '',
     api_key_file: '',
-    endpoint_type: 'user' as const,
+    endpoint_type: defaultEndpointType as 'user' | 'global',
     description: '',
     auth_type: 'none' as AuthType,
     billing_enabled: false,
@@ -261,7 +265,12 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
               onChange={(e) => handleInputChange(e as React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>)}
               label="Type"
             >
-              <MenuItem value="user">User (available to you only)</MenuItem>
+              {/* Only show User option when providers management is enabled -
+                  when disabled, only admins can create endpoints and "user" type
+                  would only be visible to that specific admin, not useful */}
+              {providersManagementEnabled && (
+                <MenuItem value="user">User (available to you only)</MenuItem>
+              )}
               <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
