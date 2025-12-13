@@ -96,7 +96,9 @@ export class SseStream {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.eventSource = new EventSource(this.sseUrl)
+      // withCredentials: true ensures browser sends cookies for authentication
+      // This is required for the Helix proxy to authenticate the request
+      this.eventSource = new EventSource(this.sseUrl, { withCredentials: true })
 
       this.eventSource.onopen = () => {
         console.log("[SseStream] Connected to SSE endpoint")
