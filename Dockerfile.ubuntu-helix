@@ -125,12 +125,51 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y google-chrome-stable && \
     rm -rf /var/lib/apt/lists/* && \
-    # Configure Chrome policies (enterprise config)
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
     mkdir -p /etc/opt/chrome/policies/managed && \
-    echo '{"DefaultBrowserSettingEnabled": true, "MetricsReportingEnabled": true, "BrowserSignin": 0}' > /etc/opt/chrome/policies/managed/helix.json && \
+    echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json && \
     # Create master preferences to skip first run and welcome page
     mkdir -p /opt/google/chrome && \
-    echo '{"distribution": {"skip_first_run_ui": true, "suppress_first_run_default_browser_prompt": true, "make_chrome_default": true, "make_chrome_default_for_user": true}, "browser": {"check_default_browser": false}, "sync_promo": {"show_on_first_run_allowed": false}}' > /opt/google/chrome/master_preferences
+    echo '{ \
+      "distribution": { \
+        "skip_first_run_ui": true, \
+        "suppress_first_run_default_browser_prompt": true, \
+        "do_not_create_desktop_shortcut": true, \
+        "do_not_create_quick_launch_shortcut": true, \
+        "do_not_create_taskbar_shortcut": true, \
+        "do_not_launch_chrome": true, \
+        "do_not_register_for_update_launch": true, \
+        "make_chrome_default": false, \
+        "make_chrome_default_for_user": false, \
+        "suppress_first_run_bubble": true, \
+        "import_bookmarks": false, \
+        "import_history": false, \
+        "import_home_page": false, \
+        "import_search_engine": false \
+      }, \
+      "browser": { \
+        "check_default_browser": false, \
+        "show_home_button": false \
+      }, \
+      "sync_promo": { \
+        "show_on_first_run_allowed": false \
+      }, \
+      "first_run_tabs": ["about:blank"] \
+    }' > /opt/google/chrome/master_preferences
 
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
@@ -268,6 +307,15 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 RUN mkdir -p /etc/skel/.config/devilspie2
 COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua
 RUN chmod 644 /etc/skel/.config/devilspie2/helix-tiling.lua
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+# Chrome checks for this file to determine if it's the first launch
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    # Also create Default profile directory with minimal preferences
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
 
 # ====================================================================
 # Final setup
