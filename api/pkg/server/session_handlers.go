@@ -423,10 +423,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				return
 			}
 
-			// Store lobby ID and PIN in session metadata (Phase 3: Multi-tenancy + Streaming)
-			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" {
+			// Store lobby ID, PIN, and Wolf instance ID in session (Phase 3: Multi-tenancy + Streaming)
+			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" || agentResp.WolfInstanceID != "" {
 				session.Metadata.WolfLobbyID = agentResp.WolfLobbyID
 				session.Metadata.WolfLobbyPIN = agentResp.WolfLobbyPIN
+				// CRITICAL: Store WolfInstanceID on session record - required for wolf-app-state endpoint
+				// Without this, the frontend gets stuck at "Starting Desktop" forever
+				session.WolfInstanceID = agentResp.WolfInstanceID
 				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
 				if err != nil {
 					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby data in session")
@@ -435,7 +438,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 						Str("session_id", session.ID).
 						Str("lobby_id", agentResp.WolfLobbyID).
 						Str("lobby_pin", agentResp.WolfLobbyPIN).
-						Msg("✅ Stored lobby ID and PIN in session metadata (chat endpoint)")
+						Str("wolf_instance_id", agentResp.WolfInstanceID).
+						Msg("✅ Stored lobby ID, PIN, and Wolf instance ID in session (chat endpoint)")
 				}
 			}
 
