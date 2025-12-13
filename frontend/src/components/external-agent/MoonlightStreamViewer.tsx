@@ -112,6 +112,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [requestedBitrate, setRequestedBitrate] = useState<number>(10); // Mbps (from backend config)
   const [userBitrate, setUserBitrate] = useState<number | null>(null); // User-selected bitrate (overrides backend)
   const [bitrateMenuAnchor, setBitrateMenuAnchor] = useState<null | HTMLElement>(null);
+  const manualBitrateSelectionTimeRef = useRef<number>(0); // Track when user manually selected bitrate (20s cooldown before auto-reduce)
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
@@ -1140,6 +1141,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const INITIAL_REDUCE_COOLDOWN_MS = 2000;  // First reduce: act fast (2s) for mobile handoffs
     const SUBSEQUENT_REDUCE_COOLDOWN_MS = 10000; // Subsequent reduces: normal cooldown (10s)
     const INCREASE_COOLDOWN_MS = 30000;   // Don't increase again within 30 seconds
+    const MANUAL_SELECTION_COOLDOWN_MS = 20000;  // Don't auto-reduce within 20s of user manually selecting bitrate
     const THROUGHPUT_SAMPLES = 5;         // Rolling window (5 seconds of data)
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
@@ -1173,6 +1175,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       const currentBitrate = userBitrate || requestedBitrate;
       const now = Date.now();
+
+      // Skip auto-reduction if user manually selected bitrate within cooldown period
+      // This lets the stream settle after user explicitly chooses a higher bitrate
+      const timeSinceManualSelection = now - manualBitrateSelectionTimeRef.current;
+      if (timeSinceManualSelection < MANUAL_SELECTION_COOLDOWN_MS) {
+        // Still within manual selection cooldown - only collect stats, don't reduce
+        // Track observed throughput for later use
+        if (currentThroughput > 0) {
+          observedThroughputRef.current.push(currentThroughput);
+          if (observedThroughputRef.current.length > THROUGHPUT_SAMPLES) {
+            observedThroughputRef.current.shift();
+          }
+          if (currentThroughput > maxObservedThroughputRef.current) {
+            maxObservedThroughputRef.current = currentThroughput;
+          }
+        }
+        return; // Don't make any bitrate changes during cooldown
+      }
 
       // Track observed throughput (rolling window)
       if (currentThroughput > 0) {
@@ -2379,6 +2399,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               onClick={() => {
                 setUserBitrate(bitrate);
                 setBitrateMenuAnchor(null);
+                // Record manual selection time - adaptive algorithm will wait 20s before auto-reducing
+                manualBitrateSelectionTimeRef.current = Date.now();
                 // Reconnect with new bitrate after cooldown
                 setModeSwitchCooldown(true);
                 setTimeout(() => setModeSwitchCooldown(false), 3000);
