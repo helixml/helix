@@ -219,6 +219,19 @@ type UserMeta struct {
 	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
 }
 
+// UpdateUserGuidelinesRequest is the request body for updating user guidelines
+type UpdateUserGuidelinesRequest struct {
+	Guidelines string `json:"guidelines"`
+}
+
+// UserGuidelinesResponse is the response for user guidelines endpoints
+type UserGuidelinesResponse struct {
+	Guidelines          string    `json:"guidelines"`
+	GuidelinesVersion   int       `json:"guidelines_version"`
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"`
+}
+
 type UserConfig struct {
 	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
 	StripeCustomerID         string `json:"stripe_customer_id"`

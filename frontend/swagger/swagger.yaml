@@ -4189,6 +4189,9 @@ definitions:
       updated_by_name:
         description: User display name (not persisted, populated at query time)
         type: string
+      user_id:
+        description: Set for user-level (personal workspace) guidelines
+        type: string
       version:
         type: integer
     type: object
@@ -8017,20 +8020,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -8087,6 +8090,11 @@ definitions:
   types.UpdateTeamRequest:
     properties:
       name:
+        type: string
+    type: object
+  types.UpdateUserGuidelinesRequest:
+    properties:
+      guidelines:
         type: string
     type: object
   types.Usage:
@@ -8166,6 +8174,17 @@ definitions:
         type: boolean
       is_admin:
         type: boolean
+    type: object
+  types.UserGuidelinesResponse:
+    properties:
+      guidelines:
+        type: string
+      guidelines_updated_at:
+        type: string
+      guidelines_updated_by:
+        type: string
+      guidelines_version:
+        type: integer
     type: object
   types.UserResponse:
     properties:
@@ -16050,6 +16069,78 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/me/guidelines:
+    get:
+      description: Get the current user's personal workspace guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's personal workspace guidelines
+      parameters:
+      - description: Guidelines update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserGuidelinesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user guidelines
+      tags:
+      - Users
+  /api/v1/users/me/guidelines-history:
+    get:
+      description: Get the version history of the current user's personal workspace
+        guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines history
+      tags:
+      - Users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

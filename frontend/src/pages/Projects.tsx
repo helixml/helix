@@ -477,7 +477,7 @@ const Projects: FC = () => {
 
         {/* Guidelines View */}
         {currentView === 'guidelines' && (
-          <GuidelinesView organization={currentOrg} />
+          <GuidelinesView organization={currentOrg} isPersonalWorkspace={!currentOrg} />
         )}
       </Container>
 

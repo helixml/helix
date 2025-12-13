@@ -167,6 +167,38 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		}
 	}
 
+	// Deduplicate project name within the workspace (org or personal)
+	// Build a set of existing names and add (1), (2), etc. if needed
+	var existingProjects []*types.Project
+	var listErr error
+	if req.OrganizationID != "" {
+		existingProjects, listErr = s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
+			OrganizationID: req.OrganizationID,
+		})
+	} else {
+		existingProjects, listErr = s.Store.ListProjects(r.Context(), &store.ListProjectsQuery{
+			UserID: user.ID,
+		})
+	}
+	if listErr != nil {
+		log.Warn().Err(listErr).Msg("failed to list projects for name deduplication (continuing)")
+	}
+
+	existingNames := make(map[string]bool)
+	for _, p := range existingProjects {
+		existingNames[p.Name] = true
+	}
+
+	// Auto-increment name if it already exists: MyProject -> MyProject (1) -> MyProject (2)
+	baseName := req.Name
+	uniqueName := baseName
+	suffix := 1
+	for existingNames[uniqueName] {
+		uniqueName = fmt.Sprintf("%s (%d)", baseName, suffix)
+		suffix++
+	}
+	req.Name = uniqueName
+
 	project := &types.Project{
 		OrganizationID:    req.OrganizationID,
 		ID:                system.GenerateProjectID(),
@@ -1266,7 +1298,7 @@ func (s *HelixAPIServer) getProjectGuidelinesHistory(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	history, err := s.Store.ListGuidelinesHistory(r.Context(), "", projectID)
+	history, err := s.Store.ListGuidelinesHistory(r.Context(), "", projectID, "")
 	if err != nil {
 		log.Error().
 			Err(err).
