@@ -123,17 +123,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Load external agent config from app if agent type is external
 		if agentType == "zed_external" && startReq.ExternalAgentConfig == nil {
 			if app.Config.Helix.ExternalAgentConfig != nil {
-				// Check if the config has meaningful values (not just an empty struct)
+				// Check if the config has meaningful values (display settings)
 				appConfig := app.Config.Helix.ExternalAgentConfig
-				if appConfig.WorkspaceDir != "" || appConfig.ProjectPath != "" || len(appConfig.EnvVars) > 0 {
+				if appConfig.Resolution != "" || appConfig.DesktopType != "" || appConfig.DisplayWidth > 0 {
 					startReq.ExternalAgentConfig = appConfig
 					log.Debug().
 						Str("app_id", startReq.AppID).
 						Msg("Loaded external agent config from app configuration")
-				} else {
-					log.Debug().
-						Str("app_id", startReq.AppID).
-						Msg("App has empty external agent config, will use defaults")
 				}
 			}
 		}
@@ -378,24 +374,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				Str("user_id", user.ID).
 				Msg("External agent type specified with no configuration, using defaults")
 
-			// Create default configuration
-			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{
-				WorkspaceDir:   "workspace",
-				ProjectPath:    "workspace/project",
-				EnvVars:        []string{},
-				AutoConnectRDP: true,
-			}
-		}
-
-		// Validate external agent configuration for security
-		if err := startReq.ExternalAgentConfig.Validate(); err != nil {
-			log.Warn().
-				Err(err).
-				Str("session_id", session.ID).
-				Str("user_id", user.ID).
-				Msg("Invalid external agent configuration")
-			http.Error(rw, fmt.Sprintf("invalid external agent configuration: %s", err.Error()), http.StatusBadRequest)
-			return
+			// Create empty configuration - wolf_executor handles workspace paths
+			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{}
 		}
 
 		log.Info().
@@ -416,18 +396,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				ProjectPath: "workspace", // Use relative path
 			}
 
-			// Apply external agent configuration if provided
+			// Apply display settings from external agent configuration
 			if startReq.ExternalAgentConfig != nil {
-				if startReq.ExternalAgentConfig.WorkspaceDir != "" {
-					zedAgent.WorkDir = startReq.ExternalAgentConfig.WorkspaceDir
-				}
-				if startReq.ExternalAgentConfig.ProjectPath != "" {
-					zedAgent.ProjectPath = startReq.ExternalAgentConfig.ProjectPath
-				}
-				if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
-					zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
-				}
-				// Apply video settings (Phase 3.5)
 				if startReq.ExternalAgentConfig.DisplayWidth > 0 {
 					zedAgent.DisplayWidth = startReq.ExternalAgentConfig.DisplayWidth
 				}
