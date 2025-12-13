@@ -103,6 +103,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
+				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
 					"--experimental-acp",
