@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, Alert, CircularProgress, IconButton, Button, Tooltip } from '@mui/material';
+import { Box, Typography, Alert, CircularProgress, IconButton, Button, Tooltip, Menu, MenuItem } from '@mui/material';
 import {
   Fullscreen,
   FullscreenExit,
@@ -11,12 +11,22 @@ import {
   Wifi,
   SignalCellularAlt,
   Speed,
+  Stream as StreamIcon,
+  Timeline,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
+import { LineChart } from '@mui/x-charts';
+import {
+  darkChartStyles,
+  chartContainerStyles,
+  chartLegendProps,
+  axisLabelStyle,
+} from '../wolf/chartStyles';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
 import { DualStreamManager } from '../../lib/moonlight-web-ts/stream/dual-stream-manager';
+import { SseStream, buildSseStreamUrl } from '../../lib/moonlight-web-ts/stream/sse-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
@@ -69,7 +79,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | null>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | SseStream | null>(null); // Stream instance from moonlight-web
+  const sseInputWsRef = useRef<WebSocketStream | null>(null); // WebSocket for input when using SSE mode
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
@@ -96,7 +107,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
-  const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
+  const [requestedBitrate, setRequestedBitrate] = useState<number>(10); // Mbps (from backend config)
+  const [userBitrate, setUserBitrate] = useState<number | null>(null); // User-selected bitrate (overrides backend)
+  const [bitrateMenuAnchor, setBitrateMenuAnchor] = useState<null | HTMLElement>(null);
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
@@ -125,6 +138,30 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
   const [stats, setStats] = useState<any>(null);
+
+  // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
+  // Uses refs to persist across reconnects - only reset when component unmounts
+  const CHART_HISTORY_LENGTH = 60;
+  const throughputHistoryRef = useRef<number[]>([]);
+  const rttHistoryRef = useRef<number[]>([]);
+  const bitrateHistoryRef = useRef<number[]>([]);
+  // Events: track when and why bitrate changed (for chart annotations)
+  const chartEventsRef = useRef<Array<{
+    index: number;
+    type: 'reduce' | 'increase' | 'reconnect' | 'rtt_spike' | 'saturation';
+    reason: string;
+  }>>([]);
+  const [chartUpdateTrigger, setChartUpdateTrigger] = useState(0); // Force re-render when refs change
+  const [showCharts, setShowCharts] = useState(false);
+
+  // Helper to add chart event
+  const addChartEvent = useCallback((type: 'reduce' | 'increase' | 'reconnect' | 'rtt_spike' | 'saturation', reason: string) => {
+    const index = throughputHistoryRef.current.length;
+    chartEventsRef.current.push({ index, type, reason });
+    // Keep only events within the visible window
+    const minIndex = Math.max(0, index - CHART_HISTORY_LENGTH);
+    chartEventsRef.current = chartEventsRef.current.filter(e => e.index >= minIndex);
+  }, []);
 
   // Clipboard toast state
   const [clipboardToast, setClipboardToast] = useState<{
@@ -243,16 +280,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       };
       console.log('[MoonlightStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
-      // Get streaming bitrate from backend config (falls back to 40 Mbps)
-      let streamingBitrateMbps = 40; // Default: 40 Mbps
-      try {
-        const configResponse = await apiClient.v1ConfigList();
-        if (configResponse.data.streaming_bitrate_mbps) {
-          streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
-          console.log(`[MoonlightStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`);
+      // Get streaming bitrate: user-selected > backend config > default
+      let streamingBitrateMbps = 10; // Default: 10 Mbps (conservative for low-bandwidth)
+
+      if (userBitrate !== null) {
+        // User explicitly selected a bitrate - use it
+        streamingBitrateMbps = userBitrate;
+        console.log(`[MoonlightStreamViewer] Using user-selected bitrate: ${streamingBitrateMbps} Mbps`);
+      } else {
+        // Try to get from backend config
+        try {
+          const configResponse = await apiClient.v1ConfigList();
+          if (configResponse.data.streaming_bitrate_mbps) {
+            streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
+            console.log(`[MoonlightStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`);
+          }
+        } catch (err) {
+          console.warn('[MoonlightStreamViewer] Failed to fetch streaming bitrate config, using default:', err);
         }
-      } catch (err) {
-        console.warn('[MoonlightStreamViewer] Failed to fetch streaming bitrate config, using default:', err);
       }
 
       // Store for stats display
@@ -292,10 +337,75 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sessionId,
       });
 
-      let stream: Stream | WebSocketStream | DualStreamManager;
+      let stream: Stream | WebSocketStream | DualStreamManager | SseStream;
 
-      // Check if using WebSocket-only mode
-      if (streamingMode === 'websocket') {
+      // Check if using SSE mode (experimental - separate SSE for video, WebSocket for input)
+      if (streamingMode === 'sse') {
+        console.log('[MoonlightStreamViewer] Using SSE streaming mode (experimental)');
+
+        // Build SSE URL for video stream
+        const sseUrl = buildSseStreamUrl(
+          `/moonlight/api`,
+          hostId,
+          actualAppId,
+          sessionId || '',
+          settings.videoSizeCustom.width,
+          settings.videoSizeCustom.height,
+          settings.fps,
+          settings.bitrate
+        );
+
+        console.log('[MoonlightStreamViewer] SSE URL:', sseUrl);
+
+        // Create SSE stream for video
+        const sseStream = new SseStream(sseUrl, settings);
+
+        // Set canvas for SSE stream rendering
+        if (canvasRef.current) {
+          sseStream.setCanvas(canvasRef.current);
+        }
+
+        // Set up callbacks
+        sseStream.setOnStreamInit((init) => {
+          console.log('[MoonlightStreamViewer] SSE stream init:', init);
+          setStatus('Streaming active (SSE)');
+          setIsConnected(true);
+          setIsConnecting(false);
+          onConnectionChange?.(true);
+        });
+
+        sseStream.setOnError((error) => {
+          console.error('[MoonlightStreamViewer] SSE error:', error);
+          setError(error);
+          setIsConnected(false);
+          onError?.(error);
+        });
+
+        sseStream.setOnClose(() => {
+          console.log('[MoonlightStreamViewer] SSE closed');
+          setIsConnected(false);
+          onConnectionChange?.(false);
+        });
+
+        // Connect SSE
+        await sseStream.connect();
+
+        // Also create a WebSocket stream for input (mouse/keyboard)
+        // This runs in parallel with SSE for video
+        const inputWs = new WebSocketStream(
+          api,
+          hostId,
+          actualAppId,
+          settings,
+          supportedFormats,
+          [width, height],
+          sessionId ? `${sessionId}-input` : undefined
+        );
+        sseInputWsRef.current = inputWs;
+
+        stream = sseStream;
+      } else if (streamingMode === 'websocket') {
+        // Check if using WebSocket-only mode
         // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
         console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, qualityMode:', qualityMode);
 
@@ -537,17 +647,32 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode, userBitrate]);
 
   // Disconnect
   const disconnect = useCallback(() => {
     console.log('[MoonlightStreamViewer] disconnect() called, cleaning up stream resources');
 
+    // Close SSE input WebSocket if it exists
+    if (sseInputWsRef.current) {
+      console.log('[MoonlightStreamViewer] Closing SSE input WebSocket...');
+      try {
+        sseInputWsRef.current.close();
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Error closing SSE input WebSocket:', err);
+      }
+      sseInputWsRef.current = null;
+    }
+
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        // Check if it's a DualStreamManager
-        if (streamRef.current instanceof DualStreamManager) {
+        // Check if it's an SseStream
+        if (streamRef.current instanceof SseStream) {
+          console.log('[MoonlightStreamViewer] Closing SseStream...');
+          streamRef.current.close();
+        } else if (streamRef.current instanceof DualStreamManager) {
+          // Check if it's a DualStreamManager
           console.log('[MoonlightStreamViewer] Closing DualStreamManager...');
           streamRef.current.close();
         } else if (streamRef.current instanceof WebSocketStream) {
@@ -664,6 +789,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       reconnect(5000); // 5 seconds for mode switches to allow cleanup
     }
   }, [qualityMode, reconnect]);
+
+  // Track previous user bitrate for reconnection
+  const previousUserBitrateRef = useRef<number | null>(userBitrate);
+
+  // Reconnect when user bitrate changes (user selected new bitrate or adaptive reduction)
+  useEffect(() => {
+    if (previousUserBitrateRef.current !== userBitrate && previousUserBitrateRef.current !== null) {
+      console.log('[MoonlightStreamViewer] Bitrate changed from', previousUserBitrateRef.current, 'to', userBitrate);
+      console.log('[MoonlightStreamViewer] Reconnecting with new bitrate (5s delay)');
+      reconnect(5000); // 5 seconds for bitrate switches to allow cleanup
+    }
+    previousUserBitrateRef.current = userBitrate;
+  }, [userBitrate, reconnect]);
 
   // Detect lobby changes and reconnect (for test script restart scenarios)
   // Uses 5-second delay to wait for moonlight-web cleanup before connecting to new lobby
@@ -900,6 +1038,334 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return () => clearInterval(intervalId);
   }, [qualityMode, isConnected, adaptiveScreenshotEnabled, adaptiveLockedToScreenshots]);
 
+  // Adaptive bitrate: track observed throughput and keep requested bitrate under 80% of max observed
+  // Key insight: if we request 10 Mbps but only receive 4 Mbps, the pipe is saturated
+  // We proactively reduce before latency spikes, and cautiously increase when bandwidth allows
+  const observedThroughputRef = useRef<number[]>([]); // Rolling window of throughput samples
+  const maxObservedThroughputRef = useRef(0); // Peak throughput we've seen (decays over time)
+  const stableCheckCountRef = useRef(0); // Count of checks where throughput was stable
+  const lastBitrateChangeRef = useRef(0);
+  const lastMaxDecayRef = useRef(Date.now());
+  const bandwidthProbeInProgressRef = useRef(false); // Prevent concurrent probes
+
+  // Bandwidth probe: actively test available bandwidth before increasing bitrate
+  // Fetches test data and measures throughput to verify headroom exists
+  // Uses PARALLEL requests to fill high-BDP pipes (critical for high-latency links like satellite/VPN)
+  const runBandwidthProbe = useCallback(async (targetBitrateMbps: number): Promise<boolean> => {
+    if (!sessionId || bandwidthProbeInProgressRef.current) {
+      return false;
+    }
+
+    bandwidthProbeInProgressRef.current = true;
+    console.log(`[AdaptiveBitrate] Running bandwidth probe for ${targetBitrateMbps} Mbps...`);
+
+    try {
+      // Fetch multiple screenshots IN PARALLEL to fill the TCP pipe faster
+      // Sequential requests on high-RTT links never reach steady-state throughput
+      // Use high quality (90) to get larger payloads for more accurate measurement
+      const probeCount = 5; // More parallel requests = better pipe filling
+      const startTime = performance.now();
+
+      // Fire all requests simultaneously
+      const probePromises = Array.from({ length: probeCount }, (_, i) =>
+        fetch(`/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=90`)
+          .then(response => {
+            if (!response.ok) {
+              console.warn(`[AdaptiveBitrate] Probe request ${i + 1} failed: ${response.status}`);
+              return 0;
+            }
+            return response.blob().then(blob => blob.size);
+          })
+          .catch(err => {
+            console.warn(`[AdaptiveBitrate] Probe request ${i + 1} error:`, err);
+            return 0;
+          })
+      );
+
+      const sizes = await Promise.all(probePromises);
+      const totalBytes = sizes.reduce((a, b) => a + b, 0);
+
+      const elapsedMs = performance.now() - startTime;
+      const elapsedSec = elapsedMs / 1000;
+      const throughputMbps = (totalBytes * 8) / (1000000 * elapsedSec);
+
+      console.log(`[AdaptiveBitrate] Probe complete: ${(totalBytes / 1024).toFixed(0)} KB in ${elapsedMs.toFixed(0)}ms = ${throughputMbps.toFixed(1)} Mbps`);
+
+      // Update max observed if probe showed higher throughput
+      if (throughputMbps > maxObservedThroughputRef.current) {
+        maxObservedThroughputRef.current = throughputMbps;
+        console.log(`[AdaptiveBitrate] Probe updated max observed to ${throughputMbps.toFixed(1)} Mbps`);
+      }
+
+      // Allow increase if probe shows we can handle 80% more than target
+      // (need headroom for video + overhead)
+      const requiredThroughput = targetBitrateMbps * 1.25; // 25% overhead buffer
+      const hasHeadroom = throughputMbps >= requiredThroughput;
+
+      if (hasHeadroom) {
+        console.log(`[AdaptiveBitrate] Probe PASSED: ${throughputMbps.toFixed(1)} Mbps >= ${requiredThroughput.toFixed(1)} Mbps required`);
+      } else {
+        console.log(`[AdaptiveBitrate] Probe FAILED: ${throughputMbps.toFixed(1)} Mbps < ${requiredThroughput.toFixed(1)} Mbps required`);
+      }
+
+      return hasHeadroom;
+    } catch (err) {
+      console.warn('[AdaptiveBitrate] Probe failed:', err);
+      return false;
+    } finally {
+      bandwidthProbeInProgressRef.current = false;
+    }
+  }, [sessionId]);
+
+  // Track baseline RTT for early warning (RTT spike = buffer bloat = reduce before throughput drops)
+  const baselineRttRef = useRef<number>(0);
+  // Track if we recently reduced (for faster initial reduce)
+  const recentlyReducedRef = useRef(false);
+
+  useEffect(() => {
+    // Support both WebSocket and SSE modes for adaptive bitrate
+    if (!isConnected || !streamRef.current) {
+      stableCheckCountRef.current = 0;
+      return;
+    }
+
+    // Only WebSocket and SSE modes support adaptive bitrate (WebRTC has its own congestion control)
+    if (streamingMode !== 'websocket' && streamingMode !== 'sse') {
+      return;
+    }
+
+    const CHECK_INTERVAL_MS = 1000;       // Check every second
+    const INITIAL_REDUCE_COOLDOWN_MS = 2000;  // First reduce: act fast (2s) for mobile handoffs
+    const SUBSEQUENT_REDUCE_COOLDOWN_MS = 10000; // Subsequent reduces: normal cooldown (10s)
+    const INCREASE_COOLDOWN_MS = 30000;   // Don't increase again within 30 seconds
+    const THROUGHPUT_SAMPLES = 5;         // Rolling window (5 seconds of data)
+    const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
+    const MIN_BITRATE = 5;
+    const TARGET_UTILIZATION = 0.8;       // Target 80% of observed max throughput
+    const SATURATION_THRESHOLD = 0.9;     // If receiving < 90% of requested, we're saturated
+    const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of stability before trying increase
+    const MAX_DECAY_INTERVAL_MS = 60000;  // Decay max observed every 60 seconds (mobile varies)
+    const MAX_DECAY_FACTOR = 0.95;        // Decay by 5% each interval
+    const RTT_SPIKE_THRESHOLD = 2.0;      // RTT 2x baseline = early warning
+    const HIGH_VARIANCE_THRESHOLD = 0.3;  // Coefficient of variation > 30% = unstable
+
+    const checkBandwidth = () => {
+      const stream = streamRef.current;
+      if (!stream) return;
+
+      // Get stats from either WebSocket or SSE stream
+      let currentThroughput = 0;
+      let currentRtt = 0;
+
+      if (stream instanceof WebSocketStream) {
+        const stats = stream.getStats();
+        currentThroughput = stats.totalBitrateMbps;
+        currentRtt = stats.rttMs;
+      } else if (stream instanceof SseStream) {
+        const stats = stream.getStats();
+        currentThroughput = stats.totalBitrateMbps;
+        currentRtt = stats.rttMs;
+      } else {
+        return; // Unsupported stream type
+      }
+
+      const currentBitrate = userBitrate || requestedBitrate;
+      const now = Date.now();
+
+      // Track observed throughput (rolling window)
+      if (currentThroughput > 0) {
+        observedThroughputRef.current.push(currentThroughput);
+        if (observedThroughputRef.current.length > THROUGHPUT_SAMPLES) {
+          observedThroughputRef.current.shift();
+        }
+
+        // Update max observed
+        if (currentThroughput > maxObservedThroughputRef.current) {
+          maxObservedThroughputRef.current = currentThroughput;
+          console.log(`[AdaptiveBitrate] New max throughput observed: ${currentThroughput.toFixed(1)} Mbps`);
+        }
+      }
+
+      // Decay max observed periodically (mobile bandwidth varies)
+      if (now - lastMaxDecayRef.current > MAX_DECAY_INTERVAL_MS && maxObservedThroughputRef.current > MIN_BITRATE) {
+        maxObservedThroughputRef.current *= MAX_DECAY_FACTOR;
+        lastMaxDecayRef.current = now;
+        console.log(`[AdaptiveBitrate] Decayed max throughput to: ${maxObservedThroughputRef.current.toFixed(1)} Mbps`);
+      }
+
+      // Calculate average throughput
+      const avgThroughput = observedThroughputRef.current.length > 0
+        ? observedThroughputRef.current.reduce((a, b) => a + b, 0) / observedThroughputRef.current.length
+        : 0;
+
+      // Skip if we don't have enough samples yet
+      if (observedThroughputRef.current.length < 3) {
+        return;
+      }
+
+      // Calculate throughput variance (coefficient of variation)
+      // High variance = unstable connection, stay conservative
+      const variance = observedThroughputRef.current.reduce(
+        (sum, val) => sum + Math.pow(val - avgThroughput, 2), 0
+      ) / observedThroughputRef.current.length;
+      const stddev = Math.sqrt(variance);
+      const coefficientOfVariation = avgThroughput > 0 ? stddev / avgThroughput : 0;
+      const isHighVariance = coefficientOfVariation > HIGH_VARIANCE_THRESHOLD;
+
+      // Update baseline RTT during stable periods
+      if (currentRtt > 0) {
+        if (baselineRttRef.current === 0 || currentRtt < baselineRttRef.current) {
+          baselineRttRef.current = currentRtt;
+        }
+      }
+
+      // RTT-based early warning: detect buffer bloat BEFORE throughput drops
+      // Buffer bloat causes RTT to spike 200-500ms before throughput actually decreases
+      const rttSpikeDetected = baselineRttRef.current > 0 &&
+        currentRtt > baselineRttRef.current * RTT_SPIKE_THRESHOLD &&
+        currentRtt > 100; // Only care about spikes > 100ms
+
+      // Calculate saturation: are we receiving what we requested?
+      // If requesting 10 Mbps but only getting 4 Mbps, saturation = 0.4 (saturated)
+      const saturation = currentBitrate > 0 ? avgThroughput / currentBitrate : 1;
+      const maxAllowedBitrate = maxObservedThroughputRef.current * TARGET_UTILIZATION;
+
+      // Determine reduce cooldown: faster for initial reduce (mobile handoffs), slower for subsequent
+      const reduceCooldown = recentlyReducedRef.current
+        ? SUBSEQUENT_REDUCE_COOLDOWN_MS
+        : INITIAL_REDUCE_COOLDOWN_MS;
+
+      // EARLY WARNING: RTT spike detected - preemptively reduce before throughput drops
+      if (rttSpikeDetected && currentBitrate > MIN_BITRATE) {
+        const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+        if (timeSinceLastChange > reduceCooldown) {
+          // Step down one tier preemptively
+          const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
+          if (currentIndex > 0) {
+            const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
+            console.log(`[AdaptiveBitrate] RTT spike (${currentRtt.toFixed(0)}ms vs baseline ${baselineRttRef.current.toFixed(0)}ms), preemptively reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
+            addChartEvent('rtt_spike', `RTT ${currentRtt.toFixed(0)}ms > 2x baseline, reducing ${currentBitrate}→${newBitrate} Mbps`);
+
+            lastBitrateChangeRef.current = now;
+            stableCheckCountRef.current = 0;
+            recentlyReducedRef.current = true;
+            // Reset baseline so we can detect new spikes after reduction
+            baselineRttRef.current = 0;
+            setUserBitrate(newBitrate);
+            return;
+          }
+        }
+      }
+
+      // Check if we're saturated (receiving significantly less than requested)
+      if (saturation < SATURATION_THRESHOLD && currentBitrate > MIN_BITRATE) {
+        const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+        if (timeSinceLastChange > reduceCooldown) {
+          // Find appropriate bitrate based on what we're actually receiving
+          const targetBitrate = Math.max(MIN_BITRATE, avgThroughput * TARGET_UTILIZATION);
+
+          // Snap to nearest available option
+          let newBitrate = MIN_BITRATE;
+          for (const option of BITRATE_OPTIONS) {
+            if (option <= targetBitrate) {
+              newBitrate = option;
+            } else {
+              break;
+            }
+          }
+
+          if (newBitrate < currentBitrate) {
+            console.log(`[AdaptiveBitrate] Pipe saturated (receiving ${avgThroughput.toFixed(1)}/${currentBitrate} Mbps = ${(saturation * 100).toFixed(0)}%), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
+            addChartEvent('saturation', `Saturated at ${(saturation * 100).toFixed(0)}%, reducing ${currentBitrate}→${newBitrate} Mbps`);
+
+            lastBitrateChangeRef.current = now;
+            stableCheckCountRef.current = 0;
+            recentlyReducedRef.current = true;
+            setUserBitrate(newBitrate);
+            return;
+          }
+        }
+
+        stableCheckCountRef.current = 0;
+      } else if (saturation >= SATURATION_THRESHOLD) {
+        // Not saturated - connection can handle current bitrate
+        stableCheckCountRef.current++;
+        // Clear recently reduced flag after stable period
+        if (stableCheckCountRef.current > 10) {
+          recentlyReducedRef.current = false;
+        }
+
+        // Check if requested bitrate exceeds our safe max (80% of observed max)
+        if (currentBitrate > maxAllowedBitrate && currentBitrate > MIN_BITRATE) {
+          const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+          if (timeSinceLastChange > reduceCooldown) {
+            // Proactively reduce to stay under 80% of max
+            let newBitrate = MIN_BITRATE;
+            for (const option of BITRATE_OPTIONS) {
+              if (option <= maxAllowedBitrate) {
+                newBitrate = option;
+              } else {
+                break;
+              }
+            }
+
+            if (newBitrate < currentBitrate) {
+              console.log(`[AdaptiveBitrate] Bitrate ${currentBitrate} Mbps exceeds 80% of max observed (${maxObservedThroughputRef.current.toFixed(1)} Mbps), reducing to ${newBitrate} Mbps`);
+
+              lastBitrateChangeRef.current = now;
+              stableCheckCountRef.current = 0;
+              setUserBitrate(newBitrate);
+              return;
+            }
+          }
+        }
+
+        // Try to increase if stable for a while and we have headroom
+        if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
+          const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+          if (timeSinceLastChange > INCREASE_COOLDOWN_MS) {
+            const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
+
+            if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
+              const nextBitrate = BITRATE_OPTIONS[currentIndex + 1];
+
+              // Only increase if next bitrate is within our safe limit
+              if (nextBitrate <= maxAllowedBitrate) {
+                // Run bandwidth probe before increasing to verify headroom exists
+                // This prevents increasing to a bitrate that will immediately saturate
+                console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing before increase to ${nextBitrate} Mbps...`);
+
+                // Mark that we're attempting an increase (prevent re-triggering during probe)
+                stableCheckCountRef.current = 0;
+
+                runBandwidthProbe(nextBitrate).then((hasHeadroom) => {
+                  if (hasHeadroom) {
+                    console.log(`[AdaptiveBitrate] Probe passed, increasing: ${currentBitrate} -> ${nextBitrate} Mbps`);
+                    addChartEvent('increase', `Probe passed, increasing ${currentBitrate}→${nextBitrate} Mbps`);
+                    lastBitrateChangeRef.current = Date.now();
+                    setUserBitrate(nextBitrate);
+                  } else {
+                    console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
+                    // Reset cooldown but not stability counter so we don't immediately retry
+                    lastBitrateChangeRef.current = Date.now();
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+    };
+
+    const intervalId = setInterval(checkBandwidth, CHECK_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [isConnected, streamingMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
+
   // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
   useEffect(() => {
@@ -1081,8 +1547,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const wheelHandler = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      // Send to stream
-      streamRef.current?.getInput().onMouseWheel(event);
+      // Send to stream - use SSE input WebSocket if in SSE mode, otherwise main stream
+      const input = sseInputWsRef.current?.getInput() ??
+        (streamRef.current && 'getInput' in streamRef.current
+          ? (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput()
+          : null);
+      input?.onMouseWheel(event);
     };
 
     // CRITICAL: Use { passive: false } to allow preventDefault() on wheel events
@@ -1179,6 +1649,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         setIsHighLatency(wsStats.isHighLatency);
         // Show orange border for forced low quality mode
         setIsOnFallback(isForcedLow);
+
+        // Update chart history (60 seconds of data) - use refs to persist across reconnects
+        throughputHistoryRef.current = [...throughputHistoryRef.current, wsStats.totalBitrateMbps].slice(-CHART_HISTORY_LENGTH);
+        rttHistoryRef.current = [...rttHistoryRef.current, wsStats.rttMs].slice(-CHART_HISTORY_LENGTH);
+        bitrateHistoryRef.current = [...bitrateHistoryRef.current, requestedBitrate].slice(-CHART_HISTORY_LENGTH);
+        // Trigger re-render for charts
+        if (showCharts) {
+          setChartUpdateTrigger(prev => prev + 1);
+        }
       };
 
       // Poll every second
@@ -1317,16 +1796,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     );
   }, [width, height, streamingMode]);
 
+  // Get input handler - for SSE mode, use the separate input WebSocket
+  const getInputHandler = useCallback(() => {
+    if (streamingMode === 'sse' && sseInputWsRef.current) {
+      return sseInputWsRef.current.getInput();
+    }
+    // For WebSocket and WebRTC modes, get input from the main stream
+    if (streamRef.current && 'getInput' in streamRef.current) {
+      return (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput();
+    }
+    return null;
+  }, [streamingMode]);
+
   // Input event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    streamRef.current?.getInput().onMouseDown(event.nativeEvent, getStreamRect());
-  }, [getStreamRect]);
+    getInputHandler()?.onMouseDown(event.nativeEvent, getStreamRect());
+  }, [getStreamRect, getInputHandler]);
 
   const handleMouseUp = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    streamRef.current?.getInput().onMouseUp(event.nativeEvent);
-  }, []);
+    getInputHandler()?.onMouseUp(event.nativeEvent);
+  }, [getInputHandler]);
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
@@ -1345,8 +1836,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
     }
 
-    streamRef.current?.getInput().onMouseMove(event.nativeEvent, getStreamRect());
-  }, [getStreamRect, hasMouseMoved]);
+    getInputHandler()?.onMouseMove(event.nativeEvent, getStreamRect());
+  }, [getStreamRect, hasMouseMoved, getInputHandler]);
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
@@ -1354,7 +1845,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Reset all input state - clears stuck modifiers and mouse buttons
   const resetInputState = useCallback(() => {
-    const input = streamRef.current?.getInput();
+    const input = getInputHandler();
     if (!input) return;
 
     console.log('[MoonlightStreamViewer] Resetting stuck input state (modifiers + mouse buttons)');
@@ -1401,6 +1892,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     const container = containerRef.current;
 
+    // Helper to get input handler - works for SSE mode (separate input WS) or normal modes
+    const getInput = () => {
+      return sseInputWsRef.current?.getInput() ??
+        (streamRef.current && 'getInput' in streamRef.current
+          ? (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput()
+          : null);
+    };
+
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
@@ -1444,7 +1943,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       if (isCopyKeystroke && sessionId) {
         // Send the copy keystroke to remote first
         console.log('[Clipboard] Copy keystroke detected, forwarding to remote');
-        const input = streamRef.current?.getInput();
+        const input = getInput();
         if (input) {
           // Forward Ctrl+C to remote
           const ctrlCDown = new KeyboardEvent('keydown', {
@@ -1578,7 +2077,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             // Forward the SAME keystroke the user pressed:
             // - User pressed Ctrl+V → send Ctrl+V (for Zed, most GUI apps)
             // - User pressed Ctrl+Shift+V → send Ctrl+Shift+V (for terminals)
-            const input = streamRef.current?.getInput();
+            const input = getInput();
             if (input) {
               const pasteKeyDown = new KeyboardEvent('keydown', {
                 code: 'KeyV',
@@ -1615,7 +2114,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       console.log('[MoonlightStreamViewer] KeyDown captured:', event.key, event.code);
-      streamRef.current?.getInput().onKeyDown(event);
+      getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
       event.preventDefault();
@@ -1658,7 +2157,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       console.log('[MoonlightStreamViewer] KeyUp captured:', event.key, event.code);
-      streamRef.current?.getInput().onKeyUp(event);
+      getInput()?.onKeyUp(event);
       // Prevent browser default behavior to ensure all keys are passed through
       event.preventDefault();
       event.stopPropagation();
@@ -1751,6 +2250,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <BarChart fontSize="small" />
           </IconButton>
         </Tooltip>
+        <Tooltip title="Charts - visualize throughput, RTT, and bitrate over time" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+          <IconButton
+            size="small"
+            onClick={() => setShowCharts(!showCharts)}
+            sx={{ color: showCharts ? 'primary.main' : 'white' }}
+          >
+            <Timeline fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
@@ -1760,20 +2268,48 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title={modeSwitchCooldown ? 'Please wait...' : streamingMode === 'websocket' ? 'Currently: WebSocket — Click to switch to WebRTC' : 'Currently: WebRTC — Click to switch to WebSocket'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+        <Tooltip
+          title={
+            modeSwitchCooldown
+              ? 'Please wait...'
+              : streamingMode === 'websocket'
+              ? 'Currently: WebSocket — Click for SSE (experimental)'
+              : streamingMode === 'sse'
+              ? 'Currently: SSE (experimental) — Click for WebRTC'
+              : 'Currently: WebRTC — Click for WebSocket'
+          }
+          arrow
+          slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+        >
           <span>
             <IconButton
               size="small"
               disabled={modeSwitchCooldown}
               onClick={() => {
-                // Toggle mode with cooldown to prevent Wolf deadlock from rapid switching
+                // Cycle through modes: websocket → sse → webrtc → websocket
                 setModeSwitchCooldown(true);
-                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+                setStreamingMode(prev => {
+                  if (prev === 'websocket') return 'sse';
+                  if (prev === 'sse') return 'webrtc';
+                  return 'websocket';
+                });
                 setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
               }}
-              sx={{ color: streamingMode === 'websocket' ? 'primary.main' : 'white' }}
+              sx={{
+                color: streamingMode === 'websocket'
+                  ? 'primary.main'
+                  : streamingMode === 'sse'
+                  ? '#ff9800'  // Orange for SSE (experimental)
+                  : 'white'
+              }}
             >
-              {streamingMode === 'websocket' ? <Wifi fontSize="small" /> : <SignalCellularAlt fontSize="small" />}
+              {streamingMode === 'websocket' ? (
+                <Wifi fontSize="small" />
+              ) : streamingMode === 'sse' ? (
+                <StreamIcon fontSize="small" />
+              ) : (
+                <SignalCellularAlt fontSize="small" />
+              )}
             </IconButton>
           </span>
         </Tooltip>
@@ -1811,6 +2347,46 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </span>
           </Tooltip>
         )}
+        {/* Bitrate selector */}
+        <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
+          <Button
+            size="small"
+            onClick={(e) => setBitrateMenuAnchor(e.currentTarget)}
+            sx={{
+              color: 'white',
+              minWidth: 'auto',
+              px: 1,
+              fontSize: '0.7rem',
+              textTransform: 'none',
+            }}
+          >
+            {requestedBitrate}M
+          </Button>
+        </Tooltip>
+        <Menu
+          anchorEl={bitrateMenuAnchor}
+          open={Boolean(bitrateMenuAnchor)}
+          onClose={() => setBitrateMenuAnchor(null)}
+          slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
+        >
+          {[5, 10, 20, 40, 80].map((bitrate) => (
+            <MenuItem
+              key={bitrate}
+              selected={requestedBitrate === bitrate}
+              onClick={() => {
+                setUserBitrate(bitrate);
+                setBitrateMenuAnchor(null);
+                // Reconnect with new bitrate after cooldown
+                setModeSwitchCooldown(true);
+                setTimeout(() => setModeSwitchCooldown(false), 3000);
+                reconnect(5000);
+              }}
+              sx={{ fontSize: '0.8rem' }}
+            >
+              {bitrate} Mbps {bitrate === 10 && '(default)'}
+            </MenuItem>
+          ))}
+        </Menu>
         <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
           <IconButton
             size="small"
@@ -2178,6 +2754,133 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               </>
             )}
           </Box>
+        </Box>
+      )}
+
+      {/* Adaptive Bitrate Charts Panel */}
+      {showCharts && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 60,
+            left: 10,
+            right: 10,
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            borderRadius: 2,
+            border: '1px solid rgba(0, 255, 0, 0.3)',
+            zIndex: 1500,
+            p: 2,
+            maxHeight: '40%',
+            overflow: 'auto',
+          }}
+        >
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 2, color: '#00ff00' }}>
+            📈 Adaptive Bitrate Charts (60s history)
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            {/* Throughput vs Requested Bitrate Chart */}
+            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
+              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
+                Throughput vs Requested Bitrate (Mbps)
+              </Typography>
+              <Box sx={{ height: 150, ...chartContainerStyles }}>
+                {throughputHistory.length > 1 ? (
+                  <LineChart
+                    xAxis={[{
+                      data: throughputHistory.map((_, i) => i - throughputHistory.length + 1),
+                      label: 'Seconds ago',
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    yAxis={[{
+                      min: 0,
+                      max: Math.max(Math.max(...throughputHistory), Math.max(...bitrateHistory), 10) * 1.2,
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    series={[
+                      {
+                        data: bitrateHistory,
+                        label: 'Requested',
+                        color: '#888',
+                        showMark: false,
+                        curve: 'stepAfter',
+                      },
+                      {
+                        data: throughputHistory,
+                        label: 'Actual',
+                        color: '#00ff00',
+                        showMark: false,
+                        curve: 'linear',
+                        area: true,
+                      },
+                    ]}
+                    height={120}
+                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
+                    grid={{ horizontal: true, vertical: false }}
+                    sx={darkChartStyles}
+                    slotProps={{ legend: chartLegendProps }}
+                  />
+                ) : (
+                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+                    Collecting data...
+                  </Box>
+                )}
+              </Box>
+            </Box>
+
+            {/* RTT Chart */}
+            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
+              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
+                Round-Trip Time (ms) - Spikes indicate congestion
+              </Typography>
+              <Box sx={{ height: 150, ...chartContainerStyles }}>
+                {rttHistory.length > 1 ? (
+                  <LineChart
+                    xAxis={[{
+                      data: rttHistory.map((_, i) => i - rttHistory.length + 1),
+                      label: 'Seconds ago',
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    yAxis={[{
+                      min: 0,
+                      max: Math.max(Math.max(...rttHistory), 100) * 1.2,
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    series={[
+                      {
+                        data: rttHistory.map(() => 150), // Threshold line at 150ms
+                        label: 'High Latency Threshold',
+                        color: '#ff9800',
+                        showMark: false,
+                        curve: 'linear',
+                      },
+                      {
+                        data: rttHistory,
+                        label: 'RTT',
+                        color: rttHistory[rttHistory.length - 1] > 150 ? '#ff6b6b' : '#00c8ff',
+                        showMark: false,
+                        curve: 'linear',
+                        area: true,
+                      },
+                    ]}
+                    height={120}
+                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
+                    grid={{ horizontal: true, vertical: false }}
+                    sx={darkChartStyles}
+                    slotProps={{ legend: chartLegendProps }}
+                  />
+                ) : (
+                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+                    Collecting data...
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Box>
+
+          <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#666', fontStyle: 'italic' }}>
+            Test with Chrome DevTools → Network → Throttling → "Fast 4G" or "Slow 4G" to see adaptive behavior
+          </Typography>
         </Box>
       )}
 

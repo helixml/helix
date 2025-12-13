@@ -21,6 +21,10 @@ interface SseStreamStats {
   bytesReceived: number
   connected: boolean
   transport: "sse"
+  // Throughput metrics for adaptive bitrate
+  totalBitrateMbps: number
+  rttMs: number  // Approximated from frame delivery timing
+  isHighLatency: boolean
 }
 
 interface SseVideoFrame {
@@ -66,6 +70,14 @@ export class SseStream {
   private lastFrameTime = 0
   private frameCount = 0
   private currentFps = 0
+
+  // Throughput tracking for adaptive bitrate
+  private lastThroughputTime = 0
+  private lastThroughputBytes = 0
+  private currentThroughputMbps = 0
+  private frameLatencies: number[] = []  // Track frame delivery latencies
+  private estimatedRttMs = 0
+  private isHighLatency = false
 
   // Stream info
   private streamWidth = 0
@@ -199,7 +211,7 @@ export class SseStream {
 
     this.bytesReceived += bytes.length
 
-    // Update FPS counter
+    // Update FPS counter and throughput
     const now = performance.now()
     this.frameCount++
     if (now - this.lastFrameTime > 1000) {
@@ -207,6 +219,47 @@ export class SseStream {
       this.frameCount = 0
       this.lastFrameTime = now
     }
+
+    // Calculate throughput (Mbps) every second
+    if (this.lastThroughputTime === 0) {
+      this.lastThroughputTime = now
+      this.lastThroughputBytes = this.bytesReceived
+    } else if (now - this.lastThroughputTime >= 1000) {
+      const deltaBytes = this.bytesReceived - this.lastThroughputBytes
+      const deltaSec = (now - this.lastThroughputTime) / 1000
+      this.currentThroughputMbps = (deltaBytes * 8) / (1000000 * deltaSec)
+      this.lastThroughputTime = now
+      this.lastThroughputBytes = this.bytesReceived
+    }
+
+    // Estimate latency from frame PTS vs arrival time
+    // PTS is in microseconds from stream start, we compare inter-frame timing
+    // If frames arrive in bursts (many at once), that indicates network buffering/latency
+    const expectedInterFrameMs = 1000 / 60  // Assume 60fps
+    if (this.frameLatencies.length > 0) {
+      const lastArrival = this.frameLatencies[this.frameLatencies.length - 1]
+      const interFrameMs = now - lastArrival
+      // If frames arrive much faster than expected, they were batched (high latency indicator)
+      // If they arrive slower, the network is struggling
+      if (interFrameMs < expectedInterFrameMs * 0.3) {
+        // Frames arriving in burst - estimate RTT from burst size
+        this.estimatedRttMs = Math.min(500, this.estimatedRttMs + 10)
+      } else if (interFrameMs > expectedInterFrameMs * 2) {
+        // Frames delayed - network struggling
+        this.estimatedRttMs = Math.min(500, interFrameMs)
+      } else {
+        // Normal delivery - decay RTT estimate
+        this.estimatedRttMs = Math.max(20, this.estimatedRttMs * 0.95)
+      }
+    }
+    this.frameLatencies.push(now)
+    // Keep only last 60 frame times (1 second at 60fps)
+    if (this.frameLatencies.length > 60) {
+      this.frameLatencies.shift()
+    }
+
+    // High latency if estimated RTT > 150ms
+    this.isHighLatency = this.estimatedRttMs > 150
 
     try {
       const chunk = new EncodedVideoChunk({
@@ -257,6 +310,10 @@ export class SseStream {
       bytesReceived: this.bytesReceived,
       connected: this.eventSource?.readyState === EventSource.OPEN,
       transport: "sse",
+      // Throughput metrics for adaptive bitrate
+      totalBitrateMbps: this.currentThroughputMbps,
+      rttMs: this.estimatedRttMs,
+      isHighLatency: this.isHighLatency,
     }
   }
 
@@ -306,16 +363,19 @@ export function buildSseStreamUrl(
   hostId: number,
   appId: number,
   sessionId: string,
-  settings: StreamSettings
+  width: number,
+  height: number,
+  fps: number,
+  bitrate: number
 ): string {
   const params = new URLSearchParams({
     host_id: hostId.toString(),
     app_id: appId.toString(),
     session_id: sessionId,
-    width: settings.width.toString(),
-    height: settings.height.toString(),
-    fps: settings.fps.toString(),
-    bitrate: settings.bitrate.toString(),
+    width: width.toString(),
+    height: height.toString(),
+    fps: fps.toString(),
+    bitrate: bitrate.toString(),
   })
 
   return `${baseUrl}/sse/stream?${params.toString()}`
