@@ -204,6 +204,97 @@ This allows Zed's `AgentServerStore` to properly register Qwen as a custom agent
 2. `load_acp_sessions_from_agents()` queries Qwen at startup
 3. Session resume works because the session loading flow finds the agent
 
+## Complete Flow Diagrams
+
+### Zed Startup Flow (Session List Loading)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Zed Startup                                                                  │
+│                                                                              │
+│  AgentPanel::new()                                                           │
+│    │                                                                         │
+│    ├── sync_agent_servers_from_extensions()  ← Extension agents             │
+│    │                                                                         │
+│    └── load_acp_sessions_from_agents()       ← NEW: Fetches sessions        │
+│          │                                                                   │
+│          └── for each agent in external_agents():                           │
+│                ├── Connect to agent                                          │
+│                ├── list_sessions(cwd)                                       │
+│                └── Store in HistoryStore.acp_agent_sessions                 │
+│                                                                              │
+│  History View renders:                                                       │
+│    - AcpThread entries (NativeAgent, from SQLite)                           │
+│    - TextThread entries (from filesystem)                                   │
+│    - AcpAgentSession entries (Qwen/external, from memory)                   │
+│                                                                              │
+│  User clicks AcpAgentSession:                                               │
+│    └── load_acp_agent_session(agent_name, session_id)                       │
+│          └── AcpThreadView::new_with_acp_session(session_id)                │
+│                └── initial_state() → connection.load_thread(session_id)     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Sandbox Restart + Helix Resume Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Sandbox Restart + Helix Resume                                               │
+│                                                                              │
+│  Helix → WebSocket → create_new_thread_sync(acp_thread_id=existing_id)      │
+│    │                                                                         │
+│    └── get_thread(existing_id) returns None (registry empty after restart) │
+│          │                                                                   │
+│          └── load_thread_from_agent(existing_id)  ← FIXED                   │
+│                ├── Connect to agent (if not connected)                       │
+│                ├── connection.load_thread(existing_id)                       │
+│                ├── Register thread in registry                               │
+│                └── Continue with resumed session                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Settings Flow (agent_servers Configuration)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Settings Sync Daemon                                                         │
+│                                                                              │
+│  generateAgentServerConfig()                                                │
+│    │                                                                         │
+│    └── Returns for qwen_code runtime:                                       │
+│          {                                                                   │
+│            "qwen": {                                                         │
+│              "type": "custom",    ← CRITICAL: Required for serde            │
+│              "command": "qwen",                                              │
+│              "args": ["--experimental-acp", ...],                           │
+│              "env": { "OPENAI_BASE_URL": ..., ... }                         │
+│            }                                                                 │
+│          }                                                                   │
+│                                                                              │
+│  Writes to ~/.config/zed/settings.json                                      │
+│    │                                                                         │
+│    └── Zed's SettingsStore observes changes                                 │
+│          │                                                                   │
+│          └── AgentServerStore.agent_servers_settings_changed()              │
+│                │                                                             │
+│                └── reregister_agents()                                       │
+│                      │                                                       │
+│                      └── external_agents.insert("qwen", LocalCustomAgent)   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Summary of All Fixes
+
+| Issue | Root Cause | Fix Location |
+|-------|------------|--------------|
+| Session resume fails after restart | thread_service.rs created new thread instead of loading | `zed/crates/external_websocket_sync/src/thread_service.rs` |
+| Sessions don't appear at startup | list_sessions only called after thread creation | `zed/crates/agent_ui/src/agent_panel.rs` |
+| Qwen not in external_agents() | Missing `"type": "custom"` in settings | `helix/api/cmd/settings-sync-daemon/main.go` |
+| Docker wrapper path translation | Bind mount broke symlink resolution | `helix/wolf/*/docker-wrapper.sh` |
+
 ## Reverted Changes
 
 Removed unnecessary path normalization in `Storage` class that was added based on incorrect theory:
