@@ -416,7 +416,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			}
 
 			// Register session in executor so RDP endpoint can find it
-			agentResp, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
+			agentResp, regErr := s.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
 			if regErr != nil {
 				log.Error().Err(regErr).Str("session_id", session.ID).Msg("Failed to register session in external agent executor")
 				http.Error(rw, fmt.Sprintf("failed to initialize external agent: %s", regErr.Error()), http.StatusInternalServerError)
@@ -1850,6 +1850,27 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	// The app ID comes from session.ParentApp (the agent assigned to the session)
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			log.Debug().
+				Str("session_id", id).
+				Str("app_id", session.ParentApp).
+				Int("display_width", width).
+				Int("display_height", height).
+				Int("display_refresh_rate", agent.DisplayRefreshRate).
+				Msg("Using display settings from app's ExternalAgentConfig for session resume")
+		}
+	}
+
 	// Add user's API token to agent environment for git operations
 	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
 		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
@@ -1863,7 +1884,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Msg("Resuming external agent session")
 
 	// Start the external agent (this will create a new Wolf lobby)
-	response, err := s.externalAgentExecutor.StartZedAgent(ctx, agent)
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -2106,7 +2127,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 	}
 
 	// Stop the Zed agent (Wolf container)
-	err = s.externalAgentExecutor.StopZedAgent(ctx, sessionID)
+	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
 	if err != nil {
 		log.Error().
 			Err(err).

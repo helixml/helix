@@ -471,8 +471,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartDesktop...")
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -788,7 +788,7 @@ Follow these guidelines when making changes:
 	}
 
 	// Start the Zed agent via Wolf executor
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
 		s.markTaskFailed(ctx, task, err.Error())

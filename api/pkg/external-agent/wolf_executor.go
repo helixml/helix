@@ -566,8 +566,8 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	return executor
 }
 
-// StartZedAgent implements the Executor interface for external agent sessions
-func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+// StartDesktop implements the Executor interface for desktop sessions (Wolf lobbies)
+func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// Get or create a per-session lock to prevent concurrent lobby creation for the same session
 	w.creationLocksMutex.Lock()
 	sessionLock, exists := w.creationLocks[agent.SessionID]
@@ -1309,8 +1309,8 @@ func joinEnvVars(envVars []string) string {
 	return result
 }
 
-// StopZedAgent implements the Executor interface
-func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error {
+// StopDesktop implements the Executor interface
+func (w *WolfExecutor) StopDesktop(ctx context.Context, sessionID string) error {
 	log.Info().Str("session_id", sessionID).Msg("Stopping Zed agent via Wolf")
 
 	// CRITICAL: Only hold mutex when accessing in-memory map
@@ -1517,7 +1517,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		} else {
 			scopeType = hydra.ScopeTypeSession
 		}
-		// Always use session ID as the scope ID (matches StartZedAgent)
+		// Always use session ID as the scope ID (matches StartDesktop)
 		scopeID := sessionID
 
 		log.Info().
@@ -1646,7 +1646,7 @@ func (w *WolfExecutor) CleanupExpiredSessions(ctx context.Context, timeout time.
 			Dur("timeout", timeout).
 			Msg("Cleaning up expired Zed session")
 
-		err := w.StopZedAgent(ctx, sessionID)
+		err := w.StopDesktop(ctx, sessionID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -1674,7 +1674,7 @@ func (w *WolfExecutor) ListSessions() []*ZedSession {
 // StartZedInstance implements the Executor interface
 func (w *WolfExecutor) StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// For now, delegate to single-session method
-	return w.StartZedAgent(ctx, agent)
+	return w.StartDesktop(ctx, agent)
 }
 
 // CreateZedThread implements the Executor interface
@@ -1686,7 +1686,7 @@ func (w *WolfExecutor) CreateZedThread(ctx context.Context, instanceID, threadID
 // StopZedInstance implements the Executor interface
 func (w *WolfExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
 	// For now, delegate to single-session method
-	return w.StopZedAgent(ctx, instanceID)
+	return w.StopDesktop(ctx, instanceID)
 }
 
 // GetInstanceStatus implements the Executor interface
@@ -2022,10 +2022,10 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			}
 		}
 
-		// Try to stop via StopZedAgent first (uses session database record including soft-deleted)
+		// Try to stop via StopDesktop first (uses session database record including soft-deleted)
 		var stopError error
 		if sessionIDToStop != "" {
-			stopError = w.StopZedAgent(ctx, sessionIDToStop)
+			stopError = w.StopDesktop(ctx, sessionIDToStop)
 		}
 
 		// If session not found (even in soft-deleted), use lobby ID/PIN from activity record
@@ -2270,7 +2270,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
 // FindExistingLobbyForSession checks if a lobby already exists for this Helix session
 // Returns lobby ID if found, empty string if not found
 // This prevents creating duplicate lobbies when resume endpoint is called multiple times
-// PUBLIC: Used by both StartZedAgent and getSessionWolfAppState
+// PUBLIC: Used by both StartDesktop and getSessionWolfAppState
 func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error) {
 	// Check cache first (prevents Wolf API spam from dashboard polling)
 	w.lobbyCacheMutex.RLock()

@@ -221,7 +221,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	}
 
 	// Start the external agent
-	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)
+	response, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), &agent)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to start external agent")
 		http.Error(res, fmt.Sprintf("failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
@@ -358,7 +358,7 @@ func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	err := apiServer.externalAgentExecutor.StopZedAgent(req.Context(), sessionID)
+	err := apiServer.externalAgentExecutor.StopDesktop(req.Context(), sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent")
 		http.Error(res, fmt.Sprintf("failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
