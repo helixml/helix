@@ -46,6 +46,7 @@ interface MoonlightStreamViewerProps {
   onClientIdCalculated?: (clientId: string) => void; // Callback when client unique ID is calculated
   width?: number;
   height?: number;
+  fps?: number;
   className?: string;
 }
 
@@ -72,8 +73,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   onConnectionChange,
   onError,
   onClientIdCalculated,
-  width = 3840,
-  height = 2160,
+  width = 1920,
+  height = 1080,
+  fps = 60,
   className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -306,10 +308,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Get default stream settings and customize
       const settings = defaultStreamSettings();
       settings.videoSize = 'custom';
-      settings.videoSizeCustom = { width: 1920, height: 1080 };  // 1080p resolution (AMD GPU hardware encoder limit)
+      settings.videoSizeCustom = { width, height };  // Use configured resolution from props
       settings.bitrate = streamingBitrateMbps * 1000;  // Convert to kbps - Configured bitrate (P-frames more efficient than all I-frames)
       settings.packetSize = 1024;
-      settings.fps = 60;
+      settings.fps = fps;  // Use configured fps from props
       settings.videoSampleQueueSize = 50;  // Queue size for 1080p60 streaming
       settings.audioSampleQueueSize = 20;
       settings.playAudioLocal = !audioEnabled;

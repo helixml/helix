@@ -87,9 +87,11 @@ const useWolfAppState = (sessionId: string) => {
   }, [sessionId]); // Removed 'api' - getApiClient() is stable
 
   const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+  const isStarting = wolfState === 'starting' || wolfState === 'loading';
+  // Only show paused state when truly absent (not loading or starting)
+  const isPaused = wolfState === 'absent';
 
-  return { wolfState, isRunning, isPaused };
+  return { wolfState, isRunning, isPaused, isStarting };
 };
 
 // Desktop controls component - only shows Stop button when running
@@ -127,7 +129,7 @@ const ExternalAgentDesktopViewer: React.FC<{
 }> = ({ sessionId, wolfLobbyId, height }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const { isRunning, isPaused } = useWolfAppState(sessionId);
+  const { isRunning, isPaused, isStarting } = useWolfAppState(sessionId);
   const [isResuming, setIsResuming] = React.useState(false);
 
   const handleResume = async () => {
@@ -142,6 +144,32 @@ const ExternalAgentDesktopViewer: React.FC<{
       setIsResuming(false);
     }
   };
+
+  // Show starting state
+  if (isStarting || isResuming) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          gap: 2,
+        }}
+      >
+        <CircularProgress size={32} sx={{ color: 'primary.main' }} />
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+          Starting Desktop...
+        </Typography>
+      </Box>
+    );
+  }
 
   if (isPaused) {
     return (
@@ -167,11 +195,10 @@ const ExternalAgentDesktopViewer: React.FC<{
           variant="contained"
           color="primary"
           size="large"
-          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+          startIcon={<PlayArrow />}
           onClick={handleResume}
-          disabled={isResuming}
         >
-          {isResuming ? 'Starting...' : 'Start Desktop'}
+          Start Desktop
         </Button>
       </Box>
     );

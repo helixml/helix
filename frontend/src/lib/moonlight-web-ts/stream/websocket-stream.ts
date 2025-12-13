@@ -246,6 +246,9 @@ export class WebSocketStream {
     } else if (this.settings.videoSize === "4k") {
       width = 3840
       height = 2160
+    } else if (this.settings.videoSize === "5k") {
+      width = 5120
+      height = 2880
     } else if (this.settings.videoSize === "custom") {
       width = this.settings.videoSizeCustom.width
       height = this.settings.videoSizeCustom.height
