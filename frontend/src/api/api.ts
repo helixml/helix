@@ -2118,25 +2118,17 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
-  /** Whether to auto-connect RDP viewer */
-  auto_connect_rdp?: boolean;
-  /** Desktop environment: "ubuntu" (default) or "sway" */
+  /** Desktop environment */
   desktop_type?: string;
-  /** Streaming resolution height (default: 1080) */
+  /** Explicit height (default: 1080) */
   display_height?: number;
-  /** Streaming refresh rate (default: 60) */
+  /** Refresh rate (default: 60) */
   display_refresh_rate?: number;
-  /** Video settings for streaming (Phase 3.5) - matches PDE display settings */
+  /** Explicit width (default: 1920) */
   display_width?: number;
-  /** Environment variables in KEY=VALUE format */
-  env_vars?: string[];
-  /** Relative path for the project directory */
-  project_path?: string;
-  /** Resolution and desktop configuration */
+  /** Display resolution - either use Resolution preset or explicit dimensions */
   resolution?: string;
-  /** Custom working directory */
-  workspace_dir?: string;
-  /** GNOME zoom percentage (100 default, 200 for 4k) */
+  /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
   zoom_level?: number;
 }
 
@@ -4679,12 +4671,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {

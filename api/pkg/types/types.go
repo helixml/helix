@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -439,46 +438,23 @@ type SessionChatRequest struct {
 	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
 }
 
-// ExternalAgentConfig holds configuration for external agents like Zed
+// ExternalAgentConfig holds display configuration for external agent sessions
+// (Desktop, Spec Task, or Exploratory sessions)
 type ExternalAgentConfig struct {
-	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
-	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
-	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
-	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
-	// Video settings for streaming (Phase 3.5) - matches PDE display settings
-	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
-	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
-	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	// Display resolution - either use Resolution preset or explicit dimensions
+	Resolution         string `json:"resolution,omitempty"`           // Preset: "1080p" (default), "4k", or "5k"
+	DisplayWidth       int    `json:"display_width,omitempty"`        // Explicit width (default: 1920)
+	DisplayHeight      int    `json:"display_height,omitempty"`       // Explicit height (default: 1080)
+	DisplayRefreshRate int    `json:"display_refresh_rate,omitempty"` // Refresh rate (default: 60)
 
-	// Resolution and desktop configuration
-	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default) or "4k"
-	DesktopType string `json:"desktop_type,omitempty"` // Desktop environment: "ubuntu" (default) or "sway"
-	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k)
+	// Desktop environment
+	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 }
 
-// Validate checks if the external agent configuration is secure and valid
+// Validate checks if the external agent configuration is valid
 func (c *ExternalAgentConfig) Validate() error {
-	// Validate workspace directory
-	if c.WorkspaceDir != "" {
-		if err := validateWorkspacePath(c.WorkspaceDir); err != nil {
-			return fmt.Errorf("invalid workspace directory: %w", err)
-		}
-	}
-
-	// Validate project path
-	if c.ProjectPath != "" {
-		if err := validateProjectPath(c.ProjectPath); err != nil {
-			return fmt.Errorf("invalid project path: %w", err)
-		}
-	}
-
-	// Validate environment variables
-	if len(c.EnvVars) > 0 {
-		if err := validateEnvironmentVariables(c.EnvVars); err != nil {
-			return fmt.Errorf("invalid environment variables: %w", err)
-		}
-	}
-
+	// No validation needed - all fields have sensible defaults
 	return nil
 }
 
@@ -487,6 +463,8 @@ func (c *ExternalAgentConfig) Validate() error {
 func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
 	// If Resolution preset is set, use it
 	switch c.Resolution {
+	case "5k":
+		return 5120, 2880
 	case "4k":
 		return 3840, 2160
 	case "1080p":
@@ -510,78 +488,18 @@ func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
 	return "ubuntu" // Default to Ubuntu
 }
 
-// GetEffectiveZoomLevel returns the zoom level with auto-detection for 4k
+// GetEffectiveZoomLevel returns the zoom level with auto-detection for high-res displays
 func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
 	}
-	// Auto-set 200% zoom for 4k
-	if c.Resolution == "4k" {
+	// Auto-set 200% zoom for 4k/5k
+	switch c.Resolution {
+	case "5k", "4k":
 		return 200
+	default:
+		return 100
 	}
-	return 100 // Default 100%
-}
-
-// validateWorkspacePath ensures workspace directory is safe
-func validateWorkspacePath(workspaceDir string) error {
-	if len(workspaceDir) > 255 {
-		return errors.New("workspace directory path too long")
-	}
-
-	// Clean the path and check for traversal attempts
-	cleanPath := filepath.Clean(workspaceDir)
-
-	// Disallow absolute paths
-	if filepath.IsAbs(cleanPath) {
-		return errors.New("workspace directory must be relative")
-	}
-
-	// Check for path traversal attempts
-	if strings.Contains(cleanPath, "..") {
-		return errors.New("workspace directory cannot contain '..' path components")
-	}
-
-	return nil
-}
-
-// validateProjectPath ensures project path is safe
-func validateProjectPath(projectPath string) error {
-	return validateWorkspacePath(projectPath) // Same validation rules
-}
-
-// validateEnvironmentVariables ensures env vars are safe
-func validateEnvironmentVariables(envVars []string) error {
-	if len(envVars) > 50 {
-		return errors.New("too many environment variables (max 50)")
-	}
-
-	allowedEnvVars := map[string]bool{
-		"NODE_ENV":    true,
-		"ENVIRONMENT": true,
-		"DEBUG":       true,
-		"RUST_LOG":    true,
-		"EDITOR":      true,
-		"TERM":        true,
-	}
-
-	for _, envVar := range envVars {
-		if len(envVar) > 1024 {
-			return errors.New("environment variable too long")
-		}
-
-		// Check format
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid environment variable format: %s", envVar)
-		}
-
-		key := strings.ToUpper(parts[0])
-		if !allowedEnvVars[key] {
-			return fmt.Errorf("environment variable not allowed: %s", key)
-		}
-	}
-
-	return nil
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -1925,9 +1843,9 @@ type ZedAgent struct {
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 
 	// Resolution and desktop configuration
-	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default) or "4k"
+	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default), "4k", or "5k"
 	DesktopType string `json:"desktop_type,omitempty"` // Desktop environment: "ubuntu" (default) or "sway"
-	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k)
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox

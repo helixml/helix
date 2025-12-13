@@ -359,14 +359,14 @@ func (suite *ExternalAgentSessionSuite) TestExternalAgentSessionRequest() {
 			},
 		},
 		ExternalAgentConfig: &types.ExternalAgentConfig{
-			WorkspaceDir: "/tmp/test",
+			Resolution: "1080p",
 		},
 	}
 
 	// Verify the request structure
 	suite.Equal("external_agent", req.Model)
 	suite.Equal("zed_external", req.AgentType)
-	suite.NotEmpty(req.ExternalAgentConfig.WorkspaceDir)
+	suite.Equal("1080p", req.ExternalAgentConfig.Resolution)
 }
 
 func (suite *ExternalAgentSessionSuite) TestExternalAgentSessionMetadata() {

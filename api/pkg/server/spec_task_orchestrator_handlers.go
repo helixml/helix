@@ -472,6 +472,22 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	if task.HelixAppID != "" {
+		app, err := apiServer.Store.GetApp(req.Context(), task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = width
+			displayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+		}
+	}
+
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           externalAgent.ID,
@@ -483,9 +499,9 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		PrimaryRepositoryID: primaryRepoID,      // Needed for design docs path
 		SpecTaskID:          task.ID,            // CRITICAL: Must pass SpecTaskID for correct workspace path computation
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
-		DisplayWidth:        2560,
-		DisplayHeight:       1600,
-		DisplayRefreshRate:  60,
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
 	}
 
 	// Add user's API token for git operations

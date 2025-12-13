@@ -18367,47 +18367,28 @@
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
-                "auto_connect_rdp": {
-                    "description": "Whether to auto-connect RDP viewer",
-                    "type": "boolean"
-                },
                 "desktop_type": {
-                    "description": "Desktop environment: \"ubuntu\" (default) or \"sway\"",
+                    "description": "Desktop environment",
                     "type": "string"
                 },
                 "display_height": {
-                    "description": "Streaming resolution height (default: 1080)",
+                    "description": "Explicit height (default: 1080)",
                     "type": "integer"
                 },
                 "display_refresh_rate": {
-                    "description": "Streaming refresh rate (default: 60)",
+                    "description": "Refresh rate (default: 60)",
                     "type": "integer"
                 },
                 "display_width": {
-                    "description": "Video settings for streaming (Phase 3.5) - matches PDE display settings",
+                    "description": "Explicit width (default: 1920)",
                     "type": "integer"
                 },
-                "env_vars": {
-                    "description": "Environment variables in KEY=VALUE format",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "project_path": {
-                    "description": "Relative path for the project directory",
-                    "type": "string"
-                },
                 "resolution": {
-                    "description": "Resolution and desktop configuration",
-                    "type": "string"
-                },
-                "workspace_dir": {
-                    "description": "Custom working directory",
+                    "description": "Display resolution - either use Resolution preset or explicit dimensions",
                     "type": "string"
                 },
                 "zoom_level": {
-                    "description": "GNOME zoom percentage (100 default, 200 for 4k)",
+                    "description": "GNOME zoom percentage (100 default, 200 for 4k/5k)",
                     "type": "integer"
                 }
             }
@@ -24657,20 +24638,20 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
