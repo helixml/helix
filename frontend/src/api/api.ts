@@ -2466,6 +2466,8 @@ export interface TypesGuidelinesHistory {
   updated_by_email?: string;
   /** User display name (not persisted, populated at query time) */
   updated_by_name?: string;
+  /** Set for user-level (personal workspace) guidelines */
+  user_id?: string;
   version?: number;
 }
 
@@ -4677,12 +4679,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4720,6 +4722,10 @@ export interface TypesUpdateProviderEndpoint {
 
 export interface TypesUpdateTeamRequest {
   name?: string;
+}
+
+export interface TypesUpdateUserGuidelinesRequest {
+  guidelines?: string;
 }
 
 export interface TypesUsage {
@@ -4769,6 +4775,13 @@ export interface TypesUserAppAccessResponse {
   can_read?: boolean;
   can_write?: boolean;
   is_admin?: boolean;
+}
+
+export interface TypesUserGuidelinesResponse {
+  guidelines?: string;
+  guidelines_updated_at?: string;
+  guidelines_updated_by?: string;
+  guidelines_version?: number;
 }
 
 export interface TypesUserResponse {
@@ -10795,6 +10808,62 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesList
+     * @summary Get user guidelines
+     * @request GET:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesList: (params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesUpdate
+     * @summary Update user guidelines
+     * @request PUT:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesHistoryList
+     * @summary Get user guidelines history
+     * @request GET:/api/v1/users/me/guidelines-history
+     * @secure
+     */
+    v1UsersMeGuidelinesHistoryList: (params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines-history`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

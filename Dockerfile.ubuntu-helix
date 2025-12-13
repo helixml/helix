@@ -71,6 +71,8 @@ RUN apt-get update && apt-get install -y \
     # System utilities
     gnome-control-center \
     gnome-tweaks \
+    # Keyring for Chrome password storage (auto-unlock with empty password)
+    gnome-keyring libsecret-tools \
     # Ubuntu theming
     yaru-theme-gtk \
     yaru-theme-icon \

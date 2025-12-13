@@ -3356,18 +3356,18 @@ func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.C
 }
 
 // ListGuidelinesHistory mocks base method.
-func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error) {
+func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListGuidelinesHistory", ctx, organizationID, projectID)
+	ret := m.ctrl.Call(m, "ListGuidelinesHistory", ctx, organizationID, projectID, userID)
 	ret0, _ := ret[0].([]*types.GuidelinesHistory)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListGuidelinesHistory indicates an expected call of ListGuidelinesHistory.
-func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, projectID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, projectID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID, userID)
 }
 
 // ListHelpRequests mocks base method.

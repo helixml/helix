@@ -65,6 +65,34 @@ sudo chown retro:retro /home/retro
 echo "Home directory ownership fixed"
 
 # ============================================================================
+# GNOME Keyring Auto-Unlock (prevents "Choose password for keyring" prompt)
+# ============================================================================
+# Chrome and other apps use GNOME Keyring to store secrets. In a container
+# environment, we create a keyring with an empty password so it auto-unlocks.
+# This prevents the password prompt that appears when Chrome first starts.
+echo "Setting up GNOME Keyring with auto-unlock..."
+mkdir -p ~/.local/share/keyrings
+
+# Create the default keyring pointer (tells gnome-keyring which keyring is default)
+echo "login" > ~/.local/share/keyrings/default
+
+# Create autostart entry that unlocks the keyring with empty password
+# Uses bash to pipe empty string to gnome-keyring-daemon --unlock
+# DISPLAY is inherited from the GNOME session environment
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/unlock-keyring.desktop <<'KEYRING_EOF'
+[Desktop Entry]
+Type=Application
+Name=Unlock Keyring
+Exec=/bin/bash -c "echo -n '' | gnome-keyring-daemon --unlock --components=secrets,pkcs11 2>&1 | head -1 >> /tmp/ubuntu-startup-debug.log"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Initialization
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+KEYRING_EOF
+echo "GNOME Keyring auto-unlock configured (empty password)"
+
+# ============================================================================
 # Workspace Directory Setup (Hydra Compatibility)
 # ============================================================================
 # CRITICAL: Create workspace symlink for Hydra bind-mount compatibility

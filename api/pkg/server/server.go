@@ -544,6 +544,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/token-usage", apiServer.getUserTokenUsage).Methods(http.MethodGet)
+
+	// User guidelines (personal workspace)
+	authRouter.HandleFunc("/users/me/guidelines", apiServer.getUserGuidelines).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/guidelines", apiServer.updateUserGuidelines).Methods(http.MethodPut)
+	authRouter.HandleFunc("/users/me/guidelines-history", apiServer.getUserGuidelinesHistory).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
 
 	// Billing
