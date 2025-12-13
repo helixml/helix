@@ -155,6 +155,55 @@ not at Zed startup. This meant:
 - `📋 [AGENT_PANEL] Found N external agents: [...]`
 - `📋 [AGENT_PANEL] Fetched N sessions from agent X at startup`
 
+## Critical Fix: Missing `type` field in agent_servers config (2025-12-13)
+
+**Problem:** Qwen Code wasn't appearing in `external_agents()` iterator despite being configured.
+
+Zed deserializes `agent_servers` using a tagged enum:
+```rust
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CustomAgentServerSettings {
+    Custom { command, args, env, ... },
+    Extension { ... },
+}
+```
+
+The `settings-sync-daemon` was generating:
+```json
+{
+  "agent_servers": {
+    "qwen": {
+      "command": "qwen",
+      "args": [...],
+      "env": {...}
+    }
+  }
+}
+```
+
+Without the required `"type": "custom"` field, serde couldn't deserialize this, so `AllAgentServersSettings.custom` was empty, and `external_agents()` never included Qwen.
+
+**Fix implemented in:** `helix/api/cmd/settings-sync-daemon/main.go`
+- Added `"type": "custom"` to the Qwen agent_servers configuration
+
+**Result:** Now the config is:
+```json
+{
+  "agent_servers": {
+    "qwen": {
+      "type": "custom",
+      "command": "qwen",
+      ...
+    }
+  }
+}
+```
+
+This allows Zed's `AgentServerStore` to properly register Qwen as a custom agent, which enables:
+1. `external_agents()` includes "qwen"
+2. `load_acp_sessions_from_agents()` queries Qwen at startup
+3. Session resume works because the session loading flow finds the agent
+
 ## Reverted Changes
 
 Removed unnecessary path normalization in `Storage` class that was added based on incorrect theory:
