@@ -128,13 +128,32 @@ Both `acpAgent.ts` and `sessionService.ts` have debug logging:
 
 Logs go to stderr (via `console.error`) which Zed captures.
 
-## Next Steps
+## Additional Fix: ACP Session UI Loading (2025-12-13)
 
-1. Start a sandbox session and send a message to create a session
-2. Check session files in `~/.qwen/projects/...`
-3. Restart sandbox and try to resume
-4. Check Zed logs for the debug output
-5. Identify actual cause of failure
+**Problem:** Users couldn't see ACP agent sessions in the thread list when Zed started.
+
+The `list_sessions` ACP call was only made AFTER a new thread was created (in `thread_view.rs`),
+not at Zed startup. This meant:
+- If you created sessions with Qwen Code standalone, they wouldn't appear in Zed's thread list
+- You had to create a new thread first to trigger the session list fetch
+
+**Fix implemented in:** `zed/crates/agent_ui/src/agent_panel.rs`
+- Added `load_acp_sessions_from_agents()` method called during `AgentPanel::new()`
+- Added `load_sessions_from_agent()` async helper to connect to each agent and fetch sessions
+- Sessions are fetched from all configured external agents (from `agent_server_store.external_agents()`)
+- Sessions are stored in-memory in `HistoryStore.acp_agent_sessions` (NOT persisted to SQLite)
+- Sessions are re-fetched each time Zed starts (as designed - state lives on agent side)
+
+**Key behavior:**
+- Sessions created outside Zed (e.g., Qwen Code CLI) appear in Zed's thread list
+- Sessions are dynamically loaded, not persisted locally
+- Each agent's sessions are fetched in parallel via separate spawned tasks
+- Agents that don't support `session/list` are skipped gracefully
+
+**Logging added:**
+- `📋 [AGENT_PANEL] Loading ACP sessions from configured agents at startup...`
+- `📋 [AGENT_PANEL] Found N external agents: [...]`
+- `📋 [AGENT_PANEL] Fetched N sessions from agent X at startup`
 
 ## Reverted Changes
 
