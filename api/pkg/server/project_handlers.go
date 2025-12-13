@@ -456,7 +456,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 			Str("session_id", exploratorySession.ID).
 			Msg("Stopping exploratory session before project deletion")
 
-		stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), exploratorySession.ID)
+		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
 		if stopErr != nil {
 			log.Warn().Err(stopErr).Str("session_id", exploratorySession.ID).Msg("Failed to stop exploratory session (continuing with deletion)")
 		}
@@ -475,7 +475,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 					Str("session_id", task.PlanningSessionID).
 					Msg("Stopping SpecTask session before project deletion")
 
-				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().Err(stopErr).Str("session_id", task.PlanningSessionID).Msg("Failed to stop session (continuing with deletion)")
 				}
@@ -985,6 +985,29 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					primaryRepoID = projectRepos[0].ID
 				}
 
+				// Get display settings from project's default agent app
+				displayWidth := 1920
+				displayHeight := 1080
+				displayRefreshRate := 60
+				if project.DefaultHelixAppID != "" {
+					app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+					if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+						w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+						displayWidth = w
+						displayHeight = h
+						if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+							displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+						}
+						log.Debug().
+							Str("project_id", projectID).
+							Str("app_id", project.DefaultHelixAppID).
+							Int("display_width", displayWidth).
+							Int("display_height", displayHeight).
+							Int("display_refresh_rate", displayRefreshRate).
+							Msg("Using display settings from project's default agent for exploratory restart")
+					}
+				}
+
 				// Restart Zed agent with existing session
 				zedAgent := &types.ZedAgent{
 					SessionID:           existingSession.ID,
@@ -995,6 +1018,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					ProjectID:           projectID,
 					PrimaryRepositoryID: primaryRepoID,
 					RepositoryIDs:       repositoryIDs,
+					DisplayWidth:        displayWidth,
+					DisplayHeight:       displayHeight,
+					DisplayRefreshRate:  displayRefreshRate,
 				}
 
 				// Add user's API token for git operations
@@ -1003,7 +1029,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					return nil, system.NewHTTPError500(fmt.Sprintf("failed to get user API keys: %v", err))
 				}
 
-				agentResp, err := s.externalAgentExecutor.StartZedAgent(r.Context(), zedAgent)
+				agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -1018,7 +1044,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					Msg("Exploratory session lobby restarted successfully")
 
 				// Reload session from database to get updated lobby ID/PIN
-				// StartZedAgent updates session metadata in DB, so we need fresh data
+				// StartDesktop updates session metadata in DB, so we need fresh data
 				updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
 				if err != nil {
 					log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
@@ -1095,6 +1121,29 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		primaryRepoID = projectRepos[0].ID
 	}
 
+	// Get display settings from project's default agent app
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	if project.DefaultHelixAppID != "" {
+		app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
+		if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			w, h := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = w
+			displayHeight = h
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			log.Debug().
+				Str("project_id", projectID).
+				Str("app_id", project.DefaultHelixAppID).
+				Int("display_width", displayWidth).
+				Int("display_height", displayHeight).
+				Int("display_refresh_rate", displayRefreshRate).
+				Msg("Using display settings from project's default agent for new exploratory session")
+		}
+	}
+
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.ZedAgent{
 		SessionID:           createdSession.ID,
@@ -1105,6 +1154,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		ProjectID:           projectID, // For loading project repos and startup script
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
 	}
 
 	// Add user's API token for git operations (RBAC enforced)
@@ -1114,7 +1166,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Start the Zed agent via Wolf executor
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(r.Context(), zedAgent)
+	agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1124,7 +1176,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to start exploratory agent: %v", err))
 	}
 
-	// Activity tracking now happens in StartZedAgent (wolf_executor.go)
+	// Activity tracking now happens in StartDesktop (wolf_executor.go)
 	// for all external agent types (exploratory, spectask, regular agents)
 
 	log.Info().
@@ -1183,7 +1235,7 @@ func (s *HelixAPIServer) stopExploratorySession(_ http.ResponseWriter, r *http.R
 	}
 
 	// Stop the Zed agent (Wolf container)
-	err = s.externalAgentExecutor.StopZedAgent(r.Context(), session.ID)
+	err = s.externalAgentExecutor.StopDesktop(r.Context(), session.ID)
 	if err != nil {
 		log.Error().
 			Err(err).

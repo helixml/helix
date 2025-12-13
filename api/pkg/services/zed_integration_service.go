@@ -613,8 +613,8 @@ func (s *ZedIntegrationService) LaunchZedAgent(ctx context.Context, zedAgent *ty
 	return s.launchZedInstance(ctx, zedAgent)
 }
 
-// StopZedAgent stops a Zed agent by session ID
-func (s *ZedIntegrationService) StopZedAgent(ctx context.Context, sessionID string) error {
+// StopDesktop stops a desktop session by session ID
+func (s *ZedIntegrationService) StopDesktop(ctx context.Context, sessionID string) error {
 	// Find the instance ID for this session
 	// For now, just log the stop request
 	log.Info().Str("session_id", sessionID).Msg("Stop Zed agent requested")

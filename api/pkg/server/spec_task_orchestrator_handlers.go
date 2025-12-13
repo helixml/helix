@@ -329,7 +329,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		Msg("Manually stopping SpecTask external agent")
 
 	// Stop Wolf app
-	err = apiServer.externalAgentExecutor.StopZedAgent(req.Context(), externalAgent.ID)
+	err = apiServer.externalAgentExecutor.StopDesktop(req.Context(), externalAgent.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to stop external agent")
 		http.Error(res, fmt.Sprintf("Failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
@@ -511,7 +511,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		return
 	}
 
-	agentResp, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), agentReq)
+	agentResp, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), agentReq)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to start external agent")
 		http.Error(res, fmt.Sprintf("Failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
