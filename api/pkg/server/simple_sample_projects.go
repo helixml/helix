@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -719,6 +720,38 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	// Use organization from request (if provided), otherwise it's a personal project
 	// Don't auto-assign user's first org - respect their workspace context
 	orgID := req.OrganizationID
+
+	// Deduplicate project name within the workspace (org or personal)
+	// Build a set of existing names and add (1), (2), etc. if needed
+	var existingProjects []*types.Project
+	var listErr error
+	if orgID != "" {
+		existingProjects, listErr = s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+			OrganizationID: orgID,
+		})
+	} else {
+		existingProjects, listErr = s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+			UserID: user.ID,
+		})
+	}
+	if listErr != nil {
+		log.Warn().Err(listErr).Msg("failed to list projects for name deduplication (continuing)")
+	}
+
+	existingNames := make(map[string]bool)
+	for _, p := range existingProjects {
+		existingNames[p.Name] = true
+	}
+
+	// Auto-increment name if it already exists: MyProject -> MyProject (1) -> MyProject (2)
+	baseName := projectName
+	uniqueName := baseName
+	suffix := 1
+	for existingNames[uniqueName] {
+		uniqueName = fmt.Sprintf("%s (%d)", baseName, suffix)
+		suffix++
+	}
+	projectName = uniqueName
 
 	log.Info().
 		Str("user_id", user.ID).

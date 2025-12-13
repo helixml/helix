@@ -3594,30 +3594,25 @@ definitions:
     type: object
   types.ExternalAgentConfig:
     properties:
-      auto_connect_rdp:
-        description: Whether to auto-connect RDP viewer
-        type: boolean
+      desktop_type:
+        description: Desktop environment
+        type: string
       display_height:
-        description: 'Streaming resolution height (default: 1600)'
+        description: 'Explicit height (default: 1080)'
         type: integer
       display_refresh_rate:
-        description: 'Streaming refresh rate (default: 60)'
+        description: 'Refresh rate (default: 60)'
         type: integer
       display_width:
-        description: Video settings for streaming (Phase 3.5) - matches PDE display
-          settings
+        description: 'Explicit width (default: 1920)'
         type: integer
-      env_vars:
-        description: Environment variables in KEY=VALUE format
-        items:
-          type: string
-        type: array
-      project_path:
-        description: Relative path for the project directory
+      resolution:
+        description: Display resolution - either use Resolution preset or explicit
+          dimensions
         type: string
-      workspace_dir:
-        description: Custom working directory
-        type: string
+      zoom_level:
+        description: GNOME zoom percentage (100 default, 200 for 4k/5k)
+        type: integer
     type: object
   types.ExternalAgentConnection:
     properties:
@@ -4087,6 +4082,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing (pointer to distinguish
+          unset from false)
+        type: boolean
       metadata:
         additionalProperties: true
         type: object
@@ -4175,6 +4174,9 @@ definitions:
         type: string
       updated_by_name:
         description: User display name (not persisted, populated at query time)
+        type: string
+      user_id:
+        description: Set for user-level (personal workspace) guidelines
         type: string
       version:
         type: integer
@@ -7115,27 +7117,6 @@ definitions:
     required:
     - spec_task_id
     type: object
-  types.SpecTaskImplementationStartResponse:
-    properties:
-      agent_instructions:
-        type: string
-      base_branch:
-        type: string
-      branch_name:
-        type: string
-      created_at:
-        type: string
-      local_path:
-        type: string
-      pr_template_url:
-        type: string
-      repository_id:
-        type: string
-      repository_name:
-        type: string
-      status:
-        type: string
-    type: object
   types.SpecTaskImplementationStatus:
     enum:
     - pending
@@ -8097,6 +8078,11 @@ definitions:
       name:
         type: string
     type: object
+  types.UpdateUserGuidelinesRequest:
+    properties:
+      guidelines:
+        type: string
+    type: object
   types.Usage:
     properties:
       completion_tokens:
@@ -8174,6 +8160,17 @@ definitions:
         type: boolean
       is_admin:
         type: boolean
+    type: object
+  types.UserGuidelinesResponse:
+    properties:
+      guidelines:
+        type: string
+      guidelines_updated_at:
+        type: string
+      guidelines_updated_by:
+        type: string
+      guidelines_version:
+        type: integer
     type: object
   types.UserResponse:
     properties:
@@ -8296,6 +8293,14 @@ definitions:
         items:
           $ref: '#/definitions/types.ContainerDiskUsage'
         type: array
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: |-
+          Desktop image versions (content-addressable Docker image hashes)
+          Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+          Value: image hash (e.g., "a1b2c3d4e5f6...")
+        type: object
       disk_usage:
         description: disk usage metrics for monitored partitions
         items:
@@ -8309,9 +8314,6 @@ definitions:
         type: boolean
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
-        type: string
-      sway_version:
-        description: helix-sway image version (commit hash)
         type: string
     type: object
   types.WolfInstanceRequest:
@@ -8333,6 +8335,11 @@ definitions:
         type: integer
       created_at:
         type: string
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: map of desktop name -> image hash
+        type: object
       disk_alert_level:
         type: string
       disk_usage:
@@ -8360,6 +8367,7 @@ definitions:
       status:
         type: string
       sway_version:
+        description: legacy, use DesktopVersions
         type: string
       updated_at:
         type: string
@@ -15203,40 +15211,6 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{taskId}/start-implementation:
-    post:
-      description: Transition an approved spec task to implementation, creating a
-        feature branch
-      parameters:
-      - description: Task ID
-        in: path
-        name: taskId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SpecTaskImplementationStartResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - ApiKeyAuth: []
-      summary: Start implementation phase
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{taskId}/start-planning:
     post:
       consumes:
@@ -16081,6 +16055,78 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/me/guidelines:
+    get:
+      description: Get the current user's personal workspace guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's personal workspace guidelines
+      parameters:
+      - description: Guidelines update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserGuidelinesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user guidelines
+      tags:
+      - Users
+  /api/v1/users/me/guidelines-history:
+    get:
+      description: Get the version history of the current user's personal workspace
+        guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines history
+      tags:
+      - Users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

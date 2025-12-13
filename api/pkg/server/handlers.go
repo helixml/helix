@@ -249,7 +249,10 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	// Get streaming bitrate from environment (in Mbps)
-	streamingBitrateMbps := 40 // Default: 40 Mbps
+	// Default: 10 Mbps - conservative for bandwidth-constrained networks (4G, etc.)
+	// Can be overridden with STREAMING_BITRATE_MBPS env var
+	// Frontend also allows user to adjust bitrate dynamically
+	streamingBitrateMbps := 10 // Default: 10 Mbps (was 40, too high for low-bandwidth)
 	if bitrateMbpsStr := os.Getenv("STREAMING_BITRATE_MBPS"); bitrateMbpsStr != "" {
 		if bitrate, err := strconv.Atoi(bitrateMbpsStr); err == nil && bitrate > 0 {
 			streamingBitrateMbps = bitrate

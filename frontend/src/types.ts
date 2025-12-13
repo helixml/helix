@@ -99,9 +99,13 @@ export interface IExternalAgentConfig {
   env_vars?: string[]
   auto_connect_rdp?: boolean
   // Video settings (Phase 3.5) - matches PDE display settings
-  display_width?: number        // Streaming resolution width (default: 2560)
-  display_height?: number       // Streaming resolution height (default: 1600)
+  display_width?: number        // Streaming resolution width (default: 1920)
+  display_height?: number       // Streaming resolution height (default: 1080)
   display_refresh_rate?: number // Streaming refresh rate (default: 60)
+  // Resolution and desktop configuration
+  resolution?: string   // Resolution preset: "1080p" (default) or "4k"
+  desktop_type?: string // Desktop environment: "ubuntu" (default) or "sway"
+  zoom_level?: number   // GNOME zoom percentage (100 default, 200 for 4k)
 }
 
 export interface IAgentTypeOption {
@@ -127,8 +131,8 @@ export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
   },
   {
     value: AGENT_TYPE_ZED_EXTERNAL,
-    label: 'Zed External Agent', 
-    description: 'Full development environment with code editing via RDP',
+    label: 'External Agent',
+    description: 'Full development environment with code editing via streaming desktop',
     icon: 'code',
   }
 ]

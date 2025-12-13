@@ -420,6 +420,28 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = width
+			displayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidth).
+				Int("display_height", displayHeight).
+				Int("display_refresh_rate", displayRefreshRate).
+				Msg("Using display settings from app's ExternalAgentConfig")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.ZedAgent{
@@ -432,6 +454,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -446,8 +471,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartDesktop...")
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -721,6 +746,28 @@ Follow these guidelines when making changes:
 		return
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidthJDI := 1920
+	displayHeightJDI := 1080
+	displayRefreshRateJDI := 60
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidthJDI = width
+			displayHeightJDI = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRateJDI = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidthJDI).
+				Int("display_height", displayHeightJDI).
+				Int("display_refresh_rate", displayRefreshRateJDI).
+				Msg("Just Do It: Using display settings from app's ExternalAgentConfig")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
@@ -732,13 +779,16 @@ Follow these guidelines when making changes:
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidthJDI,
+		DisplayHeight:       displayHeightJDI,
+		DisplayRefreshRate:  displayRefreshRateJDI,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
 
 	// Start the Zed agent via Wolf executor
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
 		s.markTaskFailed(ctx, task, err.Error())

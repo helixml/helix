@@ -368,7 +368,7 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
-// getGuidelinesForTask fetches concatenated organization + project guidelines
+// getGuidelinesForTask fetches concatenated organization/user + project guidelines
 func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task *types.SpecTask) string {
 	if task.ProjectID == "" {
 		return ""
@@ -381,11 +381,17 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 
 	guidelines := ""
 
-	// Get organization guidelines
+	// Get organization guidelines (if project belongs to an org)
 	if project.OrganizationID != "" {
 		org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: project.OrganizationID})
 		if err == nil && org != nil && org.Guidelines != "" {
 			guidelines = org.Guidelines
+		}
+	} else if project.UserID != "" {
+		// No organization - check for user guidelines (personal workspace)
+		userMeta, err := s.store.GetUserMeta(ctx, project.UserID)
+		if err == nil && userMeta != nil && userMeta.Guidelines != "" {
+			guidelines = userMeta.Guidelines
 		}
 	}
 

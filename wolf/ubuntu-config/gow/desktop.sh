@@ -31,6 +31,23 @@ function launch_desktop() {
     unset WAYLAND_DISPLAY
     export $(dbus-launch)
 
+    # ========================================================================
+    # Initialize GNOME Keyring with empty password (BEFORE gnome-session)
+    # ========================================================================
+    # This prevents the "Choose password for new keyring" prompt.
+    # D-Bus is already running, so we can start the keyring daemon now.
+    echo "Initializing GNOME Keyring with empty password..."
+    mkdir -p ~/.local/share/keyrings
+    echo "login" > ~/.local/share/keyrings/default
+
+    # Start keyring daemon and unlock with empty password
+    # The daemon will create the login keyring if it doesn't exist
+    echo -n '' | gnome-keyring-daemon --start --unlock --components=secrets,pkcs11 > /tmp/keyring-init.log 2>&1
+
+    # Export the keyring control socket for other apps
+    export $(gnome-keyring-daemon --start --components=secrets,pkcs11 2>/dev/null)
+    echo "GNOME Keyring initialized"
+
     # Load dconf settings for Ubuntu theming BEFORE gnome-session starts
     # This ensures wallpaper and theme are set from the very beginning
     if [ -f /opt/gow/dconf-settings.ini ]; then

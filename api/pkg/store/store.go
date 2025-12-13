@@ -157,7 +157,7 @@ type Store interface {
 
 	// Guidelines history
 	CreateGuidelinesHistory(ctx context.Context, history *types.GuidelinesHistory) error
-	ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error)
+	ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error)
 
 	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
 	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)

@@ -64,7 +64,7 @@ const AgentStatusIndicator: React.FC<AgentStatusIndicatorProps> = ({
       case AGENT_TYPE_HELIX_AGENT:
         return 'Multi-Turn Helix Agent';
       case AGENT_TYPE_ZED_EXTERNAL:
-        return 'Zed External Agent';
+        return 'External Agent';
       default:
         return 'Unknown Agent';
     }

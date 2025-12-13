@@ -49,6 +49,10 @@ interface ExternalAgentDesktopViewerProps {
   height?: number; // Optional - required for screenshot mode, ignored for stream mode (uses flex)
   mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
   onClientIdCalculated?: (clientId: string) => void;
+  // Display settings from app's ExternalAgentConfig
+  displayWidth?: number;
+  displayHeight?: number;
+  displayFps?: number;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -57,6 +61,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   height,
   mode = 'stream', // Default to stream for floating window
   onClientIdCalculated,
+  displayWidth,
+  displayHeight,
+  displayFps,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -314,6 +321,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
       <MoonlightStreamViewer
         sessionId={sessionId}
         wolfLobbyId={wolfLobbyId}
+        width={displayWidth}
+        height={displayHeight}
+        fps={displayFps}
         onError={(error) => {
           console.error('Stream viewer error:', error);
         }}

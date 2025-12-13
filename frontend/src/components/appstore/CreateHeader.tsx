@@ -56,51 +56,48 @@ const CreateHeader: FC<{
           gap: 2,
         }}
       >
-        <Tooltip title={tooltipContent} placement="right">
+        <Tooltip title={showEditButton ? "Edit agent settings" : tooltipContent} placement="right">
           <Box
             sx={{
               position: 'relative',
-              display: 'inline-block',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
               cursor: showEditButton && onEditClick ? 'pointer' : 'default',
-              width: 40,
-              height: 40,
-              '&:hover .edit-avatar-icon': {
-                opacity: 1,
-              },
+              padding: showEditButton ? '4px 12px 4px 4px' : 0,
+              borderRadius: showEditButton ? '24px' : 0,
+              backgroundColor: showEditButton ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+              border: showEditButton ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
+              transition: 'all 0.2s ease',
+              '&:hover': showEditButton ? {
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                borderColor: 'rgba(255, 255, 255, 0.4)',
+              } : {},
             }}
             onClick={showEditButton && onEditClick ? onEditClick : undefined}
           >
             <Avatar
               src={avatar}
               sx={{
-                width: 40,
-                height: 40,
-                border: '1px solid #fff',
+                width: 32,
+                height: 32,
+                border: '1px solid rgba(255, 255, 255, 0.5)',
                 ...avatarSx,
               }}
             />
             {showEditButton && onEditClick && (
               <Box
                 sx={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  gap: 0.5,
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '0.8rem',
+                  fontWeight: 500,
                 }}
               >
-                <Edit
-                  size={22}
-                  color="white"
-                  style={{
-                    opacity: 0,
-                    transition: 'opacity 0.2s',
-                  }}
-                  className="edit-avatar-icon"
-                />
+                <Edit size={14} />
+                <span>Edit</span>
               </Box>
             )}
           </Box>

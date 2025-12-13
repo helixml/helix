@@ -605,7 +605,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		if task.PlanningSessionID != "" {
 			session, sessionErr := s.Store.GetSession(r.Context(), task.PlanningSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
@@ -625,7 +625,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		// Get all sessions for this task's project and stop ones related to this task
 		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(r.Context(), taskID)
 		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), externalAgent.ID)
+			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), externalAgent.ID)
 			if stopErr != nil {
 				log.Warn().
 					Err(stopErr).

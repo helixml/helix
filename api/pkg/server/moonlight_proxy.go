@@ -171,6 +171,16 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		backendReq.RequestURI += "?" + r.URL.RawQuery
 	}
 
+	// Add moonlight-web authentication credentials
+	// This is required for ALL requests to moonlight-web (HTTP and WebSocket)
+	moonlightCreds := apiServer.getMoonlightCredentials()
+	backendReq.Header.Set("Authorization", "Bearer "+moonlightCreds)
+
+	log.Debug().
+		Str("path", backendPath).
+		Bool("has_auth", backendReq.Header.Get("Authorization") != "").
+		Msg("Forwarding HTTP request to Moonlight Web with credentials")
+
 	// Write HTTP request to RevDial connection
 	if err := backendReq.Write(conn); err != nil {
 		log.Error().Err(err).Msg("Failed to write request to RevDial connection")

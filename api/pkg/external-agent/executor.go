@@ -9,9 +9,9 @@ import (
 
 // Executor defines the interface for external agent executors
 type Executor interface {
-	// Single-session methods (legacy)
-	StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
-	StopZedAgent(ctx context.Context, sessionID string) error
+	// Desktop session methods
+	StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+	StopDesktop(ctx context.Context, sessionID string) error
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession

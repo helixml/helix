@@ -348,7 +348,7 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 		return
 	}
 
-	history, err := apiServer.Store.ListGuidelinesHistory(r.Context(), orgID, "")
+	history, err := apiServer.Store.ListGuidelinesHistory(r.Context(), orgID, "", "")
 	if err != nil {
 		log.Error().
 			Err(err).

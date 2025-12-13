@@ -206,6 +206,38 @@ const SpecTasksPage: FC = () => {
     return map;
   }, [apps.apps]);
 
+  // Get display settings from the project's default app for exploratory sessions
+  const exploratoryDisplaySettings = useMemo(() => {
+    if (!project?.default_helix_app_id || !apps.apps) {
+      return { width: 1920, height: 1080, fps: 60 }
+    }
+    const defaultApp = apps.apps.find(a => a.id === project.default_helix_app_id)
+    const config = defaultApp?.config?.helix?.external_agent_config
+    if (!config) {
+      return { width: 1920, height: 1080, fps: 60 }
+    }
+
+    // Get dimensions from resolution preset or explicit values
+    let width = config.display_width || 1920
+    let height = config.display_height || 1080
+    if (config.resolution === '5k') {
+      width = 5120
+      height = 2880
+    } else if (config.resolution === '4k') {
+      width = 3840
+      height = 2160
+    } else if (config.resolution === '1080p') {
+      width = 1920
+      height = 1080
+    }
+
+    return {
+      width,
+      height,
+      fps: config.display_refresh_rate || 60,
+    }
+  }, [project?.default_helix_app_id, apps.apps])
+
   // Auto-generate agent name when model or runtime changes (if user hasn't modified it)
   useEffect(() => {
     if (!userModifiedName && showCreateAgentForm) {
@@ -479,7 +511,10 @@ const SpecTasksPage: FC = () => {
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
         sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id,
+        displayWidth: exploratoryDisplaySettings.width,
+        displayHeight: exploratoryDisplaySettings.height,
+        displayFps: exploratoryDisplaySettings.fps,
       }, { x: window.innerWidth - 400, y: 100 });
     } catch (err: any) {
       // Extract error message from API response
@@ -499,7 +534,10 @@ const SpecTasksPage: FC = () => {
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
         sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id,
+        displayWidth: exploratoryDisplaySettings.width,
+        displayHeight: exploratoryDisplaySettings.height,
+        displayFps: exploratoryDisplaySettings.fps,
       }, { x: e.clientX, y: e.clientY });
     } catch (err) {
       snackbar.error('Failed to resume exploratory session');
@@ -591,7 +629,10 @@ const SpecTasksPage: FC = () => {
                   floatingModal.showFloatingModal({
                     type: 'exploratory_session',
                     sessionId: exploratorySessionData.id,
-                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
+                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id,
+                    displayWidth: exploratoryDisplaySettings.width,
+                    displayHeight: exploratoryDisplaySettings.height,
+                    displayFps: exploratoryDisplaySettings.fps,
                   }, { x: e.clientX, y: e.clientY });
                 }}
                 sx={{ flexShrink: 0 }}

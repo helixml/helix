@@ -91,14 +91,9 @@ Examples:
 		if agentType != "" {
 			chatReq.AgentType = agentType
 
-			// For external agents, provide default config if not specified
+			// For external agents, provide empty config (wolf_executor handles paths)
 			if agentType == "zed_external" {
-				chatReq.ExternalAgentConfig = &types.ExternalAgentConfig{
-					WorkspaceDir:   "workspace", // Must be relative path
-					ProjectPath:    "",
-					EnvVars:        []string{},
-					AutoConnectRDP: false, // CLI doesn't need RDP
-				}
+				chatReq.ExternalAgentConfig = &types.ExternalAgentConfig{}
 			}
 		}
 

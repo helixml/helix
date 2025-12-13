@@ -1,9 +1,12 @@
 // Stream transport mode
-export type StreamingMode = 'websocket' | 'webrtc';
+// - 'websocket': WebSocket for both video and input (L7-only, works everywhere)
+// - 'webrtc': WebRTC for video/audio, WebSocket for signaling (requires TURN)
+// - 'sse': SSE for video (unidirectional), WebSocket for input (experimental)
+export type StreamingMode = 'websocket' | 'webrtc' | 'sse';
 
 // Stream settings interface
 export interface StreamSettings {
-  videoSize: '720p' | '1080p' | '1440p' | '4k' | 'native' | 'custom';
+  videoSize: '720p' | '1080p' | '1440p' | '4k' | '5k' | 'native' | 'custom';
   videoSizeCustom: { width: number; height: number };
   bitrate: number;
   packetSize: number;

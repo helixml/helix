@@ -194,13 +194,13 @@ func (s *PostgresStore) CreateGuidelinesHistory(ctx context.Context, history *ty
 	if history.ID == "" {
 		return fmt.Errorf("id not specified")
 	}
-	if history.OrganizationID == "" && history.ProjectID == "" {
-		return fmt.Errorf("either organization_id or project_id must be specified")
+	if history.OrganizationID == "" && history.ProjectID == "" && history.UserID == "" {
+		return fmt.Errorf("either organization_id, project_id, or user_id must be specified")
 	}
 	return s.gdb.WithContext(ctx).Create(history).Error
 }
 
-func (s *PostgresStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error) {
+func (s *PostgresStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
 	var history []*types.GuidelinesHistory
 	query := s.gdb.WithContext(ctx)
 
@@ -209,6 +209,9 @@ func (s *PostgresStore) ListGuidelinesHistory(ctx context.Context, organizationI
 	}
 	if projectID != "" {
 		query = query.Where("project_id = ?", projectID)
+	}
+	if userID != "" {
+		query = query.Where("user_id = ?", userID)
 	}
 
 	err := query.Order("version DESC").Find(&history).Error

@@ -457,6 +457,16 @@ function build-zed() {
 EOF
 
   echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+
+  # Copy Zed app icon for GNOME desktop integration
+  local ICON_SOURCE="$ZED_SOURCE_DIR/crates/zed/resources/app-icon-dev.png"
+  if [ -f "$ICON_SOURCE" ]; then
+    cp "$ICON_SOURCE" "$ZED_OUTPUT_DIR/app-icon.png"
+    echo "✅ Copied Zed app icon to $ZED_OUTPUT_DIR/app-icon.png"
+  else
+    echo "⚠️  Zed app icon not found at $ICON_SOURCE"
+  fi
+
   echo "🎉 Zed build completed successfully!"
   echo ""
   echo "Next steps:"

@@ -241,6 +241,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  // External agent display settings
+  const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
+  const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+  const [zoomLevel, setZoomLevel] = useState<number>(app.external_agent_config?.zoom_level || ((app.external_agent_config?.resolution === '5k' || app.external_agent_config?.resolution === '4k') ? 200 : 100))
+  const [refreshRate, setRefreshRate] = useState<number>(app.external_agent_config?.display_refresh_rate || 60)
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
@@ -277,6 +282,11 @@ const AppSettings: FC<AppSettingsProps> = ({
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
       setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      // External agent display settings
+      setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
+      setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+      setZoomLevel(app.external_agent_config?.zoom_level || (app.external_agent_config?.resolution === '4k' ? 200 : 100))
+      setRefreshRate(app.external_agent_config?.display_refresh_rate || 60)
 
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
@@ -574,15 +584,14 @@ const AppSettings: FC<AppSettingsProps> = ({
 
         {/* Agent Type Selection */}
       <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" sx={{ mb: 2 }}>Default Agent Type</Typography>
+        <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Type</Typography>
         <AgentTypeSelector
           value={default_agent_type}
           onChange={handleAgentTypeChange}
           externalAgentConfig={external_agent_config}
           disabled={readOnly}
-          showExternalConfig={default_agent_type === AGENT_TYPE_ZED_EXTERNAL}
+          size="small"
         />
-
       </Box>
 
       {/* Basic Agent Configuration - Model Selection Only */}
@@ -613,69 +622,226 @@ const AppSettings: FC<AppSettingsProps> = ({
         </Box>
       )}
 
-      {/* Zed External Agent Configuration */}
+      {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Runtime</Typography>
-          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
-            Choose which code agent runtime to use inside Zed.
-          </Typography>
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <Select
-              value={code_agent_runtime}
-              onChange={(e) => {
-                const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
-                setCodeAgentRuntime(newRuntime);
-                const updatedApp: IAppFlatState = {
-                  ...app,
-                  code_agent_runtime: newRuntime,
-                };
-                onUpdate(updatedApp);
-              }}
-              disabled={readOnly}
-            >
-              <MenuItem value="zed_agent">
-                <Box>
-                  <Typography>Zed Agent (Built-in)</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Uses Zed's native agent panel with direct API integration
-                  </Typography>
-                </Box>
-              </MenuItem>
-              <MenuItem value="qwen_code">
-                <Box>
-                  <Typography>Qwen Code</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Uses qwen-code CLI as a custom agent server (OpenAI-compatible)
-                  </Typography>
-                </Box>
-              </MenuItem>
-            </Select>
-          </FormControl>
+          {/* Agent Runtime & Model - compact section */}
+          <Stack spacing={2} sx={{ mb: 3 }}>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Agent Runtime
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={code_agent_runtime}
+                  onChange={(e) => {
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code';
+                    setCodeAgentRuntime(newRuntime);
+                    onUpdate({ ...app, code_agent_runtime: newRuntime });
+                  }}
+                  disabled={readOnly}
+                  renderValue={(value) => value === 'zed_agent' ? 'Zed Agent' : 'Qwen Code'}
+                >
+                  <MenuItem value="zed_agent">
+                    <Box>
+                      <Typography variant="body2">Zed Agent</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Built-in, Anthropic & OpenAI compatible
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="qwen_code">
+                    <Box>
+                      <Typography variant="body2">Qwen Code</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Optimized for Qwen, including smaller models
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
 
-          <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Model</Typography>
-          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
-            Select the LLM that will run inside Zed for agentic coding. This model handles code generation,
-            tool use, and iterative development within the Zed editor environment.
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Model
+              </Typography>
+              <AdvancedModelPicker
+                recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                hint="Select the LLM for code generation"
+                selectedProvider={generation_model_provider}
+                selectedModelId={generation_model}
+                onSelectModel={(provider, modelId) => {
+                  setGenerationModel(modelId);
+                  setGenerationModelProvider(provider);
+                  onUpdate({ ...app, generation_model: modelId, generation_model_provider: provider });
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+          </Stack>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Display Settings - side by side */}
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Display
           </Typography>
-          <AdvancedModelPicker
-            recommendedModels={RECOMMENDED_MODELS.zedExternal}
-            hint="Choose a capable model for agentic coding. Recommended models appear at the top of the list."
-            selectedProvider={generation_model_provider}
-            selectedModelId={generation_model}
-            onSelectModel={(provider, modelId) => {
-              setGenerationModel(modelId);
-              setGenerationModelProvider(provider);
-              const updatedApp: IAppFlatState = {
-                ...app,
-                generation_model: modelId,
-                generation_model_provider: provider,
-              };
-              onUpdate(updatedApp);
-            }}
-            currentType="text"
-            displayMode="short"
-          />
+          <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <Select
+                value={resolution}
+                onChange={(e) => {
+                  const newResolution = e.target.value as '1080p' | '4k' | '5k';
+                  setResolution(newResolution);
+                  const defaultZoom = (newResolution === '5k' || newResolution === '4k') ? 200 : 100;
+                  const newZoom = (newResolution === '4k' || newResolution === '5k') && zoomLevel === 100 ? defaultZoom : zoomLevel;
+                  if ((newResolution === '4k' || newResolution === '5k') && zoomLevel === 100) setZoomLevel(defaultZoom);
+                  const updatedConfig = { ...external_agent_config, resolution: newResolution, zoom_level: newZoom };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => value === '1080p' ? '1080p' : value === '4k' ? '4K' : '5K'}
+              >
+                <MenuItem value="1080p">
+                  <Box>
+                    <Typography variant="body2">1080p (1920×1080)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Standard HD - works with all GPUs
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="4k">
+                  <Box>
+                    <Typography variant="body2">4K (3840×2160)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ultra HD - requires powerful GPU
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="5k">
+                  <Box>
+                    <Typography variant="body2">5K (5120×2880)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Maximum - for the bold
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <Select
+                value={desktopType}
+                onChange={(e) => {
+                  const newDesktopType = e.target.value as 'ubuntu' | 'sway';
+                  setDesktopType(newDesktopType);
+                  const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu 22.04' : 'Sway'}
+              >
+                <MenuItem value="ubuntu">
+                  <Box>
+                    <Typography variant="body2">Ubuntu 22.04 (X11)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      GNOME desktop - recommended
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="sway">
+                  <Box>
+                    <Typography variant="body2">Sway (native Wayland)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      i3-compatible tiling WM, advanced users
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <Select
+                value={refreshRate}
+                onChange={(e) => {
+                  const newRefreshRate = e.target.value as number;
+                  setRefreshRate(newRefreshRate);
+                  const updatedConfig = { ...external_agent_config, display_refresh_rate: newRefreshRate };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                renderValue={(value) => `${value} fps`}
+              >
+                <MenuItem value={30}>
+                  <Box>
+                    <Typography variant="body2">30 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Low bandwidth
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value={60}>
+                  <Box>
+                    <Typography variant="body2">60 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Standard - recommended
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value={120}>
+                  <Box>
+                    <Typography variant="body2">120 fps</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Smooth - for ProMotion displays
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          {/* High Resolution Zoom Setting */}
+          {(resolution === '4k' || resolution === '5k') && (
+            <Box sx={{ mb: 2, maxWidth: 300 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                UI Zoom: {zoomLevel}%
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                4K requires a powerful GPU. Increase zoom if text is too small.
+              </Typography>
+              <Slider
+                value={zoomLevel}
+                min={100}
+                max={300}
+                step={100}
+                size="small"
+                marks={[
+                  { value: 100, label: '100%' },
+                  { value: 200, label: '200%' },
+                  { value: 300, label: '300%' },
+                ]}
+                onChange={(_, value) => {
+                  const newZoom = value as number;
+                  setZoomLevel(newZoom);
+                  const updatedConfig = { ...external_agent_config, zoom_level: newZoom };
+                  setExternalAgentConfig(updatedConfig);
+                  onUpdate({ ...app, external_agent_config: updatedConfig });
+                }}
+                disabled={readOnly}
+                sx={{
+                  '& .MuiSlider-markLabel[data-index="0"]': {
+                    transform: 'translateX(0%)',
+                  },
+                  '& .MuiSlider-markLabel[data-index="2"]': {
+                    transform: 'translateX(-100%)',
+                  },
+                }}
+              />
+            </Box>
+          )}
         </Box>
       )}
 

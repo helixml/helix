@@ -46,6 +46,11 @@ export {
 export {
   useGetOrganizationGuidelinesHistory,
   organizationGuidelinesHistoryQueryKey,
+  useGetUserGuidelines,
+  useUpdateUserGuidelines,
+  useGetUserGuidelinesHistory,
+  userGuidelinesQueryKey,
+  userGuidelinesHistoryQueryKey,
 } from './guidelinesService';
 
 // Re-export types for convenience

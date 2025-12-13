@@ -295,11 +295,12 @@ type WIPLimits struct {
 	Implementation int `json:"implementation"`
 }
 
-// GuidelinesHistory tracks versions of guidelines for organizations and projects
+// GuidelinesHistory tracks versions of guidelines for organizations, projects, and users
 type GuidelinesHistory struct {
 	ID             string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
 	OrganizationID string    `json:"organization_id,omitempty" gorm:"type:varchar(255);index"` // Set for org-level guidelines
 	ProjectID      string    `json:"project_id,omitempty" gorm:"type:varchar(255);index"`      // Set for project-level guidelines
+	UserID         string    `json:"user_id,omitempty" gorm:"type:varchar(255);index"`         // Set for user-level (personal workspace) guidelines
 	Version        int       `json:"version"`
 	Guidelines     string    `json:"guidelines" gorm:"type:text"`
 	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"`  // User ID

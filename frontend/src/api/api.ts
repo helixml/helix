@@ -2118,20 +2118,18 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
-  /** Whether to auto-connect RDP viewer */
-  auto_connect_rdp?: boolean;
-  /** Streaming resolution height (default: 1600) */
+  /** Desktop environment */
+  desktop_type?: string;
+  /** Explicit height (default: 1080) */
   display_height?: number;
-  /** Streaming refresh rate (default: 60) */
+  /** Refresh rate (default: 60) */
   display_refresh_rate?: number;
-  /** Video settings for streaming (Phase 3.5) - matches PDE display settings */
+  /** Explicit width (default: 1920) */
   display_width?: number;
-  /** Environment variables in KEY=VALUE format */
-  env_vars?: string[];
-  /** Relative path for the project directory */
-  project_path?: string;
-  /** Custom working directory */
-  workspace_dir?: string;
+  /** Display resolution - either use Resolution preset or explicit dimensions */
+  resolution?: string;
+  /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
+  zoom_level?: number;
 }
 
 export interface TypesExternalAgentConnection {
@@ -2408,6 +2406,8 @@ export interface TypesGitRepositoryUpdateRequest {
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   external_url?: string;
+  /** Enable Kodit code intelligence indexing (pointer to distinguish unset from false) */
+  kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
   password?: string;
@@ -2458,6 +2458,8 @@ export interface TypesGuidelinesHistory {
   updated_by_email?: string;
   /** User display name (not persisted, populated at query time) */
   updated_by_name?: string;
+  /** Set for user-level (personal workspace) guidelines */
+  user_id?: string;
   version?: number;
 }
 
@@ -4169,18 +4171,6 @@ export interface TypesSpecTaskImplementationSessionsCreateRequest {
   workspace_config?: Record<string, any>;
 }
 
-export interface TypesSpecTaskImplementationStartResponse {
-  agent_instructions?: string;
-  base_branch?: string;
-  branch_name?: string;
-  created_at?: string;
-  local_path?: string;
-  pr_template_url?: string;
-  repository_id?: string;
-  repository_name?: string;
-  status?: string;
-}
-
 export enum TypesSpecTaskImplementationStatus {
   SpecTaskImplementationStatusPending = "pending",
   SpecTaskImplementationStatusAssigned = "assigned",
@@ -4726,6 +4716,10 @@ export interface TypesUpdateTeamRequest {
   name?: string;
 }
 
+export interface TypesUpdateUserGuidelinesRequest {
+  guidelines?: string;
+}
+
 export interface TypesUsage {
   completion_tokens?: number;
   /** How long the request took in milliseconds */
@@ -4773,6 +4767,13 @@ export interface TypesUserAppAccessResponse {
   can_read?: boolean;
   can_write?: boolean;
   is_admin?: boolean;
+}
+
+export interface TypesUserGuidelinesResponse {
+  guidelines?: string;
+  guidelines_updated_at?: string;
+  guidelines_updated_by?: string;
+  guidelines_version?: number;
 }
 
 export interface TypesUserResponse {
@@ -4846,6 +4847,12 @@ export interface TypesWebsiteCrawler {
 export interface TypesWolfHeartbeatRequest {
   /** per-container disk usage breakdown */
   container_usage?: TypesContainerDiskUsage[];
+  /**
+   * Desktop image versions (content-addressable Docker image hashes)
+   * Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+   * Value: image hash (e.g., "a1b2c3d4e5f6...")
+   */
+  desktop_versions?: Record<string, string>;
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
   /** nvidia, amd, intel, none (from sandbox env) */
@@ -4854,8 +4861,6 @@ export interface TypesWolfHeartbeatRequest {
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
   render_node?: string;
-  /** helix-sway image version (commit hash) */
-  sway_version?: string;
 }
 
 export interface TypesWolfInstanceRequest {
@@ -4869,6 +4874,8 @@ export interface TypesWolfInstanceResponse {
   address?: string;
   connected_sandboxes?: number;
   created_at?: string;
+  /** map of desktop name -> image hash */
+  desktop_versions?: Record<string, string>;
   disk_alert_level?: string;
   disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
@@ -4882,6 +4889,7 @@ export interface TypesWolfInstanceResponse {
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   status?: string;
+  /** legacy, use DesktopVersions */
   sway_version?: string;
   updated_at?: string;
 }
@@ -10172,24 +10180,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Transition an approved spec task to implementation, creating a feature branch
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksStartImplementationCreate
-     * @summary Start implementation phase
-     * @request POST:/api/v1/spec-tasks/{taskId}/start-implementation
-     * @secure
-     */
-    v1SpecTasksStartImplementationCreate: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskImplementationStartResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/start-implementation`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
      *
      * @tags spec-driven-tasks
@@ -10810,6 +10800,62 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesList
+     * @summary Get user guidelines
+     * @request GET:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesList: (params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesUpdate
+     * @summary Update user guidelines
+     * @request PUT:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesHistoryList
+     * @summary Get user guidelines history
+     * @request GET:/api/v1/users/me/guidelines-history
+     * @secure
+     */
+    v1UsersMeGuidelinesHistoryList: (params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines-history`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

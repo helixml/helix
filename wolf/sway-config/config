@@ -1,4 +1,4 @@
-# Helix Personal Dev Environment custom Sway configuration
+# Helix Desktop custom Sway configuration
 # This gets included EARLY by GOW base config (before $mod is defined)
 # Therefore: NO bindsym commands here! Add those to startup-app.sh instead.
 
@@ -8,8 +8,8 @@ xwayland disable
 # Set Helix wallpaper
 output * bg /usr/share/backgrounds/helix-logo.png fill
 
-# Configure display scaling for WL-1 (1x for 1080p)
-output WL-1 scale 1
+# Note: Display scaling is configured dynamically in startup-app.sh based on HELIX_ZOOM_LEVEL
+# Default: output WL-1 scale 1 (100%), can be 2.0 for 200% zoom, etc.
 
 # Keyboard configuration: US, UK, French layouts with Caps Lock as Ctrl
 # Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)
