@@ -1041,14 +1041,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return () => clearInterval(intervalId);
   }, [qualityMode, isConnected, adaptiveScreenshotEnabled, adaptiveLockedToScreenshots]);
 
-  // Adaptive bitrate: track observed throughput and keep requested bitrate under 80% of max observed
-  // Key insight: if we request 10 Mbps but only receive 4 Mbps, the pipe is saturated
-  // We proactively reduce before latency spikes, and cautiously increase when bandwidth allows
-  const observedThroughputRef = useRef<number[]>([]); // Rolling window of throughput samples
-  const maxObservedThroughputRef = useRef(0); // Peak throughput we've seen (decays over time)
-  const stableCheckCountRef = useRef(0); // Count of checks where throughput was stable
+  // Adaptive bitrate: reduce based on frame drift, increase based on bandwidth probe
+  // Frame drift = how late frames are arriving - reliable indicator of congestion
+  // Bandwidth probe = active test before increasing to verify headroom exists
+  const stableCheckCountRef = useRef(0); // Count of checks with low frame drift
   const lastBitrateChangeRef = useRef(0);
-  const lastMaxDecayRef = useRef(Date.now());
   const bandwidthProbeInProgressRef = useRef(false); // Prevent concurrent probes
 
   // Bandwidth probe: actively test available bandwidth before increasing bitrate
@@ -1094,14 +1091,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       console.log(`[AdaptiveBitrate] Probe complete: ${(totalBytes / 1024).toFixed(0)} KB in ${elapsedMs.toFixed(0)}ms = ${throughputMbps.toFixed(1)} Mbps`);
 
-      // Update max observed if probe showed higher throughput
-      if (throughputMbps > maxObservedThroughputRef.current) {
-        maxObservedThroughputRef.current = throughputMbps;
-        console.log(`[AdaptiveBitrate] Probe updated max observed to ${throughputMbps.toFixed(1)} Mbps`);
-      }
-
-      // Allow increase if probe shows we can handle 80% more than target
-      // (need headroom for video + overhead)
+      // Allow increase if probe shows we can handle the target bitrate with 25% headroom
       const requiredThroughput = targetBitrateMbps * 1.25; // 25% overhead buffer
       const hasHeadroom = throughputMbps >= requiredThroughput;
 
@@ -1120,11 +1110,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [sessionId]);
 
-  // Track baseline RTT for early warning (RTT spike = buffer bloat = reduce before throughput drops)
-  const baselineRttRef = useRef<number>(0);
-  // Track if we recently reduced (for faster initial reduce)
-  const recentlyReducedRef = useRef(false);
-
   useEffect(() => {
     // Support both WebSocket and SSE modes for adaptive bitrate
     if (!isConnected || !streamRef.current) {
@@ -1138,37 +1123,29 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
 
     const CHECK_INTERVAL_MS = 1000;       // Check every second
-    const INITIAL_REDUCE_COOLDOWN_MS = 2000;  // First reduce: act fast (2s) for mobile handoffs
-    const SUBSEQUENT_REDUCE_COOLDOWN_MS = 10000; // Subsequent reduces: normal cooldown (10s)
+    const REDUCE_COOLDOWN_MS = 10000;     // Don't reduce again within 10 seconds
     const INCREASE_COOLDOWN_MS = 30000;   // Don't increase again within 30 seconds
     const MANUAL_SELECTION_COOLDOWN_MS = 20000;  // Don't auto-reduce within 20s of user manually selecting bitrate
-    const THROUGHPUT_SAMPLES = 5;         // Rolling window (5 seconds of data)
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
-    const TARGET_UTILIZATION = 0.8;       // Target 80% of observed max throughput
-    const SATURATION_THRESHOLD = 0.9;     // If receiving < 90% of requested, we're saturated
-    const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of stability before trying increase
-    const MAX_DECAY_INTERVAL_MS = 60000;  // Decay max observed every 60 seconds (mobile varies)
-    const MAX_DECAY_FACTOR = 0.95;        // Decay by 5% each interval
-    const RTT_SPIKE_THRESHOLD = 2.0;      // RTT 2x baseline = early warning
-    const HIGH_VARIANCE_THRESHOLD = 0.3;  // Coefficient of variation > 30% = unstable
+    const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of low frame drift before trying increase
+    const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
 
     const checkBandwidth = () => {
       const stream = streamRef.current;
       if (!stream) return;
 
-      // Get stats from either WebSocket or SSE stream
-      let currentThroughput = 0;
-      let currentRtt = 0;
+      // Get frame drift from stream stats (the reliable metric for congestion detection)
+      // Frame drift = how late frames are arriving compared to their PTS
+      // Positive = frames arriving late (congestion), Negative = frames arriving early (buffered)
+      let frameDrift = 0;
 
       if (stream instanceof WebSocketStream) {
         const stats = stream.getStats();
-        currentThroughput = stats.totalBitrateMbps;
-        currentRtt = stats.rttMs;
+        frameDrift = stats.frameLatencyMs;
       } else if (stream instanceof SseStream) {
-        const stats = stream.getStats();
-        currentThroughput = stats.totalBitrateMbps;
-        currentRtt = stats.rttMs;
+        // SSE doesn't have frame drift, skip adaptive bitrate for SSE
+        return;
       } else {
         return; // Unsupported stream type
       }
@@ -1176,176 +1153,43 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       const currentBitrate = userBitrate || requestedBitrate;
       const now = Date.now();
 
-      // Skip auto-reduction if user manually selected bitrate within cooldown period
-      // This lets the stream settle after user explicitly chooses a higher bitrate
+      // Skip auto-changes if user manually selected bitrate within cooldown period
+      // This lets the stream settle after user explicitly chooses a bitrate
       const timeSinceManualSelection = now - manualBitrateSelectionTimeRef.current;
       if (timeSinceManualSelection < MANUAL_SELECTION_COOLDOWN_MS) {
-        // Still within manual selection cooldown - only collect stats, don't reduce
-        // Track observed throughput for later use
-        if (currentThroughput > 0) {
-          observedThroughputRef.current.push(currentThroughput);
-          if (observedThroughputRef.current.length > THROUGHPUT_SAMPLES) {
-            observedThroughputRef.current.shift();
-          }
-          if (currentThroughput > maxObservedThroughputRef.current) {
-            maxObservedThroughputRef.current = currentThroughput;
-          }
-        }
         return; // Don't make any bitrate changes during cooldown
       }
 
-      // Track observed throughput (rolling window)
-      if (currentThroughput > 0) {
-        observedThroughputRef.current.push(currentThroughput);
-        if (observedThroughputRef.current.length > THROUGHPUT_SAMPLES) {
-          observedThroughputRef.current.shift();
-        }
+      // Frame drift congestion detection:
+      // - Positive drift means frames are arriving late (we're falling behind)
+      // - This is a reliable indicator of network congestion or encoder overload
+      // - Unlike throughput, this isn't affected by H.264 compression efficiency
+      const congestionDetected = frameDrift > FRAME_DRIFT_THRESHOLD;
 
-        // Update max observed
-        if (currentThroughput > maxObservedThroughputRef.current) {
-          maxObservedThroughputRef.current = currentThroughput;
-          console.log(`[AdaptiveBitrate] New max throughput observed: ${currentThroughput.toFixed(1)} Mbps`);
-        }
-      }
-
-      // Decay max observed periodically (mobile bandwidth varies)
-      if (now - lastMaxDecayRef.current > MAX_DECAY_INTERVAL_MS && maxObservedThroughputRef.current > MIN_BITRATE) {
-        maxObservedThroughputRef.current *= MAX_DECAY_FACTOR;
-        lastMaxDecayRef.current = now;
-        console.log(`[AdaptiveBitrate] Decayed max throughput to: ${maxObservedThroughputRef.current.toFixed(1)} Mbps`);
-      }
-
-      // Calculate average throughput
-      const avgThroughput = observedThroughputRef.current.length > 0
-        ? observedThroughputRef.current.reduce((a, b) => a + b, 0) / observedThroughputRef.current.length
-        : 0;
-
-      // Skip if we don't have enough samples yet
-      if (observedThroughputRef.current.length < 3) {
-        return;
-      }
-
-      // Calculate throughput variance (coefficient of variation)
-      // High variance = unstable connection, stay conservative
-      const variance = observedThroughputRef.current.reduce(
-        (sum, val) => sum + Math.pow(val - avgThroughput, 2), 0
-      ) / observedThroughputRef.current.length;
-      const stddev = Math.sqrt(variance);
-      const coefficientOfVariation = avgThroughput > 0 ? stddev / avgThroughput : 0;
-      const isHighVariance = coefficientOfVariation > HIGH_VARIANCE_THRESHOLD;
-
-      // Update baseline RTT during stable periods
-      if (currentRtt > 0) {
-        if (baselineRttRef.current === 0 || currentRtt < baselineRttRef.current) {
-          baselineRttRef.current = currentRtt;
-        }
-      }
-
-      // RTT-based early warning: detect buffer bloat BEFORE throughput drops
-      // Buffer bloat causes RTT to spike 200-500ms before throughput actually decreases
-      const rttSpikeDetected = baselineRttRef.current > 0 &&
-        currentRtt > baselineRttRef.current * RTT_SPIKE_THRESHOLD &&
-        currentRtt > 100; // Only care about spikes > 100ms
-
-      // Calculate saturation: are we receiving what we requested?
-      // If requesting 10 Mbps but only getting 4 Mbps, saturation = 0.4 (saturated)
-      const saturation = currentBitrate > 0 ? avgThroughput / currentBitrate : 1;
-      const maxAllowedBitrate = maxObservedThroughputRef.current * TARGET_UTILIZATION;
-
-      // Determine reduce cooldown: faster for initial reduce (mobile handoffs), slower for subsequent
-      const reduceCooldown = recentlyReducedRef.current
-        ? SUBSEQUENT_REDUCE_COOLDOWN_MS
-        : INITIAL_REDUCE_COOLDOWN_MS;
-
-      // EARLY WARNING: RTT spike detected - preemptively reduce before throughput drops
-      if (rttSpikeDetected && currentBitrate > MIN_BITRATE) {
+      // Reduce bitrate on high frame drift
+      if (congestionDetected && currentBitrate > MIN_BITRATE) {
         const timeSinceLastChange = now - lastBitrateChangeRef.current;
 
-        if (timeSinceLastChange > reduceCooldown) {
-          // Step down one tier preemptively
+        if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
+          // Step down one tier
           const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
           if (currentIndex > 0) {
             const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
-            console.log(`[AdaptiveBitrate] RTT spike (${currentRtt.toFixed(0)}ms vs baseline ${baselineRttRef.current.toFixed(0)}ms), preemptively reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
-            addChartEvent('rtt_spike', `RTT ${currentRtt.toFixed(0)}ms > 2x baseline, reducing ${currentBitrate}→${newBitrate} Mbps`);
+            console.log(`[AdaptiveBitrate] High frame drift (${frameDrift.toFixed(0)}ms behind), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
+            addChartEvent('rtt_spike', `Frame drift ${frameDrift.toFixed(0)}ms, reducing ${currentBitrate}→${newBitrate} Mbps`);
 
             lastBitrateChangeRef.current = now;
             stableCheckCountRef.current = 0;
-            recentlyReducedRef.current = true;
-            // Reset baseline so we can detect new spikes after reduction
-            baselineRttRef.current = 0;
             setUserBitrate(newBitrate);
             return;
           }
         }
-      }
-
-      // Check if we're saturated (receiving significantly less than requested)
-      if (saturation < SATURATION_THRESHOLD && currentBitrate > MIN_BITRATE) {
-        const timeSinceLastChange = now - lastBitrateChangeRef.current;
-
-        if (timeSinceLastChange > reduceCooldown) {
-          // Find appropriate bitrate based on what we're actually receiving
-          const targetBitrate = Math.max(MIN_BITRATE, avgThroughput * TARGET_UTILIZATION);
-
-          // Snap to nearest available option
-          let newBitrate = MIN_BITRATE;
-          for (const option of BITRATE_OPTIONS) {
-            if (option <= targetBitrate) {
-              newBitrate = option;
-            } else {
-              break;
-            }
-          }
-
-          if (newBitrate < currentBitrate) {
-            console.log(`[AdaptiveBitrate] Pipe saturated (receiving ${avgThroughput.toFixed(1)}/${currentBitrate} Mbps = ${(saturation * 100).toFixed(0)}%), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
-            addChartEvent('saturation', `Saturated at ${(saturation * 100).toFixed(0)}%, reducing ${currentBitrate}→${newBitrate} Mbps`);
-
-            lastBitrateChangeRef.current = now;
-            stableCheckCountRef.current = 0;
-            recentlyReducedRef.current = true;
-            setUserBitrate(newBitrate);
-            return;
-          }
-        }
-
         stableCheckCountRef.current = 0;
-      } else if (saturation >= SATURATION_THRESHOLD) {
-        // Not saturated - connection can handle current bitrate
+      } else {
+        // Low frame drift - connection is stable at current bitrate
         stableCheckCountRef.current++;
-        // Clear recently reduced flag after stable period
-        if (stableCheckCountRef.current > 10) {
-          recentlyReducedRef.current = false;
-        }
 
-        // Check if requested bitrate exceeds our safe max (80% of observed max)
-        if (currentBitrate > maxAllowedBitrate && currentBitrate > MIN_BITRATE) {
-          const timeSinceLastChange = now - lastBitrateChangeRef.current;
-
-          if (timeSinceLastChange > reduceCooldown) {
-            // Proactively reduce to stay under 80% of max
-            let newBitrate = MIN_BITRATE;
-            for (const option of BITRATE_OPTIONS) {
-              if (option <= maxAllowedBitrate) {
-                newBitrate = option;
-              } else {
-                break;
-              }
-            }
-
-            if (newBitrate < currentBitrate) {
-              console.log(`[AdaptiveBitrate] Bitrate ${currentBitrate} Mbps exceeds 80% of max observed (${maxObservedThroughputRef.current.toFixed(1)} Mbps), reducing to ${newBitrate} Mbps`);
-
-              lastBitrateChangeRef.current = now;
-              stableCheckCountRef.current = 0;
-              setUserBitrate(newBitrate);
-              return;
-            }
-          }
-        }
-
-        // Try to increase if stable for a while and we have headroom
+        // Try to increase if stable for a while
         if (stableCheckCountRef.current >= STABLE_CHECKS_FOR_INCREASE) {
           const timeSinceLastChange = now - lastBitrateChangeRef.current;
 
@@ -1355,28 +1199,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
               const nextBitrate = BITRATE_OPTIONS[currentIndex + 1];
 
-              // Only increase if next bitrate is within our safe limit
-              if (nextBitrate <= maxAllowedBitrate) {
-                // Run bandwidth probe before increasing to verify headroom exists
-                // This prevents increasing to a bitrate that will immediately saturate
-                console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing before increase to ${nextBitrate} Mbps...`);
+              // Run bandwidth probe before increasing to verify headroom exists
+              // This is a real network test, not affected by video compression
+              console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing before increase to ${nextBitrate} Mbps...`);
 
-                // Mark that we're attempting an increase (prevent re-triggering during probe)
-                stableCheckCountRef.current = 0;
+              // Mark that we're attempting an increase (prevent re-triggering during probe)
+              stableCheckCountRef.current = 0;
 
-                runBandwidthProbe(nextBitrate).then((hasHeadroom) => {
-                  if (hasHeadroom) {
-                    console.log(`[AdaptiveBitrate] Probe passed, increasing: ${currentBitrate} -> ${nextBitrate} Mbps`);
-                    addChartEvent('increase', `Probe passed, increasing ${currentBitrate}→${nextBitrate} Mbps`);
-                    lastBitrateChangeRef.current = Date.now();
-                    setUserBitrate(nextBitrate);
-                  } else {
-                    console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
-                    // Reset cooldown but not stability counter so we don't immediately retry
-                    lastBitrateChangeRef.current = Date.now();
-                  }
-                });
-              }
+              runBandwidthProbe(nextBitrate).then((hasHeadroom) => {
+                if (hasHeadroom) {
+                  console.log(`[AdaptiveBitrate] Probe passed, increasing: ${currentBitrate} -> ${nextBitrate} Mbps`);
+                  addChartEvent('increase', `Probe passed, increasing ${currentBitrate}→${nextBitrate} Mbps`);
+                  lastBitrateChangeRef.current = Date.now();
+                  setUserBitrate(nextBitrate);
+                } else {
+                  console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
+                  // Reset cooldown but not stability counter so we don't immediately retry
+                  lastBitrateChangeRef.current = Date.now();
+                }
+              });
             }
           }
         }
