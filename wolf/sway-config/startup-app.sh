@@ -1,8 +1,9 @@
 #!/bin/bash
-# GOW base-app startup script for Helix Personal Dev Environment
+# GOW base-app startup script for Helix Desktop (Sway)
+# Used for: Desktop sessions, Spec Task sessions, and Exploratory sessions
 set -e
 
-echo "Starting Helix Personal Dev Environment with Sway..."
+echo "Starting Helix Desktop (Sway)..."
 
 # NOTE: Telemetry firewall is configured in the sandbox container (Wolf host),
 # not inside agent containers. This provides centralized monitoring across all agents.
@@ -252,15 +253,25 @@ EOF
 
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
-    echo "# Helix Personal Dev Environment custom configuration" >> $HOME/.config/sway/config
+    echo "# Helix Desktop custom configuration" >> $HOME/.config/sway/config
     echo "# Disable Xwayland - force native Wayland (fixes Zed input issues)" >> $HOME/.config/sway/config
     echo "xwayland disable" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Set Helix wallpaper" >> $HOME/.config/sway/config
     echo "output * bg /usr/share/backgrounds/helix-logo.png fill" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Configure display scaling for WL-1 (1x for 1080p)" >> $HOME/.config/sway/config
-    echo "output WL-1 scale 1" >> $HOME/.config/sway/config
+
+    # Calculate display scale from HELIX_ZOOM_LEVEL (default: 100%)
+    # Unlike GNOME's X11 stack, Sway/Wayland properly handles fractional scaling
+    ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}
+    SWAY_SCALE=$(echo "scale=2; $ZOOM_LEVEL / 100" | bc)
+    # Ensure minimum scale of 1.0
+    if [ "$(echo "$SWAY_SCALE < 1" | bc)" -eq 1 ]; then
+        SWAY_SCALE="1"
+    fi
+    echo "# Configure display scaling (HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)" >> $HOME/.config/sway/config
+    echo "output WL-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
+    echo "[Sway] Display scale set to $SWAY_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
     echo "" >> $HOME/.config/sway/config
     echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
     echo "# Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)" >> $HOME/.config/sway/config
@@ -288,7 +299,7 @@ EOF
     echo "workspace main; exec $@" >> $HOME/.config/sway/config
 
     # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop
-    # External agents and PDEs need persistent Sway compositor for reconnection
+    # Desktop/Spec Task/Exploratory sessions need persistent Sway compositor for reconnection
     # if [ "$SWAY_STOP_ON_APP_EXIT" == "yes" ]; then
     #   echo -n " && killall sway" >> $HOME/.config/sway/config
     # fi

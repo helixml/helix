@@ -1,5 +1,6 @@
 #!/bin/bash
-# GOW GNOME startup script for Helix Personal Dev Environment (Ubuntu)
+# GOW GNOME startup script for Helix Desktop (Ubuntu)
+# Used for: Desktop sessions, Spec Task sessions, and Exploratory sessions
 # This version uses vanilla Ubuntu GNOME with NO custom HiDPI scaling
 
 # ============================================================================
