@@ -124,7 +124,13 @@ RUN apt-get update && \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y google-chrome-stable && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # Configure Chrome policies (enterprise config)
+    mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{"DefaultBrowserSettingEnabled": true, "MetricsReportingEnabled": true, "BrowserSignin": 0}' > /etc/opt/chrome/policies/managed/helix.json && \
+    # Create master preferences to skip first run and welcome page
+    mkdir -p /opt/google/chrome && \
+    echo '{"distribution": {"skip_first_run_ui": true, "suppress_first_run_default_browser_prompt": true, "make_chrome_default": true, "make_chrome_default_for_user": true}, "browser": {"check_default_browser": false}, "sync_promo": {"show_on_first_run_allowed": false}}' > /opt/google/chrome/master_preferences
 
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
