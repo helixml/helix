@@ -2370,6 +2370,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           open={Boolean(bitrateMenuAnchor)}
           onClose={() => setBitrateMenuAnchor(null)}
           slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
+          sx={{ zIndex: 100001 }} // Above floating modals (z-index 9999+)
         >
           {[5, 10, 20, 40, 80].map((bitrate) => (
             <MenuItem
