@@ -2758,7 +2758,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       )}
 
       {/* Adaptive Bitrate Charts Panel */}
-      {showCharts && (
+      {showCharts && (() => {
+        // Extract ref values for rendering (refs persist across reconnects)
+        const throughputHistory = throughputHistoryRef.current;
+        const rttHistory = rttHistoryRef.current;
+        const bitrateHistory = bitrateHistoryRef.current;
+
+        return (
         <Box
           sx={{
             position: 'absolute',
@@ -2882,7 +2888,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             Test with Chrome DevTools → Network → Throttling → "Fast 4G" or "Slow 4G" to see adaptive behavior
           </Typography>
         </Box>
-      )}
+        );
+      })()}
 
       {/* Keyboard State Monitor Panel */}
       {showKeyboardPanel && sessionId && (
