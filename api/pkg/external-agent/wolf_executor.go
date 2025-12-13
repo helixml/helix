@@ -747,6 +747,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Resolution preset takes precedence over explicit width/height
 	var displayWidth, displayHeight int
 	switch agent.Resolution {
+	case "5k":
+		displayWidth = 5120
+		displayHeight = 2880
 	case "4k":
 		displayWidth = 3840
 		displayHeight = 2160
@@ -770,12 +773,13 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// Calculate zoom level (auto 200% for 4k, 100% otherwise)
+	// Calculate zoom level (auto 200% for 4k/5k, 100% otherwise)
 	zoomLevel := agent.ZoomLevel
 	if zoomLevel == 0 {
-		if agent.Resolution == "4k" {
+		switch agent.Resolution {
+		case "5k", "4k":
 			zoomLevel = 200
-		} else {
+		default:
 			zoomLevel = 100
 		}
 	}

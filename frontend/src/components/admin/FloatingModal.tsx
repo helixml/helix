@@ -432,6 +432,9 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
                 sessionId={modalConfig.sessionId}
                 wolfLobbyId={modalConfig.wolfLobbyId || modalConfig.sessionId}
                 height={size.height - 48}
+                displayWidth={modalConfig.displayWidth}
+                displayHeight={modalConfig.displayHeight}
+                displayFps={modalConfig.displayFps}
               />
             )}
           </Box>
