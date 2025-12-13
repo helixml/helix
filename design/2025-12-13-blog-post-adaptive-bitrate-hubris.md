@@ -227,7 +227,7 @@ if (coefficientOfVariation > 0.3) {
 
 4. **L4 proxies instead of L7** — Then we could use QUIC. But enterprises love their L7 inspection.
 
-5. **Convince the customer's network team to open a UDP port** — May be possible with sufficient amounts of whisky and steak dinners. Also requires implementing UDP port routing into their enterprise Kubernetes deployment, which only supports ingress right now. So, more whisky.
+5. **Convince the customer's network team to open a UDP port** — And the security team. And probably the CTO. May be possible with sufficient amounts of whisky and steak dinners. Also requires implementing UDP port routing into their enterprise Kubernetes deployment, which only supports ingress right now. So, more whisky.
 
 Until then, we measure symptoms from JavaScript and react accordingly.
 
