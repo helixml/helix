@@ -118,13 +118,16 @@ RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 # ====================================================================
 # Install Google Chrome (stable) - default browser
 # ====================================================================
+# --password-store=basic bypasses GNOME Keyring (avoids "Choose password" prompt)
 RUN apt-get update && \
     mkdir -p /etc/apt/keyrings && \
     wget -q https://dl.google.com/linux/linux_signing_key.pub -O /etc/apt/keyrings/google-chrome.asc && \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y google-chrome-stable && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop
 
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
