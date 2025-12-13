@@ -688,7 +688,7 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
           <ListItemIcon>
             <PlayArrowIcon />
           </ListItemIcon>
-          <ListItemText>Assign Zed Agent</ListItemText>
+          <ListItemText>Assign External Agent</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => {
           if (selectedTask?.sessionId) {
@@ -911,7 +911,7 @@ const SortableTaskCard: FC<SortableTaskCardProps> = ({ task, sessions }) => {
           <ListItemIcon>
             <PlayArrowIcon />
           </ListItemIcon>
-          <ListItemText>Assign Zed Agent</ListItemText>
+          <ListItemText>Assign External Agent</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => setTaskMenuAnchor(null)}>
           <ListItemIcon>

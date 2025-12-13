@@ -379,7 +379,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     setShowStopConfirm(false)
     try {
       await stopExternalAgentMutation.mutateAsync()
-      snackbar.success('External Zed agent stopped')
+      snackbar.success('External agent stopped')
     } catch (err) {
       snackbar.error('Failed to stop external agent')
     }
@@ -1925,7 +1925,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       {/* Stop Confirmation Dialog */}
       {showStopConfirm && (
         <SimpleConfirmWindow
-          title="Stop External Zed Agent?"
+          title="Stop External Agent?"
           message="Stopping the external agent will terminate the running container. Any unsaved files or in-memory state will be lost. The conversation history will be preserved."
           confirmTitle="Stop Agent"
           cancelTitle="Cancel"

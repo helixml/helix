@@ -246,15 +246,19 @@ else
 fi
 
 if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
-    # Create window positioning script (positions Terminal, Zed, and Firefox)
+    # Create window positioning script
     # Uses xdotool --sync for event-driven waiting (no arbitrary sleep delays)
+    # Layout:
+    #   Desktop 1 (Editor): Zed fullscreen
+    #   Desktop 2 (Debug): Startup script terminal (left), Debug terminal (right)
+    #   Chrome: Stays on current desktop when opened (overlays Zed on desktop 1)
     cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
-# Tile windows in thirds after they appear
+# Position windows across virtual desktops
 # Screen: 1920x1080 (no HiDPI scaling - vanilla Ubuntu)
-# Left third (0-639): Terminal
-# Middle third (640-1279): Zed
-# Right third (1280-1919): Firefox
+#
+# Desktop 1 (Editor): Zed - fullscreen
+# Desktop 2 (Debug): Terminals side-by-side (left: startup, right: debug)
 #
 # Uses xdotool search --sync to wait for each window to appear (event-driven)
 # Each wait runs in parallel so windows can appear in any order
@@ -264,40 +268,52 @@ export DISPLAY=:9
 
 echo "Starting window positioning (event-driven with xdotool --sync)..."
 
-# Position Terminal (gnome-terminal) - left third
-# xdotool --sync blocks until window appears, with 60s timeout
-(
-    TERMINAL_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "gnome-terminal" 2>/dev/null | head -1)
-    if [ -n "$TERMINAL_WID" ]; then
-        wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
-        echo "Positioned terminal: $TERMINAL_WID -> left third (0-639)"
-    else
-        echo "WARNING: Terminal window not found (timeout)"
-    fi
-) &
-
-# Position Zed - middle third
+# Position Zed - fullscreen on desktop 1 (index 0)
 # Zed class is "dev.zed.Zed-Dev" (dev) or "dev.zed.Zed" (release)
 (
     ZED_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "Zed" 2>/dev/null | head -1)
     if [ -n "$ZED_WID" ]; then
-        wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
-        echo "Positioned Zed: $ZED_WID -> middle third (640-1279)"
+        # Move to desktop 1 (index 0)
+        wmctrl -i -r "$ZED_WID" -t 0
+        # Maximize (fullscreen)
+        wmctrl -i -r "$ZED_WID" -b add,maximized_vert,maximized_horz
+        echo "Positioned Zed: $ZED_WID -> desktop 1 (fullscreen)"
     else
         echo "WARNING: Zed window not found (timeout)"
     fi
 ) &
 
-# Position Firefox - right third
+# Position first terminal (startup script) - left half of desktop 2 (index 1)
+# xdotool --sync blocks until window appears, with 60s timeout
 (
-    FIREFOX_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "firefox" 2>/dev/null | head -1)
-    if [ -n "$FIREFOX_WID" ]; then
-        wmctrl -i -r "$FIREFOX_WID" -e 0,1280,30,640,1050
-        echo "Positioned Firefox: $FIREFOX_WID -> right third (1280-1919)"
+    # Wait for at least one terminal to appear
+    TERMINAL_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "gnome-terminal" 2>/dev/null | head -1)
+    if [ -n "$TERMINAL_WID" ]; then
+        # Move to desktop 2 (index 1)
+        wmctrl -i -r "$TERMINAL_WID" -t 1
+        # Position on left half: x=0, y=30 (account for top bar), width=960, height=1050
+        wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,960,1050
+        echo "Positioned startup terminal: $TERMINAL_WID -> desktop 2 left"
+
+        # Now look for a second terminal window for debug
+        sleep 2  # Give time for debug terminal to spawn
+        ALL_TERMINALS=$(xdotool search --onlyvisible --class "gnome-terminal" 2>/dev/null)
+        for WID in $ALL_TERMINALS; do
+            if [ "$WID" != "$TERMINAL_WID" ]; then
+                # This is the second terminal - put it on the right
+                wmctrl -i -r "$WID" -t 1
+                wmctrl -i -r "$WID" -e 0,960,30,960,1050
+                echo "Positioned debug terminal: $WID -> desktop 2 right"
+                break
+            fi
+        done
     else
-        echo "WARNING: Firefox window not found (timeout)"
+        echo "WARNING: Terminal window not found (timeout)"
     fi
 ) &
+
+# Chrome/browser will open on desktop 1 overlaying Zed (user can rearrange)
+# No positioning needed - just let it open normally
 
 # Wait for all positioning jobs to complete
 wait
@@ -395,6 +411,26 @@ else
     echo "settings-sync-daemon autostart DISABLED by feature flag"
 fi
 
+# Create autostart entry for zoom/scaling configuration (runs early, before Zed)
+# CRITICAL: This must run BEFORE Zed launches because Zed doesn't dynamically resize
+# when GNOME zoom settings change. We set the scaling factor based on HELIX_ZOOM_LEVEL.
+if [ -n "$HELIX_ZOOM_LEVEL" ] && [ "$HELIX_ZOOM_LEVEL" != "100" ]; then
+    # Convert percentage to scaling factor (200% = 2.0)
+    SCALE_FACTOR=$(echo "scale=2; $HELIX_ZOOM_LEVEL / 100" | bc)
+    cat > ~/.config/autostart/helix-zoom.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Helix Zoom Configuration
+Exec=/bin/bash -c "gsettings set org.gnome.desktop.interface text-scaling-factor $SCALE_FACTOR && echo 'Zoom set to ${HELIX_ZOOM_LEVEL}% (scale factor $SCALE_FACTOR)' >> /tmp/ubuntu-startup-debug.log"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+    echo "Zoom autostart entry created (HELIX_ZOOM_LEVEL=${HELIX_ZOOM_LEVEL}%, scale=$SCALE_FACTOR)"
+else
+    echo "Zoom configuration skipped (HELIX_ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}%)"
+fi
+
 # Create autostart entry for Zed (starts after settings are ready)
 if [ "$ENABLE_ZED_AUTOSTART" = "true" ]; then
     cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
@@ -418,14 +454,14 @@ fi
 # would create duplicate windows.
 
 # ============================================================================
-# Set Firefox as Default Browser
+# Set Chrome as Default Browser
 # ============================================================================
-# Configure Firefox as the default handler for HTTP/HTTPS URLs so xdg-open works
-echo "Setting Firefox as default browser..."
-xdg-mime default firefox.desktop x-scheme-handler/http
-xdg-mime default firefox.desktop x-scheme-handler/https
-xdg-mime default firefox.desktop text/html
-echo "Firefox set as default browser for HTTP/HTTPS URLs"
+# Configure Chrome as the default handler for HTTP/HTTPS URLs so xdg-open works
+echo "Setting Chrome as default browser..."
+xdg-mime default google-chrome.desktop x-scheme-handler/http
+xdg-mime default google-chrome.desktop x-scheme-handler/https
+xdg-mime default google-chrome.desktop text/html
+echo "Chrome set as default browser for HTTP/HTTPS URLs"
 
 # ============================================================================
 # dconf Settings Loaded in desktop.sh

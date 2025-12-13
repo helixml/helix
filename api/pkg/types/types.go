@@ -446,9 +446,14 @@ type ExternalAgentConfig struct {
 	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
 	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
 	// Video settings for streaming (Phase 3.5) - matches PDE display settings
-	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+
+	// Resolution and desktop configuration
+	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default) or "4k"
+	DesktopType string `json:"desktop_type,omitempty"` // Desktop environment: "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k)
 }
 
 // Validate checks if the external agent configuration is secure and valid
@@ -475,6 +480,46 @@ func (c *ExternalAgentConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// GetEffectiveResolution returns the display dimensions based on Resolution preset
+// Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
+func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
+	// If Resolution preset is set, use it
+	switch c.Resolution {
+	case "4k":
+		return 3840, 2160
+	case "1080p":
+		return 1920, 1080
+	}
+
+	// Fall back to explicit dimensions if set
+	if c.DisplayWidth > 0 && c.DisplayHeight > 0 {
+		return c.DisplayWidth, c.DisplayHeight
+	}
+
+	// Default to 1080p
+	return 1920, 1080
+}
+
+// GetEffectiveDesktopType returns the desktop type with default
+func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
+	if c.DesktopType != "" {
+		return c.DesktopType
+	}
+	return "ubuntu" // Default to Ubuntu
+}
+
+// GetEffectiveZoomLevel returns the zoom level with auto-detection for 4k
+func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
+	if c.ZoomLevel > 0 {
+		return c.ZoomLevel
+	}
+	// Auto-set 200% zoom for 4k
+	if c.Resolution == "4k" {
+		return 200
+	}
+	return 100 // Default 100%
 }
 
 // validateWorkspacePath ensures workspace directory is safe
@@ -1874,10 +1919,16 @@ type ZedAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
-	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
-	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	// Video settings for streaming (Phase 3.5) - defaults to 1080p
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+
+	// Resolution and desktop configuration
+	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default) or "4k"
+	DesktopType string `json:"desktop_type,omitempty"` // Desktop environment: "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k)
+
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
 	UseHostDocker bool `json:"use_host_docker,omitempty"`
