@@ -3597,8 +3597,11 @@ definitions:
       auto_connect_rdp:
         description: Whether to auto-connect RDP viewer
         type: boolean
+      desktop_type:
+        description: 'Desktop environment: "ubuntu" (default) or "sway"'
+        type: string
       display_height:
-        description: 'Streaming resolution height (default: 1600)'
+        description: 'Streaming resolution height (default: 1080)'
         type: integer
       display_refresh_rate:
         description: 'Streaming refresh rate (default: 60)'
@@ -3615,9 +3618,15 @@ definitions:
       project_path:
         description: Relative path for the project directory
         type: string
+      resolution:
+        description: Resolution and desktop configuration
+        type: string
       workspace_dir:
         description: Custom working directory
         type: string
+      zoom_level:
+        description: GNOME zoom percentage (100 default, 200 for 4k)
+        type: integer
     type: object
   types.ExternalAgentConnection:
     properties:
@@ -4087,6 +4096,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing (pointer to distinguish
+          unset from false)
+        type: boolean
       metadata:
         additionalProperties: true
         type: object
@@ -7115,27 +7128,6 @@ definitions:
     required:
     - spec_task_id
     type: object
-  types.SpecTaskImplementationStartResponse:
-    properties:
-      agent_instructions:
-        type: string
-      base_branch:
-        type: string
-      branch_name:
-        type: string
-      created_at:
-        type: string
-      local_path:
-        type: string
-      pr_template_url:
-        type: string
-      repository_id:
-        type: string
-      repository_name:
-        type: string
-      status:
-        type: string
-    type: object
   types.SpecTaskImplementationStatus:
     enum:
     - pending
@@ -8296,6 +8288,14 @@ definitions:
         items:
           $ref: '#/definitions/types.ContainerDiskUsage'
         type: array
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: |-
+          Desktop image versions (content-addressable Docker image hashes)
+          Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+          Value: image hash (e.g., "a1b2c3d4e5f6...")
+        type: object
       disk_usage:
         description: disk usage metrics for monitored partitions
         items:
@@ -8309,9 +8309,6 @@ definitions:
         type: boolean
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
-        type: string
-      sway_version:
-        description: helix-sway image version (commit hash)
         type: string
     type: object
   types.WolfInstanceRequest:
@@ -8333,6 +8330,11 @@ definitions:
         type: integer
       created_at:
         type: string
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: map of desktop name -> image hash
+        type: object
       disk_alert_level:
         type: string
       disk_usage:
@@ -8360,6 +8362,7 @@ definitions:
       status:
         type: string
       sway_version:
+        description: legacy, use DesktopVersions
         type: string
       updated_at:
         type: string
@@ -15203,40 +15206,6 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{taskId}/start-implementation:
-    post:
-      description: Transition an approved spec task to implementation, creating a
-        feature branch
-      parameters:
-      - description: Task ID
-        in: path
-        name: taskId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SpecTaskImplementationStartResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - ApiKeyAuth: []
-      summary: Start implementation phase
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{taskId}/start-planning:
     post:
       consumes:

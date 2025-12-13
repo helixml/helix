@@ -70,6 +70,7 @@ RUN apt-get update && apt-get install -y \
     gnome-terminal \
     # System utilities
     gnome-control-center \
+    gnome-tweaks \
     # Ubuntu theming
     yaru-theme-gtk \
     yaru-theme-icon \
@@ -79,6 +80,7 @@ RUN apt-get update && apt-get install -y \
     # GNOME extensions for Ubuntu experience
     gnome-shell-extension-ubuntu-dock \
     gnome-shell-extension-appindicator \
+    gnome-shell-extensions \
     # dconf for settings management
     dconf-cli dconf-editor \
     # XDG utilities
@@ -112,17 +114,14 @@ RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
 RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 
 # ====================================================================
-# Install Firefox from Mozilla repository (latest version)
+# Install Google Chrome (stable) - default browser
 # ====================================================================
-# Remove snap Firefox (not usable in containers) and install from Mozilla repo
 RUN apt-get update && \
-    apt-get remove -y firefox 2>/dev/null || true && \
     mkdir -p /etc/apt/keyrings && \
-    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
-    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
-    printf 'Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla-firefox && \
+    wget -q https://dl.google.com/linux/linux_signing_key.pub -O /etc/apt/keyrings/google-chrome.asc && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
-    apt-get install -y --allow-downgrades firefox && \
+    apt-get install -y google-chrome-stable && \
     rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
@@ -234,6 +233,12 @@ COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
+
+# Install Zed desktop file and icon for GNOME integration
+# The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
+COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/zed.png
+RUN gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
 # Copy Zed startup script and helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh

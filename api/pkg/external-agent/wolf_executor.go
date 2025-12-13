@@ -677,10 +677,16 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir", workspaceDir).
 		Msg("Created Sway compositor configuration for external agent")
 
+	// Determine desktop type from agent config or environment
+	desktopType := getDesktopTypeFromEnv() // Default from env
+	if agent.DesktopType != "" {
+		desktopType = parseDesktopType(agent.DesktopType)
+	}
+
 	// Define container hostname for external agent
 	// Use session ID (without ses_ prefix) so we can construct hostname from session ID
 	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
-	containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
+	containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 	// Build agent instance ID for this session-scoped agent
 	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
@@ -737,20 +743,50 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
-	// Extract video settings from agent config (Phase 3.5) with defaults
-	// Use 1080p as default - AMD GPUs only support up to 1080p hardware encoding
-	displayWidth := agent.DisplayWidth
-	if displayWidth == 0 {
-		displayWidth = 1920 // 1080p default (AMD GPU hardware encoder limit)
+	// Extract video settings from agent config with defaults
+	// Resolution preset takes precedence over explicit width/height
+	var displayWidth, displayHeight int
+	switch agent.Resolution {
+	case "4k":
+		displayWidth = 3840
+		displayHeight = 2160
+	case "1080p":
+		displayWidth = 1920
+		displayHeight = 1080
+	default:
+		// Fall back to explicit dimensions or 1080p default
+		displayWidth = agent.DisplayWidth
+		if displayWidth == 0 {
+			displayWidth = 1920 // 1080p default
+		}
+		displayHeight = agent.DisplayHeight
+		if displayHeight == 0 {
+			displayHeight = 1080 // 1080p default
+		}
 	}
-	displayHeight := agent.DisplayHeight
-	if displayHeight == 0 {
-		displayHeight = 1080 // 1080p default (AMD GPU hardware encoder limit)
-	}
+
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
 		displayRefreshRate = 60
 	}
+
+	// Calculate zoom level (auto 200% for 4k, 100% otherwise)
+	zoomLevel := agent.ZoomLevel
+	if zoomLevel == 0 {
+		if agent.Resolution == "4k" {
+			zoomLevel = 200
+		} else {
+			zoomLevel = 100
+		}
+	}
+
+	// Add display configuration to environment for startup script
+	extraEnv = append(extraEnv,
+		fmt.Sprintf("GAMESCOPE_WIDTH=%d", displayWidth),
+		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", displayHeight),
+		fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel),
+		fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", string(desktopType)), // For container hostname reconstruction
+	)
 
 	// Extra mounts for additional directories
 	extraMounts := []string{}
@@ -1038,8 +1074,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
-			DesktopType:       getDesktopTypeFromEnv(),
-			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance), // Use version from sandbox heartbeat
+			DesktopType:       desktopType,
+			ZedImage:          w.computeZedImageFromVersion(desktopType, wolfInstance), // Use version from sandbox heartbeat
 			DockerSocket:      dockerSocket,                                                        // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
@@ -1876,8 +1912,18 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 						if envStr == expectedEnv {
 							// Found lobby - extract container hostname
 							// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
+							// Extract desktop type from HELIX_DESKTOP_TYPE env var (or default to env)
+							desktopType := getDesktopTypeFromEnv() // Default
+							for _, dt := range envList {
+								if dtStr, ok := dt.(string); ok {
+									if strings.HasPrefix(dtStr, "HELIX_DESKTOP_TYPE=") {
+										desktopType = parseDesktopType(strings.TrimPrefix(dtStr, "HELIX_DESKTOP_TYPE="))
+										break
+									}
+								}
+							}
 							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
-							containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
+							containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 							log.Trace().
 								Str("helix_session_id", helixSessionID).

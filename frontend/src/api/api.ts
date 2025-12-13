@@ -2120,7 +2120,9 @@ export interface TypesExecuteQuestionSetResponse {
 export interface TypesExternalAgentConfig {
   /** Whether to auto-connect RDP viewer */
   auto_connect_rdp?: boolean;
-  /** Streaming resolution height (default: 1600) */
+  /** Desktop environment: "ubuntu" (default) or "sway" */
+  desktop_type?: string;
+  /** Streaming resolution height (default: 1080) */
   display_height?: number;
   /** Streaming refresh rate (default: 60) */
   display_refresh_rate?: number;
@@ -2130,8 +2132,12 @@ export interface TypesExternalAgentConfig {
   env_vars?: string[];
   /** Relative path for the project directory */
   project_path?: string;
+  /** Resolution and desktop configuration */
+  resolution?: string;
   /** Custom working directory */
   workspace_dir?: string;
+  /** GNOME zoom percentage (100 default, 200 for 4k) */
+  zoom_level?: number;
 }
 
 export interface TypesExternalAgentConnection {
@@ -2408,6 +2414,8 @@ export interface TypesGitRepositoryUpdateRequest {
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   external_url?: string;
+  /** Enable Kodit code intelligence indexing (pointer to distinguish unset from false) */
+  kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
   password?: string;
@@ -4169,18 +4177,6 @@ export interface TypesSpecTaskImplementationSessionsCreateRequest {
   workspace_config?: Record<string, any>;
 }
 
-export interface TypesSpecTaskImplementationStartResponse {
-  agent_instructions?: string;
-  base_branch?: string;
-  branch_name?: string;
-  created_at?: string;
-  local_path?: string;
-  pr_template_url?: string;
-  repository_id?: string;
-  repository_name?: string;
-  status?: string;
-}
-
 export enum TypesSpecTaskImplementationStatus {
   SpecTaskImplementationStatusPending = "pending",
   SpecTaskImplementationStatusAssigned = "assigned",
@@ -4846,6 +4842,12 @@ export interface TypesWebsiteCrawler {
 export interface TypesWolfHeartbeatRequest {
   /** per-container disk usage breakdown */
   container_usage?: TypesContainerDiskUsage[];
+  /**
+   * Desktop image versions (content-addressable Docker image hashes)
+   * Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+   * Value: image hash (e.g., "a1b2c3d4e5f6...")
+   */
+  desktop_versions?: Record<string, string>;
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
   /** nvidia, amd, intel, none (from sandbox env) */
@@ -4854,8 +4856,6 @@ export interface TypesWolfHeartbeatRequest {
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
   render_node?: string;
-  /** helix-sway image version (commit hash) */
-  sway_version?: string;
 }
 
 export interface TypesWolfInstanceRequest {
@@ -4869,6 +4869,8 @@ export interface TypesWolfInstanceResponse {
   address?: string;
   connected_sandboxes?: number;
   created_at?: string;
+  /** map of desktop name -> image hash */
+  desktop_versions?: Record<string, string>;
   disk_alert_level?: string;
   disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
@@ -4882,6 +4884,7 @@ export interface TypesWolfInstanceResponse {
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   status?: string;
+  /** legacy, use DesktopVersions */
   sway_version?: string;
   updated_at?: string;
 }
@@ -10167,24 +10170,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerTaskSpecsResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/specs`,
         method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Transition an approved spec task to implementation, creating a feature branch
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksStartImplementationCreate
-     * @summary Start implementation phase
-     * @request POST:/api/v1/spec-tasks/{taskId}/start-implementation
-     * @secure
-     */
-    v1SpecTasksStartImplementationCreate: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskImplementationStartResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/start-implementation`,
-        method: "POST",
-        secure: true,
         format: "json",
         ...params,
       }),

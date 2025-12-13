@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Zed
+GenericName=Text Editor
+Comment=A high-performance, multiplayer code editor
+Exec=/usr/local/bin/zed %F
+Icon=zed
+Terminal=false
+Categories=Development;TextEditor;IDE;
+Keywords=text;editor;code;development;
+MimeType=text/plain;text/x-c;text/x-c++;text/x-python;text/x-java;text/x-javascript;text/x-typescript;text/x-rust;text/x-go;text/html;text/css;text/xml;application/json;
+StartupNotify=true
+StartupWMClass=dev.zed.Zed

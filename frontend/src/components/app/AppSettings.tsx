@@ -241,6 +241,10 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
+  // External agent display settings
+  const [resolution, setResolution] = useState<'1080p' | '4k'>(app.external_agent_config?.resolution as '1080p' | '4k' || '1080p')
+  const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+  const [zoomLevel, setZoomLevel] = useState<number>(app.external_agent_config?.zoom_level || (app.external_agent_config?.resolution === '4k' ? 200 : 100))
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
@@ -277,6 +281,10 @@ const AppSettings: FC<AppSettingsProps> = ({
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
       setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
+      // External agent display settings
+      setResolution(app.external_agent_config?.resolution as '1080p' | '4k' || '1080p')
+      setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+      setZoomLevel(app.external_agent_config?.zoom_level || (app.external_agent_config?.resolution === '4k' ? 200 : 100))
 
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
@@ -613,7 +621,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         </Box>
       )}
 
-      {/* Zed External Agent Configuration */}
+      {/* External Agent Configuration */}
       {default_agent_type === AGENT_TYPE_ZED_EXTERNAL && (
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ mb: 2 }}>Code Agent Runtime</Typography>
@@ -676,6 +684,156 @@ const AppSettings: FC<AppSettingsProps> = ({
             currentType="text"
             displayMode="short"
           />
+
+          <Divider sx={{ my: 3 }} />
+
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Display Settings</Typography>
+
+          {/* Resolution Selection */}
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Choose the display resolution for the external agent desktop.
+          </Typography>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <Select
+              value={resolution}
+              onChange={(e) => {
+                const newResolution = e.target.value as '1080p' | '4k';
+                setResolution(newResolution);
+                // Auto-set zoom to 200% for 4k if zoom is still at default
+                const newZoom = newResolution === '4k' && zoomLevel === 100 ? 200 : zoomLevel;
+                if (newResolution === '4k' && zoomLevel === 100) {
+                  setZoomLevel(200);
+                }
+                const updatedConfig: IExternalAgentConfig = {
+                  ...external_agent_config,
+                  resolution: newResolution,
+                  zoom_level: newZoom,
+                };
+                setExternalAgentConfig(updatedConfig);
+                const updatedApp: IAppFlatState = {
+                  ...app,
+                  external_agent_config: updatedConfig,
+                };
+                onUpdate(updatedApp);
+              }}
+              disabled={readOnly}
+            >
+              <MenuItem value="1080p">
+                <Box>
+                  <Typography>1080p (1920×1080)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Standard HD resolution - works with all GPUs
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="4k">
+                <Box>
+                  <Typography>4K (3840×2160)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Ultra HD resolution - requires powerful GPU
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* 4K Warning */}
+          {resolution === '4k' && (
+            <Box sx={{
+              mb: 2,
+              p: 2,
+              bgcolor: 'warning.main',
+              color: 'warning.contrastText',
+              borderRadius: 1
+            }}>
+              <Typography variant="body2">
+                <strong>Warning:</strong> 4K resolution requires a powerful GPU with hardware encoding support.
+                Not all configurations support 4K streaming. If you experience performance issues, switch to 1080p.
+              </Typography>
+            </Box>
+          )}
+
+          {/* Zoom Level (only shown for 4K) */}
+          {resolution === '4k' && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 1 }}>
+                UI Zoom Level: {zoomLevel}%
+              </Typography>
+              <Slider
+                value={zoomLevel}
+                min={100}
+                max={300}
+                step={25}
+                marks={[
+                  { value: 100, label: '100%' },
+                  { value: 150, label: '150%' },
+                  { value: 200, label: '200%' },
+                  { value: 250, label: '250%' },
+                  { value: 300, label: '300%' },
+                ]}
+                onChange={(_, value) => {
+                  const newZoom = value as number;
+                  setZoomLevel(newZoom);
+                  const updatedConfig: IExternalAgentConfig = {
+                    ...external_agent_config,
+                    zoom_level: newZoom,
+                  };
+                  setExternalAgentConfig(updatedConfig);
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    external_agent_config: updatedConfig,
+                  };
+                  onUpdate(updatedApp);
+                }}
+                disabled={readOnly}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Recommended: 200% for 4K displays to maintain readable text size
+              </Typography>
+            </Box>
+          )}
+
+          {/* Desktop Type Selection */}
+          <Typography variant="body2" color="text.secondary" component="div" sx={{ mb: 2 }}>
+            Choose the desktop environment for the external agent.
+          </Typography>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <Select
+              value={desktopType}
+              onChange={(e) => {
+                const newDesktopType = e.target.value as 'ubuntu' | 'sway';
+                setDesktopType(newDesktopType);
+                const updatedConfig: IExternalAgentConfig = {
+                  ...external_agent_config,
+                  desktop_type: newDesktopType,
+                };
+                setExternalAgentConfig(updatedConfig);
+                const updatedApp: IAppFlatState = {
+                  ...app,
+                  external_agent_config: updatedConfig,
+                };
+                onUpdate(updatedApp);
+              }}
+              disabled={readOnly}
+            >
+              <MenuItem value="ubuntu">
+                <Box>
+                  <Typography>Ubuntu 22.04 (X11)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Full GNOME desktop environment - recommended for most users
+                  </Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="sway">
+                <Box>
+                  <Typography>Sway (Wayland) - Expert</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Tiling window manager (i3-style) - for advanced users
+                  </Typography>
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
         </Box>
       )}
 

@@ -10580,58 +10580,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/{taskId}/start-implementation": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Transition an approved spec task to implementation, creating a feature branch",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Start implementation phase",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Task ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskImplementationStartResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{taskId}/start-planning": {
             "post": {
                 "security": [
@@ -18313,8 +18261,12 @@ const docTemplate = `{
                     "description": "Whether to auto-connect RDP viewer",
                     "type": "boolean"
                 },
+                "desktop_type": {
+                    "description": "Desktop environment: \"ubuntu\" (default) or \"sway\"",
+                    "type": "string"
+                },
                 "display_height": {
-                    "description": "Streaming resolution height (default: 1600)",
+                    "description": "Streaming resolution height (default: 1080)",
                     "type": "integer"
                 },
                 "display_refresh_rate": {
@@ -18336,9 +18288,17 @@ const docTemplate = `{
                     "description": "Relative path for the project directory",
                     "type": "string"
                 },
+                "resolution": {
+                    "description": "Resolution and desktop configuration",
+                    "type": "string"
+                },
                 "workspace_dir": {
                     "description": "Custom working directory",
                     "type": "string"
+                },
+                "zoom_level": {
+                    "description": "GNOME zoom percentage (100 default, 200 for 4k)",
+                    "type": "integer"
                 }
             }
         },
@@ -19032,6 +18992,10 @@ const docTemplate = `{
                 },
                 "external_url": {
                     "type": "string"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing (pointer to distinguish unset from false)",
+                    "type": "boolean"
                 },
                 "metadata": {
                     "type": "object",
@@ -23311,38 +23275,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SpecTaskImplementationStartResponse": {
-            "type": "object",
-            "properties": {
-                "agent_instructions": {
-                    "type": "string"
-                },
-                "base_branch": {
-                    "type": "string"
-                },
-                "branch_name": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "local_path": {
-                    "type": "string"
-                },
-                "pr_template_url": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "string"
-                },
-                "repository_name": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "types.SpecTaskImplementationStatus": {
             "type": "string",
             "enum": [
@@ -25011,6 +24943,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.ContainerDiskUsage"
                     }
                 },
+                "desktop_versions": {
+                    "description": "Desktop image versions (content-addressable Docker image hashes)\nKey: desktop name (e.g., \"sway\", \"zorin\", \"ubuntu\")\nValue: image hash (e.g., \"a1b2c3d4e5f6...\")",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "disk_usage": {
                     "description": "disk usage metrics for monitored partitions",
                     "type": "array",
@@ -25028,10 +24967,6 @@ const docTemplate = `{
                 },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE (from sandbox env)",
-                    "type": "string"
-                },
-                "sway_version": {
-                    "description": "helix-sway image version (commit hash)",
                     "type": "string"
                 }
             }
@@ -25064,6 +24999,13 @@ const docTemplate = `{
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "desktop_versions": {
+                    "description": "map of desktop name -\u003e image hash",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "disk_alert_level": {
                     "type": "string"
@@ -25104,6 +25046,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sway_version": {
+                    "description": "legacy, use DesktopVersions",
                     "type": "string"
                 },
                 "updated_at": {
