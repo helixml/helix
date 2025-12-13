@@ -34,6 +34,26 @@ So we built application-layer adaptation. Here's what we learned.
 
 ---
 
+## "Is This Luke?" — A Ghost Story
+
+Before we get into the technical details, here's an actual Slack conversation from this week:
+
+> **Kai:** I just had a strange experience - launched an Ubuntu desktop on code.helix.ml - all of a sudden my mouse is moving (and it's not me). I end up typing into the Firefox address bar "hello?!? is this Luke?" - no reply - then 3 or 4 mins later, my mouse starts to move again. Is somebody currently using code.helix.ml? If the answer is no then very funky - who could have been looking at that Ubuntu desktop 🤯
+>
+> **Luke:** interesting - wasn't me!
+>
+> **Kai:** it might have been latency - I am currently at the South Bank Centre on phone wifi 🤷
+>
+> **Kai:** so - I was probably typing to me 30 seconds ago 🤣
+>
+> **Luke:** ah, maybe you are experiencing our amazing new websocket only mode that actually sucks on high latency connections
+>
+> **Kai:** ahhhhh right that makes sense - so it's TCP ghosts in the machine
+
+This is the problem. On a congested connection, TCP buffers fill up. Your inputs from 30 seconds ago finally arrive. Your mouse moves. You're not haunted — you're just watching a time-delayed replay of yourself.
+
+---
+
 ## The Fundamental Problem: TCP Doesn't Know About Frames
 
 TCP congestion control (CUBIC, BBR, etc.) optimizes for **throughput**. It probes for bandwidth, fills buffers, backs off on loss. This is correct behavior for bulk transfers.
