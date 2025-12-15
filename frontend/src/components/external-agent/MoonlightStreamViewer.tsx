@@ -407,10 +407,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               // Initialize video decoder for SSE frames
               let videoDecoder: VideoDecoder | null = null;
 
-              eventSource.addEventListener('init', (e: MessageEvent) => {
+              eventSource.addEventListener('init', async (e: MessageEvent) => {
                 try {
                   const init = JSON.parse(e.data);
                   console.log('[MoonlightStreamViewer] SSE video init:', init);
+
+                  // Validate init data - if Wolf/moonlight-web is in bad state, this might be garbage
+                  if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
+                    console.error('[SSE Video] Invalid init data (bad dimensions):', init);
+                    return;
+                  }
 
                   // Configure video decoder - use same codec strings as websocket-stream.ts
                   let codecString: string;
@@ -426,6 +432,38 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                     codecString = 'avc1.4d0033';  // Default to H.264
                   }
                   console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
+
+                  // Check codec support - try hardware first, fall back to software
+                  let useHardwareAcceleration: HardwareAcceleration = 'prefer-hardware';
+                  try {
+                    const hwSupport = await VideoDecoder.isConfigSupported({
+                      codec: codecString,
+                      codedWidth: init.width,
+                      codedHeight: init.height,
+                      hardwareAcceleration: 'prefer-hardware',
+                    });
+
+                    if (!hwSupport.supported) {
+                      console.log('[SSE Video] Hardware decoding not supported, trying software fallback');
+                      const swSupport = await VideoDecoder.isConfigSupported({
+                        codec: codecString,
+                        codedWidth: init.width,
+                        codedHeight: init.height,
+                      });
+
+                      if (!swSupport.supported) {
+                        console.error('[SSE Video] Codec not supported (hardware or software):', codecString, init.width, init.height);
+                        return;
+                      }
+                      useHardwareAcceleration = 'no-preference';
+                      console.log('[SSE Video] Using software video decoding');
+                    } else {
+                      console.log('[SSE Video] Using hardware video decoding');
+                    }
+                  } catch (e) {
+                    console.warn('[SSE Video] Failed to check codec support, trying anyway:', e);
+                  }
+
                   videoDecoder = new VideoDecoder({
                     output: (frame: VideoFrame) => {
                       try {
@@ -458,12 +496,47 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                     },
                     error: (err) => console.error('[SSE Video] Decoder error:', err),
                   });
-                  videoDecoder.configure({
+                  // Configure with Annex B format hint (NAL start codes, in-band SPS/PPS)
+                  const config: VideoDecoderConfig = {
                     codec: codecString,
                     codedWidth: init.width,
                     codedHeight: init.height,
-                    hardwareAcceleration: 'prefer-hardware',
-                  });
+                    hardwareAcceleration: useHardwareAcceleration,
+                  };
+                  // Add format hints for H264/HEVC - required for Annex B streams
+                  if (codecString.startsWith('avc1')) {
+                    // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+                    config.avc = { format: 'annexb' };
+                  }
+                  if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
+                    // @ts-ignore - hevc property for Annex B format
+                    config.hevc = { format: 'annexb' };
+                  }
+                  console.log('[SSE Video] Decoder config:', JSON.stringify(config));
+
+                  // Check if there's already a decoder that wasn't cleaned up
+                  if (sseVideoDecoderRef.current) {
+                    console.warn('[SSE Video] Stale decoder found in ref, closing it first');
+                    try {
+                      sseVideoDecoderRef.current.close();
+                    } catch (e) {
+                      console.warn('[SSE Video] Error closing stale decoder:', e);
+                    }
+                    sseVideoDecoderRef.current = null;
+                  }
+
+                  try {
+                    videoDecoder.configure(config);
+                    console.log('[SSE Video] Decoder configured successfully');
+                  } catch (configErr) {
+                    console.error('[SSE Video] Failed to configure decoder:', configErr);
+                    console.error('[SSE Video] Config was:', JSON.stringify(config));
+                    videoDecoder.close();
+                    return;
+                  }
+
+                  // Store decoder in ref for proper cleanup during disconnect
+                  sseVideoDecoderRef.current = videoDecoder;
                 } catch (err) {
                   console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
                 }
@@ -504,7 +577,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 console.error('[MoonlightStreamViewer] SSE video error:', err);
               };
 
-              // Store eventSource for cleanup
+              // Store eventSource for cleanup (both in ref and on stream object for redundancy)
+              sseEventSourceRef.current = eventSource;
               (wsStream as any)._sseEventSource = eventSource;
             }
           } else if (data.type === 'connectionComplete') {
