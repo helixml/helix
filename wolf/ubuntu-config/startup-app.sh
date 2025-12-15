@@ -435,18 +435,22 @@ fi
 # gsettings text-scaling-factor only affects GTK text, not the actual display scale
 
 # Create autostart entry for Zed (starts after settings are ready)
+# CRITICAL: StartupWMClass MUST match Zed's WM_CLASS for GNOME to show the correct icon
+# Zed dev builds report WM_CLASS as "dev.zed.Zed-Dev"
 if [ "$ENABLE_ZED_AUTOSTART" = "true" ]; then
     cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Zed Helix Editor
+Name=Zed
 Exec=/usr/local/bin/start-zed-helix.sh
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=2
 NoDisplay=false
-Icon=zed
+Icon=dev.zed.Zed-Dev
+StartupWMClass=dev.zed.Zed-Dev
+StartupNotify=true
 EOF
-    echo "Zed autostart entry created"
+    echo "Zed autostart entry created (with StartupWMClass=dev.zed.Zed-Dev)"
 else
     echo "Zed autostart DISABLED by feature flag"
 fi

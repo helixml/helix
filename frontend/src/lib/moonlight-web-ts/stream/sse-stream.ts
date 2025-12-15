@@ -178,22 +178,51 @@ export class SseStream {
       }
     })
 
-    this.videoDecoder.configure({
+    // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS/VPS)
+    // This tells WebCodecs to expect NAL start codes and in-band parameter sets
+    const config: VideoDecoderConfig = {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
       hardwareAcceleration: "prefer-hardware",
-    })
+    }
+
+    // For H264, specify Annex B format to handle in-band SPS/PPS
+    if (codecString.startsWith("avc1")) {
+      // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+      config.avc = { format: "annexb" }
+    }
+    // For HEVC, specify Annex B format to handle in-band VPS/SPS/PPS
+    if (codecString.startsWith("hvc1") || codecString.startsWith("hev1")) {
+      // @ts-ignore - hevc property for Annex B format
+      config.hevc = { format: "annexb" }
+    }
+
+    try {
+      this.videoDecoder.configure(config)
+      console.log("[SseStream] Video decoder configured:", config)
+    } catch (e) {
+      console.error("[SseStream] Failed to configure video decoder:", e)
+      // Try without the format hint as fallback
+      this.videoDecoder.configure({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: "prefer-hardware",
+      })
+      console.log("[SseStream] Video decoder configured (fallback mode)")
+    }
   }
 
   private getCodecString(codec: number): string {
     // Map server codec enum to WebCodecs codec string
+    // These must match websocket-stream.ts codecToWebCodecsString()
     switch (codec) {
-      case 0x01: return "avc1.640028"  // H.264 High
-      case 0x02: return "avc1.f4001e"  // H.264 High 4:4:4
+      case 0x01: return "avc1.4d0033"  // H.264 Main Profile Level 5.1 (supports 4K)
+      case 0x02: return "avc1.640032"  // H.264 High Profile Level 5.0
       case 0x10: return "hvc1.1.6.L120.90"  // HEVC Main
       case 0x11: return "hvc1.2.4.L120.90"  // HEVC Main 10
-      default: return "avc1.640028"  // Default to H.264
+      default: return "avc1.4d0033"  // Default to H.264
     }
   }
 
