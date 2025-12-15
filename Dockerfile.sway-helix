@@ -150,7 +150,8 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
 RUN apt-get update && apt-get install -y \
     # Debugging utilities (grim is built from source with JPEG support)
     # libjpeg-turbo8 is runtime dependency for our custom grim
-    lsof libjpeg-turbo8 \
+    # bc is required by GOW startup-app.sh for calculations
+    lsof libjpeg-turbo8 bc \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
     # Input device testing tools for keyboard state observability
