@@ -760,6 +760,27 @@ export class WebSocketStream {
         console.log("[WebSocketStream] Waiting for first keyframe, skipping delta frame")
         return
       }
+      // Debug: hexdump first 32 bytes to see NAL structure
+      // Helps diagnose HEVC description issues - compare with SSE mode
+      if (frameData.length >= 32) {
+        const hexBytes = Array.from(frameData.slice(0, 32))
+          .map(b => b.toString(16).padStart(2, "0"))
+          .join(" ")
+        console.log(`[WebSocketStream] Keyframe first 32 bytes: ${hexBytes}`)
+        // Check NAL type after start code
+        const hasStartCode4 = frameData[0] === 0 && frameData[1] === 0 && frameData[2] === 0 && frameData[3] === 1
+        if (hasStartCode4) {
+          const nalTypeByte = frameData[4]
+          const isH264 = (nalTypeByte & 0x80) === 0 && (nalTypeByte & 0x60) !== 0
+          if (isH264) {
+            const h264NalType = nalTypeByte & 0x1F
+            console.log(`[WebSocketStream] H.264 NAL type: ${h264NalType}`)
+          } else {
+            const hevcNalType = (nalTypeByte >> 1) & 0x3F
+            console.log(`[WebSocketStream] HEVC NAL type: ${hevcNalType} (VPS=32, SPS=33, PPS=34, IDR=19/20)`)
+          }
+        }
+      }
       console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
       this.receivedFirstKeyframe = true
     }
