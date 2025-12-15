@@ -63,6 +63,13 @@ function launch_desktop() {
         GNOME_SCALE=1
     fi
     echo "Setting GNOME scaling factor to $GNOME_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
+    # CRITICAL: Both settings are required for proper HiDPI scaling in GNOME 42 (Ubuntu 22.04)
+    # 1. xsettings override - tells GTK apps (including Zed) to render at 2x
+    # 2. scaling-factor - tells GNOME shell/Mutter to use 2x scale
+    # See: https://kaanlabs.com/ubuntu-set-scaling-factor-to-200-percent/
+    if [ "$GNOME_SCALE" -ge 2 ]; then
+        gsettings set org.gnome.settings-daemon.plugins.xsettings overrides "[{'Gdk/WindowScalingFactor', <$GNOME_SCALE>}]" 2>/dev/null || true
+    fi
     gsettings set org.gnome.desktop.interface scaling-factor $GNOME_SCALE 2>/dev/null || true
 
     # Start GNOME session
