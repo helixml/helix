@@ -560,6 +560,9 @@ export class WebSocketStream {
       // Continue anyway and let configure() fail if truly unsupported
     }
 
+    // Store the working acceleration mode for recovery after reset
+    this.lastVideoHwAccel = useHardwareAcceleration
+
     // Close existing decoder
     if (this.videoDecoder) {
       try {
@@ -665,6 +668,7 @@ export class WebSocketStream {
   private lastVideoCodec: WsVideoCodecType | null = null
   private lastVideoWidth = 0
   private lastVideoHeight = 0
+  private lastVideoHwAccel: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
 
   private async handleVideoFrame(data: Uint8Array, fromBatch = false) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
@@ -687,9 +691,16 @@ export class WebSocketStream {
     }
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    const msgType = data[0]
+    const codec = data[1]
     const flags = data[2]
     const isKeyframe = (flags & 0x01) !== 0
     const ptsUs = view.getBigUint64(3, false) // big-endian
+
+    // DEBUG: Log first 10 frames to trace keyframe detection
+    if (this.framesDecoded < 10) {
+      console.log(`[WebSocketStream] Frame ${this.framesDecoded}: type=${msgType} codec=${codec} flags=0x${flags.toString(16)} isKeyframe=${isKeyframe} size=${data.length}`)
+    }
     // width at offset 11, height at offset 13 (already have from StreamInit)
 
     const frameData = data.slice(15)
@@ -771,7 +782,7 @@ export class WebSocketStream {
           codec: codecString,
           codedWidth: this.lastVideoWidth,
           codedHeight: this.lastVideoHeight,
-          hardwareAcceleration: "prefer-hardware",
+          hardwareAcceleration: this.lastVideoHwAccel,
         }
 
         // Add format hints for H264/HEVC
