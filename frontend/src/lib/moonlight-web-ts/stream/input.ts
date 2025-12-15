@@ -262,11 +262,22 @@ export class StreamInput {
             deltaY = deltaY * 50;
         }
 
+        // Ensure non-zero values don't round to zero (preserves scroll direction)
+        // This is critical for touchpad which sends many small deltas
+        const roundAwayFromZero = (v: number) => {
+            if (v === 0) return 0;
+            if (v > 0 && v < 1) return 1;
+            if (v < 0 && v > -1) return -1;
+            return Math.round(v);
+        };
+
         if (this.config.mouseScrollMode == "highres") {
-            this.sendMouseWheelHighRes(deltaX, -deltaY)
+            this.sendMouseWheelHighRes(roundAwayFromZero(deltaX), roundAwayFromZero(-deltaY))
         } else if (this.config.mouseScrollMode == "normal") {
             // Normal mode uses Int8 (-128 to 127), scale down further
-            this.sendMouseWheel(deltaX / 10, -deltaY / 10)
+            const normalX = deltaX / 10;
+            const normalY = -deltaY / 10;
+            this.sendMouseWheel(roundAwayFromZero(normalX), roundAwayFromZero(normalY))
         }
     }
 
