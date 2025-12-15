@@ -227,19 +227,30 @@ export class StreamInput {
     }
     onMouseWheel(event: WheelEvent) {
         // Normalize wheel deltas based on deltaMode
-        // DOM_DELTA_PIXEL (0): Values in pixels - Chrome sends 100-150 per notch
+        // DOM_DELTA_PIXEL (0): Values in pixels - but magnitude varies by device:
+        //   - Mouse wheel: 100-150 pixels per notch (discrete, large values)
+        //   - Touchpad: 1-10 pixels per event (continuous, small values, high frequency)
         // DOM_DELTA_LINE (1): Values in lines - Firefox sends 1-3 per notch
         // DOM_DELTA_PAGE (2): Values in pages - rare
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
 
         if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
-            // Pixel mode (Chrome default) - scale down but preserve precision
-            // Chrome sends ~100-150 pixels per notch, we want ~10-15 for high-res
-            // and ~1-2 for normal mode
-            // Divide by 10 to get into a reasonable range for the protocol
-            deltaX = deltaX / 10;
-            deltaY = deltaY / 10;
+            // Pixel mode - use adaptive scaling based on magnitude
+            // Large values (>30) are likely mouse wheel notches - scale down aggressively
+            // Small values are likely touchpad - minimal scaling to preserve sensitivity
+            const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+            if (magnitude > 30) {
+                // Mouse wheel: scale down to prevent oversensitivity
+                // 100-150 → 10-15 for high-res mode
+                deltaX = deltaX / 10;
+                deltaY = deltaY / 10;
+            } else {
+                // Touchpad: light scaling to keep smooth scrolling working
+                // 1-10 → 0.5-5 for high-res mode (accumulated over many events)
+                deltaX = deltaX / 2;
+                deltaY = deltaY / 2;
+            }
         } else if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
             // Line mode (Firefox) - multiply to match high-res scale
             // Firefox sends 1-3 per notch, we want ~10-15 for high-res
