@@ -424,6 +424,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	displayWidth := 1920
 	displayHeight := 1080
 	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
 	if task.HelixAppID != "" {
 		app, err := s.store.GetApp(ctx, task.HelixAppID)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -433,11 +436,18 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 			log.Debug().
 				Str("task_id", task.ID).
 				Int("display_width", displayWidth).
 				Int("display_height", displayHeight).
 				Int("display_refresh_rate", displayRefreshRate).
+				Str("resolution", resolution).
+				Int("zoom_level", zoomLevel).
+				Str("desktop_type", desktopType).
 				Msg("Using display settings from app's ExternalAgentConfig")
 		}
 	}
@@ -457,6 +467,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -750,6 +763,9 @@ Follow these guidelines when making changes:
 	displayWidthJDI := 1920
 	displayHeightJDI := 1080
 	displayRefreshRateJDI := 60
+	resolutionJDI := ""
+	zoomLevelJDI := 0
+	desktopTypeJDI := ""
 	if task.HelixAppID != "" {
 		app, err := s.store.GetApp(ctx, task.HelixAppID)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -759,11 +775,18 @@ Follow these guidelines when making changes:
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				displayRefreshRateJDI = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolutionJDI = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevelJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopTypeJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 			log.Debug().
 				Str("task_id", task.ID).
 				Int("display_width", displayWidthJDI).
 				Int("display_height", displayHeightJDI).
 				Int("display_refresh_rate", displayRefreshRateJDI).
+				Str("resolution", resolutionJDI).
+				Int("zoom_level", zoomLevelJDI).
+				Str("desktop_type", desktopTypeJDI).
 				Msg("Just Do It: Using display settings from app's ExternalAgentConfig")
 		}
 	}
@@ -782,6 +805,9 @@ Follow these guidelines when making changes:
 		DisplayWidth:        displayWidthJDI,
 		DisplayHeight:       displayHeightJDI,
 		DisplayRefreshRate:  displayRefreshRateJDI,
+		Resolution:          resolutionJDI,
+		ZoomLevel:           zoomLevelJDI,
+		DesktopType:         desktopTypeJDI,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},

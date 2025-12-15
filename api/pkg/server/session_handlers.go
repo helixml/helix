@@ -1876,12 +1876,19 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 			log.Debug().
 				Str("session_id", id).
 				Str("app_id", session.ParentApp).
 				Int("display_width", width).
 				Int("display_height", height).
 				Int("display_refresh_rate", agent.DisplayRefreshRate).
+				Str("resolution", agent.Resolution).
+				Int("zoom_level", agent.ZoomLevel).
+				Str("desktop_type", agent.DesktopType).
 				Msg("Using display settings from app's ExternalAgentConfig for session resume")
 		}
 	}
