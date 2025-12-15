@@ -2565,6 +2565,19 @@ EOF
     echo "Sandbox script created at $INSTALL_DIR/sandbox.sh"
     echo
 
+    # If controlplane is also being installed, run docker compose first to create the network
+    if [ "$CONTROLPLANE" = true ]; then
+        echo "Starting controlplane services first (creates Docker network with correct labels)..."
+        cd $INSTALL_DIR
+        if [ "$NEED_SUDO" = "true" ]; then
+            sudo docker compose up -d --remove-orphans
+        else
+            docker compose up -d --remove-orphans
+        fi
+        echo "Waiting for controlplane to be ready..."
+        sleep 5
+    fi
+
     # Run the sandbox script to start the container
     echo "Starting sandbox container..."
     if [ "$NEED_SUDO" = "true" ]; then
