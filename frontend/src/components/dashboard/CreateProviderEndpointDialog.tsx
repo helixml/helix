@@ -217,8 +217,8 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             fullWidth
             required
             autoComplete="off"
-            placeholder="https://api.example.com"
-            helperText="Enter a valid HTTP or HTTPS URL"
+            placeholder="https://api.openai.com/v1"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">
@@ -285,9 +285,11 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             }
             label="Billing Enabled"
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Users will be using their wallet balance for inference
-          </Typography>
+          {formData.billing_enabled && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Users will be charged from their wallet balance for inference
+            </Typography>
+          )}
 
           <Divider sx={{ my: 2 }} />
 
