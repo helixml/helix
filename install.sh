@@ -2544,7 +2544,13 @@ EOF
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
+    # When controlplane is on same machine, use Docker network hostname
+    # localhost inside sandbox container resolves to container itself, not the host
+    if [ "$CONTROLPLANE" = true ]; then
+        sed -i "s|\${HELIX_API_URL}|http://api:8080|g" $INSTALL_DIR/sandbox.sh
+    else
+        sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
+    fi
     sed -i "s|\${WOLF_INSTANCE_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
