@@ -342,71 +342,136 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       let stream: Stream | WebSocketStream | DualStreamManager | SseStream;
 
-      // Check if using SSE mode (experimental - separate SSE for video, WebSocket for input)
+      // Check if using SSE mode (experimental - WebSocket for session/input, SSE for video)
+      // Architecture: ONE WebSocket creates Wolf session, SSE subscribes to video from it
       if (streamingMode === 'sse') {
-        console.log('[MoonlightStreamViewer] Using SSE streaming mode (experimental)');
+        console.log('[MoonlightStreamViewer] Using SSE streaming mode (WebSocket for input, SSE for video)');
 
-        // Build SSE URL for video stream
-        const sseUrl = buildSseStreamUrl(
-          `/moonlight/api`,
-          hostId,
-          actualAppId,
-          sessionId || '',
-          settings.videoSizeCustom.width,
-          settings.videoSizeCustom.height,
-          settings.fps,
-          settings.bitrate
-        );
-
-        console.log('[MoonlightStreamViewer] SSE URL:', sseUrl);
-
-        // Create SSE stream for video
-        const sseStream = new SseStream(sseUrl, settings);
-
-        // Set canvas for SSE stream rendering
-        if (canvasRef.current) {
-          sseStream.setCanvas(canvasRef.current);
-        }
-
-        // Set up callbacks
-        sseStream.setOnStreamInit((init) => {
-          console.log('[MoonlightStreamViewer] SSE stream init:', init);
-          setStatus('Streaming active (SSE)');
-          setIsConnected(true);
-          setIsConnecting(false);
-          onConnectionChange?.(true);
-        });
-
-        sseStream.setOnError((error) => {
-          console.error('[MoonlightStreamViewer] SSE error:', error);
-          setError(error);
-          setIsConnected(false);
-          onError?.(error);
-        });
-
-        sseStream.setOnClose(() => {
-          console.log('[MoonlightStreamViewer] SSE closed');
-          setIsConnected(false);
-          onConnectionChange?.(false);
-        });
-
-        // Connect SSE
-        await sseStream.connect();
-
-        // Also create a WebSocket stream for input (mouse/keyboard)
-        // This runs in parallel with SSE for video
-        const inputWs = new WebSocketStream(
+        // Create WebSocket stream for session creation and input
+        // This is the ONLY connection to Wolf - it creates the session
+        const wsStream = new WebSocketStream(
           api,
           hostId,
           actualAppId,
           settings,
           supportedFormats,
           [width, height],
-          sessionId ? `${sessionId}-input` : undefined
+          sessionId // Use main session ID - this is the session SSE will subscribe to
         );
-        sseInputWsRef.current = inputWs;
 
-        stream = sseStream;
+        // Store for input handling
+        sseInputWsRef.current = wsStream;
+
+        // Listen for WebSocket events to know when session is ready
+        wsStream.addInfoListener((event: any) => {
+          const data = event.detail;
+
+          if (data.type === 'streamInit') {
+            // Session is initialized - NOW open SSE for video
+            console.log('[MoonlightStreamViewer] WebSocket session ready, opening SSE for video');
+
+            // Disable video over WebSocket - we'll use SSE instead
+            wsStream.setVideoEnabled(false);
+
+            // Open SSE connection for video frames
+            const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
+            console.log('[MoonlightStreamViewer] SSE video URL:', sseUrl);
+
+            // Create EventSource for video
+            const eventSource = new EventSource(sseUrl, { withCredentials: true });
+
+            // Set canvas for rendering SSE video frames
+            if (canvasRef.current) {
+              const canvas = canvasRef.current;
+              const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+              // Initialize video decoder for SSE frames
+              let videoDecoder: VideoDecoder | null = null;
+
+              eventSource.addEventListener('init', (e: MessageEvent) => {
+                try {
+                  const init = JSON.parse(e.data);
+                  console.log('[MoonlightStreamViewer] SSE video init:', init);
+
+                  // Configure video decoder
+                  const codecString = init.video_codec === 0x01 ? 'avc1.640028' : 'avc1.640028';
+                  videoDecoder = new VideoDecoder({
+                    output: (frame: VideoFrame) => {
+                      if (ctx && canvas) {
+                        canvas.width = frame.displayWidth;
+                        canvas.height = frame.displayHeight;
+                        ctx.drawImage(frame, 0, 0);
+                      }
+                      frame.close();
+                    },
+                    error: (err) => console.error('[SSE Video] Decoder error:', err),
+                  });
+                  videoDecoder.configure({
+                    codec: codecString,
+                    codedWidth: init.width,
+                    codedHeight: init.height,
+                    hardwareAcceleration: 'prefer-hardware',
+                  });
+                } catch (err) {
+                  console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
+                }
+              });
+
+              eventSource.addEventListener('video', (e: MessageEvent) => {
+                if (!videoDecoder || videoDecoder.state !== 'configured') return;
+
+                try {
+                  const frame = JSON.parse(e.data);
+                  // Decode base64 video data
+                  const binaryString = atob(frame.data);
+                  const bytes = new Uint8Array(binaryString.length);
+                  for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                  }
+
+                  const chunk = new EncodedVideoChunk({
+                    type: frame.keyframe ? 'key' : 'delta',
+                    timestamp: frame.pts,
+                    data: bytes,
+                  });
+                  videoDecoder.decode(chunk);
+                } catch (err) {
+                  console.error('[MoonlightStreamViewer] Failed to decode SSE video frame:', err);
+                }
+              });
+
+              eventSource.addEventListener('stop', () => {
+                console.log('[MoonlightStreamViewer] SSE video stopped');
+                if (videoDecoder) {
+                  videoDecoder.close();
+                  videoDecoder = null;
+                }
+              });
+
+              eventSource.onerror = (err) => {
+                console.error('[MoonlightStreamViewer] SSE video error:', err);
+              };
+
+              // Store eventSource for cleanup
+              (wsStream as any)._sseEventSource = eventSource;
+            }
+          } else if (data.type === 'connectionComplete') {
+            setIsConnected(true);
+            setIsConnecting(false);
+            setStatus('Streaming active (SSE + WebSocket)');
+            onConnectionChange?.(true);
+          } else if (data.type === 'error') {
+            setError(data.message);
+            setIsConnected(false);
+            onError?.(data.message);
+          } else if (data.type === 'disconnected') {
+            setIsConnected(false);
+            setStatus('Disconnected');
+            onConnectionChange?.(false);
+          }
+        });
+
+        stream = wsStream;
       } else if (streamingMode === 'websocket') {
         // Check if using WebSocket-only mode
         // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
@@ -657,6 +722,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Disconnect
   const disconnect = useCallback(() => {
     console.log('[MoonlightStreamViewer] disconnect() called, cleaning up stream resources');
+
+    // Close SSE EventSource if it exists (SSE mode stores it on the stream)
+    if (streamRef.current && (streamRef.current as any)._sseEventSource) {
+      console.log('[MoonlightStreamViewer] Closing SSE EventSource...');
+      try {
+        (streamRef.current as any)._sseEventSource.close();
+        (streamRef.current as any)._sseEventSource = null;
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Error closing SSE EventSource:', err);
+      }
+    }
 
     // Close SSE input WebSocket if it exists
     if (sseInputWsRef.current) {
@@ -2277,7 +2353,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           anchorEl={bitrateMenuAnchor}
           open={Boolean(bitrateMenuAnchor)}
           onClose={() => setBitrateMenuAnchor(null)}
-          disablePortal // Render inside container so it's visible in fullscreen
+          container={containerRef.current} // Render in main container (not transformed toolbar) for correct positioning + fullscreen support
           slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
           sx={{ zIndex: 100001 }} // Above floating modals (z-index 9999+)
         >
