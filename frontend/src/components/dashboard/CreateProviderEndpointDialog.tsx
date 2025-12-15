@@ -218,7 +218,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             required
             autoComplete="off"
             placeholder="https://api.openai.com/v1"
-            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">
