@@ -252,6 +252,20 @@ RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
+# Install Zed desktop file and icon for desktop integration
+# Even Sway can benefit from this for app launchers like wofi/rofi
+# The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
+# IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
+RUN apt-get update && apt-get install -y imagemagick && rm -rf /var/lib/apt/lists/*
+COPY wolf/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
+RUN for size in 16 24 32 48 64 128 256; do \
+        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
+        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
+            -resize ${size}x${size} \
+            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
+    done
+
 # Create Qwen Code configuration directory for retro user
 # IMPORTANT: This configuration DISABLES all telemetry and auto-updates
 RUN mkdir -p /home/retro/.qwen && \
