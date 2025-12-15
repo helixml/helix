@@ -471,10 +471,22 @@ echo "Chrome set as default browser for HTTP/HTTPS URLs"
 # Trying to load dconf here fails because D-Bus isn't available yet.
 # The desktop.sh script runs after xorg.sh starts Xwayland and D-Bus.
 
-# CRITICAL: Create monitors.xml to configure Mutter's display resolution
-# This is the proper way to tell Mutter what resolution to use.
+# CRITICAL: Create monitors.xml to configure Mutter's display resolution and scale
+# This is the proper way to tell Mutter what resolution and scale to use.
 # Without this, Mutter picks the highest available resolution (5120x2880)
 # which doesn't match Gamescope's expected resolution.
+
+# Calculate display scale from HELIX_ZOOM_LEVEL (default: 100% = scale 1)
+# GNOME/Mutter supports integer scales (1, 2) in monitors.xml
+# For fractional scaling, experimental-features would be needed
+ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}
+GNOME_SCALE=$(echo "scale=0; $ZOOM_LEVEL / 100" | bc)
+# Ensure minimum scale of 1
+if [ "$GNOME_SCALE" -lt 1 ]; then
+    GNOME_SCALE=1
+fi
+echo "GNOME display scale: $GNOME_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
+
 mkdir -p ~/.config
 cat > ~/.config/monitors.xml <<EOF
 <monitors version="2">
@@ -482,7 +494,7 @@ cat > ~/.config/monitors.xml <<EOF
     <logicalmonitor>
       <x>0</x>
       <y>0</y>
-      <scale>1</scale>
+      <scale>$GNOME_SCALE</scale>
       <primary>yes</primary>
       <monitor>
         <monitorspec>
@@ -502,7 +514,7 @@ cat > ~/.config/monitors.xml <<EOF
 </monitors>
 EOF
 
-echo "Created monitors.xml for ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
+echo "Created monitors.xml for ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} at scale $GNOME_SCALE"
 
 # Also create an autostart entry that runs xrandr AFTER Mutter is fully initialized
 # The monitors.xml should work, but this is a backup that runs with longer delay
