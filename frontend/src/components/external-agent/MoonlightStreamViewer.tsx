@@ -1047,6 +1047,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Frame drift = how late frames are arriving - reliable indicator of congestion
   // Bandwidth probe = active test before increasing to verify headroom exists
   const stableCheckCountRef = useRef(0); // Count of checks with low frame drift
+  const congestionCheckCountRef = useRef(0); // Count of consecutive checks with high frame drift (dampening)
   const lastBitrateChangeRef = useRef(0);
   const bandwidthProbeInProgressRef = useRef(false); // Prevent concurrent probes
 
@@ -1131,6 +1132,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
     const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of low frame drift before trying increase
+    const CONGESTION_CHECKS_FOR_REDUCE = 3; // Need 3 consecutive high drift samples before reducing (dampening)
     const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
 
     const checkBandwidth = () => {
@@ -1168,27 +1170,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // - Unlike throughput, this isn't affected by H.264 compression efficiency
       const congestionDetected = frameDrift > FRAME_DRIFT_THRESHOLD;
 
-      // Reduce bitrate on high frame drift
+      // Reduce bitrate on sustained high frame drift (dampening prevents single-spike reductions)
       if (congestionDetected && currentBitrate > MIN_BITRATE) {
-        const timeSinceLastChange = now - lastBitrateChangeRef.current;
+        // Increment congestion counter - require multiple consecutive high drift samples
+        congestionCheckCountRef.current++;
+        stableCheckCountRef.current = 0; // Reset stable counter on any congestion
 
-        if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
-          // Step down one tier
-          const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
-          if (currentIndex > 0) {
-            const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
-            console.log(`[AdaptiveBitrate] High frame drift (${frameDrift.toFixed(0)}ms behind), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
-            addChartEvent('rtt_spike', `Frame drift ${frameDrift.toFixed(0)}ms, reducing ${currentBitrate}→${newBitrate} Mbps`);
+        // Only reduce if we've seen sustained congestion
+        if (congestionCheckCountRef.current >= CONGESTION_CHECKS_FOR_REDUCE) {
+          const timeSinceLastChange = now - lastBitrateChangeRef.current;
 
-            lastBitrateChangeRef.current = now;
-            stableCheckCountRef.current = 0;
-            setUserBitrate(newBitrate);
-            return;
+          if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
+            // Step down one tier
+            const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
+            if (currentIndex > 0) {
+              const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
+              console.log(`[AdaptiveBitrate] Sustained high frame drift (${congestionCheckCountRef.current} samples, ${frameDrift.toFixed(0)}ms), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
+              addChartEvent('rtt_spike', `Sustained drift ${frameDrift.toFixed(0)}ms, reducing ${currentBitrate}→${newBitrate} Mbps`);
+
+              lastBitrateChangeRef.current = now;
+              stableCheckCountRef.current = 0;
+              congestionCheckCountRef.current = 0; // Reset after reduction
+              setUserBitrate(newBitrate);
+              return;
+            }
           }
         }
-        stableCheckCountRef.current = 0;
       } else {
         // Low frame drift - connection is stable at current bitrate
+        congestionCheckCountRef.current = 0; // Reset congestion counter on good sample
         stableCheckCountRef.current++;
 
         // Try to increase if stable for a while
@@ -2267,6 +2277,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           anchorEl={bitrateMenuAnchor}
           open={Boolean(bitrateMenuAnchor)}
           onClose={() => setBitrateMenuAnchor(null)}
+          disablePortal // Render inside container so it's visible in fullscreen
           slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
           sx={{ zIndex: 100001 }} // Above floating modals (z-index 9999+)
         >
