@@ -286,14 +286,15 @@ RUN chmod +x /zed-build/zed
 # Install Zed desktop file and icon for GNOME integration
 # The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
 # GNOME requires 48x48 minimum, 256x256 recommended for app grid
-COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed.desktop
-COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/zed.png
+# IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
+COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN mkdir -p /usr/share/icons/hicolor/48x48/apps \
              /usr/share/icons/hicolor/256x256/apps && \
-    convert /usr/share/icons/hicolor/512x512/apps/zed.png -resize 48x48 \
-            /usr/share/icons/hicolor/48x48/apps/zed.png && \
-    convert /usr/share/icons/hicolor/512x512/apps/zed.png -resize 256x256 \
-            /usr/share/icons/hicolor/256x256/apps/zed.png && \
+    convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png -resize 48x48 \
+            /usr/share/icons/hicolor/48x48/apps/dev.zed.Zed-Dev.png && \
+    convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png -resize 256x256 \
+            /usr/share/icons/hicolor/256x256/apps/dev.zed.Zed-Dev.png && \
     gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
 # Copy Zed startup script and helper scripts
