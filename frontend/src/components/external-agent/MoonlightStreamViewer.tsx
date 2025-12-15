@@ -23,10 +23,10 @@ import {
   chartLegendProps,
   axisLabelStyle,
 } from '../wolf/chartStyles';
-import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
+// getApi import removed - we create API object directly instead of using cached singleton
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
-import { SseStream, buildSseStreamUrl } from '../../lib/moonlight-web-ts/stream/sse-stream';
+import { SseStream } from '../../lib/moonlight-web-ts/stream/sse-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
@@ -354,282 +354,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       let stream: Stream | WebSocketStream | SseStream;
 
-      // NOTE: Old SSE-as-streamingMode code removed. SSE is now controlled by qualityMode='sse'.
-      // The hot-switch handler (useEffect on qualityMode) opens SSE after WebSocket connects.
-      // This simplifies initial connect - always use WebSocket, then hot-switch video source.
-      if (false as boolean) { // Dead code - keeping for reference, will be removed
-        console.log('[MoonlightStreamViewer] Using SSE streaming mode (WebSocket for input, SSE for video)');
+      // WebSocket mode: always connect via WebSocket for input
+      // qualityMode determines video source (hot-switched after connect):
+      // - 'high': Video over WebSocket (default)
+      // - 'sse': Video over SSE (hot-switched via useEffect)
+      // - 'low': Screenshot polling (hot-switched via useEffect)
+      if (streamingMode === 'websocket') {
+        // WebSocket mode: use WebSocket for input, qualityMode determines video source
+        console.log('[MoonlightStreamViewer] Using WebSocket streaming mode, qualityMode:', qualityMode);
 
-        // Use same session ID format as websocket mode for consistency
-        // This allows hot-switching between modes without confusion
-        const qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
-
-        // Create WebSocket stream for session creation and input
-        // This is the ONLY connection to Wolf - it creates the session
-        const wsStream = new WebSocketStream(
-          api,
-          hostId,
-          actualAppId,
-          settings,
-          supportedFormats,
-          [width, height],
-          qualitySessionId // Use -hq suffix like websocket mode for consistency
-        );
-
-        // Store for input handling
-        sseInputWsRef.current = wsStream;
-
-        // Listen for WebSocket events to know when session is ready
-        wsStream.addInfoListener((event: any) => {
-          const data = event.detail;
-
-          if (data.type === 'streamInit') {
-            // Session is initialized - NOW open SSE for video
-            console.log('[MoonlightStreamViewer] WebSocket session ready, opening SSE for video');
-
-            // Disable video over WebSocket - we'll use SSE instead
-            wsStream.setVideoEnabled(false);
-
-            // Open SSE connection for video frames - use same session ID as WebSocket
-            const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
-            console.log('[MoonlightStreamViewer] SSE video URL:', sseUrl);
-
-            // Create EventSource for video
-            const eventSource = new EventSource(sseUrl, { withCredentials: true });
-
-            // Reset keyframe flag for new SSE connection - we need to wait for first keyframe
-            // before decoding delta frames (keyframe contains VPS/SPS/PPS needed for HEVC)
-            sseReceivedFirstKeyframeRef.current = false;
-
-            // Set canvas for rendering SSE video frames
-            if (canvasRef.current) {
-              const canvas = canvasRef.current;
-              const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-
-              // Initialize video decoder for SSE frames
-              let videoDecoder: VideoDecoder | null = null;
-
-              eventSource.addEventListener('init', async (e: MessageEvent) => {
-                try {
-                  const init = JSON.parse(e.data);
-                  console.log('[MoonlightStreamViewer] SSE video init:', init);
-
-                  // Validate init data - if Wolf/moonlight-web is in bad state, this might be garbage
-                  if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
-                    console.error('[SSE Video] Invalid init data (bad dimensions):', init);
-                    return;
-                  }
-
-                  // Configure video decoder - use same codec strings as websocket-stream.ts
-                  let codecString: string;
-                  if (init.video_codec === 0x01) {
-                    codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
-                  } else if (init.video_codec === 0x02) {
-                    codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
-                  } else if (init.video_codec === 0x10) {
-                    codecString = 'hvc1.1.6.L120.90';  // HEVC Main
-                  } else if (init.video_codec === 0x11) {
-                    codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
-                  } else {
-                    codecString = 'avc1.4d0033';  // Default to H.264
-                  }
-                  console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
-
-                  // Check codec support - try hardware first, fall back to software
-                  let useHardwareAcceleration: HardwareAcceleration = 'prefer-hardware';
-                  try {
-                    const hwSupport = await VideoDecoder.isConfigSupported({
-                      codec: codecString,
-                      codedWidth: init.width,
-                      codedHeight: init.height,
-                      hardwareAcceleration: 'prefer-hardware',
-                    });
-
-                    if (!hwSupport.supported) {
-                      console.log('[SSE Video] Hardware decoding not supported, trying software fallback');
-                      const swSupport = await VideoDecoder.isConfigSupported({
-                        codec: codecString,
-                        codedWidth: init.width,
-                        codedHeight: init.height,
-                      });
-
-                      if (!swSupport.supported) {
-                        console.error('[SSE Video] Codec not supported (hardware or software):', codecString, init.width, init.height);
-                        return;
-                      }
-                      useHardwareAcceleration = 'no-preference';
-                      console.log('[SSE Video] Using software video decoding');
-                    } else {
-                      console.log('[SSE Video] Using hardware video decoding');
-                    }
-                  } catch (e) {
-                    console.warn('[SSE Video] Failed to check codec support, trying anyway:', e);
-                  }
-
-                  videoDecoder = new VideoDecoder({
-                    output: (frame: VideoFrame) => {
-                      try {
-                        if (ctx && canvas) {
-                          canvas.width = frame.displayWidth;
-                          canvas.height = frame.displayHeight;
-                          ctx.drawImage(frame, 0, 0);
-                        }
-
-                        // Track SSE stats
-                        const stats = sseStatsRef.current;
-                        stats.framesDecoded++;
-                        stats.frameCount++;
-                        stats.width = frame.displayWidth;
-                        stats.height = frame.displayHeight;
-
-                        // Update FPS every second
-                        const now = performance.now();
-                        if (now - stats.lastFrameTime >= 1000) {
-                          stats.currentFps = stats.frameCount;
-                          stats.frameCount = 0;
-                          stats.lastFrameTime = now;
-                        }
-
-                        frame.close();
-                      } catch (err) {
-                        sseStatsRef.current.framesDropped++;
-                        try { frame.close(); } catch (e) { /* ignore */ }
-                      }
-                    },
-                    error: (err) => console.error('[SSE Video] Decoder error:', err),
-                  });
-                  // Configure with Annex B format hint (NAL start codes, in-band SPS/PPS)
-                  const config: VideoDecoderConfig = {
-                    codec: codecString,
-                    codedWidth: init.width,
-                    codedHeight: init.height,
-                    hardwareAcceleration: useHardwareAcceleration,
-                  };
-                  // Add format hints for H264/HEVC - required for Annex B streams
-                  if (codecString.startsWith('avc1')) {
-                    // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
-                    config.avc = { format: 'annexb' };
-                  }
-                  if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
-                    // @ts-ignore - hevc property for Annex B format
-                    config.hevc = { format: 'annexb' };
-                  }
-                  console.log('[SSE Video] Decoder config:', JSON.stringify(config));
-
-                  // Check if there's already a decoder that wasn't cleaned up
-                  if (sseVideoDecoderRef.current) {
-                    console.warn('[SSE Video] Stale decoder found in ref, closing it first');
-                    try {
-                      sseVideoDecoderRef.current.close();
-                    } catch (e) {
-                      console.warn('[SSE Video] Error closing stale decoder:', e);
-                    }
-                    sseVideoDecoderRef.current = null;
-                  }
-
-                  try {
-                    videoDecoder.configure(config);
-                    console.log('[SSE Video] Decoder configured successfully');
-                  } catch (configErr) {
-                    console.error('[SSE Video] Failed to configure decoder:', configErr);
-                    console.error('[SSE Video] Config was:', JSON.stringify(config));
-                    videoDecoder.close();
-                    return;
-                  }
-
-                  // Store decoder in ref for proper cleanup during disconnect
-                  sseVideoDecoderRef.current = videoDecoder;
-                } catch (err) {
-                  console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
-                }
-              });
-
-              eventSource.addEventListener('video', (e: MessageEvent) => {
-                if (!videoDecoder || videoDecoder.state !== 'configured') return;
-
-                try {
-                  const frame = JSON.parse(e.data);
-
-                  // Skip delta frames until we receive the first keyframe
-                  // (keyframe contains VPS/SPS/PPS needed for HEVC decoding)
-                  if (!sseReceivedFirstKeyframeRef.current) {
-                    if (!frame.keyframe) {
-                      // Silently skip - don't spam logs
-                      return;
-                    }
-                    console.log('[SSE Video] First keyframe received, starting decode');
-                    sseReceivedFirstKeyframeRef.current = true;
-                  }
-
-                  // Decode base64 video data
-                  const binaryString = atob(frame.data);
-                  const bytes = new Uint8Array(binaryString.length);
-                  for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                  }
-
-                  const chunk = new EncodedVideoChunk({
-                    type: frame.keyframe ? 'key' : 'delta',
-                    timestamp: frame.pts,
-                    data: bytes,
-                  });
-                  videoDecoder.decode(chunk);
-                } catch (err) {
-                  console.error('[MoonlightStreamViewer] Failed to decode SSE video frame:', err);
-                }
-              });
-
-              eventSource.addEventListener('stop', () => {
-                console.log('[MoonlightStreamViewer] SSE video stopped');
-                if (videoDecoder) {
-                  videoDecoder.close();
-                  videoDecoder = null;
-                }
-              });
-
-              eventSource.onerror = (err) => {
-                console.error('[MoonlightStreamViewer] SSE video error:', err);
-              };
-
-              // Store eventSource for cleanup (both in ref and on stream object for redundancy)
-              sseEventSourceRef.current = eventSource;
-              (wsStream as any)._sseEventSource = eventSource;
-            }
-          } else if (data.type === 'connectionComplete') {
-            setIsConnected(true);
-            setIsConnecting(false);
-            hasEverConnectedRef.current = true; // Mark first successful connection
-            setStatus('Streaming active (SSE + WebSocket)');
-            onConnectionChange?.(true);
-          } else if (data.type === 'error') {
-            setError(data.message);
-            setIsConnected(false);
-            onError?.(data.message);
-          } else if (data.type === 'disconnected') {
-            setIsConnected(false);
-            setStatus('Disconnected');
-            onConnectionChange?.(false);
-          }
-        });
-
-        stream = wsStream;
-      } else if (streamingMode === 'websocket') {
-        // Check if using WebSocket-only mode
-        // WebSocket-only mode: bypass WebRTC entirely, use WebCodecs for decoding
-        console.log('[MoonlightStreamViewer] Using WebSocket-only streaming mode, qualityMode:', qualityMode);
-
-        // Adaptive and High modes: use high-quality 60fps stream
-        // Low mode: still uses stream for input, but screenshot overlay provides video
-        // In adaptive mode, screenshot overlay auto-enables when RTT exceeds threshold
         const streamSettings = { ...settings };
         const qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
 
-        if (qualityMode === 'adaptive') {
-          console.log('[MoonlightStreamViewer] Adaptive mode: 60fps stream + auto screenshot fallback');
-        } else if (qualityMode === 'low') {
-          console.log('[MoonlightStreamViewer] Low mode: 60fps stream for input + screenshot overlay');
+        if (qualityMode === 'low') {
+          console.log('[MoonlightStreamViewer] Low mode: WebSocket for input + screenshot overlay');
+        } else if (qualityMode === 'sse') {
+          console.log('[MoonlightStreamViewer] SSE mode: WebSocket for input, SSE for video (hot-switched after connect)');
         } else {
-          console.log('[MoonlightStreamViewer] High mode: 60fps stream only');
+          console.log('[MoonlightStreamViewer] High mode: WebSocket for video and input');
         }
 
         stream = new WebSocketStream(
@@ -3403,17 +3145,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Wifi sx={{ fontSize: 16 }} />
             <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-              {qualityMode === 'adaptive'
-                ? `High latency detected — using screenshots (${screenshotFps} FPS)`
-                : `Screenshot mode (${screenshotFps} FPS @ ${screenshotQuality}% quality)`
-              }
+              Screenshot mode ({screenshotFps} FPS @ {screenshotQuality}% quality)
             </Typography>
           </Box>
-          {qualityMode === 'adaptive' && adaptiveLockedToScreenshots && (
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.8 }}>
-              Video paused to save bandwidth. Click speed icon to retry video.
-            </Typography>
-          )}
         </Box>
       )}
 

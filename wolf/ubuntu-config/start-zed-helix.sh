@@ -580,8 +580,10 @@ export __GL_THREADED_OPTIMIZATIONS=1
 export VK_LAYER_NV_optimus_present_mode_hint=MAILBOX
 
 while true; do
-    echo "Launching Zed..."
-    /zed-build/zed "${ZED_FOLDERS[@]}" || true
+    echo "Launching Zed via desktop entry (for proper GNOME icon matching)..."
+    # Use gio launch to properly set DESKTOP_STARTUP_ID for GNOME window matching
+    # This makes GNOME show the Zed icon instead of a generic shell script icon
+    gio launch /usr/share/applications/dev.zed.Zed-Dev.desktop "${ZED_FOLDERS[@]}" || true
     echo "Zed exited, restarting in 2 seconds..."
     sleep 2
 done
