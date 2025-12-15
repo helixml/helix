@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -781,6 +782,69 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
+}
+
+// @Summary Bandwidth probe for adaptive bitrate
+// @Description Returns random uncompressible data for measuring available bandwidth.
+// @Description This endpoint starts sending bytes immediately, unlike screenshot which
+// @Description has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/bandwidth-probe [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Verify session ownership (lightweight check - just verify session exists and user owns it)
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	if session.Owner != user.ID {
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Parse size parameter (default 512KB)
+	size := 524288 // 512KB default
+	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
+		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 10*1024*1024 {
+			size = parsedSize // Max 10MB to prevent abuse
+		}
+	}
+
+	// Generate random data - crypto/rand produces incompressible data
+	// This ensures we're measuring actual bandwidth, not compression efficiency
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		log.Error().Err(err).Msg("Failed to generate random data for bandwidth probe")
+		http.Error(res, "Failed to generate probe data", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers to prevent caching and compression
+	res.Header().Set("Content-Type", "application/octet-stream")
+	res.Header().Set("Content-Length", strconv.Itoa(size))
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.Header().Set("Content-Encoding", "identity") // Explicitly disable compression
+	res.WriteHeader(http.StatusOK)
+
+	// Write data directly - starts sending immediately
+	res.Write(data)
 }
 
 // @Summary Get session clipboard content

@@ -1271,8 +1271,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const bandwidthProbeInProgressRef = useRef(false); // Prevent concurrent probes
 
   // Bandwidth probe: actively test available bandwidth before increasing bitrate
-  // Fetches test data and measures throughput to verify headroom exists
+  // Fetches random data and measures throughput to verify headroom exists
   // Uses PARALLEL requests to fill high-BDP pipes (critical for high-latency links like satellite/VPN)
+  // NOTE: Uses dedicated bandwidth-probe endpoint that returns random bytes immediately,
+  // unlike screenshot which has capture latency before bytes start flowing
   const runBandwidthProbe = useCallback(async (targetBitrateMbps: number): Promise<boolean> => {
     if (!sessionId || bandwidthProbeInProgressRef.current) {
       return false;
@@ -1282,21 +1284,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     console.log(`[AdaptiveBitrate] Running bandwidth probe for ${targetBitrateMbps} Mbps...`);
 
     try {
-      // Fetch multiple screenshots IN PARALLEL to fill the TCP pipe faster
+      // Fetch random data IN PARALLEL to fill the TCP pipe faster
       // Sequential requests on high-RTT links never reach steady-state throughput
-      // Use high quality (90) to get larger payloads for more accurate measurement
-      const probeCount = 5; // More parallel requests = better pipe filling
+      // Each request fetches 512KB of random incompressible data
+      const probeCount = 5; // 5 parallel requests = 2.5MB total
+      const probeSize = 524288; // 512KB per request
       const startTime = performance.now();
 
       // Fire all requests simultaneously
       const probePromises = Array.from({ length: probeCount }, (_, i) =>
-        fetch(`/api/v1/external-agents/${sessionId}/screenshot?format=jpeg&quality=90`)
+        fetch(`/api/v1/external-agents/${sessionId}/bandwidth-probe?size=${probeSize}`)
           .then(response => {
             if (!response.ok) {
               console.warn(`[AdaptiveBitrate] Probe request ${i + 1} failed: ${response.status}`);
               return 0;
             }
-            return response.blob().then(blob => blob.size);
+            return response.arrayBuffer().then(buf => buf.byteLength);
           })
           .catch(err => {
             console.warn(`[AdaptiveBitrate] Probe request ${i + 1} error:`, err);
