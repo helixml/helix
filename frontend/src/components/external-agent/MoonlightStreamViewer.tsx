@@ -1282,13 +1282,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Uses PARALLEL requests to fill high-BDP pipes (critical for high-latency links like satellite/VPN)
   // NOTE: Uses dedicated bandwidth-probe endpoint that returns random bytes immediately,
   // unlike screenshot which has capture latency before bytes start flowing
-  const runBandwidthProbe = useCallback(async (targetBitrateMbps: number): Promise<boolean> => {
+  // Returns measured throughput in Mbps (0 on failure)
+  const runBandwidthProbe = useCallback(async (): Promise<number> => {
     if (!sessionId || bandwidthProbeInProgressRef.current) {
-      return false;
+      return 0;
     }
 
     bandwidthProbeInProgressRef.current = true;
-    console.log(`[AdaptiveBitrate] Running bandwidth probe for ${targetBitrateMbps} Mbps...`);
+    console.log(`[AdaptiveBitrate] Running bandwidth probe...`);
 
     try {
       // Fetch random data IN PARALLEL to fill the TCP pipe faster
@@ -1323,20 +1324,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       console.log(`[AdaptiveBitrate] Probe complete: ${(totalBytes / 1024).toFixed(0)} KB in ${elapsedMs.toFixed(0)}ms = ${throughputMbps.toFixed(1)} Mbps`);
 
-      // Allow increase if probe shows we can handle the target bitrate with 25% headroom
-      const requiredThroughput = targetBitrateMbps * 1.25; // 25% overhead buffer
-      const hasHeadroom = throughputMbps >= requiredThroughput;
-
-      if (hasHeadroom) {
-        console.log(`[AdaptiveBitrate] Probe PASSED: ${throughputMbps.toFixed(1)} Mbps >= ${requiredThroughput.toFixed(1)} Mbps required`);
-      } else {
-        console.log(`[AdaptiveBitrate] Probe FAILED: ${throughputMbps.toFixed(1)} Mbps < ${requiredThroughput.toFixed(1)} Mbps required`);
-      }
-
-      return hasHeadroom;
+      return throughputMbps;
     } catch (err) {
       console.warn('[AdaptiveBitrate] Probe failed:', err);
-      return false;
+      return 0;
     } finally {
       bandwidthProbeInProgressRef.current = false;
     }
@@ -1438,24 +1429,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
 
             if (currentIndex !== -1 && currentIndex < BITRATE_OPTIONS.length - 1) {
-              const nextBitrate = BITRATE_OPTIONS[currentIndex + 1];
-
-              // Run bandwidth probe before increasing to verify headroom exists
-              // This is a real network test, not affected by video compression
-              console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing before increase to ${nextBitrate} Mbps...`);
+              // Run bandwidth probe to measure actual throughput
+              // Then jump directly to the highest sustainable bitrate (not just +1 tier)
+              console.log(`[AdaptiveBitrate] Stable for ${stableCheckCountRef.current}s, probing to find optimal bitrate...`);
 
               // Mark that we're attempting an increase (prevent re-triggering during probe)
               stableCheckCountRef.current = 0;
 
-              runBandwidthProbe(nextBitrate).then((hasHeadroom) => {
-                if (hasHeadroom) {
-                  console.log(`[AdaptiveBitrate] Probe passed, increasing: ${currentBitrate} -> ${nextBitrate} Mbps`);
-                  addChartEvent('increase', `Probe passed, increasing ${currentBitrate}→${nextBitrate} Mbps`);
-                  lastBitrateChangeRef.current = Date.now();
-                  setUserBitrate(nextBitrate);
-                } else {
+              runBandwidthProbe().then((measuredThroughputMbps) => {
+                if (measuredThroughputMbps <= 0) {
                   console.log(`[AdaptiveBitrate] Probe failed, staying at ${currentBitrate} Mbps`);
-                  // Reset cooldown but not stability counter so we don't immediately retry
+                  lastBitrateChangeRef.current = Date.now();
+                  return;
+                }
+
+                // Calculate max sustainable bitrate with 25% headroom
+                // If we measure 100 Mbps, we can sustain 100/1.25 = 80 Mbps
+                const maxSustainableBitrate = measuredThroughputMbps / 1.25;
+
+                // Find the highest BITRATE_OPTIONS that fits
+                let targetBitrate = currentBitrate;
+                for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
+                  if (BITRATE_OPTIONS[i] <= maxSustainableBitrate && BITRATE_OPTIONS[i] > currentBitrate) {
+                    targetBitrate = BITRATE_OPTIONS[i];
+                    break;
+                  }
+                }
+
+                if (targetBitrate > currentBitrate) {
+                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
+                  console.log(`[AdaptiveBitrate] Jumping directly: ${currentBitrate} → ${targetBitrate} Mbps`);
+                  addChartEvent('increase', `Probe: ${measuredThroughputMbps.toFixed(0)} Mbps, jumping ${currentBitrate}→${targetBitrate} Mbps`);
+                  lastBitrateChangeRef.current = Date.now();
+                  setUserBitrate(targetBitrate);
+                } else {
+                  console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
                   lastBitrateChangeRef.current = Date.now();
                 }
               });
