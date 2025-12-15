@@ -2023,22 +2023,30 @@ CADDYEOF"
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
         echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
-    echo "│"
-    echo "│ Start the Helix services by running:"
-    echo "│"
-    echo "│ cd $INSTALL_DIR"
-    if [ "$NEED_SUDO" = "true" ]; then
-        echo "│ sudo docker compose up -d --remove-orphans"
+    # When sandbox is being installed with controlplane, we auto-start services later
+    if [ "$SANDBOX" = true ]; then
+        echo "│"
+        echo "│ Services will be started automatically."
+        echo "│ Helix will be available at $API_HOST"
+        echo "└───────────────────────────────────────────────────────────────────────────"
     else
-        echo "│ docker compose up -d --remove-orphans"
+        echo "│"
+        echo "│ Start the Helix services by running:"
+        echo "│"
+        echo "│ cd $INSTALL_DIR"
+        if [ "$NEED_SUDO" = "true" ]; then
+            echo "│ sudo docker compose up -d --remove-orphans"
+        else
+            echo "│ docker compose up -d --remove-orphans"
+        fi
+        if [ "$CADDY" = true ]; then
+            echo "│ sudo systemctl restart caddy"
+        fi
+        echo "│"
+        echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
+        echo "│ This will take a minute or so to boot."
+        echo "└───────────────────────────────────────────────────────────────────────────"
     fi
-    if [ "$CADDY" = true ]; then
-        echo "│ sudo systemctl restart caddy"
-    fi
-    echo "│"
-    echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-    echo "│ This will take a minute or so to boot."
-    echo "└───────────────────────────────────────────────────────────────────────────"
 
     # Auto-restart services if configs were changed and services are running
     if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
