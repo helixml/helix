@@ -2574,6 +2574,11 @@ EOF
         else
             docker compose up -d --remove-orphans
         fi
+        # Restart Caddy if it was installed (for HTTPS reverse proxy)
+        if [ "$CADDY" = true ]; then
+            echo "Restarting Caddy reverse proxy..."
+            sudo systemctl restart caddy
+        fi
         echo "Waiting for controlplane to be ready..."
         sleep 5
     fi
