@@ -476,6 +476,9 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	displayWidth := 1920
 	displayHeight := 1080
 	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
 	if task.HelixAppID != "" {
 		app, err := apiServer.Store.GetApp(req.Context(), task.HelixAppID)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -485,6 +488,10 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 		}
 	}
 
@@ -502,6 +509,9 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 	}
 
 	// Add user's API token for git operations

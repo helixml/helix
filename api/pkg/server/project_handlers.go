@@ -989,6 +989,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				displayWidth := 1920
 				displayHeight := 1080
 				displayRefreshRate := 60
+				resolution := ""
+				zoomLevel := 0
+				desktopType := ""
 				if project.DefaultHelixAppID != "" {
 					app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
 					if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -998,12 +1001,19 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 						if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 							displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 						}
+						// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+						resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+						zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+						desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 						log.Debug().
 							Str("project_id", projectID).
 							Str("app_id", project.DefaultHelixAppID).
 							Int("display_width", displayWidth).
 							Int("display_height", displayHeight).
 							Int("display_refresh_rate", displayRefreshRate).
+							Str("resolution", resolution).
+							Int("zoom_level", zoomLevel).
+							Str("desktop_type", desktopType).
 							Msg("Using display settings from project's default agent for exploratory restart")
 					}
 				}
@@ -1021,6 +1031,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					DisplayWidth:        displayWidth,
 					DisplayHeight:       displayHeight,
 					DisplayRefreshRate:  displayRefreshRate,
+					Resolution:          resolution,
+					ZoomLevel:           zoomLevel,
+					DesktopType:         desktopType,
 				}
 
 				// Add user's API token for git operations
@@ -1125,6 +1138,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	displayWidth := 1920
 	displayHeight := 1080
 	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
 	if project.DefaultHelixAppID != "" {
 		app, appErr := s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
 		if appErr == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -1134,12 +1150,19 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
 			log.Debug().
 				Str("project_id", projectID).
 				Str("app_id", project.DefaultHelixAppID).
 				Int("display_width", displayWidth).
 				Int("display_height", displayHeight).
 				Int("display_refresh_rate", displayRefreshRate).
+				Str("resolution", resolution).
+				Int("zoom_level", zoomLevel).
+				Str("desktop_type", desktopType).
 				Msg("Using display settings from project's default agent for new exploratory session")
 		}
 	}
@@ -1157,6 +1180,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		DisplayWidth:        displayWidth,
 		DisplayHeight:       displayHeight,
 		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 	}
 
 	// Add user's API token for git operations (RBAC enforced)
