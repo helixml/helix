@@ -644,6 +644,12 @@ cargo build --package zed
 ./stack build-ubuntu  # Build Ubuntu GNOME desktop (Dockerfile.ubuntu-helix)
 ```
 
+**Which command to use based on files modified:**
+- `wolf/sway-config/*` → `./stack build-sway`
+- `wolf/ubuntu-config/*`, `Dockerfile.ubuntu-helix` → `./stack build-ubuntu`
+- `api/cmd/settings-sync-daemon/*` → Both (if used by both desktops)
+- `qwen-code` changes → Both (rebuild whichever desktop you're testing)
+
 Both commands:
 1. Build Zed binary if missing (uses existing in dev mode)
 2. Build qwen-code using containerized build
