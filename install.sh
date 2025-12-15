@@ -2397,6 +2397,13 @@ PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 # If standalone sandbox (no docker-compose.yaml), create network if needed
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/docker-compose.yaml" ]; then
+    # Controlplane is on same machine - use Docker network hostname instead of localhost
+    # localhost inside the sandbox container resolves to the container itself, not the host
+    if docker ps --format '{{.Names}}' | grep -q '^api-1$\|^api$'; then
+        HELIX_API_URL="http://api:8080"
+        echo "Detected API container on same machine. Using HELIX_API_URL=$HELIX_API_URL"
+    fi
+
     # Controlplane is on same machine - network should be created by docker compose
     if ! docker network inspect helix_default >/dev/null 2>&1; then
         echo "Error: helix_default network does not exist."
