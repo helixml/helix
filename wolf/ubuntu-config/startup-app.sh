@@ -442,7 +442,7 @@ Type=Application
 Name=Zed Helix Editor
 Exec=/usr/local/bin/start-zed-helix.sh
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=5
+X-GNOME-Autostart-Delay=2
 NoDisplay=false
 Icon=zed
 EOF
