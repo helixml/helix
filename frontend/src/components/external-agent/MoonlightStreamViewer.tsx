@@ -80,6 +80,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
+  const sseCanvasRef = useRef<HTMLCanvasElement>(null); // Separate canvas for SSE mode (avoids conflicts)
   const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | SseStream | null>(null); // Stream instance from moonlight-web
   const sseInputWsRef = useRef<WebSocketStream | null>(null); // WebSocket for input when using SSE mode
@@ -113,7 +114,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [userBitrate, setUserBitrate] = useState<number | null>(null); // User-selected bitrate (overrides backend)
   const [bitrateMenuAnchor, setBitrateMenuAnchor] = useState<null | HTMLElement>(null);
   const manualBitrateSelectionTimeRef = useRef<number>(0); // Track when user manually selected bitrate (20s cooldown before auto-reduce)
-  const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket-only
+  const [streamingMode, setStreamingMode] = useState<StreamingMode>('sse'); // Default to SSE video transport
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
@@ -909,17 +910,96 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sseReceivedFirstKeyframeRef.current = false;  // Reset for new SSE connection
 
         // Set up video decoder for SSE frames
-        if (canvasRef.current) {
-          const canvas = canvasRef.current;
+        // Use dedicated SSE canvas to avoid conflicts with WebSocket canvas
+        if (sseCanvasRef.current) {
+          const canvas = sseCanvasRef.current;
           const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+          console.log('[SSE Video] Using dedicated SSE canvas:', {
+            canvasExists: !!canvas,
+            initialWidth: canvas?.width,
+            initialHeight: canvas?.height,
+          });
+
+          // Helper function to extract HEVC VPS/SPS/PPS NAL units from Annex B bitstream
+          // Returns ArrayBuffer containing the parameter sets for use as decoder description
+          const extractHevcParameterSets = (data: Uint8Array): ArrayBuffer | null => {
+            const paramSets: Uint8Array[] = [];
+            let i = 0;
+
+            // Find all NAL units in the bitstream
+            while (i < data.length - 4) {
+              // Look for start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
+              let startCodeLen = 0;
+              if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0 && data[i+3] === 1) {
+                startCodeLen = 4;
+              } else if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 1) {
+                startCodeLen = 3;
+              }
+
+              if (startCodeLen > 0) {
+                // Found a NAL unit - extract NAL type from first byte after start code
+                // HEVC NAL type is bits [6:1] of first byte
+                const nalTypeByte = data[i + startCodeLen];
+                const nalType = (nalTypeByte >> 1) & 0x3F;
+
+                // VPS = 32, SPS = 33, PPS = 34
+                if (nalType >= 32 && nalType <= 34) {
+                  // Find the end of this NAL (next start code or end of data)
+                  let j = i + startCodeLen + 1;
+                  while (j < data.length - 3) {
+                    if ((data[j] === 0 && data[j+1] === 0 && data[j+2] === 0 && data[j+3] === 1) ||
+                        (data[j] === 0 && data[j+1] === 0 && data[j+2] === 1)) {
+                      break;
+                    }
+                    j++;
+                  }
+                  // Include the start code in the parameter set
+                  const nalUnit = data.slice(i, j);
+                  paramSets.push(nalUnit);
+                  console.log(`[SSE Video] Found HEVC NAL type ${nalType} (${nalType === 32 ? 'VPS' : nalType === 33 ? 'SPS' : 'PPS'}), size: ${nalUnit.length}`);
+                  i = j;
+                  continue;
+                }
+              }
+              i++;
+            }
+
+            if (paramSets.length === 0) {
+              console.warn('[SSE Video] No HEVC parameter sets (VPS/SPS/PPS) found in keyframe');
+              return null;
+            }
+
+            // Concatenate all parameter sets
+            const totalLen = paramSets.reduce((sum, p) => sum + p.length, 0);
+            const result = new Uint8Array(totalLen);
+            let offset = 0;
+            for (const ps of paramSets) {
+              result.set(ps, offset);
+              offset += ps.length;
+            }
+            console.log(`[SSE Video] Extracted ${paramSets.length} HEVC parameter sets, total ${totalLen} bytes`);
+            return result.buffer;
+          };
+
+          // Track if we've configured HEVC with description
+          let hevcConfigured = false;
+          let currentCodecString = '';
 
           eventSource.addEventListener('init', async (e: MessageEvent) => {
             try {
               const init = JSON.parse(e.data);
               console.log('[MoonlightStreamViewer] SSE video init:', init);
 
-              // Get fresh canvas reference - the canvas should now be visible in SSE mode
-              const sseCanvas = canvasRef.current;
+              // DEBUG: Check if we already have a decoder (multiple init events would be a bug)
+              if (sseVideoDecoderRef.current) {
+                console.warn('[SSE Video] === WARNING: INIT received but decoder already exists! ===');
+                console.warn('[SSE Video] Existing decoder debugId:', (sseVideoDecoderRef.current as any).__debugId);
+                console.warn('[SSE Video] This may indicate duplicate init events from server');
+              }
+
+              // Use dedicated SSE canvas (NOT the shared canvas that WebSocket uses)
+              const sseCanvas = sseCanvasRef.current;
               if (!sseCanvas) {
                 console.error('[SSE Video] Canvas ref is null!');
                 return;
@@ -945,6 +1025,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 codecString = 'avc1.4d0033';  // Default to H.264
               }
               console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
+              currentCodecString = codecString; // Store for use in video handler
 
               // Check if codec is supported - try hardware first, then software fallback
               let useHardwareAcceleration: HardwareAcceleration = 'prefer-hardware';
@@ -979,42 +1060,59 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
               // Create decoder with output callback
               // IMPORTANT: Store canvas context NOW to avoid closure issues
-              const capturedCanvas = canvasRef.current;
+              // Use sseCanvasRef (dedicated SSE canvas) to avoid conflicts with WebSocket canvas
+              const capturedCanvas = sseCanvasRef.current;
               const capturedCtx = capturedCanvas?.getContext('2d', { alpha: false, desynchronized: true });
-              console.log('[SSE Video] Captured canvas for decoder:', capturedCanvas?.width, 'x', capturedCanvas?.height, 'ctx:', !!capturedCtx);
+              console.log('[SSE Video] Captured SSE canvas for decoder:', capturedCanvas?.width, 'x', capturedCanvas?.height, 'ctx:', !!capturedCtx);
+
+              // Track output callback invocations for debugging
+              let outputCallbackCount = 0;
+              let dequeueEventCount = 0;
 
               const decoder = new VideoDecoder({
                 output: (frame: VideoFrame) => {
-                  console.log('[SSE Video] === OUTPUT CALLBACK FIRED ===');
-                  console.log('[SSE Video] Frame decoded:', frame.displayWidth, 'x', frame.displayHeight);
-                  console.log('[SSE Video] Captured ctx valid:', !!capturedCtx, 'canvas valid:', !!capturedCanvas);
-                  console.log('[SSE Video] Canvas current dimensions:', capturedCanvas?.width, 'x', capturedCanvas?.height);
-                  // Use captured canvas context from init time
-                  if (capturedCtx && capturedCanvas) {
-                    if (capturedCanvas.width !== frame.displayWidth || capturedCanvas.height !== frame.displayHeight) {
-                      console.log('[SSE Video] Resizing canvas from', capturedCanvas.width, 'x', capturedCanvas.height, 'to', frame.displayWidth, 'x', frame.displayHeight);
-                      capturedCanvas.width = frame.displayWidth;
-                      capturedCanvas.height = frame.displayHeight;
+                  // CRITICAL: Log immediately at callback entry - BEFORE any other code
+                  console.log('[SSE Video] *** OUTPUT CALLBACK ENTRY ***', Date.now());
+                  try {
+                    outputCallbackCount++;
+                    console.log('[SSE Video] === OUTPUT CALLBACK FIRED ===');
+                    console.log('[SSE Video] Output count:', outputCallbackCount, 'dequeue count:', dequeueEventCount);
+                    console.log('[SSE Video] Frame decoded:', frame.displayWidth, 'x', frame.displayHeight);
+                    console.log('[SSE Video] Frame timestamp:', frame.timestamp, 'duration:', frame.duration);
+                    console.log('[SSE Video] Captured ctx valid:', !!capturedCtx, 'canvas valid:', !!capturedCanvas);
+                    console.log('[SSE Video] Canvas current dimensions:', capturedCanvas?.width, 'x', capturedCanvas?.height);
+                    // Use captured canvas context from init time
+                    if (capturedCtx && capturedCanvas) {
+                      if (capturedCanvas.width !== frame.displayWidth || capturedCanvas.height !== frame.displayHeight) {
+                        console.log('[SSE Video] Resizing canvas from', capturedCanvas.width, 'x', capturedCanvas.height, 'to', frame.displayWidth, 'x', frame.displayHeight);
+                        capturedCanvas.width = frame.displayWidth;
+                        capturedCanvas.height = frame.displayHeight;
+                      }
+                      try {
+                        capturedCtx.drawImage(frame, 0, 0);
+                        console.log('[SSE Video] Frame drawn to canvas');
+                      } catch (drawErr) {
+                        console.error('[SSE Video] drawImage failed:', drawErr);
+                      }
+                    } else {
+                      console.error('[SSE Video] Captured canvas or context is null!', { ctx: !!capturedCtx, canvas: !!capturedCanvas });
+                      // Try fallback to current SSE canvas ref (in case ref changed after capture)
+                      const fallbackCanvas = sseCanvasRef.current;
+                      const fallbackCtx = fallbackCanvas?.getContext('2d');
+                      if (fallbackCtx && fallbackCanvas) {
+                        fallbackCanvas.width = frame.displayWidth;
+                        fallbackCanvas.height = frame.displayHeight;
+                        fallbackCtx.drawImage(frame, 0, 0);
+                        console.log('[SSE Video] Frame drawn to FALLBACK SSE canvas');
+                      } else {
+                        console.error('[SSE Video] Fallback SSE canvas also unavailable!');
+                      }
                     }
-                    try {
-                      capturedCtx.drawImage(frame, 0, 0);
-                      console.log('[SSE Video] Frame drawn to canvas');
-                    } catch (drawErr) {
-                      console.error('[SSE Video] drawImage failed:', drawErr);
-                    }
-                  } else {
-                    console.error('[SSE Video] Canvas or context is null!', { ctx: !!capturedCtx, canvas: !!capturedCanvas });
-                    // Try fallback to current canvas ref
-                    const fallbackCanvas = canvasRef.current;
-                    const fallbackCtx = fallbackCanvas?.getContext('2d');
-                    if (fallbackCtx && fallbackCanvas) {
-                      fallbackCanvas.width = frame.displayWidth;
-                      fallbackCanvas.height = frame.displayHeight;
-                      fallbackCtx.drawImage(frame, 0, 0);
-                      console.log('[SSE Video] Frame drawn to FALLBACK canvas');
-                    }
+                    frame.close();
+                  } catch (err) {
+                    console.error('[SSE Video] OUTPUT CALLBACK THREW EXCEPTION:', err);
+                    try { frame.close(); } catch (e) { /* ignore */ }
                   }
-                  frame.close();
                 },
                 error: (err) => {
                   console.error('[SSE Video] === DECODER ERROR ===');
@@ -1024,8 +1122,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
               // Add dequeue event listener for debugging
               decoder.addEventListener('dequeue', () => {
-                console.log('[SSE Video] Dequeue event - decodeQueueSize:', decoder.decodeQueueSize);
+                dequeueEventCount++;
+                console.log('[SSE Video] Dequeue event #' + dequeueEventCount + ' - decodeQueueSize:', decoder.decodeQueueSize);
               });
+
+              // DEBUG: Verify output callback is actually set and callable
+              console.log('[SSE Video] === VERIFYING OUTPUT CALLBACK ===');
+              console.log('[SSE Video] decoder.output exists:', 'output' in decoder);
+              console.log('[SSE Video] decoder state before configure:', decoder.state);
+
               // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS/VPS)
               // This tells WebCodecs to expect NAL start codes and in-band parameter sets
               const decoderConfig: VideoDecoderConfig = {
@@ -1048,10 +1153,56 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
               decoder.configure(decoderConfig);
               console.log('[SSE Video] Decoder configured:', decoderConfig);
+              console.log('[SSE Video] Decoder state AFTER configure:', decoder.state);
+              console.log('[SSE Video] Decoder decodeQueueSize AFTER configure:', decoder.decodeQueueSize);
+
+              // DEBUG: Log captured canvas state at decoder creation time
+              console.log('[SSE Video] Captured canvas at decoder creation:', {
+                canvasExists: !!capturedCanvas,
+                canvasWidth: capturedCanvas?.width,
+                canvasHeight: capturedCanvas?.height,
+                ctxExists: !!capturedCtx,
+                canvasClientWidth: capturedCanvas?.clientWidth,
+                canvasClientHeight: capturedCanvas?.clientHeight,
+                canvasOffsetWidth: capturedCanvas?.offsetWidth,
+                canvasOffsetHeight: capturedCanvas?.offsetHeight,
+                canvasStyle: capturedCanvas?.style.display,
+              });
+
+              // Pre-set canvas dimensions to match stream resolution
+              // This ensures the canvas is ready to receive frames
+              if (capturedCanvas && init.width && init.height) {
+                console.log('[SSE Video] Pre-setting canvas dimensions to:', init.width, 'x', init.height);
+                capturedCanvas.width = init.width;
+                capturedCanvas.height = init.height;
+
+                // Re-get context after dimension change (may be needed on some browsers)
+                const freshCtx = capturedCanvas.getContext('2d', { alpha: false, desynchronized: true });
+                if (freshCtx !== capturedCtx) {
+                  console.warn('[SSE Video] Canvas context changed after dimension update!');
+                }
+              }
+
               // Store decoder and assign unique ID for debugging
               (decoder as any).__debugId = Math.random().toString(36).substring(7);
               console.log('[SSE Video] Decoder created with debugId:', (decoder as any).__debugId);
               sseVideoDecoderRef.current = decoder;
+
+              // Start periodic decoder status logging (every 5 seconds)
+              const statusInterval = setInterval(() => {
+                const currentDecoder = sseVideoDecoderRef.current;
+                if (!currentDecoder) {
+                  console.log('[SSE Video] Status check: decoder is NULL (component unmounted?)');
+                  clearInterval(statusInterval);
+                  return;
+                }
+                console.log('[SSE Video] === PERIODIC STATUS ===');
+                console.log('[SSE Video] Decoder state:', currentDecoder.state);
+                console.log('[SSE Video] Decoder queue size:', currentDecoder.decodeQueueSize);
+                console.log('[SSE Video] Output callbacks fired:', outputCallbackCount);
+                console.log('[SSE Video] Dequeue events fired:', dequeueEventCount);
+                console.log('[SSE Video] Decoder debugId:', (currentDecoder as any).__debugId);
+              }, 5000);
             } catch (err) {
               console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
             }
@@ -1103,7 +1254,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   console.log('[SSE Video] Waiting for first keyframe, skipping delta frame');
                   return;
                 }
-                console.log('[SSE Video] First keyframe received');
+                console.log('[SSE Video] === FIRST KEYFRAME RECEIVED ===');
+                console.log('[SSE Video] Keyframe data size:', frame.data?.length, 'base64 chars');
+                console.log('[SSE Video] Keyframe PTS:', frame.pts);
+                console.log('[SSE Video] Decoder state at keyframe:', decoder.state);
+                console.log('[SSE Video] Decoder debugId:', (decoder as any).__debugId);
                 sseReceivedFirstKeyframeRef.current = true;
               }
 
@@ -1119,6 +1274,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 bytes[i] = binaryString.charCodeAt(i);
               }
 
+              // Debug: hexdump first 32 bytes of keyframes to verify NAL structure
+              // HEVC Annex B should start with 0x00 0x00 0x00 0x01 (4-byte start code)
+              // or 0x00 0x00 0x01 (3-byte start code)
+              if (frame.keyframe && bytes.length >= 32) {
+                const hexBytes = Array.from(bytes.slice(0, 32))
+                  .map(b => b.toString(16).padStart(2, '0'))
+                  .join(' ');
+                console.log('[SSE Video] Keyframe first 32 bytes:', hexBytes);
+
+                // Check for NAL start code
+                const hasStartCode4 = bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 0 && bytes[3] === 1;
+                const hasStartCode3 = bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1;
+                console.log('[SSE Video] NAL start code detected:', hasStartCode4 ? '4-byte' : hasStartCode3 ? '3-byte' : 'NONE');
+
+                if (!hasStartCode4 && !hasStartCode3) {
+                  console.error('[SSE Video] ⚠️ KEYFRAME DOES NOT START WITH NAL START CODE - frame data may be corrupt or in wrong format');
+                }
+
+                // For HEVC: verify that parameter sets (VPS/SPS/PPS) are present in the keyframe
+                // The decoder was configured with hevc: { format: 'annexb' } which handles in-band parameter sets
+                // No hvcC reconfiguration needed - Annex B format is sufficient
+                if (!hevcConfigured && (currentCodecString.startsWith('hvc1') || currentCodecString.startsWith('hev1'))) {
+                  console.log('[SSE Video] HEVC codec detected, checking for VPS/SPS/PPS in keyframe...');
+                  const paramSets = extractHevcParameterSets(bytes);
+                  if (paramSets) {
+                    console.log('[SSE Video] ✅ HEVC parameter sets found in keyframe (', paramSets.byteLength, 'bytes) - decoder should work with Annex B format');
+                    hevcConfigured = true;
+                  } else {
+                    console.error('[SSE Video] ⚠️ No HEVC parameter sets in keyframe - decoding will likely fail!');
+                    console.error('[SSE Video] Server should prepend cached VPS/SPS/PPS to keyframes for late SSE subscribers');
+                  }
+                }
+              }
+
               const chunk = new EncodedVideoChunk({
                 type: frame.keyframe ? 'key' : 'delta',
                 timestamp: frame.pts,
@@ -1126,7 +1315,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               });
               // Log decode info (throttled - every 30 frames to avoid spam)
               const frameNumber = (window as any).__sseFrameCount || 0;
-              const shouldLog = frameNumber % 30 === 0;
+              const shouldLog = frameNumber % 30 === 0 || frameNumber < 5;
 
               if (shouldLog) {
                 console.log('[SSE Video] BEFORE decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
@@ -1138,6 +1327,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 if (shouldLog) {
                   console.log('[SSE Video] AFTER decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
                 }
+
+                // NOTE: Don't flush after keyframes - it resets decoder state and breaks subsequent delta frames
               } catch (decodeErr) {
                 console.error('[SSE Video] decode() threw exception:', decodeErr);
               }
@@ -1145,19 +1336,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               // Check decoder state after decode
               if (decoder.decodeQueueSize > 10) {
                 console.warn('[SSE Video] Decoder queue backing up:', decoder.decodeQueueSize);
-              }
-
-              // Try flush every 60 frames to force output (debugging)
-              // Use a closure variable since this is not a class context
-              const currentFrameCount = (window as any).__sseFrameCount || 0;
-              (window as any).__sseFrameCount = currentFrameCount + 1;
-              if ((currentFrameCount + 1) % 60 === 0) {
-                console.log('[SSE Video] Calling flush() after 60 frames');
-                decoder.flush().then(() => {
-                  console.log('[SSE Video] flush() completed, queueSize:', decoder.decodeQueueSize);
-                }).catch((flushErr) => {
-                  console.error('[SSE Video] flush() failed:', flushErr);
-                });
               }
             } catch (err) {
               console.error('[MoonlightStreamViewer] Failed to decode SSE video frame:', err);
@@ -2202,17 +2380,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return new DOMRect(contentX, contentY, contentWidth, contentHeight);
     }
 
-    // Use canvas for WebSocket mode, video for WebRTC mode
-    const element = streamingMode === 'websocket' ? canvasRef.current : videoRef.current;
+    // Use appropriate canvas/video element for each mode
+    let element: HTMLCanvasElement | HTMLVideoElement | null = null;
+    if (streamingMode === 'websocket') {
+      element = canvasRef.current;
+    } else if (streamingMode === 'sse') {
+      element = sseCanvasRef.current;
+    } else {
+      element = videoRef.current;
+    }
+
     if (!element || !streamRef.current) {
       return new DOMRect(0, 0, width, height);
     }
 
     const boundingRect = element.getBoundingClientRect();
 
-    // For WebSocket mode: canvas is already sized to maintain aspect ratio,
+    // For WebSocket/SSE mode: canvas is already sized to maintain aspect ratio,
     // so bounding rect IS the video content area (no letterboxing)
-    if (streamingMode === 'websocket') {
+    if (streamingMode === 'websocket' || streamingMode === 'sse') {
       return new DOMRect(
         boundingRect.x,
         boundingRect.y,
@@ -3040,7 +3226,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }}
       />
 
-      {/* Canvas Element (WebSocket mode) - centered with proper aspect ratio */}
+      {/* Canvas Element (WebSocket mode only) - centered with proper aspect ratio */}
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}
@@ -3059,7 +3245,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
-          display: (streamingMode === 'websocket' || streamingMode === 'sse') ? 'block' : 'none',
+          display: streamingMode === 'websocket' ? 'block' : 'none',
+        }}
+        onClick={() => {
+          // Focus container for keyboard input
+          if (containerRef.current) {
+            containerRef.current.focus();
+          }
+        }}
+      />
+
+      {/* SSE Canvas Element (SSE mode only) - separate from WebSocket canvas to avoid conflicts */}
+      <canvas
+        ref={sseCanvasRef}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseMove={handleMouseMove}
+        onContextMenu={handleContextMenu}
+        style={{
+          // Use calculated dimensions to maintain aspect ratio
+          width: canvasDisplaySize ? `${canvasDisplaySize.width}px` : '100%',
+          height: canvasDisplaySize ? `${canvasDisplaySize.height}px` : '100%',
+          // Center the canvas within the container
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: '#000',
+          cursor: 'none',
+          display: streamingMode === 'sse' ? 'block' : 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
