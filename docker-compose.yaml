@@ -97,10 +97,13 @@ services:
   tika:
     image: apache/tika:2.9.2.1
     restart: always
+    privileged: true  # Required for Java cgroup access on older Docker/cgroup v1
     # ports:
     #   - 9998:9998
   searxng:
     image: searxng/searxng:2025.7.24-84c3a83
+    privileged: true  # Required for socket binding on older Docker/cgroup v1
+    user: root
     # ports:
     #   - 8112:8080
     volumes:
@@ -122,6 +125,7 @@ services:
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
     restart: always
+    privileged: true  # Required for socket binding on older Docker/cgroup v1
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     # ports:
