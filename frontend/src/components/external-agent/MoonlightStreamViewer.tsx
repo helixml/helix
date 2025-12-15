@@ -1612,6 +1612,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
+    // Check if we're in screenshot mode (screenshot overlay is visible)
+    const inScreenshotMode = shouldPollScreenshots && screenshotUrl && streamingMode === 'websocket';
+
+    // In screenshot mode, the img uses containerRef with objectFit: contain
+    // In normal WebSocket mode, use canvas; in WebRTC mode, use video
+    if (inScreenshotMode) {
+      // Screenshot mode: calculate letterboxed content rect within container
+      if (!containerRef.current) {
+        return new DOMRect(0, 0, width, height);
+      }
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const contentAspect = width / height; // Remote desktop aspect ratio
+      const containerAspect = containerRect.width / containerRect.height;
+
+      let contentX = containerRect.x;
+      let contentY = containerRect.y;
+      let contentWidth: number;
+      let contentHeight: number;
+
+      if (containerAspect > contentAspect) {
+        // Container is wider than content - letterbox on sides
+        contentHeight = containerRect.height;
+        contentWidth = contentHeight * contentAspect;
+        contentX += (containerRect.width - contentWidth) / 2;
+      } else {
+        // Container is taller than content - letterbox on top/bottom
+        contentWidth = containerRect.width;
+        contentHeight = contentWidth / contentAspect;
+        contentY += (containerRect.height - contentHeight) / 2;
+      }
+
+      return new DOMRect(contentX, contentY, contentWidth, contentHeight);
+    }
+
     // Use canvas for WebSocket mode, video for WebRTC mode
     const element = streamingMode === 'websocket' ? canvasRef.current : videoRef.current;
     if (!element || !streamRef.current) {
@@ -1659,7 +1694,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       videoSize[0] * videoMultiplier,
       videoSize[1] * videoMultiplier
     );
-  }, [width, height, streamingMode]);
+  }, [width, height, streamingMode, shouldPollScreenshots, screenshotUrl]);
 
   // Get input handler - for SSE mode, use the separate input WebSocket
   const getInputHandler = useCallback(() => {
