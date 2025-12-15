@@ -1048,6 +1048,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Auto-connect when wolfLobbyId becomes available
   // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
   // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  // NEW: Probe bandwidth FIRST, then connect at optimal bitrate (avoids reconnect on startup)
   const hasConnectedRef = useRef(false);
   useEffect(() => {
     // Only auto-connect once
@@ -1061,10 +1062,30 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    console.log('[MoonlightStreamViewer] Auto-connecting with wolfLobbyId:', wolfLobbyId);
-    hasConnectedRef.current = true;
-    connect();
-  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect]);
+    // Probe bandwidth BEFORE connecting to start at optimal bitrate
+    const probeAndConnect = async () => {
+      hasConnectedRef.current = true;
+
+      console.log('[MoonlightStreamViewer] Probing bandwidth before initial connection...');
+      setStatus('Measuring bandwidth...');
+
+      const throughput = await runInitialBandwidthProbe();
+
+      if (throughput > 0) {
+        const optimalBitrate = calculateOptimalBitrate(throughput);
+        console.log(`[MoonlightStreamViewer] Initial probe: ${throughput.toFixed(1)} Mbps → starting at ${optimalBitrate} Mbps`);
+        setUserBitrate(optimalBitrate);
+        setRequestedBitrate(optimalBitrate);
+      } else {
+        console.log('[MoonlightStreamViewer] Initial probe failed, using default 10 Mbps');
+      }
+
+      console.log('[MoonlightStreamViewer] Auto-connecting with wolfLobbyId:', wolfLobbyId);
+      connect();
+    };
+
+    probeAndConnect();
+  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect, runInitialBandwidthProbe, calculateOptimalBitrate]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1332,6 +1353,63 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       bandwidthProbeInProgressRef.current = false;
     }
   }, [sessionId]);
+
+  // Initial bandwidth probe - runs BEFORE session exists to determine optimal starting bitrate
+  // Uses /api/v1/bandwidth-probe which only requires auth (no session ownership)
+  // Returns measured throughput in Mbps (0 on failure)
+  const runInitialBandwidthProbe = useCallback(async (): Promise<number> => {
+    console.log(`[AdaptiveBitrate] Running INITIAL bandwidth probe (before session creation)...`);
+
+    try {
+      // Fire parallel requests to fill the TCP pipe (same logic as session probe)
+      const probeCount = 5;
+      const probeSize = 524288; // 512KB per request (max 2MB for initial probe on server)
+      const startTime = performance.now();
+
+      const probePromises = Array.from({ length: probeCount }, (_, i) =>
+        fetch(`/api/v1/bandwidth-probe?size=${probeSize}`)
+          .then(response => {
+            if (!response.ok) {
+              console.warn(`[AdaptiveBitrate] Initial probe request ${i + 1} failed: ${response.status}`);
+              return 0;
+            }
+            return response.arrayBuffer().then(buf => buf.byteLength);
+          })
+          .catch(err => {
+            console.warn(`[AdaptiveBitrate] Initial probe request ${i + 1} error:`, err);
+            return 0;
+          })
+      );
+
+      const sizes = await Promise.all(probePromises);
+      const totalBytes = sizes.reduce((a, b) => a + b, 0);
+
+      const elapsedMs = performance.now() - startTime;
+      const elapsedSec = elapsedMs / 1000;
+      const throughputMbps = (totalBytes * 8) / (1000000 * elapsedSec);
+
+      console.log(`[AdaptiveBitrate] Initial probe complete: ${(totalBytes / 1024).toFixed(0)} KB in ${elapsedMs.toFixed(0)}ms = ${throughputMbps.toFixed(1)} Mbps`);
+
+      return throughputMbps;
+    } catch (err) {
+      console.warn('[AdaptiveBitrate] Initial probe failed:', err);
+      return 0;
+    }
+  }, []);
+
+  // Calculate optimal bitrate from measured throughput (with 25% headroom)
+  const calculateOptimalBitrate = useCallback((throughputMbps: number): number => {
+    const BITRATE_OPTIONS = [5, 10, 20, 40, 80];
+    const maxSustainableBitrate = throughputMbps / 1.25;
+
+    // Find highest bitrate option that fits
+    for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
+      if (BITRATE_OPTIONS[i] <= maxSustainableBitrate) {
+        return BITRATE_OPTIONS[i];
+      }
+    }
+    return BITRATE_OPTIONS[0]; // Default to lowest
+  }, []);
 
   useEffect(() => {
     // Support both WebSocket and SSE modes for adaptive bitrate
@@ -2882,10 +2960,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   </div>
                 )}
                 {/* Frames skipped to keyframe (WebSocket mode) - shows when decoder fell behind and skipped ahead */}
-                {streamingMode === 'websocket' && stats.video.framesSkippedToKeyframe > 0 && (
+                {streamingMode === 'websocket' && stats.video.framesSkippedToKeyframe !== undefined && (
                   <div>
                     <strong>Skipped to KF:</strong> {stats.video.framesSkippedToKeyframe} frames
-                    <span style={{ color: '#ff9800' }}> ⏭️</span>
+                    {stats.video.framesSkippedToKeyframe > 0 && <span style={{ color: '#ff9800' }}> ⏭️</span>}
                   </div>
                 )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}

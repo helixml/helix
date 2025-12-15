@@ -847,6 +847,50 @@ func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req 
 	res.Write(data)
 }
 
+// @Summary Initial bandwidth probe (no session required)
+// @Description Returns random uncompressible data for measuring available bandwidth before session creation.
+// @Description Used by adaptive bitrate to determine optimal initial bitrate before connecting.
+// @Description Only requires authentication, not session ownership.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/bandwidth-probe [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getInitialBandwidthProbe(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse size parameter (default 512KB, max 2MB for initial probe to limit abuse)
+	size := 524288 // 512KB default
+	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
+		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 2*1024*1024 {
+			size = parsedSize // Max 2MB for initial probe (smaller than session probe)
+		}
+	}
+
+	// Generate random data - crypto/rand produces incompressible data
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		log.Error().Err(err).Msg("Failed to generate random data for initial bandwidth probe")
+		http.Error(res, "Failed to generate probe data", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers to prevent caching and compression
+	res.Header().Set("Content-Type", "application/octet-stream")
+	res.Header().Set("Content-Length", strconv.Itoa(size))
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.Header().Set("Content-Encoding", "identity")
+	res.WriteHeader(http.StatusOK)
+
+	res.Write(data)
+}
+
 // @Summary Get session clipboard content
 // @Description Fetch current clipboard content from remote desktop
 // @Tags ExternalAgents
