@@ -25,7 +25,6 @@ import {
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
-import { DualStreamManager } from '../../lib/moonlight-web-ts/stream/dual-stream-manager';
 import { SseStream, buildSseStreamUrl } from '../../lib/moonlight-web-ts/stream/sse-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
@@ -82,8 +81,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const sseCanvasRef = useRef<HTMLCanvasElement>(null); // Separate canvas for SSE mode (avoids conflicts)
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | DualStreamManager | SseStream | null>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | SseStream | null>(null); // Stream instance from moonlight-web
   const sseInputWsRef = useRef<WebSocketStream | null>(null); // WebSocket for input when using SSE mode
+  const sseStatsRef = useRef({
+    framesDecoded: 0,
+    framesDropped: 0,
+    lastFrameTime: 0,
+    frameCount: 0,
+    currentFps: 0,
+    width: 0,
+    height: 0,
+    codecString: '',           // Actual codec from init event
+    // Frame latency tracking (arrival time vs expected based on PTS)
+    firstFramePtsUs: null as number | null,
+    firstFrameArrivalTime: null as number | null,
+    currentFrameLatencyMs: 0,
+    frameLatencySamples: [] as number[],
+  }); // SSE-specific stats for the inline decoder
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
@@ -341,7 +355,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sessionId,
       });
 
-      let stream: Stream | WebSocketStream | DualStreamManager | SseStream;
+      let stream: Stream | WebSocketStream | SseStream;
 
       // Check if using SSE mode (experimental - WebSocket for session/input, SSE for video)
       // Architecture: ONE WebSocket creates Wolf session, SSE subscribes to video from it
@@ -414,12 +428,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
                   videoDecoder = new VideoDecoder({
                     output: (frame: VideoFrame) => {
-                      if (ctx && canvas) {
-                        canvas.width = frame.displayWidth;
-                        canvas.height = frame.displayHeight;
-                        ctx.drawImage(frame, 0, 0);
+                      try {
+                        if (ctx && canvas) {
+                          canvas.width = frame.displayWidth;
+                          canvas.height = frame.displayHeight;
+                          ctx.drawImage(frame, 0, 0);
+                        }
+
+                        // Track SSE stats
+                        const stats = sseStatsRef.current;
+                        stats.framesDecoded++;
+                        stats.frameCount++;
+                        stats.width = frame.displayWidth;
+                        stats.height = frame.displayHeight;
+
+                        // Update FPS every second
+                        const now = performance.now();
+                        if (now - stats.lastFrameTime >= 1000) {
+                          stats.currentFps = stats.frameCount;
+                          stats.frameCount = 0;
+                          stats.lastFrameTime = now;
+                        }
+
+                        frame.close();
+                      } catch (err) {
+                        sseStatsRef.current.framesDropped++;
+                        try { frame.close(); } catch (e) { /* ignore */ }
                       }
-                      frame.close();
                     },
                     error: (err) => console.error('[SSE Video] Decoder error:', err),
                   });
@@ -788,10 +823,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         if (streamRef.current instanceof SseStream) {
           console.log('[MoonlightStreamViewer] Closing SseStream...');
           streamRef.current.close();
-        } else if (streamRef.current instanceof DualStreamManager) {
-          // Check if it's a DualStreamManager
-          console.log('[MoonlightStreamViewer] Closing DualStreamManager...');
-          streamRef.current.close();
         } else if (streamRef.current instanceof WebSocketStream) {
           // Check if it's a WebSocketStream (has close() method)
           console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
@@ -908,6 +939,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const eventSource = new EventSource(sseUrl, { withCredentials: true });
         sseEventSourceRef.current = eventSource;
         sseReceivedFirstKeyframeRef.current = false;  // Reset for new SSE connection
+        // Reset SSE stats for new connection
+        sseStatsRef.current = {
+          framesDecoded: 0,
+          framesDropped: 0,
+          lastFrameTime: performance.now(),
+          frameCount: 0,
+          currentFps: 0,
+          width: 0,
+          height: 0,
+          codecString: '',
+          firstFramePtsUs: null,
+          firstFrameArrivalTime: null,
+          currentFrameLatencyMs: 0,
+          frameLatencySamples: [],
+        };
 
         // Set up video decoder for SSE frames
         // Use dedicated SSE canvas to avoid conflicts with WebSocket canvas
@@ -1027,6 +1073,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
               currentCodecString = codecString; // Store for use in video handler
 
+              // Store codec in SSE stats for display
+              let codecDisplayName: string;
+              if (init.video_codec === 0x01) codecDisplayName = 'H.264';
+              else if (init.video_codec === 0x02) codecDisplayName = 'H.264 High';
+              else if (init.video_codec === 0x10) codecDisplayName = 'HEVC';
+              else if (init.video_codec === 0x11) codecDisplayName = 'HEVC Main10';
+              else codecDisplayName = `Unknown (0x${init.video_codec?.toString(16)})`;
+              sseStatsRef.current.codecString = codecDisplayName;
+
               // Check if codec is supported - try hardware first, then software fallback
               let useHardwareAcceleration: HardwareAcceleration = 'prefer-hardware';
               try {
@@ -1063,73 +1118,53 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               // Use sseCanvasRef (dedicated SSE canvas) to avoid conflicts with WebSocket canvas
               const capturedCanvas = sseCanvasRef.current;
               const capturedCtx = capturedCanvas?.getContext('2d', { alpha: false, desynchronized: true });
-              console.log('[SSE Video] Captured SSE canvas for decoder:', capturedCanvas?.width, 'x', capturedCanvas?.height, 'ctx:', !!capturedCtx);
-
-              // Track output callback invocations for debugging
-              let outputCallbackCount = 0;
-              let dequeueEventCount = 0;
 
               const decoder = new VideoDecoder({
                 output: (frame: VideoFrame) => {
-                  // CRITICAL: Log immediately at callback entry - BEFORE any other code
-                  console.log('[SSE Video] *** OUTPUT CALLBACK ENTRY ***', Date.now());
                   try {
-                    outputCallbackCount++;
-                    console.log('[SSE Video] === OUTPUT CALLBACK FIRED ===');
-                    console.log('[SSE Video] Output count:', outputCallbackCount, 'dequeue count:', dequeueEventCount);
-                    console.log('[SSE Video] Frame decoded:', frame.displayWidth, 'x', frame.displayHeight);
-                    console.log('[SSE Video] Frame timestamp:', frame.timestamp, 'duration:', frame.duration);
-                    console.log('[SSE Video] Captured ctx valid:', !!capturedCtx, 'canvas valid:', !!capturedCanvas);
-                    console.log('[SSE Video] Canvas current dimensions:', capturedCanvas?.width, 'x', capturedCanvas?.height);
-                    // Use captured canvas context from init time
                     if (capturedCtx && capturedCanvas) {
                       if (capturedCanvas.width !== frame.displayWidth || capturedCanvas.height !== frame.displayHeight) {
-                        console.log('[SSE Video] Resizing canvas from', capturedCanvas.width, 'x', capturedCanvas.height, 'to', frame.displayWidth, 'x', frame.displayHeight);
                         capturedCanvas.width = frame.displayWidth;
                         capturedCanvas.height = frame.displayHeight;
                       }
-                      try {
-                        capturedCtx.drawImage(frame, 0, 0);
-                        console.log('[SSE Video] Frame drawn to canvas');
-                      } catch (drawErr) {
-                        console.error('[SSE Video] drawImage failed:', drawErr);
-                      }
+                      capturedCtx.drawImage(frame, 0, 0);
                     } else {
-                      console.error('[SSE Video] Captured canvas or context is null!', { ctx: !!capturedCtx, canvas: !!capturedCanvas });
-                      // Try fallback to current SSE canvas ref (in case ref changed after capture)
+                      // Try fallback to current SSE canvas ref
                       const fallbackCanvas = sseCanvasRef.current;
                       const fallbackCtx = fallbackCanvas?.getContext('2d');
                       if (fallbackCtx && fallbackCanvas) {
                         fallbackCanvas.width = frame.displayWidth;
                         fallbackCanvas.height = frame.displayHeight;
                         fallbackCtx.drawImage(frame, 0, 0);
-                        console.log('[SSE Video] Frame drawn to FALLBACK SSE canvas');
-                      } else {
-                        console.error('[SSE Video] Fallback SSE canvas also unavailable!');
                       }
                     }
+
+                    // Track SSE stats
+                    const stats = sseStatsRef.current;
+                    stats.framesDecoded++;
+                    stats.frameCount++;
+                    stats.width = frame.displayWidth;
+                    stats.height = frame.displayHeight;
+
+                    // Update FPS every second
+                    const now = performance.now();
+                    if (now - stats.lastFrameTime >= 1000) {
+                      stats.currentFps = stats.frameCount;
+                      stats.frameCount = 0;
+                      stats.lastFrameTime = now;
+                    }
+
                     frame.close();
                   } catch (err) {
-                    console.error('[SSE Video] OUTPUT CALLBACK THREW EXCEPTION:', err);
+                    console.error('[SSE Video] Output callback error:', err);
+                    sseStatsRef.current.framesDropped++;
                     try { frame.close(); } catch (e) { /* ignore */ }
                   }
                 },
                 error: (err) => {
-                  console.error('[SSE Video] === DECODER ERROR ===');
                   console.error('[SSE Video] Decoder error:', err);
                 },
               });
-
-              // Add dequeue event listener for debugging
-              decoder.addEventListener('dequeue', () => {
-                dequeueEventCount++;
-                console.log('[SSE Video] Dequeue event #' + dequeueEventCount + ' - decodeQueueSize:', decoder.decodeQueueSize);
-              });
-
-              // DEBUG: Verify output callback is actually set and callable
-              console.log('[SSE Video] === VERIFYING OUTPUT CALLBACK ===');
-              console.log('[SSE Video] decoder.output exists:', 'output' in decoder);
-              console.log('[SSE Video] decoder state before configure:', decoder.state);
 
               // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS/VPS)
               // This tells WebCodecs to expect NAL start codes and in-band parameter sets
@@ -1152,57 +1187,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               }
 
               decoder.configure(decoderConfig);
-              console.log('[SSE Video] Decoder configured:', decoderConfig);
-              console.log('[SSE Video] Decoder state AFTER configure:', decoder.state);
-              console.log('[SSE Video] Decoder decodeQueueSize AFTER configure:', decoder.decodeQueueSize);
-
-              // DEBUG: Log captured canvas state at decoder creation time
-              console.log('[SSE Video] Captured canvas at decoder creation:', {
-                canvasExists: !!capturedCanvas,
-                canvasWidth: capturedCanvas?.width,
-                canvasHeight: capturedCanvas?.height,
-                ctxExists: !!capturedCtx,
-                canvasClientWidth: capturedCanvas?.clientWidth,
-                canvasClientHeight: capturedCanvas?.clientHeight,
-                canvasOffsetWidth: capturedCanvas?.offsetWidth,
-                canvasOffsetHeight: capturedCanvas?.offsetHeight,
-                canvasStyle: capturedCanvas?.style.display,
-              });
 
               // Pre-set canvas dimensions to match stream resolution
-              // This ensures the canvas is ready to receive frames
               if (capturedCanvas && init.width && init.height) {
-                console.log('[SSE Video] Pre-setting canvas dimensions to:', init.width, 'x', init.height);
                 capturedCanvas.width = init.width;
                 capturedCanvas.height = init.height;
-
-                // Re-get context after dimension change (may be needed on some browsers)
-                const freshCtx = capturedCanvas.getContext('2d', { alpha: false, desynchronized: true });
-                if (freshCtx !== capturedCtx) {
-                  console.warn('[SSE Video] Canvas context changed after dimension update!');
-                }
               }
 
-              // Store decoder and assign unique ID for debugging
-              (decoder as any).__debugId = Math.random().toString(36).substring(7);
-              console.log('[SSE Video] Decoder created with debugId:', (decoder as any).__debugId);
               sseVideoDecoderRef.current = decoder;
-
-              // Start periodic decoder status logging (every 5 seconds)
-              const statusInterval = setInterval(() => {
-                const currentDecoder = sseVideoDecoderRef.current;
-                if (!currentDecoder) {
-                  console.log('[SSE Video] Status check: decoder is NULL (component unmounted?)');
-                  clearInterval(statusInterval);
-                  return;
-                }
-                console.log('[SSE Video] === PERIODIC STATUS ===');
-                console.log('[SSE Video] Decoder state:', currentDecoder.state);
-                console.log('[SSE Video] Decoder queue size:', currentDecoder.decodeQueueSize);
-                console.log('[SSE Video] Output callbacks fired:', outputCallbackCount);
-                console.log('[SSE Video] Dequeue events fired:', dequeueEventCount);
-                console.log('[SSE Video] Decoder debugId:', (currentDecoder as any).__debugId);
-              }, 5000);
             } catch (err) {
               console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
             }
@@ -2144,7 +2136,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Send to stream - use SSE input WebSocket if in SSE mode, otherwise main stream
       const input = sseInputWsRef.current?.getInput() ??
         (streamRef.current && 'getInput' in streamRef.current
-          ? (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput()
+          ? (streamRef.current as WebSocketStream | Stream).getInput()
           : null);
       input?.onMouseWheel(event);
     };
@@ -2172,72 +2164,48 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket and SSE modes - poll stats from WebSocketStream or DualStreamManager
+    // WebSocket and SSE modes - poll stats from WebSocketStream
     // SSE mode also uses WebSocketStream for input and session management
     if (streamingMode === 'websocket' || streamingMode === 'sse') {
       const pollWsStats = () => {
         const currentStream = streamRef.current;
         if (!currentStream) return;
 
-        // Handle DualStreamManager
-        if (currentStream instanceof DualStreamManager) {
-          const dualStats = currentStream.getStats();
-          setStats({
-            video: {
-              codec: `H264 (WebSocket${dualStats.activeStream === 'fallback' ? ' - Low Quality' : ''})`,
-              width: dualStats.width,
-              height: dualStats.height,
-              fps: dualStats.fps,
-              videoPayloadBitrate: dualStats.videoPayloadBitrateMbps.toFixed(2),
-              totalBitrate: dualStats.totalBitrateMbps.toFixed(2),
-              framesDecoded: dualStats.framesDecoded,
-              framesDropped: dualStats.framesDropped,
-              rttMs: dualStats.rttMs,
-              isHighLatency: dualStats.isHighLatency,
-              // Additional dual-stream info
-              activeStream: dualStats.activeStream,
-              primaryRttMs: dualStats.primaryRttMs,
-              fallbackRttMs: dualStats.fallbackRttMs,
-            },
-            connection: {
-              transport: `WebSocket (L7) - ${dualStats.activeStream === 'primary' ? '60fps' : '~1fps'}`,
-            },
-            timestamp: new Date().toISOString(),
-          });
-          setIsHighLatency(dualStats.isHighLatency);
-          setIsOnFallback(dualStats.activeStream === 'fallback');
-          return;
-        }
-
-        // Handle regular WebSocketStream
         const wsStream = currentStream as WebSocketStream;
         const wsStats = wsStream.getStats();
         const isForcedLow = qualityMode === 'low';
+
+        // In SSE mode, video stats come from SSE decoder, not WebSocket
+        const sseStats = sseStatsRef.current;
+        const isSSE = streamingMode === 'sse';
+
         setStats({
           video: {
-            codec: `H264 (WebSocket${isForcedLow ? ' - ~1fps' : ''})`,
-            width: wsStats.width,
-            height: wsStats.height,
-            fps: wsStats.fps,
-            videoPayloadBitrate: wsStats.videoPayloadBitrateMbps.toFixed(2),  // H.264 only
-            totalBitrate: wsStats.totalBitrateMbps.toFixed(2),                 // Everything
-            framesDecoded: wsStats.framesDecoded,
-            framesDropped: wsStats.framesDropped,
-            rttMs: wsStats.rttMs,                                              // RTT in ms
-            isHighLatency: wsStats.isHighLatency,                              // High latency flag
-            // Batching stats for congestion visibility
-            batchingRatio: wsStats.batchingRatio,                              // % of frames batched
-            avgBatchSize: wsStats.avgBatchSize,                                // Avg frames per batch
-            batchesReceived: wsStats.batchesReceived,                          // Total batches
-            // Frame latency and decoder queue (new metrics for debugging)
-            frameLatencyMs: wsStats.frameLatencyMs,                            // Actual frame delivery delay
-            batchingRequested: wsStats.batchingRequested,                      // Client requested batching
-            decodeQueueSize: wsStats.decodeQueueSize,                          // Decoder queue depth
-            maxDecodeQueueSize: wsStats.maxDecodeQueueSize,                    // Peak queue size
-            framesSkippedToKeyframe: wsStats.framesSkippedToKeyframe,          // Frames flushed when skipping to keyframe
+            codec: isSSE
+              ? `${sseStats.codecString || 'Unknown'} (SSE)`
+              : `${wsStats.codecString} (WebSocket${isForcedLow ? ' - ~1fps' : ''})`,
+            width: isSSE ? sseStats.width : wsStats.width,
+            height: isSSE ? sseStats.height : wsStats.height,
+            fps: isSSE ? sseStats.currentFps : wsStats.fps,
+            videoPayloadBitrate: isSSE ? 'N/A' : wsStats.videoPayloadBitrateMbps.toFixed(2),
+            totalBitrate: isSSE ? 'N/A' : wsStats.totalBitrateMbps.toFixed(2),
+            framesDecoded: isSSE ? sseStats.framesDecoded : wsStats.framesDecoded,
+            framesDropped: isSSE ? sseStats.framesDropped : wsStats.framesDropped,
+            rttMs: wsStats.rttMs,                                              // RTT still from WebSocket
+            isHighLatency: wsStats.isHighLatency,                              // High latency flag from WS
+            // Batching stats (only for non-SSE mode)
+            batchingRatio: isSSE ? 0 : wsStats.batchingRatio,
+            avgBatchSize: isSSE ? 0 : wsStats.avgBatchSize,
+            batchesReceived: isSSE ? 0 : wsStats.batchesReceived,
+            // Frame latency and decoder queue
+            frameLatencyMs: isSSE ? 0 : wsStats.frameLatencyMs,
+            batchingRequested: isSSE ? false : wsStats.batchingRequested,
+            decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
+            maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
+            framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
           },
           connection: {
-            transport: streamingMode === 'sse'
+            transport: isSSE
               ? 'SSE Video + WebSocket Input'
               : `WebSocket (L7)${isForcedLow ? ' - Force ~1fps' : qualityMode === 'high' ? ' - Force 60fps' : ''}`,
           },
@@ -2444,7 +2412,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
     // For WebSocket and WebRTC modes, get input from the main stream
     if (streamRef.current && 'getInput' in streamRef.current) {
-      return (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput();
+      return (streamRef.current as WebSocketStream | Stream).getInput();
     }
     return null;
   }, [streamingMode]);
@@ -2537,7 +2505,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const getInput = () => {
       return sseInputWsRef.current?.getInput() ??
         (streamRef.current && 'getInput' in streamRef.current
-          ? (streamRef.current as WebSocketStream | Stream | DualStreamManager).getInput()
+          ? (streamRef.current as WebSocketStream | Stream).getInput()
           : null);
     };
 
