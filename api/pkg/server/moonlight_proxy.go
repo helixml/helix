@@ -218,10 +218,19 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		}
 
 		// Copy with periodic flushing for SSE
-		buf := make([]byte, 4096)
+		// DEBUG: Use larger buffer to avoid fragmenting SSE events
+		buf := make([]byte, 256*1024) // 256KB buffer for large video frames
+		totalBytes := 0
+		chunkCount := 0
 		for {
 			n, readErr := resp.Body.Read(buf)
 			if n > 0 {
+				totalBytes += n
+				chunkCount++
+				// Log every 30 chunks or first 5 to debug truncation
+				if chunkCount <= 5 || chunkCount%30 == 0 {
+					log.Debug().Int("chunk", chunkCount).Int("bytes", n).Int("totalBytes", totalBytes).Msg("SSE chunk read")
+				}
 				_, writeErr := w.Write(buf[:n])
 				if writeErr != nil {
 					log.Error().Err(writeErr).Msg("Failed to write SSE data")
@@ -232,6 +241,7 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 				}
 			}
 			if readErr == io.EOF {
+				log.Debug().Int("totalBytes", totalBytes).Int("chunks", chunkCount).Msg("SSE stream ended")
 				break
 			}
 			if readErr != nil {

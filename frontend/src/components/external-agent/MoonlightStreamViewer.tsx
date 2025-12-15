@@ -987,16 +987,32 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 output: (frame: VideoFrame) => {
                   console.log('[SSE Video] === OUTPUT CALLBACK FIRED ===');
                   console.log('[SSE Video] Frame decoded:', frame.displayWidth, 'x', frame.displayHeight);
+                  console.log('[SSE Video] Captured ctx valid:', !!capturedCtx, 'canvas valid:', !!capturedCanvas);
+                  console.log('[SSE Video] Canvas current dimensions:', capturedCanvas?.width, 'x', capturedCanvas?.height);
                   // Use captured canvas context from init time
                   if (capturedCtx && capturedCanvas) {
                     if (capturedCanvas.width !== frame.displayWidth || capturedCanvas.height !== frame.displayHeight) {
+                      console.log('[SSE Video] Resizing canvas from', capturedCanvas.width, 'x', capturedCanvas.height, 'to', frame.displayWidth, 'x', frame.displayHeight);
                       capturedCanvas.width = frame.displayWidth;
                       capturedCanvas.height = frame.displayHeight;
                     }
-                    capturedCtx.drawImage(frame, 0, 0);
-                    console.log('[SSE Video] Frame drawn to canvas');
+                    try {
+                      capturedCtx.drawImage(frame, 0, 0);
+                      console.log('[SSE Video] Frame drawn to canvas');
+                    } catch (drawErr) {
+                      console.error('[SSE Video] drawImage failed:', drawErr);
+                    }
                   } else {
                     console.error('[SSE Video] Canvas or context is null!', { ctx: !!capturedCtx, canvas: !!capturedCanvas });
+                    // Try fallback to current canvas ref
+                    const fallbackCanvas = canvasRef.current;
+                    const fallbackCtx = fallbackCanvas?.getContext('2d');
+                    if (fallbackCtx && fallbackCanvas) {
+                      fallbackCanvas.width = frame.displayWidth;
+                      fallbackCanvas.height = frame.displayHeight;
+                      fallbackCtx.drawImage(frame, 0, 0);
+                      console.log('[SSE Video] Frame drawn to FALLBACK canvas');
+                    }
                   }
                   frame.close();
                 },
@@ -1032,6 +1048,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
               decoder.configure(decoderConfig);
               console.log('[SSE Video] Decoder configured:', decoderConfig);
+              // Store decoder and assign unique ID for debugging
+              (decoder as any).__debugId = Math.random().toString(36).substring(7);
+              console.log('[SSE Video] Decoder created with debugId:', (decoder as any).__debugId);
               sseVideoDecoderRef.current = decoder;
             } catch (err) {
               console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
@@ -1040,9 +1059,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           eventSource.addEventListener('video', (e: MessageEvent) => {
             const decoder = sseVideoDecoderRef.current;
-            if (!decoder || decoder.state !== 'configured') return;
+            if (!decoder || decoder.state !== 'configured') {
+              console.log('[SSE Video] Video handler: decoder not ready, state:', decoder?.state);
+              return;
+            }
+            // Log decoder ID once per second to verify we're using the right decoder
+            const now = Date.now();
+            if (!(window as any).__lastDecoderIdLog || now - (window as any).__lastDecoderIdLog > 1000) {
+              console.log('[SSE Video] Using decoder debugId:', (decoder as any).__debugId);
+              (window as any).__lastDecoderIdLog = now;
+            }
 
             try {
+              // DEBUG: Log raw SSE event data length BEFORE JSON parsing
+              // This helps identify if truncation happens in EventSource or transport
+              const rawDataLength = e.data?.length || 0;
+              const sseFrameNum = (window as any).__sseRawFrameCount || 0;
+              (window as any).__sseRawFrameCount = sseFrameNum + 1;
+
+              // Log first 10 frames and then every 30th frame
+              if (sseFrameNum < 10 || sseFrameNum % 30 === 0) {
+                console.log('[SSE Video] RAW event.data length:', rawDataLength, 'chars (frame #' + sseFrameNum + ')');
+                // Log first 200 chars to see event structure
+                if (rawDataLength < 5000) {
+                  console.log('[SSE Video] RAW data (truncated?):', e.data?.substring(0, 200) + '...');
+                }
+              }
+
               const frame = JSON.parse(e.data);
 
               // Skip delta frames until we receive the first keyframe
@@ -1059,7 +1102,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               // Debug: check incoming data size
               const base64Length = frame.data?.length || 0;
               if (base64Length < 2000) {
-                console.warn('[SSE Video] Suspiciously small frame data:', base64Length, 'base64 chars, keyframe:', frame.keyframe);
+                console.warn('[SSE Video] Suspiciously small frame data:', base64Length, 'base64 chars, keyframe:', frame.keyframe, 'rawEventLength:', rawDataLength);
               }
 
               const binaryString = atob(frame.data);
@@ -1073,12 +1116,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 timestamp: frame.pts,
                 data: bytes,
               });
-              console.log('[SSE Video] BEFORE decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
-              console.log('[SSE Video] Decoding chunk:', chunk.type, 'size:', bytes.length, 'pts:', frame.pts);
+              // Log decode info (throttled - every 30 frames to avoid spam)
+              const frameNumber = (window as any).__sseFrameCount || 0;
+              const shouldLog = frameNumber % 30 === 0;
+
+              if (shouldLog) {
+                console.log('[SSE Video] BEFORE decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
+                console.log('[SSE Video] Decoding chunk:', chunk.type, 'size:', bytes.length, 'pts:', frame.pts);
+              }
 
               try {
                 decoder.decode(chunk);
-                console.log('[SSE Video] AFTER decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
+                if (shouldLog) {
+                  console.log('[SSE Video] AFTER decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
+                }
               } catch (decodeErr) {
                 console.error('[SSE Video] decode() threw exception:', decodeErr);
               }
