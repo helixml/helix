@@ -38,7 +38,6 @@ interface MoonlightStreamViewerProps {
   wolfLobbyId?: string;
   hostId?: number;
   appId?: number;
-  isPersonalDevEnvironment?: boolean;
   showLoadingOverlay?: boolean; // Show loading overlay (for restart/reconnect scenarios)
   isRestart?: boolean; // Whether this is a restart (vs first start)
   onConnectionChange?: (isConnected: boolean) => void;
@@ -67,7 +66,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   wolfLobbyId,
   hostId = 0,
   appId = 1,
-  isPersonalDevEnvironment = false,
   showLoadingOverlay = false,
   isRestart = false,
   onConnectionChange,
@@ -254,7 +252,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           console.warn('Failed to fetch Wolf UI app ID, using default 0:', err);
           actualAppId = 0;
         }
-      } else if (sessionId && !isPersonalDevEnvironment) {
+      } else if (sessionId) {
         // Apps mode: Fetch the specific Wolf app ID for this session
         try {
           const wolfStateResponse = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
@@ -601,7 +599,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode, userBitrate]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, streamingMode, wolfLobbyId, onClientIdCalculated, qualityMode, userBitrate]);
 
   // Disconnect
   const disconnect = useCallback(() => {
@@ -1652,7 +1650,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     // If wolfLobbyId prop is expected but not yet loaded, wait for it
     // We detect this by checking if sessionId is provided (external agent mode)
     // In this mode, wolfLobbyId should be provided by the parent once session data loads
-    if (sessionId && !isPersonalDevEnvironment && !wolfLobbyId) {
+    if (sessionId && !wolfLobbyId) {
       console.log('[MoonlightStreamViewer] Waiting for wolfLobbyId to load before connecting...');
       return;
     }
@@ -1683,7 +1681,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     probeAndConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment]); // Only trigger on props, not on function identity changes
+  }, [wolfLobbyId, sessionId]); // Only trigger on props, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {

@@ -6,7 +6,6 @@ import MoonlightStreamViewer from './MoonlightStreamViewer';
 interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
-  isPersonalDevEnvironment?: boolean;
   wolfLobbyId?: string; // For Moonlight streaming mode
   onError?: (error: string) => void;
   width?: number;
@@ -22,7 +21,6 @@ interface ScreenshotViewerProps {
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   sessionId,
   isRunner = false,
-  isPersonalDevEnvironment = false,
   wolfLobbyId,
   onError,
   width = 3840,
@@ -51,14 +49,12 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
-    if (isPersonalDevEnvironment) {
-      return `/api/v1/personal-dev-environments/${sessionId}/screenshot`;
-    } else if (isRunner) {
+    if (isRunner) {
       return `/api/v1/external-agents/runners/${sessionId}/screenshot`;
     } else {
       return `/api/v1/external-agents/${sessionId}/screenshot`;
     }
-  }, [sessionId, isRunner, isPersonalDevEnvironment]);
+  }, [sessionId, isRunner]);
 
   // Fetch screenshot (useRef to prevent recreation on every render)
   const fetchScreenshotRef = useRef<() => Promise<void>>();
@@ -243,7 +239,6 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         <MoonlightStreamViewer
           sessionId={sessionId}
           wolfLobbyId={wolfLobbyId}
-          isPersonalDevEnvironment={isPersonalDevEnvironment}
           onError={onError}
           width={width}
           height={height}
