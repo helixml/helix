@@ -3315,13 +3315,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </Typography>
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
-            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : 'WebRTC'}</div>
+            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : streamingMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebRTC'}</div>
             {stats?.video?.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                {streamingMode === 'websocket' ? (
+                {streamingMode === 'websocket' || streamingMode === 'sse' ? (
                   <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
                 ) : (
                   <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
