@@ -2371,7 +2371,7 @@ if [ "$SANDBOX" = true ]; then
     # Configure NVIDIA runtime if needed
     if [ "$GPU_VENDOR" = "nvidia" ] && check_nvidia_runtime_needed; then
         echo "Configuring NVIDIA Docker runtime..."
-        configure_nvidia_runtime
+        install_nvidia_docker
     fi
 
     # Create sandbox.sh script (embedded, like runner.sh)
