@@ -295,7 +295,8 @@ RUN for size in 16 24 32 48 64 128 256; do \
             -resize ${size}x${size} \
             /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
     done && \
-    gtk-update-icon-cache -f /usr/share/icons/hicolor
+    gtk-update-icon-cache -f /usr/share/icons/hicolor && \
+    update-desktop-database /usr/share/applications
 
 # Copy Zed startup script and helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
