@@ -13,6 +13,7 @@ import {
   Speed,
   Stream as StreamIcon,
   Timeline,
+  CameraAlt,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { LineChart } from '@mui/x-charts';
@@ -132,11 +133,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const [isHighLatency, setIsHighLatency] = useState(false); // Show warning when RTT > 150ms
-  // Quality mode: 'adaptive' (auto-switch), 'high' (force 60fps), 'low' (screenshot-based for low bandwidth)
-  // Low mode uses rapid screenshot polling for video while keeping input via the stream
-  // This provides a working low-bandwidth fallback without the keyframes-only streaming bugs
-  // Default to 'high' (60fps video) - screenshot mode has app_id issues in lobbies mode
-  const [qualityMode, setQualityMode] = useState<'adaptive' | 'high' | 'low'>('high');
+  // Quality mode: video delivery method (hot-switchable without disrupting WebSocket connection)
+  // - 'high': 60fps video over WebSocket
+  // - 'sse': 60fps video over SSE (lower latency for long connections)
+  // - 'low': Screenshot-based (for low bandwidth)
+  // Note: 'adaptive' mode removed for simplicity - users can manually switch
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high');
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -147,11 +149,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [screenshotQuality, setScreenshotQuality] = useState(70); // JPEG quality 10-90
   const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
   const screenshotQualityRef = useRef(70); // Ref for use in async callback
-  // Adaptive mode: auto-enable screenshot overlay when stream latency is high
-  const [adaptiveScreenshotEnabled, setAdaptiveScreenshotEnabled] = useState(false);
-  // Lock-in behavior: once adaptive mode falls back to screenshots, stay there until user explicitly changes mode
-  // This prevents oscillation: when we stop sending video, latency drops, which would cause us to switch back
-  const [adaptiveLockedToScreenshots, setAdaptiveLockedToScreenshots] = useState(false);
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -357,7 +354,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       let stream: Stream | WebSocketStream | SseStream;
 
-      // Check if using SSE mode (experimental - WebSocket for session/input, SSE for video)
+      // Check if using SSE mode (WebSocket for session/input, SSE for video)
       // Architecture: ONE WebSocket creates Wolf session, SSE subscribes to video from it
       if (streamingMode === 'sse') {
         console.log('[MoonlightStreamViewer] Using SSE streaming mode (WebSocket for input, SSE for video)');
@@ -398,6 +395,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
             // Create EventSource for video
             const eventSource = new EventSource(sseUrl, { withCredentials: true });
+
+            // Reset keyframe flag for new SSE connection - we need to wait for first keyframe
+            // before decoding delta frames (keyframe contains VPS/SPS/PPS needed for HEVC)
+            sseReceivedFirstKeyframeRef.current = false;
 
             // Set canvas for rendering SSE video frames
             if (canvasRef.current) {
@@ -547,6 +548,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
                 try {
                   const frame = JSON.parse(e.data);
+
+                  // Skip delta frames until we receive the first keyframe
+                  // (keyframe contains VPS/SPS/PPS needed for HEVC decoding)
+                  if (!sseReceivedFirstKeyframeRef.current) {
+                    if (!frame.keyframe) {
+                      // Silently skip - don't spam logs
+                      return;
+                    }
+                    console.log('[SSE Video] First keyframe received, starting decode');
+                    sseReceivedFirstKeyframeRef.current = true;
+                  }
+
                   // Decode base64 video data
                   const binaryString = atob(frame.data);
                   const bytes = new Uint8Array(binaryString.length);
@@ -1450,25 +1463,184 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [streamingMode, reconnect, isConnected, sessionId]);
 
-  // Track previous quality mode for reconnection
-  const previousQualityModeRef = useRef<'adaptive' | 'high' | 'low'>(qualityMode);
+  // Track previous quality mode for hot-switching
+  const previousQualityModeRef = useRef<'high' | 'sse' | 'low'>(qualityMode);
 
-  // Reconnect when quality mode changes (user toggled fps/quality)
-  // Uses 5-second delay to wait for moonlight-web session cleanup (prevents Wolf conflicts)
+  // Hot-switch between quality modes without reconnecting
+  // All three modes use the same WebSocket connection for input, just different video delivery:
+  // - 'high': Video over WebSocket
+  // - 'sse': Video over SSE (separate EventSource)
+  // - 'low': Screenshot polling (separate HTTP requests)
   useEffect(() => {
-    if (previousQualityModeRef.current !== qualityMode) {
-      console.log('[MoonlightStreamViewer] Quality mode changed from', previousQualityModeRef.current, 'to', qualityMode);
-      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
-      previousQualityModeRef.current = qualityMode;
-      // Update fallback state immediately for UI feedback
-      setIsOnFallback(qualityMode === 'low');
-      // Reset adaptive lock when user manually changes mode
-      // This allows adaptive mode to start fresh and evaluate latency again
-      setAdaptiveLockedToScreenshots(false);
-      setAdaptiveScreenshotEnabled(false);
-      reconnect(5000); // 5 seconds for mode switches to allow cleanup
+    if (previousQualityModeRef.current === qualityMode) return;
+
+    const prevMode = previousQualityModeRef.current;
+    const newMode = qualityMode;
+    console.log('[MoonlightStreamViewer] Quality mode changed from', prevMode, 'to', newMode);
+    previousQualityModeRef.current = newMode;
+
+    // Update fallback state immediately for UI feedback
+    setIsOnFallback(newMode === 'low');
+
+    // Only hot-switch if connected with WebSocket stream
+    if (!isConnected || !streamRef.current || !(streamRef.current instanceof WebSocketStream)) {
+      console.log('[MoonlightStreamViewer] Not connected or not WebSocket stream, skipping hot-switch');
+      return;
     }
-  }, [qualityMode, reconnect]);
+
+    const wsStream = streamRef.current as WebSocketStream;
+
+    // Step 1: Teardown previous mode's video source
+    if (prevMode === 'sse') {
+      // Close SSE connection
+      console.log('[MoonlightStreamViewer] Closing SSE for quality mode switch');
+      if (sseEventSourceRef.current) {
+        sseEventSourceRef.current.close();
+        sseEventSourceRef.current = null;
+      }
+      if (sseVideoDecoderRef.current) {
+        sseVideoDecoderRef.current.close();
+        sseVideoDecoderRef.current = null;
+      }
+    } else if (prevMode === 'high') {
+      // Disable WS video (will be re-enabled if switching back to 'high')
+      console.log('[MoonlightStreamViewer] Disabling WS video for quality mode switch');
+      wsStream.setVideoEnabled(false);
+    }
+    // 'low' mode: screenshot polling will auto-stop via shouldPollScreenshots becoming false
+
+    // Step 2: Setup new mode's video source
+    if (newMode === 'high') {
+      // Enable WS video
+      console.log('[MoonlightStreamViewer] Enabling WS video for high mode');
+      wsStream.setVideoEnabled(true);
+      if (canvasRef.current) {
+        wsStream.setCanvas(canvasRef.current);
+      }
+    } else if (newMode === 'sse') {
+      // Open SSE connection for video
+      const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
+      const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
+      console.log('[MoonlightStreamViewer] Opening SSE for video:', sseUrl);
+
+      const eventSource = new EventSource(sseUrl, { withCredentials: true });
+      sseEventSourceRef.current = eventSource;
+      sseReceivedFirstKeyframeRef.current = false;
+
+      // Reset SSE stats
+      sseStatsRef.current = {
+        framesDecoded: 0,
+        framesDropped: 0,
+        lastFrameTime: performance.now(),
+        frameCount: 0,
+        currentFps: 0,
+        width: 0,
+        height: 0,
+        codecString: '',
+        firstFramePtsUs: null,
+        firstFrameArrivalTime: null,
+        currentFrameLatencyMs: 0,
+        frameLatencySamples: [],
+      };
+
+      // Setup SSE decoder using the hot-switch canvas
+      if (sseCanvasRef.current) {
+        const canvas = sseCanvasRef.current;
+        const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+        eventSource.addEventListener('init', async (e: MessageEvent) => {
+          try {
+            const init = JSON.parse(e.data);
+            console.log('[SSE Video] Init from quality switch:', init);
+
+            if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
+              console.error('[SSE Video] Invalid init data:', init);
+              return;
+            }
+
+            canvas.width = init.width;
+            canvas.height = init.height;
+
+            const codecString = init.codec || 'hvc1.1.6.L120.90';
+            const decoder = new VideoDecoder({
+              output: (frame: VideoFrame) => {
+                if (ctx && canvas.width > 0 && canvas.height > 0) {
+                  ctx.drawImage(frame, 0, 0);
+                }
+                frame.close();
+                sseStatsRef.current.framesDecoded++;
+                sseStatsRef.current.lastFrameTime = performance.now();
+              },
+              error: (err: Error) => {
+                console.error('[SSE Video] Decoder error:', err);
+              },
+            });
+
+            decoder.configure({
+              codec: codecString,
+              codedWidth: init.width,
+              codedHeight: init.height,
+              hardwareAcceleration: 'prefer-hardware',
+              ...(codecString.startsWith('hvc1') || codecString.startsWith('hev1')
+                ? { hevc: { format: 'annexb' } }
+                : {}),
+            });
+
+            sseVideoDecoderRef.current = decoder;
+            sseStatsRef.current.width = init.width;
+            sseStatsRef.current.height = init.height;
+            sseStatsRef.current.codecString = codecString;
+          } catch (err) {
+            console.error('[SSE Video] Failed to parse init:', err);
+          }
+        });
+
+        eventSource.addEventListener('video', (e: MessageEvent) => {
+          const decoder = sseVideoDecoderRef.current;
+          if (!decoder || decoder.state !== 'configured') return;
+
+          try {
+            const frame = JSON.parse(e.data);
+
+            // Skip delta frames until first keyframe
+            if (!sseReceivedFirstKeyframeRef.current) {
+              if (!frame.keyframe) return;
+              console.log('[SSE Video] First keyframe received');
+              sseReceivedFirstKeyframeRef.current = true;
+            }
+
+            const binaryString = atob(frame.data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const chunk = new EncodedVideoChunk({
+              type: frame.keyframe ? 'key' : 'delta',
+              timestamp: frame.pts,
+              data: bytes,
+            });
+            decoder.decode(chunk);
+          } catch (err) {
+            console.error('[SSE Video] Failed to decode frame:', err);
+          }
+        });
+
+        eventSource.addEventListener('stop', () => {
+          console.log('[SSE Video] Stopped');
+          if (sseVideoDecoderRef.current) {
+            sseVideoDecoderRef.current.close();
+            sseVideoDecoderRef.current = null;
+          }
+        });
+
+        eventSource.onerror = (err) => {
+          console.error('[SSE Video] Error:', err);
+        };
+      }
+    }
+    // 'low' mode: screenshot polling will auto-start via shouldPollScreenshots becoming true
+  }, [qualityMode, isConnected, sessionId]);
 
   // Track previous user bitrate for reconnection
   // Initialize to a sentinel value (-1) to distinguish "not yet set" from "set to null"
@@ -1630,10 +1802,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
-  // Screenshot polling for low-quality mode OR adaptive mode with high latency
+  // Screenshot polling for low-quality mode (manual screenshot fallback)
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
-  const shouldPollScreenshots = qualityMode === 'low' || (qualityMode === 'adaptive' && adaptiveScreenshotEnabled);
+  const shouldPollScreenshots = qualityMode === 'low';
 
   // Notify server to pause/resume video when entering/exiting screenshot mode
   // This saves bandwidth by not sending video frames we won't display
@@ -1667,7 +1839,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    console.log('[MoonlightStreamViewer] Starting screenshot polling:', qualityMode === 'low' ? 'low mode' : 'adaptive fallback');
+    console.log('[MoonlightStreamViewer] Starting screenshot polling (low mode)');
 
     let isPolling = true;
     let lastFrameTime = Date.now();
@@ -1775,47 +1947,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     };
   }, [screenshotUrl]);
 
-  // Adaptive mode: monitor RTT and auto-enable screenshot overlay when latency is high
-  // Once locked to screenshots, stay there until user manually changes mode (prevents oscillation)
-  // When we stop sending video, latency drops, which would otherwise trigger switching back
-  useEffect(() => {
-    if (qualityMode !== 'adaptive' || !isConnected || !streamRef.current) {
-      setAdaptiveScreenshotEnabled(false);
-      return;
-    }
-
-    // If already locked to screenshots, stay there (prevent oscillation)
-    if (adaptiveLockedToScreenshots) {
-      if (!adaptiveScreenshotEnabled) {
-        setAdaptiveScreenshotEnabled(true);
-      }
-      return;
-    }
-
-    const ENABLE_THRESHOLD_MS = 150;  // Enable screenshot overlay when RTT > 150ms
-    const CHECK_INTERVAL_MS = 1000;   // Check every second
-
-    const checkRtt = () => {
-      const stream = streamRef.current;
-      if (!stream || !(stream instanceof WebSocketStream)) return;
-
-      const wsStats = stream.getStats();
-      const rtt = wsStats.rttMs;
-
-      // Only check for enabling - once enabled, we lock in (user must manually switch back)
-      if (rtt > ENABLE_THRESHOLD_MS && !adaptiveScreenshotEnabled) {
-        console.log(`[Adaptive] High latency detected (${rtt.toFixed(0)}ms > ${ENABLE_THRESHOLD_MS}ms), locking to screenshot mode`);
-        console.log(`[Adaptive] To try video again, manually switch to High mode then back to Adaptive`);
-        setAdaptiveScreenshotEnabled(true);
-        setAdaptiveLockedToScreenshots(true);  // Lock in - prevent oscillation
-      }
-    };
-
-    const intervalId = setInterval(checkRtt, CHECK_INTERVAL_MS);
-    checkRtt(); // Initial check
-
-    return () => clearInterval(intervalId);
-  }, [qualityMode, isConnected, adaptiveScreenshotEnabled, adaptiveLockedToScreenshots]);
+  // Note: Adaptive screenshot RTT detection removed - users manually switch to 'low' mode
+  // for screenshot fallback. This simplifies the quality mode to just three options:
+  // high (WS video), sse (SSE video), low (screenshots)
 
   // Adaptive bitrate: reduce based on frame drift, increase based on bandwidth probe
   // Frame drift = how late frames are arriving - reliable indicator of congestion
@@ -2956,9 +3090,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             modeSwitchCooldown
               ? 'Please wait...'
               : streamingMode === 'websocket'
-              ? 'Currently: WebSocket — Click for SSE (experimental)'
-              : streamingMode === 'sse'
-              ? 'Currently: SSE (experimental) — Click for WebRTC'
+              ? 'Currently: WebSocket (L7) — Click for WebRTC'
               : 'Currently: WebRTC — Click for WebSocket'
           }
           arrow
@@ -2969,42 +3101,35 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               size="small"
               disabled={modeSwitchCooldown}
               onClick={() => {
-                // Cycle through modes: websocket → sse → webrtc → websocket
+                // Toggle between websocket and webrtc (connection protocol)
+                // Video source (WS/SSE/screenshot) is controlled by Speed toggle
                 setModeSwitchCooldown(true);
-                setStreamingMode(prev => {
-                  if (prev === 'websocket') return 'sse';
-                  if (prev === 'sse') return 'webrtc';
-                  return 'websocket';
-                });
+                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
                 setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
               }}
               sx={{
-                color: streamingMode === 'websocket'
-                  ? 'primary.main'
-                  : streamingMode === 'sse'
-                  ? '#ff9800'  // Orange for SSE (experimental)
-                  : 'white'
+                color: streamingMode === 'websocket' ? 'primary.main' : 'white'
               }}
             >
               {streamingMode === 'websocket' ? (
                 <Wifi fontSize="small" />
-              ) : streamingMode === 'sse' ? (
-                <StreamIcon fontSize="small" />
               ) : (
                 <SignalCellularAlt fontSize="small" />
               )}
             </IconButton>
           </span>
         </Tooltip>
-        {/* Quality mode toggle: video (high) <-> screenshots (low) */}
+        {/* Quality mode toggle: WS Video (high) → SSE Video (sse) → Screenshots (low) */}
         {streamingMode === 'websocket' && (
           <Tooltip
             title={
               modeSwitchCooldown
                 ? 'Please wait...'
                 : qualityMode === 'high'
-                ? 'Video mode (60fps) — Click for Screenshot mode'
-                : 'Screenshot mode — Click for Video mode'
+                ? 'WebSocket Video (60fps) — Click for SSE Video'
+                : qualityMode === 'sse'
+                ? 'SSE Video (60fps) — Click for Screenshot mode'
+                : 'Screenshot mode — Click for WebSocket Video'
             }
             arrow
             slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
@@ -3014,18 +3139,32 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 size="small"
                 disabled={modeSwitchCooldown}
                 onClick={() => {
-                  // Toggle between high (video) and low (screenshots)
-                  // With cooldown to prevent Wolf deadlock from rapid switching
+                  // Cycle: high → sse → low → high
+                  // All modes use WebSocket for input, just different video delivery
                   setModeSwitchCooldown(true);
-                  setQualityMode(prev => prev === 'high' ? 'low' : 'high');
+                  setQualityMode(prev => {
+                    if (prev === 'high') return 'sse';
+                    if (prev === 'sse') return 'low';
+                    return 'high';
+                  });
                   setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
                 }}
                 sx={{
-                  // Orange for screenshot mode, white for video mode
-                  color: qualityMode === 'low' ? '#ff9800' : 'white',
+                  // Different colors for each mode
+                  color: qualityMode === 'high'
+                    ? 'white'
+                    : qualityMode === 'sse'
+                    ? 'primary.main'  // Blue for SSE
+                    : '#ff9800',  // Orange for screenshot mode
                 }}
               >
-                <Speed fontSize="small" />
+                {qualityMode === 'high' ? (
+                  <Speed fontSize="small" />
+                ) : qualityMode === 'sse' ? (
+                  <StreamIcon fontSize="small" />
+                ) : (
+                  <CameraAlt fontSize="small" />
+                )}
               </IconButton>
             </span>
           </Tooltip>

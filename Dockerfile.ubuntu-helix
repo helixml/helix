@@ -332,7 +332,7 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
 # Disables: component updates, sync, background networking, translation
 # This significantly reduces Chrome startup time in containers
 COPY wolf/ubuntu-config/google-chrome-wrapper.sh /usr/local/bin/google-chrome-wrapper.sh
-RUN chmod +x /usr/local/bin/google-chrome-wrapper.sh && \
+RUN chmod 755 /usr/local/bin/google-chrome-wrapper.sh && \
     # Update Chrome desktop file to use wrapper
     sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome-wrapper.sh|g' \
         /usr/share/applications/google-chrome.desktop && \
