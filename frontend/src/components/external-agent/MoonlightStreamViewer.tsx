@@ -1015,11 +1015,18 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   }, [qualityMode, reconnect]);
 
   // Track previous user bitrate for reconnection
-  const previousUserBitrateRef = useRef<number | null>(userBitrate);
+  // Initialize to a sentinel value (-1) to distinguish "not yet set" from "set to null"
+  const previousUserBitrateRef = useRef<number | null | undefined>(undefined);
 
   // Reconnect when user bitrate changes (user selected new bitrate or adaptive reduction)
   useEffect(() => {
-    if (previousUserBitrateRef.current !== userBitrate && previousUserBitrateRef.current !== null) {
+    // Skip on first render (previousUserBitrateRef is undefined)
+    if (previousUserBitrateRef.current === undefined) {
+      previousUserBitrateRef.current = userBitrate;
+      return;
+    }
+    // Reconnect if bitrate actually changed (including from null to a value)
+    if (previousUserBitrateRef.current !== userBitrate) {
       console.log('[MoonlightStreamViewer] Bitrate changed from', previousUserBitrateRef.current, 'to', userBitrate);
       console.log('[MoonlightStreamViewer] Reconnecting with new bitrate (5s delay)');
       reconnect(5000); // 5 seconds for bitrate switches to allow cleanup
@@ -2495,7 +2502,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               textTransform: 'none',
             }}
           >
-            {requestedBitrate}M
+            {userBitrate ?? requestedBitrate}M
           </Button>
         </Tooltip>
         <Menu
@@ -2509,7 +2516,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           {[5, 10, 20, 40, 80].map((bitrate) => (
             <MenuItem
               key={bitrate}
-              selected={requestedBitrate === bitrate}
+              selected={(userBitrate ?? requestedBitrate) === bitrate}
               onClick={() => {
                 setUserBitrate(bitrate);
                 setBitrateMenuAnchor(null);
