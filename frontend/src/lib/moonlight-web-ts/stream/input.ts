@@ -226,10 +226,29 @@ export class StreamInput {
         }
     }
     onMouseWheel(event: WheelEvent) {
+        // Normalize wheel deltas based on deltaMode
+        // DOM_DELTA_PIXEL (0): Values in pixels - Chrome sends 100-150 per notch
+        // DOM_DELTA_LINE (1): Values in lines - Firefox sends 1-3 per notch
+        // DOM_DELTA_PAGE (2): Values in pages - rare
+        let deltaX = event.deltaX;
+        let deltaY = event.deltaY;
+
+        if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+            // Pixel mode (Chrome default) - normalize to ~1-3 per notch
+            // 120 pixels is the standard "one notch" in Windows
+            deltaX = deltaX / 120;
+            deltaY = deltaY / 120;
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            // Page mode - multiply to get reasonable scroll
+            deltaX = deltaX * 10;
+            deltaY = deltaY * 10;
+        }
+        // LINE mode (1) - use as-is, already reasonable values
+
         if (this.config.mouseScrollMode == "highres") {
-            this.sendMouseWheelHighRes(event.deltaX, -event.deltaY)
+            this.sendMouseWheelHighRes(deltaX, -deltaY)
         } else if (this.config.mouseScrollMode == "normal") {
-            this.sendMouseWheel(event.deltaX, -event.deltaY)
+            this.sendMouseWheel(deltaX, -deltaY)
         }
     }
 
