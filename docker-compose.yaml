@@ -12,6 +12,7 @@ services:
       - "3478:3478/udp"  # TURN server for WebRTC (Helix Code)
       - "3478:3478/tcp"  # TURN server TCP transport (firewall fallback)
     restart: always
+    privileged: true  # Required for DNS resolution on older Docker/cgroup v1
     env_file:
       - .env
     environment:
