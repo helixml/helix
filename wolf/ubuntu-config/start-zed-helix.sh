@@ -551,6 +551,12 @@ fi
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
 echo "Using vanilla Ubuntu settings (no custom HiDPI scaling)"
 
+# Enable vsync for Zed to prevent excessive CPU/GPU usage during scrolling
+# DisplaySync::Block uses Vulkan FIFO which waits for vsync, reducing CPU load
+# This is especially important on XWayland where MAILBOX mode causes lag
+export ZED_DISPLAY_SYNC=block
+echo "ZED_DISPLAY_SYNC=block (vsync enabled for smooth scrolling)"
+
 while true; do
     echo "Launching Zed..."
     /zed-build/zed "${ZED_FOLDERS[@]}" || true
