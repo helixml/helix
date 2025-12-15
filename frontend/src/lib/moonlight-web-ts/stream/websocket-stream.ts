@@ -65,6 +65,24 @@ function codecToWebCodecsString(codec: WsVideoCodecType): string {
   }
 }
 
+// Map codec byte to human-readable display name for stats UI
+function codecToDisplayName(codec: WsVideoCodecType | null): string {
+  if (codec === null) return "Unknown"
+  switch (codec) {
+    case WsVideoCodec.H264: return "H.264"
+    case WsVideoCodec.H264High444: return "H.264 High 4:4:4"
+    case WsVideoCodec.H265: return "HEVC"
+    case WsVideoCodec.H265Main10: return "HEVC Main10"
+    case WsVideoCodec.H265Rext8_444: return "HEVC RExt 4:4:4"
+    case WsVideoCodec.H265Rext10_444: return "HEVC RExt 10bit 4:4:4"
+    case WsVideoCodec.Av1Main8: return "AV1"
+    case WsVideoCodec.Av1Main10: return "AV1 10bit"
+    case WsVideoCodec.Av1High8_444: return "AV1 High 4:4:4"
+    case WsVideoCodec.Av1High10_444: return "AV1 High 10bit 4:4:4"
+    default: return `Unknown (0x${codec.toString(16)})`
+  }
+}
+
 // ============================================================================
 // Event Types
 // ============================================================================
@@ -170,6 +188,7 @@ export class WebSocketStream {
   private maxDecodeQueueSize = 0                      // Peak queue size seen
   private readonly QUEUE_FLUSH_THRESHOLD = 10         // Flush queue when > 10 frames backed up
   private framesSkippedToKeyframe = 0                 // Count of frames flushed for stats
+  private queueBackupLogged = false                   // Prevent log spam during queue backup
 
   // Batching request sent to server
   private batchingRequested = false
@@ -732,17 +751,17 @@ export class WebSocketStream {
       }
       this.currentFrameLatencyMs = this.frameLatencySamples.reduce((a, b) => a + b, 0) / this.frameLatencySamples.length
 
-      // Request batching from server if latency exceeds threshold
-      if (this.currentFrameLatencyMs > this.FRAME_LATENCY_THRESHOLD_MS && !this.batchingRequested) {
-        console.warn(`[WebSocketStream] High frame latency detected (${this.currentFrameLatencyMs.toFixed(0)}ms), requesting batching`)
-        this.sendBatchingRequest(true)
-        this.batchingRequested = true
-      } else if (this.currentFrameLatencyMs < this.FRAME_LATENCY_THRESHOLD_MS / 2 && this.batchingRequested) {
-        // Latency recovered, disable batching request
-        console.log(`[WebSocketStream] Frame latency recovered (${this.currentFrameLatencyMs.toFixed(0)}ms), disabling batching request`)
-        this.sendBatchingRequest(false)
-        this.batchingRequested = false
-      }
+      // DISABLED: Batching feature breaks the stream - see user report
+      // TODO: Investigate why batching causes issues before re-enabling
+      // if (this.currentFrameLatencyMs > this.FRAME_LATENCY_THRESHOLD_MS && !this.batchingRequested) {
+      //   console.warn(`[WebSocketStream] High frame latency detected (${this.currentFrameLatencyMs.toFixed(0)}ms), requesting batching`)
+      //   this.sendBatchingRequest(true)
+      //   this.batchingRequested = true
+      // } else if (this.currentFrameLatencyMs < this.FRAME_LATENCY_THRESHOLD_MS / 2 && this.batchingRequested) {
+      //   console.log(`[WebSocketStream] Frame latency recovered (${this.currentFrameLatencyMs.toFixed(0)}ms), disabling batching request`)
+      //   this.sendBatchingRequest(false)
+      //   this.batchingRequested = false
+      // }
     }
 
     // === Decoder Queue Monitoring ===
@@ -785,44 +804,19 @@ export class WebSocketStream {
       this.receivedFirstKeyframe = true
     }
 
-    // === Queue Flush on Keyframe ===
-    // If decoder queue is backed up AND we receive a keyframe, flush and skip to it
-    // This is safe because keyframes are independently decodable (contain SPS/PPS)
-    // We cannot drop delta frames (breaks decode chain), but we CAN skip to keyframes
-    if (isKeyframe && queueSize > this.QUEUE_FLUSH_THRESHOLD) {
-      console.warn(`[WebSocketStream] Queue backed up (${queueSize} frames), flushing to keyframe`)
-      this.framesSkippedToKeyframe += queueSize
-
-      // Reset the decoder to flush the queue
-      try {
-        this.videoDecoder.reset()
-
-        // Reconfigure the decoder (required after reset)
-        const codecString = codecToWebCodecsString(this.lastVideoCodec!)
-        const config: VideoDecoderConfig = {
-          codec: codecString,
-          codedWidth: this.lastVideoWidth,
-          codedHeight: this.lastVideoHeight,
-          hardwareAcceleration: this.lastVideoHwAccel,
-        }
-
-        // Add format hints for H264/HEVC
-        if (codecString.startsWith("avc1")) {
-          // @ts-ignore
-          config.avc = { format: "annexb" }
-        }
-        if (codecString.startsWith("hvc1") || codecString.startsWith("hev1")) {
-          // @ts-ignore
-          config.hevc = { format: "annexb" }
-        }
-
-        this.videoDecoder.configure(config)
-        console.log(`[WebSocketStream] Decoder reconfigured after flush, decoding keyframe`)
-      } catch (e) {
-        console.error("[WebSocketStream] Failed to reset decoder:", e)
-        this.receivedFirstKeyframe = false
-        return
+    // === Queue Monitoring (flush disabled) ===
+    // Queue flush on keyframe is disabled because it causes decoder errors on software H.264
+    // (CPU contention between decode and fetch processing leads to decode failures after reset)
+    // Instead, just log when queue backs up and let it naturally catch up
+    if (queueSize > this.QUEUE_FLUSH_THRESHOLD) {
+      // Only log once per backup event (not every frame)
+      if (!this.queueBackupLogged) {
+        console.warn(`[WebSocketStream] Queue backed up (${queueSize} frames), waiting for catchup`)
+        this.queueBackupLogged = true
       }
+    } else if (this.queueBackupLogged && queueSize <= 3) {
+      console.log(`[WebSocketStream] Queue recovered (${queueSize} frames)`)
+      this.queueBackupLogged = false
     }
 
     try {
@@ -1321,6 +1315,8 @@ export class WebSocketStream {
     decodeQueueSize: number          // Current decoder queue depth
     maxDecodeQueueSize: number       // Peak queue size seen
     framesSkippedToKeyframe: number  // Frames flushed when skipping to keyframe
+    // Codec info
+    codecString: string              // Human-readable codec name (H.264, HEVC, AV1, etc.)
   } {
     // Calculate batching metrics
     const totalFrames = this.batchedFramesReceived + this.individualFramesReceived
@@ -1354,6 +1350,8 @@ export class WebSocketStream {
       decodeQueueSize: this.lastDecodeQueueSize,
       maxDecodeQueueSize: this.maxDecodeQueueSize,
       framesSkippedToKeyframe: this.framesSkippedToKeyframe,
+      // Codec info
+      codecString: codecToDisplayName(this.lastVideoCodec),
     }
   }
 
