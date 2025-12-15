@@ -1137,8 +1137,8 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
 fi
 
 if [ "$SANDBOX" = true ]; then
-    # When installing sandbox node, API_HOST, RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+    # When installing sandbox node without controlplane, API_HOST, RUNNER_TOKEN are required
+    if [ "$CONTROLPLANE" != true ] && ([ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]); then
         echo "Error: When installing sandbox node, you must specify --api-host, --runner-token"
         echo "to connect to an external controlplane, for example:"
         echo
