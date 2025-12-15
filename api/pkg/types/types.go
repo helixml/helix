@@ -493,17 +493,14 @@ func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
 	}
-	// Auto-set 200% zoom for 4k/5k resolution presets
+	// Auto-set 200% zoom only when user explicitly selects "4k" or "5k" preset
+	// (these presets imply 2x scaling for readable UI)
 	switch c.Resolution {
 	case "5k", "4k":
 		return 200
+	default:
+		return 100
 	}
-	// Also auto-detect from explicit dimensions (fallback)
-	// 4K = 3840x2160, 5K = 5120x2880
-	if c.DisplayHeight >= 2160 {
-		return 200
-	}
-	return 100
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
