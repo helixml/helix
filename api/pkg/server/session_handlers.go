@@ -407,6 +407,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				if startReq.ExternalAgentConfig.DisplayRefreshRate > 0 {
 					zedAgent.DisplayRefreshRate = startReq.ExternalAgentConfig.DisplayRefreshRate
 				}
+				// CRITICAL: Also copy resolution preset, zoom level, and desktop type
+				// These are needed for proper GNOME 2x HiDPI scaling
+				if startReq.ExternalAgentConfig.Resolution != "" {
+					zedAgent.Resolution = startReq.ExternalAgentConfig.Resolution
+				}
+				if startReq.ExternalAgentConfig.ZoomLevel > 0 {
+					zedAgent.ZoomLevel = startReq.ExternalAgentConfig.ZoomLevel
+				}
+				if startReq.ExternalAgentConfig.DesktopType != "" {
+					zedAgent.DesktopType = startReq.ExternalAgentConfig.DesktopType
+				}
 			}
 
 			// Add user's API token for git operations (merges with any custom env vars)
