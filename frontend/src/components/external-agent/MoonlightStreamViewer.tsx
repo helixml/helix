@@ -354,9 +354,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       let stream: Stream | WebSocketStream | SseStream;
 
-      // Check if using SSE mode (WebSocket for session/input, SSE for video)
-      // Architecture: ONE WebSocket creates Wolf session, SSE subscribes to video from it
-      if (streamingMode === 'sse') {
+      // NOTE: Old SSE-as-streamingMode code removed. SSE is now controlled by qualityMode='sse'.
+      // The hot-switch handler (useEffect on qualityMode) opens SSE after WebSocket connects.
+      // This simplifies initial connect - always use WebSocket, then hot-switch video source.
+      if (false as boolean) { // Dead code - keeping for reference, will be removed
         console.log('[MoonlightStreamViewer] Using SSE streaming mode (WebSocket for input, SSE for video)');
 
         // Use same session ID format as websocket mode for consistency
@@ -597,6 +598,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           } else if (data.type === 'connectionComplete') {
             setIsConnected(true);
             setIsConnecting(false);
+            hasEverConnectedRef.current = true; // Mark first successful connection
             setStatus('Streaming active (SSE + WebSocket)');
             onConnectionChange?.(true);
           } else if (data.type === 'error') {
@@ -720,6 +722,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         } else if (data.type === 'connectionComplete') {
           setIsConnected(true);
           setIsConnecting(false);
+          hasEverConnectedRef.current = true; // Mark first successful connection
           setStatus('Streaming active');
           setError(null); // Clear any previous errors on successful connection
           retryAttemptRef.current = 0; // Reset retry counter on successful connection
@@ -1461,7 +1464,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
       reconnect(5000);
     }
-  }, [streamingMode, reconnect, isConnected, sessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamingMode, sessionId]); // Only trigger on mode/session changes, not on reconnect/isConnected changes
 
   // Track previous quality mode for hot-switching
   const previousQualityModeRef = useRef<'high' | 'sse' | 'low'>(qualityMode);
@@ -1642,26 +1646,175 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     // 'low' mode: screenshot polling will auto-start via shouldPollScreenshots becoming true
   }, [qualityMode, isConnected, sessionId]);
 
+  // Handle initial connection with SSE quality mode
+  // The hot-switch handler above only triggers on qualityMode CHANGES, not initial state
+  // This effect runs once when first connected and sets up SSE if that's the initial mode
+  const hasInitializedSseRef = useRef(false);
+  useEffect(() => {
+    // Only run once when first connected with SSE mode
+    if (hasInitializedSseRef.current || !isConnected || qualityMode !== 'sse') {
+      return;
+    }
+
+    // Check if we have a WebSocket stream
+    if (!streamRef.current || !(streamRef.current instanceof WebSocketStream)) {
+      return;
+    }
+
+    console.log('[MoonlightStreamViewer] Initial connection with SSE mode - setting up SSE video');
+    hasInitializedSseRef.current = true;
+
+    const wsStream = streamRef.current as WebSocketStream;
+
+    // Disable WS video
+    wsStream.setVideoEnabled(false);
+
+    // Open SSE connection for video
+    const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
+    const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
+    console.log('[MoonlightStreamViewer] Opening SSE for initial video:', sseUrl);
+
+    const eventSource = new EventSource(sseUrl, { withCredentials: true });
+    sseEventSourceRef.current = eventSource;
+    sseReceivedFirstKeyframeRef.current = false;
+
+    // Reset SSE stats
+    sseStatsRef.current = {
+      framesDecoded: 0,
+      framesDropped: 0,
+      lastFrameTime: performance.now(),
+      frameCount: 0,
+      currentFps: 0,
+      width: 0,
+      height: 0,
+      codecString: '',
+      firstFramePtsUs: null,
+      firstFrameArrivalTime: null,
+      currentFrameLatencyMs: 0,
+      frameLatencySamples: [],
+    };
+
+    // Setup SSE decoder using the hot-switch canvas
+    if (sseCanvasRef.current) {
+      const canvas = sseCanvasRef.current;
+      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+      eventSource.addEventListener('init', async (e: MessageEvent) => {
+        try {
+          const init = JSON.parse(e.data);
+          console.log('[SSE Video] Init from initial setup:', init);
+
+          if (!init.width || !init.height || init.width <= 0 || init.height <= 0) {
+            console.error('[SSE Video] Invalid init data:', init);
+            return;
+          }
+
+          canvas.width = init.width;
+          canvas.height = init.height;
+
+          const codecString = init.codec || 'hvc1.1.6.L120.90';
+          const decoder = new VideoDecoder({
+            output: (frame: VideoFrame) => {
+              if (ctx && canvas.width > 0 && canvas.height > 0) {
+                ctx.drawImage(frame, 0, 0);
+              }
+              frame.close();
+              sseStatsRef.current.framesDecoded++;
+              sseStatsRef.current.lastFrameTime = performance.now();
+            },
+            error: (err: Error) => {
+              console.error('[SSE Video] Decoder error:', err);
+            },
+          });
+
+          decoder.configure({
+            codec: codecString,
+            codedWidth: init.width,
+            codedHeight: init.height,
+            hardwareAcceleration: 'prefer-hardware',
+            ...(codecString.startsWith('hvc1') || codecString.startsWith('hev1')
+              ? { hevc: { format: 'annexb' } }
+              : {}),
+          });
+
+          sseVideoDecoderRef.current = decoder;
+          sseStatsRef.current.width = init.width;
+          sseStatsRef.current.height = init.height;
+          sseStatsRef.current.codecString = codecString;
+        } catch (err) {
+          console.error('[SSE Video] Failed to parse init:', err);
+        }
+      });
+
+      eventSource.addEventListener('video', (e: MessageEvent) => {
+        const decoder = sseVideoDecoderRef.current;
+        if (!decoder || decoder.state !== 'configured') return;
+
+        try {
+          const frame = JSON.parse(e.data);
+
+          // Skip delta frames until first keyframe
+          if (!sseReceivedFirstKeyframeRef.current) {
+            if (!frame.keyframe) return;
+            console.log('[SSE Video] First keyframe received (initial)');
+            sseReceivedFirstKeyframeRef.current = true;
+          }
+
+          const binaryString = atob(frame.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          const chunk = new EncodedVideoChunk({
+            type: frame.keyframe ? 'key' : 'delta',
+            timestamp: frame.pts,
+            data: bytes,
+          });
+          decoder.decode(chunk);
+        } catch (err) {
+          console.error('[SSE Video] Failed to decode frame:', err);
+        }
+      });
+
+      eventSource.addEventListener('stop', () => {
+        console.log('[SSE Video] Stopped (initial)');
+        if (sseVideoDecoderRef.current) {
+          sseVideoDecoderRef.current.close();
+          sseVideoDecoderRef.current = null;
+        }
+      });
+
+      eventSource.onerror = (err) => {
+        console.error('[SSE Video] Error (initial):', err);
+      };
+    }
+  }, [isConnected, qualityMode, sessionId]);
+
   // Track previous user bitrate for reconnection
   // Initialize to a sentinel value (-1) to distinguish "not yet set" from "set to null"
   const previousUserBitrateRef = useRef<number | null | undefined>(undefined);
 
   // Reconnect when user bitrate changes (user selected new bitrate or adaptive reduction)
-  // IMPORTANT: Skip reconnect during initial connection (hasConnectedRef guards this)
+  // IMPORTANT: Skip reconnect during INITIAL connection only (before first successful connection)
   // The initial bandwidth probe sets userBitrate BEFORE calling connect(), so we must not
   // trigger a reconnect on that first bitrate change or we'll get double-connections
+  // NOTE: No function dependencies to avoid re-running when connect/reconnect identities change
   useEffect(() => {
     // Skip on first render (previousUserBitrateRef is undefined)
     if (previousUserBitrateRef.current === undefined) {
       previousUserBitrateRef.current = userBitrate;
       return;
     }
-    // Skip if we're in the middle of initial connection (started but not yet connected)
-    // hasConnectedRef.current = true means we started initial connection
-    // isConnected = false means connection not complete yet
-    // In this state, the bitrate change came from the initial bandwidth probe, not user action
-    if (hasConnectedRef.current && !isConnected) {
-      console.log('[MoonlightStreamViewer] Skipping bitrate-change reconnect (initial connection in progress)');
+    // Skip if we're in the INITIAL connection (started connecting but never connected yet)
+    // hasConnectedRef = true means we've started connecting
+    // hasEverConnectedRef = false means we've never successfully connected
+    // This distinguishes initial connection from reconnection after a drop
+    if (hasConnectedRef.current && !hasEverConnectedRef.current) {
+      // Only log once per bitrate change, not on every re-render
+      if (previousUserBitrateRef.current !== userBitrate) {
+        console.log('[MoonlightStreamViewer] Skipping bitrate-change reconnect (initial connection in progress)');
+      }
       previousUserBitrateRef.current = userBitrate;
       return;
     }
@@ -1672,7 +1825,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       reconnect(5000); // 5 seconds for bitrate switches to allow cleanup
     }
     previousUserBitrateRef.current = userBitrate;
-  }, [userBitrate, reconnect, isConnected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userBitrate]); // Only trigger on bitrate changes, not on reconnect/isConnected changes
 
   // Detect lobby changes and reconnect (for test script restart scenarios)
   // Uses 5-second delay to wait for moonlight-web cleanup before connecting to new lobby
@@ -1683,7 +1837,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       reconnect(5000); // 5 seconds for lobby switches to allow cleanup
     }
     previousLobbyIdRef.current = wolfLobbyId;
-  }, [wolfLobbyId, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wolfLobbyId]); // Only trigger on lobby changes
 
   // Initial bandwidth probe - runs BEFORE session exists to determine optimal starting bitrate
   // Uses /api/v1/bandwidth-probe which only requires auth (no session ownership)
@@ -1747,6 +1902,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
   // NEW: Probe bandwidth FIRST, then connect at optimal bitrate (avoids reconnect on startup)
   const hasConnectedRef = useRef(false);
+  const hasEverConnectedRef = useRef(false); // True after first successful connection (distinguishes initial vs reconnect)
   useEffect(() => {
     // Only auto-connect once
     if (hasConnectedRef.current) return;
@@ -1784,7 +1940,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     };
 
     probeAndConnect();
-  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment, connect, runInitialBandwidthProbe, calculateOptimalBitrate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wolfLobbyId, sessionId, isPersonalDevEnvironment]); // Only trigger on props, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1793,7 +1950,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       console.log('[MoonlightStreamViewer] Component unmounting, calling disconnect()');
       disconnect();
     };
-  }, [disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount/unmount
 
   // Auto-focus container when stream connects for keyboard input
   useEffect(() => {
@@ -2372,9 +2530,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // WebSocket and SSE modes - poll stats from WebSocketStream
-    // SSE mode also uses WebSocketStream for input and session management
-    if (streamingMode === 'websocket' || streamingMode === 'sse') {
+    // WebSocket mode - poll stats from WebSocketStream
+    // SSE video mode also uses WebSocketStream for input and session management
+    if (streamingMode === 'websocket') {
       const pollWsStats = () => {
         const currentStream = streamRef.current;
         if (!currentStream) return;
@@ -2383,9 +2541,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const wsStats = wsStream.getStats();
         const isForcedLow = qualityMode === 'low';
 
-        // In SSE mode, video stats come from SSE decoder, not WebSocket
+        // In SSE quality mode, video stats come from SSE decoder, not WebSocket
         const sseStats = sseStatsRef.current;
-        const isSSE = streamingMode === 'sse';
+        const isSSE = qualityMode === 'sse';
 
         setStats({
           video: {
@@ -2559,9 +2717,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     // Use appropriate canvas/video element for each mode
     let element: HTMLCanvasElement | HTMLVideoElement | null = null;
     if (streamingMode === 'websocket') {
-      element = canvasRef.current;
-    } else if (streamingMode === 'sse') {
-      element = sseCanvasRef.current;
+      // SSE quality mode uses sseCanvasRef, other WebSocket modes use canvasRef
+      element = qualityMode === 'sse' ? sseCanvasRef.current : canvasRef.current;
     } else {
       element = videoRef.current;
     }
@@ -2572,9 +2729,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     const boundingRect = element.getBoundingClientRect();
 
-    // For WebSocket/SSE mode: canvas is already sized to maintain aspect ratio,
+    // For WebSocket mode (including SSE quality): canvas is already sized to maintain aspect ratio,
     // so bounding rect IS the video content area (no letterboxing)
-    if (streamingMode === 'websocket' || streamingMode === 'sse') {
+    if (streamingMode === 'websocket') {
       return new DOMRect(
         boundingRect.x,
         boundingRect.y,
@@ -2613,17 +2770,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     );
   }, [width, height, streamingMode, shouldPollScreenshots, screenshotUrl]);
 
-  // Get input handler - for SSE mode, use the separate input WebSocket
+  // Get input handler - always from the main stream
+  // SSE quality mode still uses the same WebSocketStream for input
   const getInputHandler = useCallback(() => {
-    if (streamingMode === 'sse' && sseInputWsRef.current) {
-      return sseInputWsRef.current.getInput();
-    }
-    // For WebSocket and WebRTC modes, get input from the main stream
+    // For all modes, get input from the main stream
     if (streamRef.current && 'getInput' in streamRef.current) {
       return (streamRef.current as WebSocketStream | Stream).getInput();
     }
     return null;
-  }, [streamingMode]);
+  }, []);
 
   // Input event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
@@ -3454,7 +3609,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
           cursor: 'none',
-          display: streamingMode === 'sse' ? 'block' : 'none',
+          display: qualityMode === 'sse' ? 'block' : 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
@@ -3528,13 +3683,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           </Typography>
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
-            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? 'WebSocket (L7)' : streamingMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebRTC'}</div>
+            <div><strong>Transport:</strong> {streamingMode === 'websocket' ? (qualityMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebSocket (L7)') : 'WebRTC'}</div>
             {stats?.video?.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                {streamingMode === 'websocket' || streamingMode === 'sse' ? (
+                {streamingMode === 'websocket' ? (
                   <div><strong>Bitrate:</strong> {stats.video.totalBitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
                 ) : (
                   <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
