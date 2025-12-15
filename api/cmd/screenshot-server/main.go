@@ -252,8 +252,8 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 	defer os.Remove(filename)
 
 	// Use scrot for X11 screenshots
-	// -o = overwrite file, -z = silent mode
-	cmd := exec.Command("scrot", "-o", "-z", filename)
+	// -o = overwrite file, -z = silent mode, -p = capture mouse pointer
+	cmd := exec.Command("scrot", "-o", "-z", "-p", filename)
 	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
 
 	output, err := cmd.CombinedOutput()
