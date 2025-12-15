@@ -74,6 +74,7 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
+    privileged: true  # Required for cgroup access on older Docker/cgroup v1
     # ports:
     #   - 5432:5432
     volumes:
