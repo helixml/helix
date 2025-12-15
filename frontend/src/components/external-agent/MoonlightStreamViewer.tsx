@@ -1080,9 +1080,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               // Log first 10 frames and then every 30th frame
               if (sseFrameNum < 10 || sseFrameNum % 30 === 0) {
                 console.log('[SSE Video] RAW event.data length:', rawDataLength, 'chars (frame #' + sseFrameNum + ')');
-                // Log first 200 chars to see event structure
-                if (rawDataLength < 5000) {
-                  console.log('[SSE Video] RAW data (truncated?):', e.data?.substring(0, 200) + '...');
+                // Log first/last 200 chars to see if event is truncated
+                if (rawDataLength < 10000) {
+                  const first200 = e.data?.substring(0, 200) || '';
+                  const last200 = e.data?.substring(Math.max(0, rawDataLength - 200)) || '';
+                  console.log('[SSE Video] RAW data START:', first200);
+                  console.log('[SSE Video] RAW data END:', last200);
+                  // Check if JSON ends properly with }
+                  const lastChar = e.data?.charAt(rawDataLength - 1);
+                  if (lastChar !== '}') {
+                    console.error('[SSE Video] JSON NOT PROPERLY TERMINATED! Last char:', lastChar, 'expected: }');
+                  }
                 }
               }
 
