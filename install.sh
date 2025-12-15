@@ -736,6 +736,25 @@ install_docker_compose_only() {
     fi
 }
 
+# Function to fix helix_default network if it has incorrect Docker Compose labels
+# This can happen if the network was created manually (e.g., by runner/sandbox scripts)
+# before docker compose up was run
+fix_helix_network_labels() {
+    if docker network inspect helix_default >/dev/null 2>&1; then
+        # Check if network has correct Docker Compose label
+        NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+        if [ "$NETWORK_LABEL" != "default" ]; then
+            echo "helix_default network has incorrect labels. Removing so Docker Compose can recreate it..."
+            # Disconnect all containers from the network first
+            for container in $(docker network inspect helix_default -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                docker network disconnect -f helix_default "$container" 2>/dev/null || true
+            done
+            docker network rm helix_default 2>/dev/null || true
+            echo "✓ Network removed. Docker Compose will recreate it with correct labels."
+        fi
+    fi
+}
+
 # default docker command
 DOCKER_CMD="docker"
 
@@ -2003,6 +2022,10 @@ CADDYEOF"
 
     echo ".env file has been created at $ENV_FILE"
     echo
+
+    # Fix network labels if needed before user runs docker compose
+    fix_helix_network_labels
+
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ❗ To complete installation, you MUST now:"
     if [ "$API_HOST" != "http://localhost:8080" ]; then
