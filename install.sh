@@ -736,25 +736,6 @@ install_docker_compose_only() {
     fi
 }
 
-# Function to fix helix_default network if it has incorrect Docker Compose labels
-# This can happen if the network was created manually (e.g., by runner/sandbox scripts)
-# before docker compose up was run
-fix_helix_network_labels() {
-    if docker network inspect helix_default >/dev/null 2>&1; then
-        # Check if network has correct Docker Compose label
-        NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
-        if [ "$NETWORK_LABEL" != "default" ]; then
-            echo "helix_default network has incorrect labels. Removing so Docker Compose can recreate it..."
-            # Disconnect all containers from the network first
-            for container in $(docker network inspect helix_default -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
-                docker network disconnect -f helix_default "$container" 2>/dev/null || true
-            done
-            docker network rm helix_default 2>/dev/null || true
-            echo "✓ Network removed. Docker Compose will recreate it with correct labels."
-        fi
-    fi
-}
-
 # default docker command
 DOCKER_CMD="docker"
 
@@ -2022,10 +2003,6 @@ CADDYEOF"
 
     echo ".env file has been created at $ENV_FILE"
     echo
-
-    # Fix network labels if needed before user runs docker compose
-    fix_helix_network_labels
-
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ❗ To complete installation, you MUST now:"
     if [ "$API_HOST" != "http://localhost:8080" ]; then
@@ -2132,12 +2109,39 @@ if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlpl
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
-# Check if helix_default network exists, create it if it doesn't
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network..."
-    docker network create helix_default
+# Check if helix_default network exists
+# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
+# If standalone runner (no docker-compose.yaml), create network if needed
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+if [ -f "\$SCRIPT_DIR/docker-compose.yaml" ]; then
+    # Controlplane is on same machine - network should be created by docker compose
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Error: helix_default network does not exist."
+        echo "Please run 'docker compose up -d' first to start the controlplane."
+        echo "The controlplane creates the network with correct Docker Compose labels."
+        exit 1
+    fi
+    # Check if network has correct Docker Compose labels
+    NETWORK_LABEL=\$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+    if [ "\$NETWORK_LABEL" != "default" ]; then
+        echo "Error: helix_default network exists but has incorrect labels."
+        echo "This happens when the network was created manually instead of by Docker Compose."
+        echo ""
+        echo "To fix, run:"
+        echo "  docker network rm helix_default"
+        echo "  docker compose up -d"
+        echo "  ./runner.sh"
+        exit 1
+    fi
+    echo "helix_default network exists with correct labels."
 else
-    echo "helix_default network already exists."
+    # Standalone runner - create network if needed
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Creating helix_default network..."
+        docker network create helix_default
+    else
+        echo "helix_default network already exists."
+    fi
 fi
 
 # Detect total number of GPUs based on vendor
@@ -2388,12 +2392,40 @@ MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
 PAIRING_PIN="${PAIRING_PIN}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
-# Check if helix_default network exists, create it if it doesn't
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network..."
-    docker network create helix_default
+# Check if helix_default network exists
+# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
+# If standalone sandbox (no docker-compose.yaml), create network if needed
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/docker-compose.yaml" ]; then
+    # Controlplane is on same machine - network should be created by docker compose
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Error: helix_default network does not exist."
+        echo "Please run 'docker compose up -d' first to start the controlplane."
+        echo "The controlplane creates the network with correct Docker Compose labels."
+        exit 1
+    fi
+    # Check if network has correct Docker Compose labels
+    NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+    if [ "$NETWORK_LABEL" != "default" ]; then
+        echo "Error: helix_default network exists but has incorrect labels."
+        echo "This happens when the network was created manually instead of by Docker Compose."
+        echo ""
+        echo "To fix, run:"
+        echo "  docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null"
+        echo "  docker network rm helix_default"
+        echo "  docker compose up -d"
+        echo "  ./sandbox.sh"
+        exit 1
+    fi
+    echo "helix_default network exists with correct labels."
 else
-    echo "helix_default network already exists."
+    # Standalone sandbox - create network if needed
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Creating helix_default network..."
+        docker network create helix_default
+    else
+        echo "helix_default network already exists."
+    fi
 fi
 
 # Stop and remove existing sandbox container if it exists
