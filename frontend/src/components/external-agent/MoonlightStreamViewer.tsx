@@ -1744,6 +1744,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             batchingRequested: wsStats.batchingRequested,                      // Client requested batching
             decodeQueueSize: wsStats.decodeQueueSize,                          // Decoder queue depth
             maxDecodeQueueSize: wsStats.maxDecodeQueueSize,                    // Peak queue size
+            framesSkippedToKeyframe: wsStats.framesSkippedToKeyframe,          // Frames flushed when skipping to keyframe
           },
           connection: {
             transport: streamingMode === 'sse'
@@ -2870,6 +2871,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                       <span style={{ color: '#888' }}> (peak: {stats.video.maxDecodeQueueSize})</span>
                     )}
                     {stats.video.decodeQueueSize > 3 && <span style={{ color: '#ff6b6b' }}> ⚠️ Backed up</span>}
+                  </div>
+                )}
+                {/* Frames skipped to keyframe (WebSocket mode) - shows when decoder fell behind and skipped ahead */}
+                {streamingMode === 'websocket' && stats.video.framesSkippedToKeyframe > 0 && (
+                  <div>
+                    <strong>Skipped to KF:</strong> {stats.video.framesSkippedToKeyframe} frames
+                    <span style={{ color: '#ff9800' }}> ⏭️</span>
                   </div>
                 )}
                 {/* WebRTC-only stats - not available in WebSocket mode */}
