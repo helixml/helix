@@ -247,13 +247,24 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 	}
 
 	// Create temporary file for screenshot
+	// scrot determines format from file extension
 	tmpDir := os.TempDir()
-	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	var filename string
+	var outputFormat string
+
+	if format == "jpeg" {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
+		outputFormat = "jpeg"
+	} else {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+		outputFormat = "png"
+	}
 	defer os.Remove(filename)
 
 	// Use scrot for X11 screenshots
-	// -o = overwrite file, -z = silent mode, -p = capture mouse pointer
-	cmd := exec.Command("scrot", "-o", "-z", "-p", filename)
+	// -o = overwrite file, -z = silent mode, -p = capture mouse pointer, -q = quality (0-100)
+	// scrot uses file extension to determine output format
+	cmd := exec.Command("scrot", "-o", "-z", "-p", "-q", fmt.Sprintf("%d", quality), filename)
 	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
 
 	output, err := cmd.CombinedOutput()
@@ -267,31 +278,8 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
 	}
 
-	// scrot outputs PNG by default
-	// If JPEG requested and quality specified, convert using ImageMagick if available
-	if format == "jpeg" {
-		jpegFile := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
-		defer os.Remove(jpegFile)
-
-		// Try to convert using ImageMagick's convert command
-		convertCmd := exec.Command("convert", filename, "-quality", fmt.Sprintf("%d", quality), jpegFile)
-		if err := convertCmd.Run(); err != nil {
-			// ImageMagick not available, return PNG instead
-			log.Printf("[X11] ImageMagick not available for JPEG conversion, returning PNG")
-			return data, "png", nil
-		}
-
-		jpegData, err := os.ReadFile(jpegFile)
-		if err != nil {
-			return data, "png", nil // Fall back to PNG
-		}
-
-		log.Printf("[X11] Screenshot captured and converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
-		return jpegData, "jpeg", nil
-	}
-
-	log.Printf("[X11] Screenshot captured as PNG (%d bytes)", len(data))
-	return data, "png", nil
+	log.Printf("[X11] Screenshot captured as %s (%d bytes, quality=%d)", outputFormat, len(data), quality)
+	return data, outputFormat, nil
 }
 
 func handleClipboard(w http.ResponseWriter, r *http.Request) {
