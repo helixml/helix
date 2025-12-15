@@ -11,6 +11,7 @@ import {
   Wifi,
   SignalCellularAlt,
   Speed,
+  Stream as StreamIcon,
   Timeline,
 } from '@mui/icons-material';
 import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
@@ -2182,7 +2183,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             modeSwitchCooldown
               ? 'Please wait...'
               : streamingMode === 'websocket'
-              ? 'Currently: WebSocket — Click for WebRTC'
+              ? 'Currently: WebSocket — Click for SSE (experimental)'
+              : streamingMode === 'sse'
+              ? 'Currently: SSE (experimental) — Click for WebRTC'
               : 'Currently: WebRTC — Click for WebSocket'
           }
           arrow
@@ -2193,17 +2196,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               size="small"
               disabled={modeSwitchCooldown}
               onClick={() => {
-                // Toggle between websocket and webrtc (SSE not implemented on backend)
+                // Cycle through modes: websocket → sse → webrtc → websocket
                 setModeSwitchCooldown(true);
-                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+                setStreamingMode(prev => {
+                  if (prev === 'websocket') return 'sse';
+                  if (prev === 'sse') return 'webrtc';
+                  return 'websocket';
+                });
                 setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
               }}
               sx={{
-                color: streamingMode === 'websocket' ? 'primary.main' : 'white'
+                color: streamingMode === 'websocket'
+                  ? 'primary.main'
+                  : streamingMode === 'sse'
+                  ? '#ff9800'  // Orange for SSE (experimental)
+                  : 'white'
               }}
             >
               {streamingMode === 'websocket' ? (
                 <Wifi fontSize="small" />
+              ) : streamingMode === 'sse' ? (
+                <StreamIcon fontSize="small" />
               ) : (
                 <SignalCellularAlt fontSize="small" />
               )}
