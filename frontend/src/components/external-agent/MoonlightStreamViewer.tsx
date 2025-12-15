@@ -502,8 +502,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       streamRef.current = stream;
 
-      // Listen for stream events
-      stream.addInfoListener((event: any) => {
+      // Listen for stream events (SSE mode uses callbacks instead of addInfoListener)
+      if (streamingMode !== 'sse' && 'addInfoListener' in stream) {
+        stream.addInfoListener((event: any) => {
         const data = event.detail;
 
         if (data.type === 'connected') {
@@ -591,7 +592,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
         }
-      });
+        });
+      }
 
       // Attach media stream to video element (WebRTC mode only)
       // WebSocket mode renders directly to canvas via WebCodecs
