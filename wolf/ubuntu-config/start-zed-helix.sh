@@ -551,11 +551,33 @@ fi
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
 echo "Using vanilla Ubuntu settings (no custom HiDPI scaling)"
 
-# Enable vsync for Zed to prevent excessive CPU/GPU usage during scrolling
-# DisplaySync::Block uses Vulkan FIFO which waits for vsync, reducing CPU load
-# This is especially important on XWayland where MAILBOX mode causes lag
-export ZED_DISPLAY_SYNC=block
-echo "ZED_DISPLAY_SYNC=block (vsync enabled for smooth scrolling)"
+# =========================================================================
+# Performance tuning for Zed on XWayland
+# =========================================================================
+# Zed is laggy on XWayland due to the extra compositing layer and frame timing
+# issues. These settings help mitigate the lag.
+#
+# For best performance, Zed should use native Wayland, but GNOME runs as an
+# X11 session on XWayland in this container, so no Wayland socket is available.
+# =========================================================================
+
+# Disable vsync - let the timer-based refresh control frame pacing instead
+# With XWayland, vsync (FIFO mode) can cause frame timing conflicts with
+# the X11 refresh timer, leading to stuttering. MAILBOX mode is actually
+# smoother on XWayland despite higher CPU usage.
+# export ZED_DISPLAY_SYNC=block  # Disabled - causes more stutter on XWayland
+echo "ZED_DISPLAY_SYNC=<default> (using MAILBOX mode for XWayland compatibility)"
+
+# Disable MSAA for path rendering to reduce GPU/CPU overhead
+# Sample count of 1 means no anti-aliasing on paths, which improves performance
+export ZED_PATH_SAMPLE_COUNT=1
+echo "ZED_PATH_SAMPLE_COUNT=1 (MSAA disabled for performance)"
+
+# NVIDIA-specific: Force threaded optimizations for better multi-core usage
+export __GL_THREADED_OPTIMIZATIONS=1
+
+# Limit Vulkan frame latency to reduce input lag
+export VK_LAYER_NV_optimus_present_mode_hint=MAILBOX
 
 while true; do
     echo "Launching Zed..."
