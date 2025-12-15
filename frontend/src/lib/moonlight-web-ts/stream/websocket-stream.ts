@@ -174,6 +174,14 @@ export class WebSocketStream {
   // Batching request sent to server
   private batchingRequested = false
 
+  // Mouse input throttling - prevents flooding WebSocket with high-polling-rate mice (500-1000 Hz)
+  // Throttle matches stream FPS - no point sending mouse events faster than we can render them
+  private mouseThrottleMs = 16  // Calculated from settings.fps in constructor
+  private lastMouseSendTime = 0
+  private pendingMousePosition: { x: number; y: number; refW: number; refH: number } | null = null
+  private pendingMouseMove: { dx: number; dy: number } | null = null
+  private mouseThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
+
   constructor(
     api: Api,
     hostId: number,
@@ -190,6 +198,10 @@ export class WebSocketStream {
     this.supportedVideoFormats = supportedVideoFormats
     this.sessionId = sessionId
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
+
+    // Calculate mouse throttle based on stream FPS
+    // No point sending mouse events faster than we can render them
+    this.mouseThrottleMs = Math.floor(1000 / settings.fps)
 
     // Initialize input handler
     const streamInputConfig = defaultStreamInputConfig()
@@ -1136,6 +1148,28 @@ export class WebSocketStream {
   }
 
   sendMouseMove(movementX: number, movementY: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastMouseSendTime
+
+    if (elapsed >= this.mouseThrottleMs) {
+      // Enough time has passed - send immediately
+      this.sendMouseMoveImmediate(movementX, movementY)
+      this.lastMouseSendTime = now
+      this.pendingMouseMove = null
+    } else {
+      // Throttled - accumulate movement (relative moves add up)
+      if (this.pendingMouseMove) {
+        this.pendingMouseMove.dx += movementX
+        this.pendingMouseMove.dy += movementY
+      } else {
+        this.pendingMouseMove = { dx: movementX, dy: movementY }
+      }
+      // Schedule flush after throttle period
+      this.scheduleMouseFlush(this.mouseThrottleMs - elapsed)
+    }
+  }
+
+  private sendMouseMoveImmediate(movementX: number, movementY: number) {
     // Format: subType(1) + dx(2) + dy(2)
     this.inputBuffer[0] = 0 // sub-type for relative
     this.inputView.setInt16(1, Math.round(movementX), false)
@@ -1144,6 +1178,23 @@ export class WebSocketStream {
   }
 
   sendMousePosition(x: number, y: number, refWidth: number, refHeight: number) {
+    const now = performance.now()
+    const elapsed = now - this.lastMouseSendTime
+
+    if (elapsed >= this.mouseThrottleMs) {
+      // Enough time has passed - send immediately
+      this.sendMousePositionImmediate(x, y, refWidth, refHeight)
+      this.lastMouseSendTime = now
+      this.pendingMousePosition = null
+    } else {
+      // Throttled - store latest position (absolute positions replace, not accumulate)
+      this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
+      // Schedule flush after throttle period
+      this.scheduleMouseFlush(this.mouseThrottleMs - elapsed)
+    }
+  }
+
+  private sendMousePositionImmediate(x: number, y: number, refWidth: number, refHeight: number) {
     // Format: subType(1) + x(2) + y(2) + refWidth(2) + refHeight(2)
     this.inputBuffer[0] = 1 // sub-type for absolute
     this.inputView.setInt16(1, Math.round(x), false)
@@ -1151,6 +1202,28 @@ export class WebSocketStream {
     this.inputView.setInt16(5, Math.round(refWidth), false)
     this.inputView.setInt16(7, Math.round(refHeight), false)
     this.sendInputMessage(WsMessageType.MouseAbsolute, this.inputBuffer.subarray(0, 9))
+  }
+
+  private scheduleMouseFlush(delayMs: number) {
+    // Only schedule if not already scheduled
+    if (this.mouseThrottleTimeoutId) return
+
+    this.mouseThrottleTimeoutId = setTimeout(() => {
+      this.mouseThrottleTimeoutId = null
+      this.lastMouseSendTime = performance.now()
+
+      // Send any pending mouse data
+      if (this.pendingMouseMove) {
+        const { dx, dy } = this.pendingMouseMove
+        this.pendingMouseMove = null
+        this.sendMouseMoveImmediate(dx, dy)
+      }
+      if (this.pendingMousePosition) {
+        const { x, y, refW, refH } = this.pendingMousePosition
+        this.pendingMousePosition = null
+        this.sendMousePositionImmediate(x, y, refW, refH)
+      }
+    }, delayMs)
   }
 
   sendMouseButton(isDown: boolean, button: number) {
@@ -1447,6 +1520,12 @@ export class WebSocketStream {
 
     // Stop RTT pings
     this.stopPingInterval()
+
+    // Cancel pending mouse throttle flush
+    if (this.mouseThrottleTimeoutId) {
+      clearTimeout(this.mouseThrottleTimeoutId)
+      this.mouseThrottleTimeoutId = null
+    }
 
     // Reset stream state
     this.resetStreamState()
