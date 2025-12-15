@@ -65,6 +65,25 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
 
+# Configure fontconfig for grayscale antialiasing (affects all apps including Zed)
+# RGB subpixel rendering looks bad when desktop is scaled via streaming
+mkdir -p ~/.config/fontconfig
+cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Use grayscale antialiasing instead of subpixel (RGB) -->
+  <!-- Subpixel rendering breaks when desktop is scaled via streaming -->
+  <match target="font">
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+  </match>
+</fontconfig>
+FONTCONFIG_EOF
+echo "✅ Fontconfig set to grayscale antialiasing"
+
 # Configure Qwen Code session persistence
 # Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
 # By setting QWEN_DATA_DIR to workspace, sessions persist across container restarts
@@ -123,10 +142,17 @@ custom_launcher() {
     mkdir -p $HOME/.config/waybar
     cp -u /cfg/waybar/* $HOME/.config/waybar/
 
-    # Configure dark mode for GTK applications
+    # Configure GTK applications: dark mode + grayscale antialiasing
+    # (RGB subpixel rendering looks bad when desktop is scaled via streaming)
     mkdir -p $HOME/.config/gtk-3.0
-    echo "[Settings]" > $HOME/.config/gtk-3.0/settings.ini
-    echo "gtk-application-prefer-dark-theme=1" >> $HOME/.config/gtk-3.0/settings.ini
+    cat > $HOME/.config/gtk-3.0/settings.ini << 'GTK_EOF'
+[Settings]
+gtk-application-prefer-dark-theme=1
+gtk-xft-antialias=1
+gtk-xft-hinting=1
+gtk-xft-hintstyle=hintslight
+gtk-xft-rgba=none
+GTK_EOF
 
     # Create custom waybar config with launcher icons
     cat > $HOME/.config/waybar/config.jsonc << 'EOF'

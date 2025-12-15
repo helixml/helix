@@ -55,8 +55,15 @@ function launch_desktop() {
         dconf load / < /opt/gow/dconf-settings.ini || echo "Warning: dconf load failed"
     fi
 
-    # Set scaling factor (1 = no scaling)
-    gsettings set org.gnome.desktop.interface scaling-factor 1 2>/dev/null || true
+    # Set scaling factor from HELIX_ZOOM_LEVEL (before gnome-session starts)
+    # This ensures Zed and other apps launch with correct scaling
+    ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}
+    GNOME_SCALE=$((ZOOM_LEVEL / 100))
+    if [ "$GNOME_SCALE" -lt 1 ]; then
+        GNOME_SCALE=1
+    fi
+    echo "Setting GNOME scaling factor to $GNOME_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
+    gsettings set org.gnome.desktop.interface scaling-factor $GNOME_SCALE 2>/dev/null || true
 
     # Start GNOME session
     /usr/bin/dbus-launch /usr/bin/gnome-session

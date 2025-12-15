@@ -138,6 +138,25 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "Zed state symlinks created"
 
+# Configure fontconfig for grayscale antialiasing (affects all apps including Zed)
+# RGB subpixel rendering looks bad when desktop is scaled via streaming
+mkdir -p ~/.config/fontconfig
+cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Use grayscale antialiasing instead of subpixel (RGB) -->
+  <!-- Subpixel rendering breaks when desktop is scaled via streaming -->
+  <match target="font">
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+  </match>
+</fontconfig>
+FONTCONFIG_EOF
+echo "Fontconfig set to grayscale antialiasing"
+
 # ============================================================================
 # RevDial Client for API Communication
 # ============================================================================
@@ -412,25 +431,8 @@ else
     echo "settings-sync-daemon autostart DISABLED by feature flag"
 fi
 
-# Create autostart entry for zoom/scaling configuration (runs early, before Zed)
-# CRITICAL: This must run BEFORE Zed launches because Zed doesn't dynamically resize
-# when GNOME zoom settings change. We set the scaling factor based on HELIX_ZOOM_LEVEL.
-if [ -n "$HELIX_ZOOM_LEVEL" ] && [ "$HELIX_ZOOM_LEVEL" != "100" ]; then
-    # Convert percentage to scaling factor (200% = 2.0)
-    SCALE_FACTOR=$(echo "scale=2; $HELIX_ZOOM_LEVEL / 100" | bc)
-    cat > ~/.config/autostart/helix-zoom.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Name=Helix Zoom Configuration
-Exec=/bin/bash -c "gsettings set org.gnome.desktop.interface text-scaling-factor $SCALE_FACTOR && echo 'Zoom set to ${HELIX_ZOOM_LEVEL}% (scale factor $SCALE_FACTOR)' >> /tmp/ubuntu-startup-debug.log"
-X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=0
-NoDisplay=true
-EOF
-    echo "Zoom autostart entry created (HELIX_ZOOM_LEVEL=${HELIX_ZOOM_LEVEL}%, scale=$SCALE_FACTOR)"
-else
-    echo "Zoom configuration skipped (HELIX_ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}%)"
-fi
+# NOTE: Display scaling is configured via monitors.xml (see above), NOT via gsettings
+# gsettings text-scaling-factor only affects GTK text, not the actual display scale
 
 # Create autostart entry for Zed (starts after settings are ready)
 if [ "$ENABLE_ZED_AUTOSTART" = "true" ]; then
