@@ -19496,6 +19496,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "last_zed_message_id": {
+                    "description": "LastZedMessageID tracks the last Zed message ID received for this interaction.\nUsed to detect multi-message responses: same ID = streaming update (overwrite),\ndifferent ID = new distinct message (append). Persisted in DB for restart resilience.",
+                    "type": "string"
+                },
                 "mode": {
                     "$ref": "#/definitions/types.SessionMode"
                 },
@@ -23298,6 +23302,10 @@ const docTemplate = `{
                     "description": "Optional line number",
                     "type": "integer"
                 },
+                "queued_at": {
+                    "description": "Database-backed queue for agent processing (restart-resilient)\nQueuedAt is set when comment is submitted for agent processing.\nProcessing order: QueuedAt ASC. Cleared when agent response is received.",
+                    "type": "string"
+                },
                 "quoted_text": {
                     "description": "For inline comments - store the context around the comment",
                     "type": "string"
@@ -24159,6 +24167,13 @@ const docTemplate = `{
             "properties": {
                 "huggingface_token": {
                     "type": "string"
+                },
+                "kodit_enrichment_model": {
+                    "type": "string"
+                },
+                "kodit_enrichment_provider": {
+                    "description": "Kodit enrichment model configuration",
+                    "type": "string"
                 }
             }
         },
@@ -24177,6 +24192,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "kodit_enrichment_model": {
+                    "type": "string"
+                },
+                "kodit_enrichment_model_set": {
+                    "description": "true if both provider and model are configured",
+                    "type": "boolean"
+                },
+                "kodit_enrichment_provider": {
+                    "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
                     "type": "string"
                 },
                 "updated": {

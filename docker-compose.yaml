@@ -179,13 +179,12 @@ services:
       # - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
       # - EMBEDDING_ENDPOINT_TIMEOUT=120
 
-      # # External enrichment provider
-      # - ENRICHMENT_ENDPOINT_TYPE=openai
-      # - ENRICHMENT_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
-      # - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      # - ENRICHMENT_ENDPOINT_MODEL=qwen3:8b
-      # - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
-      # - ENRICHMENT_ENDPOINT_TIMEOUT=120
+      # External enrichment provider - uses Helix as proxy with runner token auth
+      - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
+      - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_TIMEOUT=120
 
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
