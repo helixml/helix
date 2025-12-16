@@ -3043,7 +3043,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           transform: 'translate(-50%, -50%)',
           backgroundColor: '#000',
           cursor: 'none', // Hide default cursor to prevent double cursor effect
-          display: streamingMode === 'websocket' ? 'block' : 'none',
+          // Show only for WebSocket 'high' mode (SSE uses sseCanvasRef, low uses screenshot img)
+          display: streamingMode === 'websocket' && qualityMode === 'high' ? 'block' : 'none',
         }}
         onClick={() => {
           // Focus container for keyboard input
