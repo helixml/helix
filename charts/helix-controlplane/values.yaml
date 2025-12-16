@@ -287,7 +287,7 @@ kodit:
         kodit:
           image:
             repository: registry.helixml.tech/helix/kodit
-            tag: latest  # Replace with a version from https://github.com/helixml/kodit/releases.
+            tag: "0.5.16"  # Pinned version - see https://github.com/helixml/kodit/releases
           # Replace this with your own secret.
           envFrom:
             - secretRef:
