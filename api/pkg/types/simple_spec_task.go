@@ -15,6 +15,14 @@ const (
 	SpecTaskPriorityCritical SpecTaskPriority = "critical"
 )
 
+// BranchMode determines how branches are configured for a task
+type BranchMode string
+
+const (
+	BranchModeNew      BranchMode = "new"      // Create new branch from base
+	BranchModeExisting BranchMode = "existing" // Continue work on existing branch
+)
+
 // Request types
 type CreateTaskRequest struct {
 	ProjectID     string           `json:"project_id"`
@@ -25,6 +33,13 @@ type CreateTaskRequest struct {
 	AppID         string           `json:"app_id"`          // Optional: Helix agent to use for spec generation
 	JustDoItMode  bool             `json:"just_do_it_mode"` // Optional: Skip spec planning, go straight to implementation
 	UseHostDocker bool             `json:"use_host_docker"` // Optional: Use host Docker socket (requires privileged sandbox)
+
+	// Branch configuration
+	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
+	BaseBranch    string     `json:"base_branch,omitempty"`    // For new mode: branch to create from (defaults to repo default)
+	BranchPrefix  string     `json:"branch_prefix,omitempty"`  // For new mode: user-specified prefix (task# appended)
+	WorkingBranch string     `json:"working_branch,omitempty"` // For existing mode: branch to continue working on
+
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
 
@@ -59,7 +74,10 @@ type SpecTask struct {
 	ExternalAgentID string `json:"external_agent_id,omitempty" gorm:"size:255;index"`
 
 	// Git tracking
-	BranchName string `json:"branch_name,omitempty"`
+	BranchName   string     `json:"branch_name,omitempty"`                           // The working branch for this task
+	BaseBranch   string     `json:"base_branch,omitempty" gorm:"size:255"`           // The base branch this was created from
+	BranchMode   BranchMode `json:"branch_mode,omitempty" gorm:"size:50;default:''"` // "new" or "existing"
+	BranchPrefix string     `json:"branch_prefix,omitempty" gorm:"size:255"`         // User-specified prefix for new branches (task# appended)
 
 	// Human-readable directory naming for design docs in helix-specs branch
 	// TaskNumber is auto-assigned from project.NextTaskNumber when task starts
