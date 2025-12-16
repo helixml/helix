@@ -158,6 +158,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const throughputHistoryRef = useRef<number[]>([]);
   const rttHistoryRef = useRef<number[]>([]);
   const bitrateHistoryRef = useRef<number[]>([]);
+  const frameDriftHistoryRef = useRef<number[]>([]);
   // Events: track when and why bitrate changed (for chart annotations)
   const chartEventsRef = useRef<Array<{
     index: number;
@@ -708,11 +709,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
-  // Reconnect with configurable delay
+  // Reconnect with configurable delay and optional reason message
   // Mode switches need longer delay to wait for moonlight-web cleanup (up to 15s)
   // Normal reconnects (errors, user-initiated) can be faster
-  const reconnect = useCallback((delayMs = 1000) => {
+  const reconnect = useCallback((delayMs = 1000, reason?: string) => {
     disconnect();
+    // Show reason immediately after disconnect (before connect delay)
+    if (reason) {
+      setStatus(reason);
+      setIsConnecting(true);
+    }
     setTimeout(connect, delayMs);
   }, [disconnect, connect]);
 
@@ -953,6 +959,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           const decoder = sseVideoDecoderRef.current;
           if (!decoder || decoder.state !== 'configured') return;
 
+          const arrivalTime = performance.now();
+
           try {
             const frame = JSON.parse(e.data);
 
@@ -961,6 +969,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               if (!frame.keyframe) return;
               console.log('[SSE Video] First keyframe received');
               sseReceivedFirstKeyframeRef.current = true;
+            }
+
+            // Frame latency tracking (same algorithm as WebSocketStream)
+            const ptsUs = frame.pts; // microseconds
+            const stats = sseStatsRef.current;
+            if (stats.firstFramePtsUs === null) {
+              stats.firstFramePtsUs = ptsUs;
+              stats.firstFrameArrivalTime = arrivalTime;
+              stats.currentFrameLatencyMs = 0;
+            } else {
+              const ptsDeltaMs = (ptsUs - stats.firstFramePtsUs) / 1000;
+              const expectedArrivalTime = stats.firstFrameArrivalTime! + ptsDeltaMs;
+              const latencyMs = arrivalTime - expectedArrivalTime;
+              stats.frameLatencySamples.push(latencyMs);
+              if (stats.frameLatencySamples.length > 30) {
+                stats.frameLatencySamples.shift();
+              }
+              stats.currentFrameLatencyMs = stats.frameLatencySamples.reduce((a, b) => a + b, 0) / stats.frameLatencySamples.length;
             }
 
             const binaryString = atob(frame.data);
@@ -1134,6 +1160,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const decoder = sseVideoDecoderRef.current;
         if (!decoder || decoder.state !== 'configured') return;
 
+        const arrivalTime = performance.now();
+
         try {
           const frame = JSON.parse(e.data);
 
@@ -1142,6 +1170,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             if (!frame.keyframe) return;
             console.log('[SSE Video] First keyframe received (initial)');
             sseReceivedFirstKeyframeRef.current = true;
+          }
+
+          // Frame latency tracking (same algorithm as WebSocketStream)
+          const ptsUs = frame.pts; // microseconds
+          const stats = sseStatsRef.current;
+          if (stats.firstFramePtsUs === null) {
+            stats.firstFramePtsUs = ptsUs;
+            stats.firstFrameArrivalTime = arrivalTime;
+            stats.currentFrameLatencyMs = 0;
+          } else {
+            const ptsDeltaMs = (ptsUs - stats.firstFramePtsUs) / 1000;
+            const expectedArrivalTime = stats.firstFrameArrivalTime! + ptsDeltaMs;
+            const latencyMs = arrivalTime - expectedArrivalTime;
+            stats.frameLatencySamples.push(latencyMs);
+            if (stats.frameLatencySamples.length > 30) {
+              stats.frameLatencySamples.shift();
+            }
+            stats.currentFrameLatencyMs = stats.frameLatencySamples.reduce((a, b) => a + b, 0) / stats.frameLatencySamples.length;
           }
 
           const binaryString = atob(frame.data);
@@ -1218,9 +1264,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
     // Reconnect if bitrate actually changed (including from null to a value)
     if (previousUserBitrateRef.current !== userBitrate) {
-      console.log('[MoonlightStreamViewer] Bitrate changed from', previousUserBitrateRef.current, 'to', userBitrate);
+      const prevBitrate = previousUserBitrateRef.current;
+      console.log('[MoonlightStreamViewer] Bitrate changed from', prevBitrate, 'to', userBitrate);
       console.log('[MoonlightStreamViewer] Reconnecting with new bitrate (5s delay)');
-      reconnect(5000); // 5 seconds for bitrate switches to allow cleanup
+
+      // Build informative status so user knows WHY we're reconnecting
+      let reason: string | undefined;
+      if (prevBitrate !== null && userBitrate !== null) {
+        if (userBitrate < prevBitrate) {
+          reason = `Reducing bitrate: ${prevBitrate} → ${userBitrate} Mbps`;
+        } else {
+          reason = `Increasing bitrate: ${prevBitrate} → ${userBitrate} Mbps`;
+        }
+      } else if (userBitrate !== null) {
+        reason = `Setting bitrate: ${userBitrate} Mbps`;
+      }
+
+      reconnect(5000, reason); // 5 seconds for bitrate switches to allow cleanup
     }
     previousUserBitrateRef.current = userBitrate;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1578,8 +1638,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    // Only WebSocket and SSE modes support adaptive bitrate (WebRTC has its own congestion control)
-    if (streamingMode !== 'websocket' && streamingMode !== 'sse') {
+    // Only WebSocket streaming mode supports adaptive bitrate (WebRTC has its own congestion control)
+    // Adaptive bitrate works for both 'high' and 'sse' quality modes within WebSocket streaming
+    if (streamingMode !== 'websocket') {
+      return;
+    }
+
+    // Screenshot mode doesn't have frame latency metrics
+    if (qualityMode === 'low') {
       return;
     }
 
@@ -1602,11 +1668,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Positive = frames arriving late (congestion), Negative = frames arriving early (buffered)
       let frameDrift = 0;
 
-      if (stream instanceof WebSocketStream) {
+      if (qualityMode === 'sse') {
+        // SSE mode: get frame latency from SSE stats (video comes via SSE, not WebSocket)
+        frameDrift = sseStatsRef.current.currentFrameLatencyMs;
+      } else if (stream instanceof WebSocketStream) {
+        // WebSocket high mode: get frame latency from WebSocket stats
         const stats = stream.getStats();
         frameDrift = stats.frameLatencyMs;
       } else if (stream instanceof SseStream) {
-        // SSE doesn't have frame drift, skip adaptive bitrate for SSE
+        // Legacy SseStream class (not used in current architecture)
         return;
       } else {
         return; // Unsupported stream type
@@ -1714,7 +1784,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const intervalId = setInterval(checkBandwidth, CHECK_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [isConnected, streamingMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
+  }, [isConnected, streamingMode, qualityMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
 
   // Auto-join lobby after video starts playing
   // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
@@ -1961,8 +2031,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             batchingRatio: isSSE ? 0 : wsStats.batchingRatio,
             avgBatchSize: isSSE ? 0 : wsStats.avgBatchSize,
             batchesReceived: isSSE ? 0 : wsStats.batchesReceived,
-            // Frame latency and decoder queue
-            frameLatencyMs: isSSE ? 0 : wsStats.frameLatencyMs,
+            // Frame latency and decoder queue (works in both WebSocket and SSE modes)
+            frameLatencyMs: isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs,
             batchingRequested: isSSE ? false : wsStats.batchingRequested,
             decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
             maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
@@ -1984,6 +2054,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         throughputHistoryRef.current = [...throughputHistoryRef.current, wsStats.totalBitrateMbps].slice(-CHART_HISTORY_LENGTH);
         rttHistoryRef.current = [...rttHistoryRef.current, wsStats.rttMs].slice(-CHART_HISTORY_LENGTH);
         bitrateHistoryRef.current = [...bitrateHistoryRef.current, requestedBitrate].slice(-CHART_HISTORY_LENGTH);
+        // Use SSE frame latency when in SSE mode, WebSocket frame latency otherwise
+        const currentFrameDrift = isSSE ? sseStats.currentFrameLatencyMs : wsStats.frameLatencyMs;
+        frameDriftHistoryRef.current = [...frameDriftHistoryRef.current, currentFrameDrift].slice(-CHART_HISTORY_LENGTH);
         // Trigger re-render for charts
         if (showCharts) {
           setChartUpdateTrigger(prev => prev + 1);
@@ -3105,9 +3178,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                     {stats.video.batchingRequested && <span style={{ color: '#ff9800' }}> (requested)</span>}
                   </div>
                 )}
-                {/* Frame latency (WebSocket mode) - actual delivery delay based on PTS */}
+                {/* Frame latency (WebSocket and SSE modes) - actual delivery delay based on PTS */}
                 {/* Positive = frames arriving late (bad), Negative = frames arriving early (good/buffered) */}
-                {streamingMode === 'websocket' && stats.video.frameLatencyMs !== undefined && (
+                {/* Hidden in screenshot mode since there's no video stream to measure */}
+                {streamingMode === 'websocket' && qualityMode !== 'low' && stats.video.frameLatencyMs !== undefined && (
                   <div>
                     <strong>Frame Drift:</strong> {stats.video.frameLatencyMs > 0 ? '+' : ''}{stats.video.frameLatencyMs.toFixed(0)} ms
                     {stats.video.frameLatencyMs > 200 && <span style={{ color: '#ff6b6b' }}> ⚠️ Behind</span>}
@@ -3168,6 +3242,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const throughputHistory = throughputHistoryRef.current;
         const rttHistory = rttHistoryRef.current;
         const bitrateHistory = bitrateHistoryRef.current;
+        const frameDriftHistory = frameDriftHistoryRef.current;
 
         return (
         <Box
@@ -3269,6 +3344,62 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                         data: rttHistory,
                         label: 'RTT',
                         color: rttHistory[rttHistory.length - 1] > 150 ? '#ff6b6b' : '#00c8ff',
+                        showMark: false,
+                        curve: 'linear',
+                        area: true,
+                      },
+                    ]}
+                    height={120}
+                    margin={{ left: 50, right: 10, top: 30, bottom: 25 }}
+                    grid={{ horizontal: true, vertical: false }}
+                    sx={darkChartStyles}
+                    slotProps={{ legend: chartLegendProps }}
+                  />
+                ) : (
+                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+                    Collecting data...
+                  </Box>
+                )}
+              </Box>
+            </Box>
+
+            {/* Frame Drift Chart - key metric for adaptive bitrate decisions */}
+            <Box sx={{ flex: '1 1 400px', minWidth: 300 }}>
+              <Typography variant="caption" sx={{ color: '#888', display: 'block', mb: 1 }}>
+                Frame Drift (ms) - Positive = behind, triggers bitrate reduction
+              </Typography>
+              <Box sx={{ height: 150, ...chartContainerStyles }}>
+                {frameDriftHistory.length > 1 ? (
+                  <LineChart
+                    xAxis={[{
+                      data: frameDriftHistory.map((_, i) => i - frameDriftHistory.length + 1),
+                      label: 'Seconds ago',
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    yAxis={[{
+                      min: Math.min(Math.min(...frameDriftHistory), -100) * 1.2,
+                      max: Math.max(Math.max(...frameDriftHistory), 300) * 1.2,
+                      labelStyle: axisLabelStyle,
+                    }]}
+                    series={[
+                      {
+                        data: frameDriftHistory.map(() => 200), // Threshold line at 200ms
+                        label: 'Reduction Threshold',
+                        color: '#ff6b6b',
+                        showMark: false,
+                        curve: 'linear',
+                      },
+                      {
+                        data: frameDriftHistory.map(() => 0), // Zero line
+                        label: 'On Time',
+                        color: '#4caf50',
+                        showMark: false,
+                        curve: 'linear',
+                      },
+                      {
+                        data: frameDriftHistory,
+                        label: 'Frame Drift',
+                        color: frameDriftHistory[frameDriftHistory.length - 1] > 200 ? '#ff6b6b' : '#00c8ff',
                         showMark: false,
                         curve: 'linear',
                         area: true,
