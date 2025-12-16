@@ -69,6 +69,11 @@ type Interaction struct {
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
+	// LastZedMessageID tracks the last Zed message ID received for this interaction.
+	// Used to detect multi-message responses: same ID = streaming update (overwrite),
+	// different ID = new distinct message (append). Persisted in DB for restart resilience.
+	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
+
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
