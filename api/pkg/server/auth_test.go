@@ -826,3 +826,148 @@ func (suite *AuthSuite) TestRefresh() {
 		})
 	}
 }
+
+// TestNewCookieManager_SecureCookiesAutoDetection tests that secure cookies
+// are automatically enabled/disabled based on the SERVER_URL protocol.
+// This ensures Safari compatibility (Safari rejects Secure cookies over HTTP)
+// while maintaining security for HTTPS deployments.
+func TestNewCookieManager_SecureCookiesAutoDetection(t *testing.T) {
+	tests := []struct {
+		name        string
+		serverURL   string
+		wantSecure  bool
+		description string
+	}{
+		{
+			name:        "HTTPS production URL enables secure cookies",
+			serverURL:   "https://app.helix.ml",
+			wantSecure:  true,
+			description: "Production HTTPS deployments should use secure cookies",
+		},
+		{
+			name:        "HTTPS with port enables secure cookies",
+			serverURL:   "https://localhost:8443",
+			wantSecure:  true,
+			description: "HTTPS with explicit port should still use secure cookies",
+		},
+		{
+			name:        "HTTPS subdomain enables secure cookies",
+			serverURL:   "https://staging.helix.ml:443",
+			wantSecure:  true,
+			description: "HTTPS subdomains should use secure cookies",
+		},
+		{
+			name:        "HTTP localhost disables secure cookies",
+			serverURL:   "http://localhost:8080",
+			wantSecure:  false,
+			description: "Local dev HTTP should not use secure cookies (Safari compatibility)",
+		},
+		{
+			name:        "HTTP test deployment disables secure cookies",
+			serverURL:   "http://test.example.com:8080",
+			wantSecure:  false,
+			description: "HTTP test deployments should work without secure cookies",
+		},
+		{
+			name:        "HTTP IP address disables secure cookies",
+			serverURL:   "http://192.168.1.100:8080",
+			wantSecure:  false,
+			description: "HTTP with IP address should not use secure cookies",
+		},
+		{
+			name:        "Empty URL defaults to non-secure",
+			serverURL:   "",
+			wantSecure:  false,
+			description: "Empty URL should default to non-secure for safety",
+		},
+		{
+			name:        "URL without scheme defaults to non-secure",
+			serverURL:   "localhost:8080",
+			wantSecure:  false,
+			description: "URLs without scheme should default to non-secure",
+		},
+		{
+			name:        "Uppercase HTTPS not matched (case sensitive)",
+			serverURL:   "HTTPS://example.com",
+			wantSecure:  false,
+			description: "URL scheme matching is case-sensitive per RFC",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.ServerConfig{}
+			cfg.WebServer.URL = tt.serverURL
+
+			cm := NewCookieManager(cfg)
+
+			if cm.SecureCookies != tt.wantSecure {
+				t.Errorf("NewCookieManager() SecureCookies = %v, want %v. %s",
+					cm.SecureCookies, tt.wantSecure, tt.description)
+			}
+		})
+	}
+}
+
+// TestNewCookieManager_ExplicitOverride tests that OIDC_SECURE_COOKIES=true
+// forces secure cookies regardless of SERVER_URL protocol.
+func TestNewCookieManager_ExplicitOverride(t *testing.T) {
+	tests := []struct {
+		name              string
+		serverURL         string
+		secureCookiesCfg  bool
+		wantSecure        bool
+		description       string
+	}{
+		{
+			name:             "Override forces secure cookies on HTTP localhost",
+			serverURL:        "http://localhost:8080",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true should force secure cookies even on HTTP",
+		},
+		{
+			name:             "Override forces secure cookies on HTTP remote",
+			serverURL:        "http://example.com",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true should force secure cookies for HTTPS proxy scenarios",
+		},
+		{
+			name:             "No override uses auto-detect for HTTP",
+			serverURL:        "http://localhost:8080",
+			secureCookiesCfg: false,
+			wantSecure:       false,
+			description:      "OIDC_SECURE_COOKIES=false (default) should auto-detect from SERVER_URL",
+		},
+		{
+			name:             "No override uses auto-detect for HTTPS",
+			serverURL:        "https://app.helix.ml",
+			secureCookiesCfg: false,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=false with HTTPS URL should still use secure cookies",
+		},
+		{
+			name:             "Override on HTTPS is redundant but works",
+			serverURL:        "https://app.helix.ml",
+			secureCookiesCfg: true,
+			wantSecure:       true,
+			description:      "OIDC_SECURE_COOKIES=true on HTTPS is redundant but should work",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.ServerConfig{}
+			cfg.WebServer.URL = tt.serverURL
+			cfg.Auth.OIDC.SecureCookies = tt.secureCookiesCfg
+
+			cm := NewCookieManager(cfg)
+
+			if cm.SecureCookies != tt.wantSecure {
+				t.Errorf("NewCookieManager() SecureCookies = %v, want %v. %s",
+					cm.SecureCookies, tt.wantSecure, tt.description)
+			}
+		})
+	}
+}
