@@ -1860,6 +1860,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/bandwidth-probe": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns random uncompressible data for measuring available bandwidth before session creation.\nUsed by adaptive bitrate to determine optimal initial bitrate before connecting.\nOnly requires authentication, not session ownership.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Initial bandwidth probe (no session required)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/clone-groups/{groupId}/progress": {
             "get": {
                 "security": [
@@ -2054,6 +2093,58 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/bandwidth-probe": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns random uncompressible data for measuring available bandwidth.\nThis endpoint starts sending bytes immediately, unlike screenshot which\nhas capture latency. Used by adaptive bitrate algorithm to probe throughput.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Bandwidth probe for adaptive bitrate",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -17433,6 +17524,21 @@ const docTemplate = `{
                 }
             }
         },
+        "types.BranchMode": {
+            "type": "string",
+            "enum": [
+                "new",
+                "existing"
+            ],
+            "x-enum-comments": {
+                "BranchModeExisting": "Continue work on existing branch",
+                "BranchModeNew": "Create new branch from base"
+            },
+            "x-enum-varnames": [
+                "BranchModeNew",
+                "BranchModeExisting"
+            ]
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -18054,6 +18160,22 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "base_branch": {
+                    "description": "For new mode: branch to create from (defaults to repo default)",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "Branch configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
+                "branch_prefix": {
+                    "description": "For new mode: user-specified prefix (task# appended)",
+                    "type": "string"
+                },
                 "just_do_it_mode": {
                     "description": "Optional: Skip spec planning, go straight to implementation",
                     "type": "boolean"
@@ -18075,6 +18197,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "user_id": {
+                    "type": "string"
+                },
+                "working_branch": {
+                    "description": "For existing mode: branch to continue working on",
                     "type": "string"
                 }
             }
@@ -22814,8 +22940,24 @@ const docTemplate = `{
                     "description": "Archive to hide from main view",
                     "type": "boolean"
                 },
+                "base_branch": {
+                    "description": "The base branch this was created from",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "\"new\" or \"existing\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
                 "branch_name": {
                     "description": "Git tracking",
+                    "type": "string"
+                },
+                "branch_prefix": {
+                    "description": "User-specified prefix for new branches (task# appended)",
                     "type": "string"
                 },
                 "clone_group_id": {
@@ -24642,20 +24784,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

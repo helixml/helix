@@ -1736,6 +1736,11 @@ export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
 
+export enum TypesBranchMode {
+  BranchModeNew = "new",
+  BranchModeExisting = "existing",
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -1995,6 +2000,12 @@ export interface TypesCreateSampleRepositoryRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** For new mode: branch to create from (defaults to repo default) */
+  base_branch?: string;
+  /** Branch configuration */
+  branch_mode?: TypesBranchMode;
+  /** For new mode: user-specified prefix (task# appended) */
+  branch_prefix?: string;
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -2004,6 +2015,8 @@ export interface TypesCreateTaskRequest {
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   user_id?: string;
+  /** For existing mode: branch to continue working on */
+  working_branch?: string;
 }
 
 export interface TypesCreateTeamRequest {
@@ -3942,8 +3955,14 @@ export interface TypesSpecApprovalResponse {
 export interface TypesSpecTask {
   /** Archive to hide from main view */
   archived?: boolean;
+  /** The base branch this was created from */
+  base_branch?: string;
+  /** "new" or "existing" */
+  branch_mode?: TypesBranchMode;
   /** Git tracking */
   branch_name?: string;
+  /** User-specified prefix for new branches (task# appended) */
+  branch_prefix?: string;
   /** Groups tasks from same clone operation */
   clone_group_id?: string;
   /** Clone tracking */
@@ -4671,12 +4690,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6214,6 +6233,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns random uncompressible data for measuring available bandwidth before session creation. Used by adaptive bitrate to determine optimal initial bitrate before connecting. Only requires authentication, not session ownership.
+     *
+     * @tags ExternalAgents
+     * @name V1BandwidthProbeList
+     * @summary Initial bandwidth probe (no session required)
+     * @request GET:/api/v1/bandwidth-probe
+     * @secure
+     */
+    v1BandwidthProbeList: (
+      query?: {
+        /** Size of data to return in bytes (default 524288 = 512KB) */
+        size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/bandwidth-probe`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get status breakdown and progress of all cloned tasks
      *
      * @tags CloneGroups
@@ -6320,6 +6363,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsBandwidthProbeDetail
+     * @summary Bandwidth probe for adaptive bitrate
+     * @request GET:/api/v1/external-agents/{sessionID}/bandwidth-probe
+     * @secure
+     */
+    v1ExternalAgentsBandwidthProbeDetail: (
+      sessionId: string,
+      query?: {
+        /** Size of data to return in bytes (default 524288 = 512KB) */
+        size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/bandwidth-probe`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 

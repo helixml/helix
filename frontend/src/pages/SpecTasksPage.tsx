@@ -79,7 +79,8 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
-import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../api/api';
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
+import AgentDropdown from '../components/agent/AgentDropdown';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -140,6 +141,41 @@ const SpecTasksPage: FC = () => {
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [justDoItMode, setJustDoItMode] = useState(false); // Just Do It mode: skip spec, go straight to implementation
   const [useHostDocker, setUseHostDocker] = useState(false); // Use host Docker socket (requires privileged sandbox)
+
+  // Branch configuration state
+  const [branchMode, setBranchMode] = useState<TypesBranchMode>(TypesBranchMode.BranchModeNew);
+  const [baseBranch, setBaseBranch] = useState('');
+  const [branchPrefix, setBranchPrefix] = useState('');
+  const [workingBranch, setWorkingBranch] = useState('');
+  const [showBranchCustomization, setShowBranchCustomization] = useState(false);
+
+  // Get the default repository ID from the project
+  const defaultRepoId = project?.default_repo_id;
+
+  // Fetch branches for the default repository
+  const { data: branchesData } = useQuery({
+    queryKey: ['repository-branches', defaultRepoId],
+    queryFn: async () => {
+      if (!defaultRepoId) return [];
+      const response = await api.getApiClient().listGitRepositoryBranches(defaultRepoId);
+      return response.data || [];
+    },
+    enabled: !!defaultRepoId && createDialogOpen,
+    staleTime: 30000, // Cache for 30 seconds
+  });
+
+  // Get the default branch name from the repository
+  const defaultBranchName = useMemo(() => {
+    const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId);
+    return defaultRepo?.default_branch || 'main';
+  }, [projectRepositories, defaultRepoId]);
+
+  // Set baseBranch to default when dialog opens
+  useEffect(() => {
+    if (createDialogOpen && defaultBranchName && !baseBranch) {
+      setBaseBranch(defaultBranchName);
+    }
+  }, [createDialogOpen, defaultBranchName, baseBranch]);
 
   // Inline agent creation state (same UX as AgentSelectionModal)
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false);
@@ -457,6 +493,11 @@ const SpecTasksPage: FC = () => {
         app_id: agentId || undefined, // Include selected or created agent if provided
         just_do_it_mode: justDoItMode, // Just Do It mode: skip spec, go straight to implementation
         use_host_docker: useHostDocker, // Use host Docker socket (requires privileged sandbox)
+        // Branch configuration
+        branch_mode: branchMode,
+        base_branch: branchMode === TypesBranchMode.BranchModeNew ? baseBranch : undefined,
+        branch_prefix: branchMode === TypesBranchMode.BranchModeNew && branchPrefix ? branchPrefix : undefined,
+        working_branch: branchMode === TypesBranchMode.BranchModeExisting ? workingBranch : undefined,
         // Repositories inherited from parent project - no task-level repo configuration
       };
 
@@ -473,6 +514,12 @@ const SpecTasksPage: FC = () => {
         setSelectedHelixAgent(''); // Reset agent selection
         setJustDoItMode(false); // Reset Just Do It mode
         setUseHostDocker(false); // Reset host Docker mode
+        // Reset branch configuration
+        setBranchMode(TypesBranchMode.BranchModeNew);
+        setBaseBranch(defaultBranchName);
+        setBranchPrefix('');
+        setWorkingBranch('');
+        setShowBranchCustomization(false);
         // Reset inline agent creation form
         setShowCreateAgentForm(false);
         setCodeAgentRuntime('zed_agent');
@@ -816,80 +863,166 @@ const SpecTasksPage: FC = () => {
                 size="small"
               />
 
-              {/* Agent Selection (compact) */}
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-                  Agent
-                </Typography>
-                {!showCreateAgentForm ? (
-                  <>
-                    {/* Existing agents list - compact style */}
-                    {sortedApps.length > 0 ? (
-                      <List dense sx={{ pt: 0, maxHeight: 120, overflow: 'auto' }}>
-                        {sortedApps.map((app) => {
-                          const isSelected = selectedHelixAgent === app.id;
+              {/* Branch Configuration */}
+              {defaultRepoId && (
+                <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Where do you want to work?
+                  </Typography>
 
-                          return (
-                            <ListItem
-                              key={app.id}
-                              disablePadding
-                              secondaryAction={
-                                <IconButton
-                                  edge="end"
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    account.orgNavigate('app', { app_id: app.id });
-                                  }}
-                                  sx={{ p: 0.5 }}
-                                >
-                                  <EditIcon sx={{ fontSize: 14 }} />
-                                </IconButton>
-                              }
-                            >
-                              <ListItemButton
-                                selected={isSelected}
-                                onClick={() => setSelectedHelixAgent(app.id)}
-                                sx={{
-                                  borderRadius: 0.5,
-                                  py: 0.5,
-                                  minHeight: 36,
-                                  border: isSelected ? '1px solid' : '1px solid transparent',
-                                  borderColor: isSelected ? 'primary.main' : 'transparent',
-                                  bgcolor: isSelected ? 'action.selected' : 'transparent',
-                                  pr: 4,
-                                }}
-                              >
-                                <ListItemIcon sx={{ minWidth: 32 }}>
-                                  <Avatar
-                                    src={app.config?.helix?.avatar}
-                                    sx={{ width: 24, height: 24, fontSize: 12 }}
-                                  >
-                                    <SmartToyIcon sx={{ fontSize: 14 }} />
-                                  </Avatar>
-                                </ListItemIcon>
-                                <ListItemText
-                                  primary={app.config?.helix?.name || 'Unnamed Agent'}
-                                  primaryTypographyProps={{ variant: 'body2', noWrap: true }}
-                                />
-                              </ListItemButton>
-                            </ListItem>
-                          );
-                        })}
-                      </List>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        No agents. Create one below.
+                  {/* Mode Selection - Two Cards */}
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Box
+                      onClick={() => setBranchMode(TypesBranchMode.BranchModeNew)}
+                      sx={{
+                        flex: 1,
+                        p: 1.5,
+                        border: 2,
+                        borderColor: branchMode === TypesBranchMode.BranchModeNew ? 'primary.main' : 'divider',
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                        bgcolor: branchMode === TypesBranchMode.BranchModeNew ? 'action.selected' : 'transparent',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        Start fresh
                       </Typography>
-                    )}
+                      <Typography variant="caption" color="text.secondary">
+                        Create a new branch
+                      </Typography>
+                    </Box>
+                    <Box
+                      onClick={() => setBranchMode(TypesBranchMode.BranchModeExisting)}
+                      sx={{
+                        flex: 1,
+                        p: 1.5,
+                        border: 2,
+                        borderColor: branchMode === TypesBranchMode.BranchModeExisting ? 'primary.main' : 'divider',
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                        bgcolor: branchMode === TypesBranchMode.BranchModeExisting ? 'action.selected' : 'transparent',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        Continue existing
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Resume work on a branch
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Mode-specific options */}
+                  {branchMode === TypesBranchMode.BranchModeNew ? (
+                    <Stack spacing={1.5}>
+                      {!showBranchCustomization ? (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            New branch from <strong>{baseBranch || defaultBranchName}</strong>
+                          </Typography>
+                          <Button
+                            size="small"
+                            onClick={() => setShowBranchCustomization(true)}
+                            sx={{ display: 'block', textTransform: 'none', fontSize: '0.75rem', p: 0, mt: 0.5 }}
+                          >
+                            Customize branches
+                          </Button>
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                          <Box>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Base branch</InputLabel>
+                              <Select
+                                value={baseBranch}
+                                onChange={(e) => setBaseBranch(e.target.value)}
+                                label="Base branch"
+                              >
+                                {branchesData?.map((branch: string) => (
+                                  <MenuItem key={branch} value={branch}>
+                                    {branch}
+                                    {branch === defaultBranchName && (
+                                      <Chip label="default" size="small" sx={{ ml: 1, height: 18 }} />
+                                    )}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.75, display: 'block' }}>
+                              New branch will be created from this base. Use to build on existing work.
+                            </Typography>
+                          </Box>
+                          <TextField
+                            label="Working branch name"
+                            size="small"
+                            fullWidth
+                            value={branchPrefix}
+                            onChange={(e) => setBranchPrefix(e.target.value)}
+                            placeholder="feature/user-auth"
+                            helperText={branchPrefix
+                              ? `Work will be done on: ${branchPrefix}-{task#}`
+                              : "Leave empty to auto-generate. This is where the agent commits changes."
+                            }
+                          />
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setShowBranchCustomization(false);
+                              setBaseBranch(defaultBranchName);
+                              setBranchPrefix('');
+                            }}
+                            sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
+                          >
+                            Use defaults
+                          </Button>
+                        </Box>
+                      )}
+                    </Stack>
+                  ) : (
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Select branch</InputLabel>
+                      <Select
+                        value={workingBranch}
+                        onChange={(e) => setWorkingBranch(e.target.value)}
+                        label="Select branch"
+                      >
+                        {branchesData
+                          ?.filter((branch: string) => branch !== defaultBranchName)
+                          .map((branch: string) => (
+                            <MenuItem key={branch} value={branch}>
+                              {branch}
+                            </MenuItem>
+                          ))}
+                        {branchesData?.filter((branch: string) => branch !== defaultBranchName).length === 0 && (
+                          <MenuItem disabled value="">
+                            No feature branches available
+                          </MenuItem>
+                        )}
+                      </Select>
+                    </FormControl>
+                  )}
+                </Box>
+              )}
+
+              {/* Agent Selection (dropdown) */}
+              <Box>
+                {!showCreateAgentForm ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <AgentDropdown
+                      value={selectedHelixAgent}
+                      onChange={setSelectedHelixAgent}
+                      agents={sortedApps}
+                    />
                     <Button
                       size="small"
                       onClick={() => setShowCreateAgentForm(true)}
-                      sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                      sx={{ alignSelf: 'flex-start', textTransform: 'none', fontSize: '0.75rem' }}
                     >
                       + Create new agent
                     </Button>
-                  </>
+                  </Box>
                 ) : (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Typography variant="body2" color="text.secondary">
@@ -1038,6 +1171,12 @@ const SpecTasksPage: FC = () => {
               setSelectedHelixAgent('');
               setJustDoItMode(false);
               setUseHostDocker(false);
+              // Reset branch configuration
+              setBranchMode(TypesBranchMode.BranchModeNew);
+              setBaseBranch(defaultBranchName);
+              setBranchPrefix('');
+              setWorkingBranch('');
+              setShowBranchCustomization(false);
               // Reset inline agent creation form
               setShowCreateAgentForm(false);
               setCodeAgentRuntime('zed_agent');

@@ -74,6 +74,7 @@ const RECOMMENDED_MODELS = [
   'Qwen/Qwen3-235B-A22B-fp8-tput',
 ]
 import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
+import AgentDropdown from '../components/agent/AgentDropdown'
 import MoonlightStreamViewer from '../components/external-agent/MoonlightStreamViewer'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -665,51 +666,18 @@ const ProjectSettings: FC = () => {
 
             {!showCreateAgentForm ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Select Agent</InputLabel>
-                  <Select
-                    value={selectedAgentId}
-                    label="Select Agent"
-                    onChange={(e) => {
-                      const newAgentId = e.target.value
-                      setSelectedAgentId(newAgentId)
-                      // Save immediately with the new value (don't rely on stale state)
-                      updateProjectMutation.mutate({
-                        default_helix_app_id: newAgentId || undefined,
-                      })
-                    }}
-                    renderValue={(value) => {
-                      const app = sortedApps.find(a => a.id === value)
-                      return app?.config?.helix?.name || 'Select Agent'
-                    }}
-                  >
-                    {sortedApps.map((app) => (
-                      <MenuItem key={app.id} value={app.id}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                          <SmartToyIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                          <span style={{ flex: 1 }}>{app.config?.helix?.name || 'Unnamed Agent'}</span>
-                          <Tooltip title="Edit agent">
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                account.orgNavigate('app', { app_id: app.id })
-                              }}
-                              sx={{ ml: 'auto' }}
-                            >
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                    {sortedApps.length === 0 && (
-                      <MenuItem disabled value="">
-                        No agents available
-                      </MenuItem>
-                    )}
-                  </Select>
-                </FormControl>
+                <AgentDropdown
+                  value={selectedAgentId}
+                  onChange={(newAgentId) => {
+                    setSelectedAgentId(newAgentId)
+                    // Save immediately with the new value (don't rely on stale state)
+                    updateProjectMutation.mutate({
+                      default_helix_app_id: newAgentId || undefined,
+                    })
+                  }}
+                  agents={sortedApps}
+                  label="Select Agent"
+                />
                 <Button
                   size="small"
                   startIcon={<AddIcon />}
