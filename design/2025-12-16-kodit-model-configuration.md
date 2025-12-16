@@ -212,6 +212,83 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 
 The authentication middleware creates a user with `ID: "runner-system"` for runner tokens, but the downstream code assumes this is a real user ID with associated database records (user_meta, wallet, usage tracking).
 
+#### Bug 3: Provider Validation Passes but Client Lookup Fails
+
+**Location:** `api/pkg/server/openai_chat_handlers.go:279-316` and `api/pkg/openai/manager/provider_manager.go:324-371`
+
+The `isKnownProvider` function returns `true` for hardcoded global providers (openai, togetherai, anthropic, helix, vllm) even if they're not actually configured with API keys:
+
+```go
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+    // Check global providers first (fast path)
+    if types.IsGlobalProvider(providerName) {
+        return true  // Returns true even if provider has no API key configured!
+    }
+    // ...
+}
+```
+
+Then when `GetClient` is called, it fails because:
+1. `globalClients["openai"]` doesn't exist (OPENAI_API_KEY not set)
+2. Database has no provider endpoint named "openai"
+3. Error: "no client found for provider: openai"
+
+**Example scenario:**
+- Kodit configured to use `openai/kodit-model`
+- `OPENAI_API_KEY` is NOT set (intentional - want to use helix runners)
+- But actual Kodit model is configured as `helix/llama3` in SystemSettings
+- Provider validation passes for "openai" (hardcoded as global)
+- But no OpenAI client exists → request fails
+
+**Fix:** Either:
+1. Check if the provider is actually configured, not just in the hardcoded list
+2. Or skip provider prefix parsing for the special `kodit-model` and handle it specially
+
+```go
+// Option 1: Validate that global providers are actually configured
+func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, ownerID string) bool {
+    if types.IsGlobalProvider(providerName) {
+        // Also check if it's actually configured
+        if s.providerManager.HasClient(providerName) {
+            return true
+        }
+    }
+    // ... rest of function
+}
+```
+
+#### Bug 4: Inconsistent Owner ID Between Validation and Client Lookup
+
+**Location:** `api/pkg/server/openai_chat_handlers.go:69-72` vs `api/pkg/controller/inference.go:414`
+
+There's an inconsistency in the owner ID used for runner tokens:
+
+**In handler (for validation):**
+```go
+ownerID := user.ID  // "runner-system"
+if user.TokenType == types.TokenTypeRunner {
+    ownerID = oai.RunnerID  // Changes to "runner"
+}
+// Provider validation uses ownerID = "runner"
+```
+
+**In controller (for client lookup):**
+```go
+func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider string) {
+    owner := userID  // Still "runner-system" - NOT changed!
+    // ...
+    c.providerManager.GetClient(ctx, &manager.GetClientRequest{
+        Owner: owner,  // Uses "runner-system"
+    })
+}
+```
+
+While both `"runner"` and `"runner-system"` should work for querying global endpoints (due to the `WithGlobal: true` flag), this inconsistency is confusing and could cause subtle bugs if the query logic changes.
+
+**Fix:** Use consistent owner ID handling. Either:
+1. Pass `ownerID` through to the controller instead of `user.ID`
+2. Or check for `TokenTypeRunner` in the controller and adjust accordingly
+
 ### 4. Admin Panel - Code Intelligence Settings Page
 
 Create a new admin page at `/admin/code-intelligence`:
