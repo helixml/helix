@@ -50,7 +50,7 @@ Introduce a **proxy model pattern** where Kodit uses a special model name `kodit
 
 ### 1. Extend SystemSettings Table
 
-Add Kodit model configuration to the existing `SystemSettings` table:
+Add Kodit model configuration to the existing `SystemSettings` table with separate provider and model fields:
 
 ```go
 // api/pkg/types/system_settings.go
@@ -63,24 +63,27 @@ type SystemSettings struct {
     // Existing fields
     HuggingFaceToken string `json:"huggingface_token,omitempty"`
 
-    // NEW: Kodit enrichment model configuration
-    // Format: "provider/model" e.g., "together_ai/Qwen/Qwen3-8B"
-    KoditEnrichmentModel string `json:"kodit_enrichment_model,omitempty"`
+    // NEW: Kodit enrichment model configuration (separate provider and model)
+    KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty"` // e.g., "together_ai", "openai", "anthropic"
+    KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty"`    // e.g., "Qwen/Qwen3-8B", "gpt-4o"
 
     // Future: Kodit embedding model (when we support proxying embeddings)
-    // KoditEmbeddingModel string `json:"kodit_embedding_model,omitempty"`
+    // KoditEmbeddingProvider string `json:"kodit_embedding_provider,omitempty"`
+    // KoditEmbeddingModel    string `json:"kodit_embedding_model,omitempty"`
 }
 
 type SystemSettingsRequest struct {
-    HuggingFaceToken     *string `json:"huggingface_token,omitempty"`
-    KoditEnrichmentModel *string `json:"kodit_enrichment_model,omitempty"`
+    HuggingFaceToken        *string `json:"huggingface_token,omitempty"`
+    KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
+    KoditEnrichmentModel    *string `json:"kodit_enrichment_model,omitempty"`
 }
 
 type SystemSettingsResponse struct {
     // ... existing fields ...
 
+    KoditEnrichmentProvider string `json:"kodit_enrichment_provider"`
     KoditEnrichmentModel    string `json:"kodit_enrichment_model"`
-    KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"`
+    KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"` // true if both provider and model are set
 }
 ```
 
@@ -97,16 +100,26 @@ func (s *HelixAPIServer) createChatCompletion(w http.ResponseWriter, r *http.Req
     // Special handling for kodit-model proxy
     if req.Model == "kodit-model" {
         settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
-        if err != nil || settings.KoditEnrichmentModel == "" {
+        if err != nil {
+            http.Error(w, "Failed to get system settings", http.StatusInternalServerError)
+            return
+        }
+        if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
             http.Error(w, "Kodit enrichment model not configured in system settings",
                 http.StatusBadRequest)
             return
         }
-        req.Model = settings.KoditEnrichmentModel
+
+        // Combine provider and model into the format expected by Helix routing
+        // e.g., "together_ai" + "Qwen/Qwen3-8B" -> "together_ai/Qwen/Qwen3-8B"
+        resolvedModel := settings.KoditEnrichmentProvider + "/" + settings.KoditEnrichmentModel
         log.Debug().
             Str("original_model", "kodit-model").
-            Str("resolved_model", req.Model).
+            Str("provider", settings.KoditEnrichmentProvider).
+            Str("model", settings.KoditEnrichmentModel).
+            Str("resolved_model", resolvedModel).
             Msg("Substituted kodit-model with configured enrichment model")
+        req.Model = resolvedModel
     }
 
     // ... continue with normal processing ...
@@ -156,12 +169,19 @@ const AdminCodeIntelligence: FC = () => {
                 </p>
 
                 <AdvancedModelPicker
-                    value={settings?.kodit_enrichment_model}
-                    onChange={(model) => updateSettings({
+                    provider={settings?.kodit_enrichment_provider}
+                    model={settings?.kodit_enrichment_model}
+                    onChange={(provider, model) => updateSettings({
+                        kodit_enrichment_provider: provider,
                         kodit_enrichment_model: model
                     })}
-                    placeholder="Select enrichment model (e.g., together_ai/Qwen/Qwen3-8B)"
                 />
+
+                {settings?.kodit_enrichment_model_set && (
+                    <StatusIndicator status="configured">
+                        Using {settings.kodit_enrichment_provider}/{settings.kodit_enrichment_model}
+                    </StatusIndicator>
+                )}
             </Section>
 
             {/* Future: Embedding model configuration */}
