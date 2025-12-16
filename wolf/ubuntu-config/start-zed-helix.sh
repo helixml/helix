@@ -580,10 +580,13 @@ export __GL_THREADED_OPTIMIZATIONS=1
 export VK_LAYER_NV_optimus_present_mode_hint=MAILBOX
 
 while true; do
-    echo "Launching Zed via desktop entry (for proper GNOME icon matching)..."
-    # Use gio launch to properly set DESKTOP_STARTUP_ID for GNOME window matching
-    # This makes GNOME show the Zed icon instead of a generic shell script icon
-    gio launch /usr/share/applications/dev.zed.Zed-Dev.desktop "${ZED_FOLDERS[@]}" || true
+    echo "Launching Zed..."
+    # Launch Zed directly - this blocks until Zed exits
+    # GNOME icon matching works because:
+    # 1. Zed sets app_id to "dev.zed.Zed-Dev" (from ReleaseChannel::Dev)
+    # 2. Desktop file at /usr/share/applications/dev.zed.Zed-Dev.desktop has matching StartupWMClass
+    # NOTE: gio launch doesn't block, so we can't use it in a restart loop
+    /zed-build/zed "${ZED_FOLDERS[@]}" || true
     echo "Zed exited, restarting in 2 seconds..."
     sleep 2
 done
