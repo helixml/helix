@@ -42,8 +42,6 @@ RUN apt-get update && apt-get install -y \
     gosu sudo dbus dbus-x11 \
     # Xwayland and X11 utilities
     xwayland x11-xserver-utils xdotool x11-utils \
-    # Mesa and graphics libraries
-    mesa-utils libgl1-mesa-dri libgl1-mesa-glx libegl1 libgles2 \
     # PulseAudio for sound
     pulseaudio libpulse0 \
     # Basic utilities
@@ -56,6 +54,86 @@ RUN apt-get update && apt-get install -y \
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
+
+# ====================================================================
+# Build libdrm + Mesa from source for AMD RDNA 3 (gfx1101) support
+# ====================================================================
+# Ubuntu 22.04's default Mesa 23.2 + libdrm 2.4.113 causes GPU crashes on
+# AMD Radeon Pro V710 MxGPU (gfx1101/RDNA 3) with ROCm 6.16+ kernel driver.
+# The Mesa PPAs have dropped 22.04 support, so we build from source.
+#
+# This adds ~10-15 min to build time but ensures compatibility with modern
+# AMD datacenter GPUs that have newer kernel drivers than Mesa 23.2 expects.
+ARG LIBDRM_VERSION=2.4.124
+ARG MESA_VERSION=24.3.4
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    # Build tools (meson from apt is too old, will install via pip)
+    ninja-build cmake pkg-config python3 python3-pip python3-setuptools \
+    python3-mako flex bison \
+    # libdrm build dependencies
+    libpciaccess-dev \
+    # Mesa dependencies
+    libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
+    libxcb-sync-dev libxcb-xfixes0-dev libxcb-shm0-dev libxcb-randr0-dev \
+    libxcb-glx0-dev libxshmfence-dev libx11-xcb-dev libx11-dev libxext-dev \
+    libxfixes-dev libxxf86vm-dev libxrandr-dev \
+    libwayland-dev libwayland-egl-backend-dev wayland-protocols \
+    libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
+    llvm-15-dev libclang-15-dev libclang-cpp15-dev clang-15 \
+    libvulkan-dev glslang-dev glslang-tools spirv-tools \
+    libva-dev libvdpau-dev \
+    # Runtime dependencies
+    libvulkan1 vulkan-tools mesa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install newer meson via pip (Mesa 24.x requires meson >= 1.1.0, Ubuntu 22.04 has 0.61)
+RUN pip3 install meson>=1.1.0
+
+# Build libdrm 2.4.124 (required for Mesa 24.x with RDNA 3)
+RUN cd /tmp && \
+    curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
+    tar xf libdrm.tar.xz && \
+    cd libdrm-${LIBDRM_VERSION} && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        --buildtype=release \
+        -Damdgpu=enabled \
+        -Dradeon=enabled \
+        -Dintel=disabled \
+        -Dnouveau=disabled \
+        -Dvmwgfx=disabled && \
+    ninja -C build -j$(nproc) && \
+    ninja -C build install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libdrm*
+
+# Build Mesa 24.3.4 with RADV (AMD Vulkan) and radeonsi (OpenGL)
+RUN cd /tmp && \
+    curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
+    tar xf mesa.tar.xz && \
+    cd mesa-${MESA_VERSION} && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        --buildtype=release \
+        -Dplatforms=x11,wayland \
+        -Dgallium-drivers=radeonsi,llvmpipe,softpipe,zink \
+        -Dvulkan-drivers=amd \
+        -Dglx=dri \
+        -Degl=enabled \
+        -Dgles1=disabled \
+        -Dgles2=enabled \
+        -Dvalgrind=disabled \
+        -Dlibunwind=disabled \
+        -Dllvm=enabled \
+        -Dshared-llvm=enabled && \
+    ninja -C build -j$(nproc) && \
+    ninja -C build install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/mesa*
 
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
