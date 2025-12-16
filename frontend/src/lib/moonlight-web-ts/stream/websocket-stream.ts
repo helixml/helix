@@ -434,6 +434,11 @@ export class WebSocketStream {
   }
 
   private onError(event: Event) {
+    // Don't dispatch error events when explicitly closing - this is expected
+    if (this.closed) {
+      console.log("[WebSocketStream] Error event during explicit close (ignored):", event)
+      return
+    }
     console.error("[WebSocketStream] Error:", event)
     this.dispatchInfoEvent({ type: "error", message: "WebSocket error" })
   }
@@ -728,6 +733,9 @@ export class WebSocketStream {
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
 
+  // Track video enabled state to make setVideoEnabled idempotent
+  private _videoEnabled = true
+
   // Track last video config for decoder recovery
   private lastVideoCodec: WsVideoCodecType | null = null
   private lastVideoWidth = 0
@@ -847,6 +855,8 @@ export class WebSocketStream {
       }
       console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
       this.receivedFirstKeyframe = true
+      // Notify that video is starting (first frame is being decoded)
+      this.dispatchInfoEvent({ type: "videoStarted" })
     }
 
     // === Queue Monitoring (flush disabled) ===
@@ -1528,12 +1538,21 @@ export class WebSocketStream {
    * @param enabled - true to enable video, false to disable (screenshot mode)
    */
   setVideoEnabled(enabled: boolean) {
+    // Idempotent check - don't send duplicate messages
+    if (this._videoEnabled === enabled) {
+      console.log(`[WebSocketStream] Video already ${enabled ? 'enabled' : 'disabled'}, skipping`)
+      return
+    }
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn("[WebSocketStream] Cannot set video enabled - WebSocket not connected")
+      // Still update local state so we don't spam when connection is restored
+      this._videoEnabled = enabled
       return
     }
 
     console.log(`[WebSocketStream] Setting video enabled: ${enabled}`)
+    this._videoEnabled = enabled
 
     // When re-enabling video, reset keyframe flag so we wait for a fresh keyframe
     // The decoder needs VPS/SPS/PPS parameter sets from a keyframe after being paused
