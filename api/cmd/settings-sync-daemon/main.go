@@ -191,8 +191,9 @@ func (d *SettingsDaemon) injectKoditAuth() {
 	headers["Authorization"] = "Bearer " + d.userAPIKey
 
 	// Also rewrite localhost URLs for container networking
-	if serverURL, ok := koditServer["server_url"].(string); ok {
-		koditServer["server_url"] = d.rewriteLocalhostURL(serverURL)
+	// Zed expects "url" field for HTTP context_servers
+	if serverURL, ok := koditServer["url"].(string); ok {
+		koditServer["url"] = d.rewriteLocalhostURL(serverURL)
 	}
 
 	log.Printf("Injected user API key into Kodit context_server Authorization header")
