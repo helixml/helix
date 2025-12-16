@@ -126,26 +126,91 @@ func (s *HelixAPIServer) createChatCompletion(w http.ResponseWriter, r *http.Req
 }
 ```
 
-### 3. Runner Token Authentication for External Providers
+### 3. Runner Token Authentication for External Providers - BUGS FOUND
 
-Currently, runner tokens work for internal Helix operations but may not properly authenticate for external provider calls. Need to verify and fix:
+**Investigation completed.** Two bugs were found that would cause runner token requests to fail in hosted environments.
+
+#### Bug 1: Token Quota Check Fails for Runner Tokens
+
+**Location:** `api/pkg/controller/sessions.go:202-232`
+
+When quota checking is enabled (`SubscriptionQuotas.Enabled = true`), the following code fails:
 
 ```go
-// api/pkg/server/auth_middleware.go
+func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
+    // ...
 
-// Ensure runner token authentication creates a user context that works
-// with external provider routing
-if token == auth.cfg.runnerToken {
-    user := &types.User{
-        ID:       "runner-system",
-        Type:     types.OwnerTypeRunner,
-        // Ensure this user can access configured providers
+    // Get user's current monthly usage
+    monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID, types.GlobalProviders)
+    if err != nil {
+        return fmt.Errorf("failed to get user token usage: %w", err)  // FAILS for "runner-system"
+    }
+
+    // Check if user is pro tier
+    pro, err := c.isUserProTier(ctx, userID)  // FAILS for "runner-system"
+    if err != nil {
+        return fmt.Errorf("failed to check user tier: %w", err)
     }
     // ...
 }
 ```
 
-**Investigation needed:** Trace the code path from runner token auth through to external provider calls to identify any gaps.
+When `userID = "runner-system"` (from runner token auth), `GetUserMonthlyTokenUsage` and `GetUserMeta` will fail because there's no user with that ID in the database.
+
+**Fix:** Skip quota check for runner tokens:
+```go
+func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
+    // Skip quota check for runner tokens (system-level access)
+    if userID == "runner-system" {
+        return nil
+    }
+    // ... rest of function
+}
+```
+
+#### Bug 2: Balance Check Fails for Runner Tokens
+
+**Location:** `api/pkg/controller/balance_check.go:10-35`
+
+When Stripe billing is enabled AND the client has billing enabled:
+
+```go
+func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, orgID string, clientBillingEnabled bool) (bool, error) {
+    if !c.Options.Config.Stripe.BillingEnabled {
+        return true, nil  // OK if billing disabled
+    }
+
+    if !clientBillingEnabled {
+        return true, nil  // OK if client billing disabled
+    }
+
+    // ... but if both are enabled:
+    wallet, err = c.Options.Store.GetWalletByUser(ctx, user.ID)  // FAILS for "runner-system"
+    if err != nil {
+        return false, fmt.Errorf("failed to get wallet: %w", err)
+    }
+}
+```
+
+**Fix:** Skip balance check for runner tokens:
+```go
+func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, orgID string, clientBillingEnabled bool) (bool, error) {
+    // Skip balance check for runner tokens (system-level access)
+    if user.TokenType == types.TokenTypeRunner {
+        return true, nil
+    }
+    // ... rest of function
+}
+```
+
+#### Impact
+
+- **Self-hosted deployments:** Usually unaffected (quotas and billing typically disabled)
+- **Hosted environments (helix.ml):** Runner token requests would fail with quota/billing errors
+
+#### Root Cause
+
+The authentication middleware creates a user with `ID: "runner-system"` for runner tokens, but the downstream code assumes this is a real user ID with associated database records (user_meta, wallet, usage tracking).
 
 ### 4. Admin Panel - Code Intelligence Settings Page
 
