@@ -19,6 +19,44 @@ import (
 
 // Design Review Handlers - Simple versions
 
+// ResumeCommentQueueProcessing resumes processing of any queued comments after server restart.
+// This should be called during server startup.
+// It:
+// 1. Resets any comments stuck in "processing" state (RequestID set but no response)
+// 2. Triggers processing for all sessions that have pending comments
+func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
+	log.Info().Msg("🔄 Resuming comment queue processing after startup...")
+
+	// Step 1: Reset any comments that were mid-processing when server crashed
+	resetCount, err := s.Store.ResetStuckComments(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to reset stuck comments")
+	} else if resetCount > 0 {
+		log.Info().Int64("count", resetCount).Msg("✅ Reset stuck comments (were mid-processing during crash)")
+	}
+
+	// Step 2: Find all sessions with pending comments and trigger processing
+	sessionIDs, err := s.Store.GetSessionsWithPendingComments(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get sessions with pending comments")
+		return
+	}
+
+	if len(sessionIDs) == 0 {
+		log.Info().Msg("✅ No pending comments to resume")
+		return
+	}
+
+	log.Info().Int("session_count", len(sessionIDs)).Msg("📋 Found sessions with pending comments, triggering processing...")
+
+	// Trigger processing for each session
+	for _, sessionID := range sessionIDs {
+		go s.processNextCommentInQueue(ctx, sessionID)
+	}
+
+	log.Info().Int("session_count", len(sessionIDs)).Msg("✅ Comment queue processing resumed")
+}
+
 // listDesignReviews lists design reviews for a spec task
 // @Summary List design reviews
 // @Description List all design reviews for a spec task
@@ -587,8 +625,9 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 	json.NewEncoder(w).Encode(response)
 }
 
-// queueCommentForAgent adds a comment to the queue for the agent to respond to
-// Comments are processed one at a time per planning session to avoid interleaving responses
+// queueCommentForAgent adds a comment to the database queue for the agent to respond to.
+// Comments are processed one at a time per planning session to avoid interleaving responses.
+// DATABASE-PRIMARY: Uses QueuedAt field for queue state (restart-resilient).
 func (s *HelixAPIServer) queueCommentForAgent(
 	ctx context.Context,
 	specTask *types.SpecTask,
@@ -603,88 +642,56 @@ func (s *HelixAPIServer) queueCommentForAgent(
 
 	sessionID := specTask.PlanningSessionID
 
-	s.sessionCommentMutex.Lock()
+	// Set QueuedAt to mark comment as queued for processing
+	now := time.Now()
+	comment.QueuedAt = &now
 
-	// Add comment to queue
-	s.sessionCommentQueue[sessionID] = append(s.sessionCommentQueue[sessionID], comment.ID)
-	queueLen := len(s.sessionCommentQueue[sessionID])
-
-	// Check if there's already a comment being processed
-	currentComment := s.sessionCurrentComment[sessionID]
-
-	s.sessionCommentMutex.Unlock()
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		return fmt.Errorf("failed to queue comment for agent: %w", err)
+	}
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("comment_id", comment.ID).
-		Int("queue_length", queueLen).
-		Str("current_comment", currentComment).
-		Msg("Queued comment for agent response")
+		Time("queued_at", now).
+		Msg("Queued comment for agent response (database-backed)")
 
-	// If no comment is currently being processed, start processing this one
+	// Trigger processing - this will check if there's already a comment being processed
 	// Use context.Background() because this runs async after HTTP request completes
-	if currentComment == "" {
-		go s.processNextCommentInQueue(context.Background(), sessionID)
-	}
+	go s.processNextCommentInQueue(context.Background(), sessionID)
 
 	return nil
 }
 
-// processNextCommentInQueue processes the next comment in the queue for a session
+// processNextCommentInQueue processes the next comment in the database queue for a session.
+// DATABASE-PRIMARY: Uses database to check queue state (restart-resilient).
+// The RequestID field serves as the "being processed" marker in the database.
 func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionID string) {
-	s.sessionCommentMutex.Lock()
-
-	// Check if there are comments in the queue
-	queue := s.sessionCommentQueue[sessionID]
-	if len(queue) == 0 {
-		// No more comments to process
-		// IMPORTANT: Do NOT delete sessionCurrentComment here!
-		// This prevents a race condition where:
-		// 1. finalizeCommentResponse deletes sessionCurrentComment and spawns this goroutine
-		// 2. queueCommentForAgent sees empty currentComment and also spawns this goroutine
-		// 3. First goroutine processes comment, sets sessionCurrentComment
-		// 4. Second goroutine (this one) would incorrectly delete sessionCurrentComment
-		// The sessionCurrentComment is properly cleared by finalizeCommentResponse after each comment completes
-		s.sessionCommentMutex.Unlock()
-		log.Debug().Str("session_id", sessionID).Msg("Comment queue empty, nothing to process")
+	// Check if there's already a comment being processed (database check)
+	isProcessing, err := s.Store.IsCommentBeingProcessedForSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to check if comment is being processed")
 		return
 	}
-
-	// Check if there's already a comment being processed
-	// This prevents duplicate processing from concurrent goroutines
-	if currentComment := s.sessionCurrentComment[sessionID]; currentComment != "" {
-		s.sessionCommentMutex.Unlock()
+	if isProcessing {
 		log.Debug().
 			Str("session_id", sessionID).
-			Str("current_comment", currentComment).
-			Msg("Comment already being processed, skipping duplicate processNextCommentInQueue call")
+			Msg("Comment already being processed (database check), skipping")
 		return
 	}
 
-	// Pop the next comment from the queue
-	commentID := queue[0]
-	s.sessionCommentQueue[sessionID] = queue[1:]
-	s.sessionCurrentComment[sessionID] = commentID
-
-	s.sessionCommentMutex.Unlock()
+	// Get next queued comment from database
+	comment, err := s.Store.GetNextQueuedCommentForSession(ctx, sessionID)
+	if err != nil {
+		// No comments in queue (gorm.ErrRecordNotFound) - this is normal
+		log.Debug().Str("session_id", sessionID).Msg("No queued comments to process")
+		return
+	}
 
 	log.Info().
 		Str("session_id", sessionID).
-		Str("comment_id", commentID).
-		Int("remaining_in_queue", len(queue)-1).
-		Msg("Processing next comment in queue")
-
-	// Fetch comment from database
-	comment, err := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("comment_id", commentID).
-			Msg("Failed to fetch comment for processing")
-		// Try next comment
-		go s.processNextCommentInQueue(ctx, sessionID)
-		return
-	}
+		Str("comment_id", comment.ID).
+		Msg("Processing next comment from database queue")
 
 	// Fetch spec task for the comment
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
@@ -693,6 +700,11 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 			Err(err).
 			Str("review_id", comment.ReviewID).
 			Msg("Failed to fetch review for comment processing")
+		// Clear QueuedAt and try next
+		comment.QueuedAt = nil
+		if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
+			log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to clear QueuedAt")
+		}
 		go s.processNextCommentInQueue(ctx, sessionID)
 		return
 	}
@@ -703,23 +715,73 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 			Err(err).
 			Str("spec_task_id", review.SpecTaskID).
 			Msg("Failed to fetch spec task for comment processing")
+		// Clear QueuedAt and try next
+		comment.QueuedAt = nil
+		if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
+			log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to clear QueuedAt")
+		}
 		go s.processNextCommentInQueue(ctx, sessionID)
 		return
 	}
 
 	// Now actually send the comment to the agent
+	// sendCommentToAgentNow sets RequestID on the comment, marking it as "being processed"
 	err = s.sendCommentToAgentNow(ctx, specTask, comment)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("comment_id", commentID).
+			Str("comment_id", comment.ID).
 			Msg("Failed to send comment to agent")
-		// Clear current and try next
-		s.sessionCommentMutex.Lock()
-		delete(s.sessionCurrentComment, sessionID)
-		s.sessionCommentMutex.Unlock()
+		// Clear QueuedAt and try next
+		comment.QueuedAt = nil
+		if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); updateErr != nil {
+			log.Error().Err(updateErr).Str("comment_id", comment.ID).Msg("Failed to clear QueuedAt")
+		}
 		go s.processNextCommentInQueue(ctx, sessionID)
+		return
 	}
+
+	// Comment sent successfully - start timeout to handle agent not responding
+	// 2 minute timeout for agent to respond to the comment
+	const commentResponseTimeout = 2 * time.Minute
+	s.sessionCommentMutex.Lock()
+	// Cancel any existing timeout for this session
+	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
+		existingTimer.Stop()
+	}
+	commentID := comment.ID
+	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("comment_id", commentID).
+			Msg("Comment response timeout - agent did not respond within 2 minutes")
+
+		// Re-fetch comment from database to check current state
+		currentComment, fetchErr := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
+		if fetchErr != nil {
+			log.Error().Err(fetchErr).Str("comment_id", commentID).Msg("Failed to fetch comment for timeout check")
+			return
+		}
+
+		// Only mark as timed out if still processing (RequestID set and no response)
+		if currentComment.RequestID != "" && currentComment.AgentResponse == "" {
+			currentComment.AgentResponse = "[Agent did not respond - try sending your comment again]"
+			currentComment.RequestID = ""
+			currentComment.QueuedAt = nil
+			if updateErr := s.Store.UpdateSpecTaskDesignReviewComment(ctx, currentComment); updateErr != nil {
+				log.Error().Err(updateErr).Str("comment_id", commentID).Msg("Failed to update timed-out comment")
+			}
+
+			// Process next comment in queue
+			go s.processNextCommentInQueue(ctx, sessionID)
+		}
+	})
+	s.sessionCommentMutex.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("comment_id", comment.ID).
+		Msg("Comment sent to agent, started 2-minute response timeout")
 }
 
 // findConnectedSessionForSpecTask finds an active WebSocket connection for a spec task
@@ -815,21 +877,35 @@ func (s *HelixAPIServer) sendCommentToAgent(
 	return s.queueCommentForAgent(ctx, specTask, comment)
 }
 
-// GetCurrentCommentForSession returns the comment ID currently being processed for a session
+// GetCurrentCommentForSession returns the comment ID currently being processed for a session.
+// DATABASE-PRIMARY: Queries database for comment with request_id set (being processed).
 func (s *HelixAPIServer) GetCurrentCommentForSession(sessionID string) string {
-	s.sessionCommentMutex.RLock()
-	defer s.sessionCommentMutex.RUnlock()
-	return s.sessionCurrentComment[sessionID]
+	// A comment is "current" if it has request_id set (sent to agent, awaiting response)
+	isProcessing, err := s.Store.IsCommentBeingProcessedForSession(context.Background(), sessionID)
+	if err != nil || !isProcessing {
+		return ""
+	}
+
+	// Find the comment that's being processed (has request_id set)
+	comment, err := s.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
+	if err != nil {
+		return ""
+	}
+	return comment.ID
 }
 
-// GetCommentQueueForSession returns the list of comment IDs waiting in queue for a session
+// GetCommentQueueForSession returns the list of comment IDs waiting in queue for a session.
+// DATABASE-PRIMARY: Queries database for comments with queued_at set but no request_id.
 func (s *HelixAPIServer) GetCommentQueueForSession(sessionID string) []string {
-	s.sessionCommentMutex.RLock()
-	defer s.sessionCommentMutex.RUnlock()
-	queue := s.sessionCommentQueue[sessionID]
-	result := make([]string, len(queue))
-	copy(result, queue)
-	return result
+	// Query all queued comments (queued_at set, request_id empty, no response yet)
+	// For now, we use a simple approach - get the next one and return it
+	// A proper implementation would add a ListQueuedCommentsForSession method
+	comment, err := s.Store.GetNextQueuedCommentForSession(context.Background(), sessionID)
+	if err != nil {
+		return []string{}
+	}
+	// For now just return the next one - in a full implementation we'd list all queued
+	return []string{comment.ID}
 }
 
 // linkAgentResponseToComment links an agent's interaction response to the design review comment
@@ -904,8 +980,9 @@ func (s *HelixAPIServer) updateCommentWithStreamingResponse(
 	return nil
 }
 
-// finalizeCommentResponse marks a comment response as complete, clears request_id and triggers next queue item
-// This is called when message_completed event is received
+// finalizeCommentResponse marks a comment response as complete, clears request_id/queued_at and triggers next queue item
+// This is called when message_completed event is received.
+// DATABASE-PRIMARY: Uses database state only (no in-memory fallbacks).
 func (s *HelixAPIServer) finalizeCommentResponse(
 	ctx context.Context,
 	requestID string,
@@ -921,8 +998,9 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		return fmt.Errorf("no comment found for request %s: %w", requestID, err)
 	}
 
-	// Clear the request_id to mark as processed
+	// Clear both request_id and queued_at to mark as fully processed
 	comment.RequestID = ""
+	comment.QueuedAt = nil
 
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		return fmt.Errorf("failed to finalize comment response: %w", err)
@@ -932,66 +1010,43 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		Str("comment_id", comment.ID).
 		Str("original_request_id", requestID).
 		Int("final_response_length", len(comment.AgentResponse)).
-		Msg("✅ Finalized comment response (cleared request_id)")
+		Msg("✅ Finalized comment response (cleared request_id and queued_at)")
 
-	// Response complete - process next comment in queue
-	// CRITICAL: We MUST clear sessionCurrentComment and trigger processNextCommentInQueue
-	// even if we can't look up the review/specTask. Otherwise the queue gets permanently stuck.
-	var sessionID string
-
+	// Get sessionID from database (primary mechanism)
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, comment.ReviewID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("comment_id", comment.ID).
 			Str("review_id", comment.ReviewID).
-			Msg("⚠️ Failed to get design review - will try to find sessionID from queue state")
-	} else {
-		specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("spec_task_id", review.SpecTaskID).
-				Msg("⚠️ Failed to get spec task - will try to find sessionID from queue state")
-		} else if specTask.PlanningSessionID == "" {
-			log.Warn().
-				Str("spec_task_id", specTask.ID).
-				Msg("⚠️ SpecTask has empty PlanningSessionID - will try to find sessionID from queue state")
-		} else {
-			sessionID = specTask.PlanningSessionID
-		}
-	}
-
-	// If we couldn't get sessionID from the spec task, try to find it from the current comment mappings
-	// by checking which session has this comment as the current one
-	if sessionID == "" {
-		s.sessionCommentMutex.RLock()
-		for sessID, currentCommentID := range s.sessionCurrentComment {
-			if currentCommentID == comment.ID {
-				sessionID = sessID
-				log.Info().
-					Str("session_id", sessionID).
-					Str("comment_id", comment.ID).
-					Msg("Found sessionID from sessionCurrentComment mapping")
-				break
-			}
-		}
-		s.sessionCommentMutex.RUnlock()
-	}
-
-	// If we still don't have a sessionID, we can't clear the queue properly
-	// Log an error but don't block - the response was still processed
-	if sessionID == "" {
-		log.Error().
-			Str("comment_id", comment.ID).
-			Str("review_id", comment.ReviewID).
-			Msg("❌ Could not determine sessionID to clear queue - queue may be stuck!")
+			Msg("❌ Failed to get design review - cannot process next comment")
 		return nil
 	}
 
-	// Clear the current comment and process next
+	specTask, err := s.Store.GetSpecTask(ctx, review.SpecTaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", review.SpecTaskID).
+			Msg("❌ Failed to get spec task - cannot process next comment")
+		return nil
+	}
+
+	if specTask.PlanningSessionID == "" {
+		log.Warn().
+			Str("spec_task_id", specTask.ID).
+			Msg("⚠️ SpecTask has empty PlanningSessionID - cannot process next comment")
+		return nil
+	}
+
+	sessionID := specTask.PlanningSessionID
+
+	// Cancel the timeout timer since we got a response
 	s.sessionCommentMutex.Lock()
-	delete(s.sessionCurrentComment, sessionID)
+	if timer := s.sessionCommentTimeout[sessionID]; timer != nil {
+		timer.Stop()
+		delete(s.sessionCommentTimeout, sessionID)
+	}
 	s.sessionCommentMutex.Unlock()
 
 	log.Info().

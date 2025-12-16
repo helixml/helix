@@ -100,11 +100,10 @@ type HelixAPIServer struct {
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
-	// Comment queue per planning session - serializes comment responses
-	sessionCommentQueue       map[string][]string // planning_session_id -> queue of comment_ids waiting for response
-	sessionCurrentComment     map[string]string   // planning_session_id -> currently processing comment_id
-	sessionCommentMutex       sync.RWMutex        // Mutex for comment queue operations
-	requestToCommenterMapping map[string]string   // request_id -> commenter user_id (for design review streaming)
+	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
+	sessionCommentTimeout map[string]*time.Timer // planning_session_id -> timeout timer for current comment
+	sessionCommentMutex   sync.RWMutex           // Mutex for timeout operations
+	requestToCommenterMapping map[string]string // request_id -> commenter user_id (for design review streaming)
 	inferenceServer           *openai.InternalHelixServer
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager
@@ -268,8 +267,7 @@ func NewServer(
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
-		sessionCommentQueue:         make(map[string][]string),
-		sessionCurrentComment:       make(map[string]string),
+		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
@@ -427,6 +425,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// 2. Handling HuggingFace model IDs like "Qwen/Qwen3-Coder" correctly
 	// 3. Detecting when providers come back online after being down
 	apiServer.StartModelCacheRefresh(ctx)
+
+	// Resume comment queue processing for any comments that were pending before restart
+	go apiServer.ResumeCommentQueueProcessing(ctx)
 
 	apiServer.startUserWebSocketServer(
 		ctx,

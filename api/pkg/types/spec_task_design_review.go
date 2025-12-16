@@ -69,6 +69,11 @@ type SpecTaskDesignReviewComment struct {
 	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
 	RequestID       string     `json:"request_id,omitempty" gorm:"size:255;index"`     // Request ID used when sending to agent (for response linking)
 
+	// Database-backed queue for agent processing (restart-resilient)
+	// QueuedAt is set when comment is submitted for agent processing.
+	// Processing order: QueuedAt ASC. Cleared when agent response is received.
+	QueuedAt *time.Time `json:"queued_at,omitempty" gorm:"index"`
+
 	// Status tracking
 	Resolved         bool       `json:"resolved" gorm:"default:false"`
 	ResolvedBy       string     `json:"resolved_by,omitempty" gorm:"size:255"`

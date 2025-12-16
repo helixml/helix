@@ -183,6 +183,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     type: 'success' | 'error';
     visible: boolean;
   }>({ message: '', type: 'success', visible: false });
+
+  // Video start timeout - detect Wolf pipeline failures that cause hangs
+  const videoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const VIDEO_START_TIMEOUT_MS = 15000; // 15 seconds to start video after connection
   const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Show clipboard toast notification
@@ -471,6 +475,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setRetryAttemptDisplay(0);
           onConnectionChange?.(true);
 
+          // Start video timeout - if video doesn't start within 15 seconds, Wolf pipeline likely failed
+          // This catches GStreamer errors like resolution mismatches that cause silent hangs
+          if (videoStartTimeoutRef.current) {
+            clearTimeout(videoStartTimeoutRef.current);
+          }
+          videoStartTimeoutRef.current = setTimeout(() => {
+            console.error('[MoonlightStreamViewer] Video start timeout - Wolf pipeline may have failed');
+            setError('Video stream failed to start. The streaming server may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
+            setIsConnecting(false);
+            setIsConnected(false);
+            onConnectionChange?.(false);
+          }, VIDEO_START_TIMEOUT_MS);
+
           // Keep overlay visible until video/screenshot actually arrives
           // - 'high' mode: wait for videoStarted event (first WS keyframe)
           // - 'sse' mode: wait for first SSE keyframe (handled in SSE decoder)
@@ -492,6 +509,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // First keyframe received and being decoded - video is now visible
           // Only relevant for WebSocket video mode ('high')
           console.log('[MoonlightStreamViewer] Video started - hiding connecting overlay');
+          // Clear video start timeout - video arrived successfully
+          if (videoStartTimeoutRef.current) {
+            clearTimeout(videoStartTimeoutRef.current);
+            videoStartTimeoutRef.current = null;
+          }
           setIsConnecting(false);
           setStatus('Streaming active');
         } else if (data.type === 'error') {
@@ -653,6 +675,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       console.log('[MoonlightStreamViewer] Cancelling pending reconnect timeout in disconnect');
       clearTimeout(pendingReconnectTimeoutRef.current);
       pendingReconnectTimeoutRef.current = null;
+    }
+
+    // Cancel video start timeout to prevent false errors during intentional disconnect
+    if (videoStartTimeoutRef.current) {
+      clearTimeout(videoStartTimeoutRef.current);
+      videoStartTimeoutRef.current = null;
     }
 
     // Close SSE EventSource if it exists (from hot-switch or initial SSE mode)
@@ -1030,6 +1058,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               if (!frame.keyframe) return;
               console.log('[SSE Video] First keyframe received - hiding connecting overlay');
               sseReceivedFirstKeyframeRef.current = true;
+              // Clear video start timeout - video arrived successfully
+              if (videoStartTimeoutRef.current) {
+                clearTimeout(videoStartTimeoutRef.current);
+                videoStartTimeoutRef.current = null;
+              }
               // Hide the connecting overlay now that video is visible
               setIsConnecting(false);
               setStatus('Streaming active');
@@ -1256,6 +1289,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             if (!frame.keyframe) return;
             console.log('[SSE Video] First keyframe received (initial) - hiding connecting overlay');
             sseReceivedFirstKeyframeRef.current = true;
+            // Clear video start timeout - video arrived successfully
+            if (videoStartTimeoutRef.current) {
+              clearTimeout(videoStartTimeoutRef.current);
+              videoStartTimeoutRef.current = null;
+            }
             // Hide the connecting overlay now that video is visible
             setIsConnecting(false);
             setStatus('Streaming active');
@@ -1620,6 +1658,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             // Hide connecting overlay on first screenshot
             if (!oldUrl) {
               console.log('[Screenshot] First screenshot received - hiding connecting overlay');
+              // Clear video start timeout - screenshot arrived successfully
+              if (videoStartTimeoutRef.current) {
+                clearTimeout(videoStartTimeoutRef.current);
+                videoStartTimeoutRef.current = null;
+              }
               setIsConnecting(false);
               setStatus('Streaming active');
             }
