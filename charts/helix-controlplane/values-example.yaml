@@ -123,6 +123,7 @@ controlplane:
   logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
 
   # Runner token for authentication (should be a secure random string)
+  # Also set this token in the kodit configuration below.
   runnerToken: "your-secure-runner-token-here"
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
@@ -146,20 +147,6 @@ controlplane:
     #   kubectl create secret generic huggingface-token --from-literal=token="hf_your_actual_token_here"
     # existingSecret: "huggingface-token"
     # existingSecretTokenKey: "token"  # defaults to "token" if not specified
-
-  # Keycloak configuration
-  keycloak:
-    # Internal Keycloak service URL
-    url: "http://keycloak:80/auth"
-    # frontendUrl defaults to global.serverUrl + "/auth" if not specified
-    # frontendUrl: "https://helix.mydomain.com/auth"
-    user: "admin"
-    password: "your-secure-keycloak-admin-password"
-
-    # Option: Use existing secret for Keycloak credentials
-    # existingSecret: "keycloak-auth-secret"
-    # existingSecretUserKey: "user"      # defaults to "user" if not specified
-    # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
 
   # Admin configuration
   admin:
@@ -451,3 +438,9 @@ typesense:
     # selector:
     #   matchLabels:
     #     app: typesense
+
+# Kodit configuration
+# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml 
+# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+kodit:
+  enabled: true
