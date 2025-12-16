@@ -60,8 +60,9 @@ type ContextServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 
 	// HTTP-based MCP server (direct connection)
-	ServerURL string            `json:"server_url,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	// Zed expects "url" field for HTTP context_servers (untagged union)
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
@@ -178,7 +179,7 @@ func GenerateZedMCPConfig(
 		// Note: Authorization header is injected by settings-sync-daemon with user's API key
 		koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
-			ServerURL: koditMCPURL,
+			URL: koditMCPURL,
 		}
 	}
 
@@ -218,8 +219,8 @@ func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
 		// HTTP/SSE transport - direct HTTP connection
 		return ContextServerConfig{
-			ServerURL: mcp.URL,
-			Headers:   mcp.Headers,
+			URL:     mcp.URL,
+			Headers: mcp.Headers,
 		}
 	}
 
