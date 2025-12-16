@@ -547,27 +547,46 @@ type Kodit struct {
 
 #### 4. Automatic Agent Integration
 
-Kodit is automatically configured as a context_server in Zed's settings for all agents:
+Kodit is automatically configured as a context_server in Zed's settings for all agents.
 
+**Step 1: Helix API provides the URL** (`api/pkg/external-agent/zed_config.go`):
 ```go
-// api/pkg/external-agent/zed_config.go (in GenerateZedMCPConfig)
-
 // Add Kodit MCP server for code intelligence (via Helix API proxy)
+// Note: Authorization header is injected by settings-sync-daemon with user's API key
 koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
 config.ContextServers["kodit"] = ContextServerConfig{
-    Command: "helix-cli",
-    Args:    []string{"mcp", "proxy", "--url", koditMCPURL, "--name", "kodit"},
-    Env: map[string]string{
-        "HELIX_URL":   helixAPIURL,
-        "HELIX_TOKEN": helixToken,
-    },
+    ServerURL: koditMCPURL,
+}
+```
+
+**Step 2: Settings-sync-daemon injects user's API key** (`api/cmd/settings-sync-daemon/main.go`):
+```go
+// injectKoditAuth adds the user's API key to the Kodit context_server
+func (d *SettingsDaemon) injectKoditAuth() {
+    // Get the kodit context_server and add Authorization header
+    headers["Authorization"] = "Bearer " + d.userAPIKey
+}
+```
+
+The resulting context_servers config in Zed settings:
+```json
+{
+  "context_servers": {
+    "kodit": {
+      "server_url": "http://api:8080/api/v1/kodit/mcp",
+      "headers": {
+        "Authorization": "Bearer <user-api-key>"
+      }
+    }
+  }
 }
 ```
 
 This means:
 - **All agents (Zed built-in and Qwen Code) automatically have access to Kodit**
-- Uses `helix-cli mcp proxy` to connect to the HTTP MCP endpoint
-- Authentication flows through the Helix API proxy
+- Uses direct HTTP connection (no stdio bridge needed)
+- Authentication via user's Helix API key (USER_API_TOKEN) in Authorization header
+- Runner token is NOT used here - it's reserved for Kodit's internal calls to Helix LLM API
 
 ### Roadmap
 

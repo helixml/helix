@@ -105,12 +105,21 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Convert to response format - include ALL fields from zedConfig
 	contextServers := make(map[string]interface{})
 	for name, server := range zedConfig.ContextServers {
-		serverMap := map[string]interface{}{
-			"command": server.Command,
-			"args":    server.Args,
-		}
-		if len(server.Env) > 0 {
-			serverMap["env"] = server.Env
+		serverMap := make(map[string]interface{})
+
+		// HTTP-based MCP server
+		if server.ServerURL != "" {
+			serverMap["server_url"] = server.ServerURL
+			if len(server.Headers) > 0 {
+				serverMap["headers"] = server.Headers
+			}
+		} else {
+			// Stdio-based MCP server
+			serverMap["command"] = server.Command
+			serverMap["args"] = server.Args
+			if len(server.Env) > 0 {
+				serverMap["env"] = server.Env
+			}
 		}
 		contextServers[name] = serverMap
 	}

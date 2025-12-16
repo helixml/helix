@@ -163,6 +163,41 @@ func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[str
 	}
 }
 
+// injectKoditAuth adds the user's API key to the Kodit context_server's Authorization header.
+// The Kodit MCP server URL is provided by Helix API, but the auth header must use the user's
+// API key (not the runner token) so that the request is authenticated as the user.
+func (d *SettingsDaemon) injectKoditAuth() {
+	if d.userAPIKey == "" {
+		log.Printf("Warning: USER_API_TOKEN not set, Kodit MCP may not authenticate correctly")
+		return
+	}
+
+	contextServers, ok := d.helixSettings["context_servers"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	koditServer, ok := contextServers["kodit"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Add or update the Authorization header with user's API key
+	headers, ok := koditServer["headers"].(map[string]interface{})
+	if !ok {
+		headers = make(map[string]interface{})
+		koditServer["headers"] = headers
+	}
+	headers["Authorization"] = "Bearer " + d.userAPIKey
+
+	// Also rewrite localhost URLs for container networking
+	if serverURL, ok := koditServer["server_url"].(string); ok {
+		koditServer["server_url"] = d.rewriteLocalhostURL(serverURL)
+	}
+
+	log.Printf("Injected user API key into Kodit context_server Authorization header")
+}
+
 func main() {
 	// Environment variables
 	helixURL := os.Getenv("HELIX_API_URL")
@@ -262,6 +297,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
 	}
+
+	// Inject user API key into Kodit context_server's Authorization header
+	d.injectKoditAuth()
+
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
 	}
@@ -573,6 +612,9 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		log.Println("Detected Helix config change, updating settings.json")
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
+
+		// Inject user API key into Kodit context_server
+		d.injectKoditAuth()
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)
