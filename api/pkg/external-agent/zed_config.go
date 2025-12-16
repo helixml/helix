@@ -54,9 +54,14 @@ type ModelConfig struct {
 }
 
 type ContextServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
+	// Stdio-based MCP server (command execution)
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+
+	// HTTP-based MCP server (direct connection)
+	ServerURL string            `json:"server_url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
@@ -167,18 +172,10 @@ func GenerateZedMCPConfig(
 
 	// 2. Add Kodit MCP server for code intelligence (via Helix API proxy)
 	// The Helix proxy at /api/v1/kodit/mcp authenticates users and forwards to Kodit
+	// Note: Authorization header is injected by settings-sync-daemon with user's API key
 	koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
 	config.ContextServers["kodit"] = ContextServerConfig{
-		Command: "helix-cli",
-		Args: []string{
-			"mcp", "proxy",
-			"--url", koditMCPURL,
-			"--name", "kodit",
-		},
-		Env: map[string]string{
-			"HELIX_URL":   helixAPIURL,
-			"HELIX_TOKEN": helixToken,
-		},
+		ServerURL: koditMCPURL,
 	}
 
 	// 3. Pass-through external MCP servers
@@ -215,15 +212,10 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
 	// Parse MCP URL to determine connection type
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
-		// HTTP/SSE transport - use helix-cli as proxy
+		// HTTP/SSE transport - direct HTTP connection
 		return ContextServerConfig{
-			Command: "helix-cli",
-			Args: []string{
-				"mcp", "proxy",
-				"--url", mcp.URL,
-				"--name", mcp.Name,
-			},
-			Env: buildMCPEnv(mcp),
+			ServerURL: mcp.URL,
+			Headers:   mcp.Headers,
 		}
 	}
 
