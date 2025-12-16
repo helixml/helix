@@ -27,7 +27,8 @@ bash -c "./stack start"                # OR THIS
 **Other stack commands you CAN use:**
 - `./stack build` - Build containers
 - `./stack build-zed` - Build Zed binary
-- `./stack build-sway` - Build Sway container
+- `./stack build-sway` - Build Sway desktop container (Dockerfile.sway-helix)
+- `./stack build-ubuntu` - Build Ubuntu desktop container (Dockerfile.ubuntu-helix)
 - `./stack build-wolf` - Build Wolf
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
@@ -636,13 +637,25 @@ cargo build --package zed
 
 **Hot reload:** Kill builds → Build with stack → Close Zed window → Auto-restart in 2s
 
-## Sway Container Build
+## Desktop Container Builds
 
 ```bash
-./stack build-sway  # ✅ CORRECT
+./stack build-sway    # Build Sway desktop (Dockerfile.sway-helix)
+./stack build-ubuntu  # Build Ubuntu GNOME desktop (Dockerfile.ubuntu-helix)
 ```
 
-Rebuild when: modifying `wolf/sway-config/`, `Dockerfile.sway-helix`, Go daemons, Sway configs.
+**Which command to use based on files modified:**
+- `wolf/sway-config/*` → `./stack build-sway`
+- `wolf/ubuntu-config/*`, `Dockerfile.ubuntu-helix` → `./stack build-ubuntu`
+- `api/cmd/settings-sync-daemon/*` → Both (if used by both desktops)
+- `qwen-code` changes → Both (rebuild whichever desktop you're testing)
+
+Both commands:
+1. Build Zed binary if missing (uses existing in dev mode)
+2. Build qwen-code using containerized build
+3. Build the Docker image tagged as `helix-<name>:latest` and `helix-<name>:<commit-hash>`
+
+**Rebuild when:** modifying desktop config files, Dockerfiles, Go daemons, or qwen-code.
 **New sessions use updated image; existing containers don't.**
 
 ## Testing & Mocking

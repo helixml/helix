@@ -1,21 +1,39 @@
 #!/bin/bash
-# Docker CLI wrapper that resolves symlinks in bind mount paths
+# Docker CLI wrapper that translates paths from user-friendly to container paths.
 # This is needed for Hydra (nested dockerd) to work correctly.
 # See: https://github.com/helixml/helix/issues/1405
 #
 # Problem: When running docker inside a dev container with Hydra enabled,
 # the Docker CLI sends paths like /home/retro/work/foo to Hydra's dockerd.
-# But /home/retro/work is a symlink to /data/workspaces/spec-tasks/{id},
-# and Hydra's dockerd runs in the sandbox container which doesn't have
-# that symlink - it only has the real /data/workspaces/... path.
+# But Hydra's dockerd runs in the sandbox container, which can only access
+# the actual workspace path (/data/workspaces/spec-tasks/{id}), not
+# the user-friendly path (/home/retro/work).
 #
-# Solution: Resolve symlinks in -v/--volume arguments before passing to docker.
+# Solution: Translate /home/retro/work paths to the actual WORKSPACE_DIR path.
+# The WORKSPACE_DIR env var is set by Wolf executor to the actual data path.
+#
+# Updated 2025-12-13: Now uses WORKSPACE_DIR env var instead of symlink resolution.
+# This is required because /home/retro/work is now a bind mount (not a symlink).
 
 DOCKER_REAL="/usr/bin/docker.real"
 
-# Function to resolve a path through symlinks
+# User-friendly path that's bind-mounted inside the dev container
+USER_PATH="/home/retro/work"
+
+# Function to translate a path from user-friendly to actual workspace path
 resolve_path() {
     local path="$1"
+
+    # If WORKSPACE_DIR is set and path starts with /home/retro/work,
+    # translate to the actual workspace path
+    if [[ -n "$WORKSPACE_DIR" && "$path" == "$USER_PATH"* ]]; then
+        # Replace /home/retro/work prefix with WORKSPACE_DIR
+        local relative="${path#$USER_PATH}"
+        echo "${WORKSPACE_DIR}${relative}"
+        return
+    fi
+
+    # Fallback to symlink resolution for other paths or when WORKSPACE_DIR not set
     if [[ -e "$path" || -L "$path" ]]; then
         readlink -f "$path" 2>/dev/null || echo "$path"
     else

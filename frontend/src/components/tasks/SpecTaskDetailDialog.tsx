@@ -97,6 +97,38 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
     return [...zedExternalApps, ...otherApps]
   }, [apps.apps])
 
+  // Get display settings from the task's app configuration
+  const displaySettings = useMemo(() => {
+    if (!task?.helix_app_id || !apps.apps) {
+      return { width: 1920, height: 1080, fps: 60 } // Default values
+    }
+    const taskApp = apps.apps.find(a => a.id === task.helix_app_id)
+    const config = taskApp?.config?.helix?.external_agent_config
+    if (!config) {
+      return { width: 1920, height: 1080, fps: 60 }
+    }
+
+    // Get dimensions from resolution preset or explicit values
+    let width = config.display_width || 1920
+    let height = config.display_height || 1080
+    if (config.resolution === '5k') {
+      width = 5120
+      height = 2880
+    } else if (config.resolution === '4k') {
+      width = 3840
+      height = 2160
+    } else if (config.resolution === '1080p') {
+      width = 1920
+      height = 1080
+    }
+
+    return {
+      width,
+      height,
+      fps: config.display_refresh_rate || 60,
+    }
+  }, [task?.helix_app_id, apps.apps])
+
   // Sync selected agent when task changes
   useEffect(() => {
     if (task?.helix_app_id) {
@@ -839,6 +871,9 @@ I'll give you feedback and we can iterate on any changes needed.`
                 wolfLobbyId={wolfLobbyId}
                 mode="stream"
                 onClientIdCalculated={setClientUniqueId}
+                displayWidth={displaySettings.width}
+                displayHeight={displaySettings.height}
+                displayFps={displaySettings.fps}
               />
 
               {/* Message input box */}

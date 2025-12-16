@@ -1,10 +1,13 @@
 #!/bin/bash
-# Docker Compose wrapper that resolves symlinks in volume paths
+# Docker Compose wrapper that translates paths from user-friendly to container paths.
 # This is needed for Hydra (nested dockerd) to work correctly.
 # See: https://github.com/helixml/helix/issues/1405
 #
 # Note: When invoked as a Docker CLI plugin, the first argument is "compose"
 # which we need to preserve and pass through.
+#
+# Updated 2025-12-13: Now uses WORKSPACE_DIR env var instead of symlink resolution.
+# This is required because /home/retro/work is now a bind mount (not a symlink).
 
 COMPOSE_REAL="/usr/libexec/docker/cli-plugins/docker-compose.real"
 
@@ -19,12 +22,25 @@ fi
 PLUGIN_NAME="$1"
 shift
 
-# Function to resolve a path through symlinks
+# User-friendly path that's bind-mounted inside the dev container
+USER_PATH="/home/retro/work"
+
+# Function to translate a path from user-friendly to actual workspace path
 resolve_path() {
     local path="$1"
     # Expand ~ to home directory
     path="${path/#\~/$HOME}"
 
+    # If WORKSPACE_DIR is set and path starts with /home/retro/work,
+    # translate to the actual workspace path
+    if [[ -n "$WORKSPACE_DIR" && "$path" == "$USER_PATH"* ]]; then
+        # Replace /home/retro/work prefix with WORKSPACE_DIR
+        local relative="${path#$USER_PATH}"
+        echo "${WORKSPACE_DIR}${relative}"
+        return
+    fi
+
+    # Fallback to symlink resolution for other paths or when WORKSPACE_DIR not set
     if [[ -e "$path" || -L "$path" ]]; then
         readlink -f "$path" 2>/dev/null || echo "$path"
     else

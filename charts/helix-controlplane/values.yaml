@@ -297,6 +297,20 @@ kodit:
             DATA_DIR: /data
             DB_URL: postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-kodit-vectorchord:5432/$(POSTGRES_DB)
             DEFAULT_SEARCH_PROVIDER: vectorchord
+            # Enrichment endpoint - Kodit uses Helix as LLM proxy for code enrichments
+            # Override ENRICHMENT_ENDPOINT_API_KEY to reference your runner token secret
+            ENRICHMENT_ENDPOINT_BASE_URL: "http://{{ .Release.Name }}:80/v1"
+            ENRICHMENT_ENDPOINT_MODEL: openai/kodit-model
+            ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS: "3"
+            ENRICHMENT_ENDPOINT_TIMEOUT: "120"
+            # API key from runner token secret - override this in your values.yaml:
+            # kodit.controllers.kodit.containers.kodit.env.ENRICHMENT_ENDPOINT_API_KEY.valueFrom.secretKeyRef.name
+            # kodit.controllers.kodit.containers.kodit.env.ENRICHMENT_ENDPOINT_API_KEY.valueFrom.secretKeyRef.key
+            ENRICHMENT_ENDPOINT_API_KEY:
+              valueFrom:
+                secretKeyRef:
+                  name: "helix-runner-secrets"  # Override with your secret name
+                  key: "api-token"              # Override with your secret key
 
     vectorchord:
       enabled: true

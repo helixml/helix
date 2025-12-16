@@ -71,6 +71,33 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		ownerID = oai.RunnerID
 	}
 
+	// Special handling for kodit-model proxy
+	// When Kodit sends requests with model "kodit-model", we substitute with the configured model from SystemSettings
+	if chatCompletionRequest.Model == "kodit-model" {
+		settings, err := s.Store.GetEffectiveSystemSettings(r.Context())
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get system settings for kodit-model substitution")
+			http.Error(rw, "Failed to get system settings", http.StatusInternalServerError)
+			return
+		}
+		if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
+			log.Warn().Msg("kodit-model requested but no enrichment model configured in system settings")
+			http.Error(rw, "Code Intelligence model not configured. Please configure the enrichment model in Admin > System Settings.", http.StatusBadRequest)
+			return
+		}
+
+		// Combine provider and model into the format expected by Helix routing
+		// e.g., "together_ai" + "Qwen/Qwen3-8B" -> "together_ai/Qwen/Qwen3-8B"
+		resolvedModel := settings.KoditEnrichmentProvider + "/" + settings.KoditEnrichmentModel
+		log.Debug().
+			Str("original_model", "kodit-model").
+			Str("provider", settings.KoditEnrichmentProvider).
+			Str("model", settings.KoditEnrichmentModel).
+			Str("resolved_model", resolvedModel).
+			Msg("substituted kodit-model with configured enrichment model")
+		chatCompletionRequest.Model = resolvedModel
+	}
+
 	// Parse provider prefix from model name (e.g., "openrouter/gpt-4" -> provider="openrouter", model="gpt-4")
 	// But first, check if the full model name (with slash) exists in any provider's model list.
 	// This handles HuggingFace-style model IDs like "Qwen/Qwen3-Coder" that might be incorrectly

@@ -226,10 +226,58 @@ export class StreamInput {
         }
     }
     onMouseWheel(event: WheelEvent) {
+        // Normalize wheel deltas based on deltaMode
+        // DOM_DELTA_PIXEL (0): Values in pixels - but magnitude varies by device:
+        //   - Mouse wheel: 100-150 pixels per notch (discrete, large values)
+        //   - Touchpad: 1-10 pixels per event (continuous, small values, high frequency)
+        // DOM_DELTA_LINE (1): Values in lines - Firefox sends 1-3 per notch
+        // DOM_DELTA_PAGE (2): Values in pages - rare
+        let deltaX = event.deltaX;
+        let deltaY = event.deltaY;
+
+        if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+            // Pixel mode - use adaptive scaling based on magnitude
+            // Large values (>30) are likely mouse wheel notches - scale down aggressively
+            // Small values are likely touchpad - minimal scaling to preserve sensitivity
+            const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+            if (magnitude > 30) {
+                // Mouse wheel: scale down to prevent oversensitivity
+                // 100-150 → 10-15 for high-res mode
+                deltaX = deltaX / 10;
+                deltaY = deltaY / 10;
+            } else {
+                // Touchpad: light scaling to keep smooth scrolling working
+                // 1-10 → 0.5-5 for high-res mode (accumulated over many events)
+                deltaX = deltaX / 2;
+                deltaY = deltaY / 2;
+            }
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+            // Line mode (Firefox) - multiply to match high-res scale
+            // Firefox sends 1-3 per notch, we want ~10-15 for high-res
+            deltaX = deltaX * 5;
+            deltaY = deltaY * 5;
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            // Page mode - multiply for reasonable scroll
+            deltaX = deltaX * 50;
+            deltaY = deltaY * 50;
+        }
+
+        // Ensure non-zero values don't round to zero (preserves scroll direction)
+        // This is critical for touchpad which sends many small deltas
+        const roundAwayFromZero = (v: number) => {
+            if (v === 0) return 0;
+            if (v > 0 && v < 1) return 1;
+            if (v < 0 && v > -1) return -1;
+            return Math.round(v);
+        };
+
         if (this.config.mouseScrollMode == "highres") {
-            this.sendMouseWheelHighRes(event.deltaX, -event.deltaY)
+            this.sendMouseWheelHighRes(roundAwayFromZero(deltaX), roundAwayFromZero(-deltaY))
         } else if (this.config.mouseScrollMode == "normal") {
-            this.sendMouseWheel(event.deltaX, -event.deltaY)
+            // Normal mode uses Int8 (-128 to 127), scale down further
+            const normalX = deltaX / 10;
+            const normalY = -deltaY / 10;
+            this.sendMouseWheel(roundAwayFromZero(normalX), roundAwayFromZero(normalY))
         }
     }
 

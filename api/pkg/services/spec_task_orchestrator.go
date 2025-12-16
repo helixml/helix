@@ -32,8 +32,8 @@ type SpecTaskOrchestrator struct {
 
 // WolfExecutorInterface defines the interface for Wolf executor
 type WolfExecutorInterface interface {
-	StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
-	StopZedAgent(ctx context.Context, sessionID string) error
+	StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+	StopDesktop(ctx context.Context, sessionID string) error
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator

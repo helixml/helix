@@ -1,11 +1,13 @@
 package services
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -441,7 +443,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 }
 
 // handleGitHTTPBackend delegates to git's official http-backend CGI
-// This handles the complete git smart HTTP protocol correctly
+// This handles the complete git smart HTTP protocol correctly with streaming output
 func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
@@ -462,75 +464,167 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// From URL like /git/{repo-id}/info/refs, extract /info/refs
 	gitPath := strings.TrimPrefix(r.URL.Path, "/git/"+repoID)
 
-	// Set CGI environment variables for git-http-backend
-	// GIT_PROJECT_ROOT points to the repo itself (bare repo)
-	// PATH_INFO is the git service path (without repo name)
-	cmd.Env = append(os.Environ(),
+	// Build CGI environment variables following RFC 3875
+	// Reference: Go's net/http/cgi package and git-http-backend documentation
+	env := []string{
+		// Standard CGI variables
+		"SERVER_SOFTWARE=helix-git-server",
+		"SERVER_PROTOCOL=HTTP/1.1",
+		"GATEWAY_INTERFACE=CGI/1.1",
+		"REQUEST_METHOD=" + r.Method,
+		"QUERY_STRING=" + r.URL.RawQuery,
+		"REQUEST_URI=" + r.URL.RequestURI(),
+		"PATH_INFO=" + gitPath,
+		"SCRIPT_NAME=/git/" + repoID,
+
+		// Git-specific variables
 		fmt.Sprintf("GIT_PROJECT_ROOT=%s", repo.LocalPath),
-		fmt.Sprintf("PATH_INFO=%s", gitPath),
-		fmt.Sprintf("QUERY_STRING=%s", r.URL.RawQuery),
-		"REQUEST_METHOD="+r.Method,
 		"GIT_HTTP_EXPORT_ALL=1", // Allow serving without git-daemon-export-ok file
-		fmt.Sprintf("CONTENT_TYPE=%s", r.Header.Get("Content-Type")),
-		fmt.Sprintf("REMOTE_USER=%s", s.getUser(r).ID), // Pass authenticated user for logging
-	)
 
-	// Pipe request body to git http-backend
-	cmd.Stdin = r.Body
+		// Authentication
+		fmt.Sprintf("REMOTE_USER=%s", s.getUser(r).ID),
+	}
 
-	// Capture combined output (CGI format: headers\r\n\r\nbody)
-	output, err := cmd.CombinedOutput()
+	// Add REMOTE_ADDR if available
+	if r.RemoteAddr != "" {
+		// RemoteAddr is typically "ip:port", extract just the IP
+		remoteIP := r.RemoteAddr
+		if colonIdx := strings.LastIndex(r.RemoteAddr, ":"); colonIdx != -1 {
+			remoteIP = r.RemoteAddr[:colonIdx]
+		}
+		env = append(env, "REMOTE_ADDR="+remoteIP)
+	}
+
+	// Add Content-Type if present
+	if ctype := r.Header.Get("Content-Type"); ctype != "" {
+		env = append(env, "CONTENT_TYPE="+ctype)
+	}
+
+	// CRITICAL: Add Content-Length for POST requests
+	// Without this, git-http-backend doesn't know how many bytes to read,
+	// causing "bad line length character" protocol errors
+	if r.ContentLength > 0 {
+		env = append(env, fmt.Sprintf("CONTENT_LENGTH=%d", r.ContentLength))
+	}
+
+	// Add HTTP_HOST
+	if r.Host != "" {
+		env = append(env, "HTTP_HOST="+r.Host)
+	}
+
+	// Add Git-Protocol header if present (for Git protocol v2)
+	if gitProtocol := r.Header.Get("Git-Protocol"); gitProtocol != "" {
+		env = append(env, "GIT_PROTOCOL="+gitProtocol)
+		env = append(env, "HTTP_GIT_PROTOCOL="+gitProtocol)
+	}
+
+	// Inherit PATH from environment
+	if path := os.Getenv("PATH"); path != "" {
+		env = append(env, "PATH="+path)
+	}
+
+	cmd.Env = env
+
+	// Pipe request body to git http-backend stdin
+	if r.ContentLength != 0 {
+		cmd.Stdin = r.Body
+	}
+
+	// Capture stderr separately for error logging
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
+	// Use StdoutPipe for streaming output instead of buffering everything
+	// This is critical for large repositories - CombinedOutput() would buffer
+	// the entire packfile (potentially gigabytes) in memory
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		outputStr := string(output)
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to create stdout pipe")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-		// Extract exit code if available
-		exitCode := -1
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to start git http-backend")
+		http.Error(w, "Failed to start git backend", http.StatusInternalServerError)
+		return
+	}
+
+	// Ensure we wait for the command to complete and clean up
+	defer func() {
+		stdout.Close()
+		if err := cmd.Wait(); err != nil {
+			stderrStr := stderrBuf.String()
+			log.Error().
+				Err(err).
+				Str("repo_id", repoID).
+				Str("stderr", stderrStr).
+				Msg("Git http-backend exited with error")
+		}
+	}()
+
+	// Parse CGI headers from stdout using buffered reader
+	// Headers end with a blank line, then body follows
+	reader := bufio.NewReader(stdout)
+	statusCode := http.StatusOK
+	headersDone := false
+
+	for !headersDone {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Error reading CGI headers")
+			http.Error(w, "Error reading git response", http.StatusInternalServerError)
+			return
 		}
 
-		log.Error().
+		// Trim the line ending
+		line = strings.TrimRight(line, "\r\n")
+
+		// Empty line marks end of headers
+		if line == "" {
+			headersDone = true
+			break
+		}
+
+		// Parse header
+		if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+			key := line[:colonIdx]
+			value := strings.TrimSpace(line[colonIdx+1:])
+
+			// Handle Status header specially (CGI uses "Status: 200 OK")
+			if strings.EqualFold(key, "Status") {
+				if len(value) >= 3 {
+					if code, err := fmt.Sscanf(value[:3], "%d", &statusCode); err == nil && code == 1 {
+						// Successfully parsed status code
+					}
+				}
+			} else {
+				w.Header().Set(key, value)
+			}
+		}
+	}
+
+	// Write status code and stream body
+	w.WriteHeader(statusCode)
+
+	// Stream the body directly to the response writer
+	// This handles large packfiles without buffering in memory
+	bytesWritten, err := io.Copy(w, reader)
+	if err != nil {
+		// Client may have disconnected, log but don't try to write error response
+		log.Warn().
 			Err(err).
 			Str("repo_id", repoID).
-			Int("exit_code", exitCode).
-			Str("output", outputStr).
-			Msg("Git http-backend failed")
-
-		// Return detailed error to client so it shows in terminal
-		errorMsg := fmt.Sprintf("Git operation failed (exit code %d): %s\n\nOutput:\n%s", exitCode, err.Error(), outputStr)
-		http.Error(w, errorMsg, http.StatusInternalServerError)
+			Int64("bytes_written", bytesWritten).
+			Msg("Error streaming git response (client may have disconnected)")
+		// Kill the process to avoid hanging
+		cmd.Process.Kill()
 		return
 	}
-
-	// Parse CGI response (headers + body separated by \r\n\r\n or \n\n)
-	headerEnd := bytes.Index(output, []byte("\r\n\r\n"))
-	if headerEnd == -1 {
-		headerEnd = bytes.Index(output, []byte("\n\n"))
-	}
-
-	if headerEnd == -1 {
-		// No CGI headers found, write raw output
-		w.Write(output)
-		return
-	}
-
-	// Parse and set response headers
-	headers := string(output[:headerEnd])
-	for _, line := range strings.Split(headers, "\n") {
-		line = strings.TrimSpace(line)
-		if idx := strings.Index(line, ": "); idx > 0 {
-			key := line[:idx]
-			value := line[idx+2:]
-			w.Header().Set(key, value)
-		}
-	}
-
-	// Write body
-	bodyStart := headerEnd + 4
-	if bytes.HasPrefix(output[headerEnd:], []byte("\n\n")) {
-		bodyStart = headerEnd + 2
-	}
-	w.Write(output[bodyStart:])
 
 	// Post-push hook: Check for design doc commits (async, don't block response)
 	if strings.HasSuffix(gitPath, "/git-receive-pack") {
@@ -542,7 +636,7 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		Str("repo_id", repoID).
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
-		Int("response_size", len(output)).
+		Int64("response_size", bytesWritten).
 		Msg("Git HTTP request completed via http-backend")
 }
 

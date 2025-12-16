@@ -1,5 +1,6 @@
 #!/bin/bash
-# GOW GNOME startup script for Helix Personal Dev Environment (Ubuntu)
+# GOW GNOME startup script for Helix Desktop (Ubuntu)
+# Used for: Desktop sessions, Spec Task sessions, and Exploratory sessions
 # This version uses vanilla Ubuntu GNOME with NO custom HiDPI scaling
 
 # ============================================================================
@@ -137,6 +138,25 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "Zed state symlinks created"
 
+# Configure fontconfig for grayscale antialiasing (affects all apps including Zed)
+# RGB subpixel rendering looks bad when desktop is scaled via streaming
+mkdir -p ~/.config/fontconfig
+cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Use grayscale antialiasing instead of subpixel (RGB) -->
+  <!-- Subpixel rendering breaks when desktop is scaled via streaming -->
+  <match target="font">
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+  </match>
+</fontconfig>
+FONTCONFIG_EOF
+echo "Fontconfig set to grayscale antialiasing"
+
 # ============================================================================
 # RevDial Client for API Communication
 # ============================================================================
@@ -246,15 +266,19 @@ else
 fi
 
 if [ "$ENABLE_POSITION_WINDOWS" = "true" ]; then
-    # Create window positioning script (positions Terminal, Zed, and Firefox)
+    # Create window positioning script
     # Uses xdotool --sync for event-driven waiting (no arbitrary sleep delays)
+    # Layout:
+    #   Desktop 1 (Editor): Zed fullscreen
+    #   Desktop 2 (Debug): Startup script terminal (left), Debug terminal (right)
+    #   Chrome: Stays on current desktop when opened (overlays Zed on desktop 1)
     cat > /tmp/position-windows.sh << 'POSITION_EOF'
 #!/bin/bash
-# Tile windows in thirds after they appear
+# Position windows across virtual desktops
 # Screen: 1920x1080 (no HiDPI scaling - vanilla Ubuntu)
-# Left third (0-639): Terminal
-# Middle third (640-1279): Zed
-# Right third (1280-1919): Firefox
+#
+# Desktop 1 (Editor): Zed - fullscreen
+# Desktop 2 (Debug): Terminals side-by-side (left: startup, right: debug)
 #
 # Uses xdotool search --sync to wait for each window to appear (event-driven)
 # Each wait runs in parallel so windows can appear in any order
@@ -264,40 +288,52 @@ export DISPLAY=:9
 
 echo "Starting window positioning (event-driven with xdotool --sync)..."
 
-# Position Terminal (gnome-terminal) - left third
-# xdotool --sync blocks until window appears, with 60s timeout
-(
-    TERMINAL_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "gnome-terminal" 2>/dev/null | head -1)
-    if [ -n "$TERMINAL_WID" ]; then
-        wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,640,1050
-        echo "Positioned terminal: $TERMINAL_WID -> left third (0-639)"
-    else
-        echo "WARNING: Terminal window not found (timeout)"
-    fi
-) &
-
-# Position Zed - middle third
+# Position Zed - fullscreen on desktop 1 (index 0)
 # Zed class is "dev.zed.Zed-Dev" (dev) or "dev.zed.Zed" (release)
 (
     ZED_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "Zed" 2>/dev/null | head -1)
     if [ -n "$ZED_WID" ]; then
-        wmctrl -i -r "$ZED_WID" -e 0,640,30,640,1050
-        echo "Positioned Zed: $ZED_WID -> middle third (640-1279)"
+        # Move to desktop 1 (index 0)
+        wmctrl -i -r "$ZED_WID" -t 0
+        # Maximize (fullscreen)
+        wmctrl -i -r "$ZED_WID" -b add,maximized_vert,maximized_horz
+        echo "Positioned Zed: $ZED_WID -> desktop 1 (fullscreen)"
     else
         echo "WARNING: Zed window not found (timeout)"
     fi
 ) &
 
-# Position Firefox - right third
+# Position first terminal (startup script) - left half of desktop 2 (index 1)
+# xdotool --sync blocks until window appears, with 60s timeout
 (
-    FIREFOX_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "firefox" 2>/dev/null | head -1)
-    if [ -n "$FIREFOX_WID" ]; then
-        wmctrl -i -r "$FIREFOX_WID" -e 0,1280,30,640,1050
-        echo "Positioned Firefox: $FIREFOX_WID -> right third (1280-1919)"
+    # Wait for at least one terminal to appear
+    TERMINAL_WID=$(timeout 60 xdotool search --sync --onlyvisible --class "gnome-terminal" 2>/dev/null | head -1)
+    if [ -n "$TERMINAL_WID" ]; then
+        # Move to desktop 2 (index 1)
+        wmctrl -i -r "$TERMINAL_WID" -t 1
+        # Position on left half: x=0, y=30 (account for top bar), width=960, height=1050
+        wmctrl -i -r "$TERMINAL_WID" -e 0,0,30,960,1050
+        echo "Positioned startup terminal: $TERMINAL_WID -> desktop 2 left"
+
+        # Now look for a second terminal window for debug
+        sleep 2  # Give time for debug terminal to spawn
+        ALL_TERMINALS=$(xdotool search --onlyvisible --class "gnome-terminal" 2>/dev/null)
+        for WID in $ALL_TERMINALS; do
+            if [ "$WID" != "$TERMINAL_WID" ]; then
+                # This is the second terminal - put it on the right
+                wmctrl -i -r "$WID" -t 1
+                wmctrl -i -r "$WID" -e 0,960,30,960,1050
+                echo "Positioned debug terminal: $WID -> desktop 2 right"
+                break
+            fi
+        done
     else
-        echo "WARNING: Firefox window not found (timeout)"
+        echo "WARNING: Terminal window not found (timeout)"
     fi
 ) &
+
+# Chrome/browser will open on desktop 1 overlaying Zed (user can rearrange)
+# No positioning needed - just let it open normally
 
 # Wait for all positioning jobs to complete
 wait
@@ -395,19 +431,28 @@ else
     echo "settings-sync-daemon autostart DISABLED by feature flag"
 fi
 
+# NOTE: Display scaling is configured via monitors.xml (see above), NOT via gsettings
+# gsettings text-scaling-factor only affects GTK text, not the actual display scale
+
 # Create autostart entry for Zed (starts after settings are ready)
+# NOTE: Autostart entry is just for launching Zed at login.
+# Icon/dock matching is handled by system desktop file at /usr/share/applications/dev.zed.Zed-Dev.desktop
 if [ "$ENABLE_ZED_AUTOSTART" = "true" ]; then
+    # IMPORTANT: Autostart entries should NOT have StartupWMClass or NoDisplay=false
+    # Having StartupWMClass here conflicts with the system desktop file at
+    # /usr/share/applications/dev.zed.Zed-Dev.desktop, preventing GNOME from
+    # properly associating the Zed window with the correct application entry.
+    # The system desktop file handles dock icon and app search matching.
     cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Zed Helix Editor
+Name=Zed Helix Startup
 Exec=/usr/local/bin/start-zed-helix.sh
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=5
-NoDisplay=false
-Icon=zed
+X-GNOME-Autostart-Delay=2
+NoDisplay=true
 EOF
-    echo "Zed autostart entry created"
+    echo "Zed autostart entry created (NoDisplay=true, no StartupWMClass - system .desktop handles icon)"
 else
     echo "Zed autostart DISABLED by feature flag"
 fi
@@ -418,14 +463,14 @@ fi
 # would create duplicate windows.
 
 # ============================================================================
-# Set Firefox as Default Browser
+# Set Chrome as Default Browser
 # ============================================================================
-# Configure Firefox as the default handler for HTTP/HTTPS URLs so xdg-open works
-echo "Setting Firefox as default browser..."
-xdg-mime default firefox.desktop x-scheme-handler/http
-xdg-mime default firefox.desktop x-scheme-handler/https
-xdg-mime default firefox.desktop text/html
-echo "Firefox set as default browser for HTTP/HTTPS URLs"
+# Configure Chrome as the default handler for HTTP/HTTPS URLs so xdg-open works
+echo "Setting Chrome as default browser..."
+xdg-mime default google-chrome.desktop x-scheme-handler/http
+xdg-mime default google-chrome.desktop x-scheme-handler/https
+xdg-mime default google-chrome.desktop text/html
+echo "Chrome set as default browser for HTTP/HTTPS URLs"
 
 # ============================================================================
 # dconf Settings Loaded in desktop.sh
@@ -434,10 +479,22 @@ echo "Firefox set as default browser for HTTP/HTTPS URLs"
 # Trying to load dconf here fails because D-Bus isn't available yet.
 # The desktop.sh script runs after xorg.sh starts Xwayland and D-Bus.
 
-# CRITICAL: Create monitors.xml to configure Mutter's display resolution
-# This is the proper way to tell Mutter what resolution to use.
+# CRITICAL: Create monitors.xml to configure Mutter's display resolution and scale
+# This is the proper way to tell Mutter what resolution and scale to use.
 # Without this, Mutter picks the highest available resolution (5120x2880)
 # which doesn't match Gamescope's expected resolution.
+
+# Calculate display scale from HELIX_ZOOM_LEVEL (default: 100% = scale 1)
+# GNOME/Mutter supports integer scales (1, 2) in monitors.xml
+# For fractional scaling, experimental-features would be needed
+ZOOM_LEVEL=${HELIX_ZOOM_LEVEL:-100}
+GNOME_SCALE=$(echo "scale=0; $ZOOM_LEVEL / 100" | bc)
+# Ensure minimum scale of 1
+if [ "$GNOME_SCALE" -lt 1 ]; then
+    GNOME_SCALE=1
+fi
+echo "GNOME display scale: $GNOME_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
+
 mkdir -p ~/.config
 cat > ~/.config/monitors.xml <<EOF
 <monitors version="2">
@@ -445,7 +502,7 @@ cat > ~/.config/monitors.xml <<EOF
     <logicalmonitor>
       <x>0</x>
       <y>0</y>
-      <scale>1</scale>
+      <scale>$GNOME_SCALE</scale>
       <primary>yes</primary>
       <monitor>
         <monitorspec>
@@ -465,7 +522,7 @@ cat > ~/.config/monitors.xml <<EOF
 </monitors>
 EOF
 
-echo "Created monitors.xml for ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
+echo "Created monitors.xml for ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080} at scale $GNOME_SCALE"
 
 # Also create an autostart entry that runs xrandr AFTER Mutter is fully initialized
 # The monitors.xml should work, but this is a backup that runs with longer delay

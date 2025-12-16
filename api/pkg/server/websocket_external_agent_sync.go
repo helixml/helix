@@ -354,13 +354,25 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 							// Determine which agent to use based on the spec task's code agent config
 							agentName := apiServer.getAgentNameForSession(ctx, helixSession)
 
+							// CRITICAL FIX: Use existing thread if available, otherwise create new
+							// This ensures message routing works after container restart by continuing
+							// in the same Zed thread (whose ID is stored on the session)
+							var acpThreadID interface{} = nil
+							if helixSession.Metadata.ZedThreadID != "" {
+								acpThreadID = helixSession.Metadata.ZedThreadID
+								log.Info().
+									Str("helix_session_id", helixSessionID).
+									Str("zed_thread_id", helixSession.Metadata.ZedThreadID).
+									Msg("🔗 [HELIX] Resuming in existing Zed thread after reconnect")
+							}
+
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",
 								Data: map[string]interface{}{
 									"message":       fullMessage,
 									"request_id":    requestID,
-									"acp_thread_id": nil,       // null = create new thread
-									"agent_name":    agentName, // Which agent to use (zed-agent or qwen)
+									"acp_thread_id": acpThreadID, // Use existing thread if available
+									"agent_name":    agentName,   // Which agent to use (zed-agent or qwen)
 								},
 							}
 
@@ -395,19 +407,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 // sendResponseToZed sends a response back to Zed via WebSocket
 func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content string, isComplete bool) error {
-	// Get the WebSocket connection for this session
-	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
-	if !exists || wsConn == nil {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
 	// Determine event type based on completion status
 	eventType := "chat_response_chunk"
 	if isComplete {
 		eventType = "chat_response_done"
 	}
 
-	// Create command to send to Zed
 	command := types.ExternalAgentCommand{
 		Type: eventType,
 		Data: map[string]interface{}{
@@ -417,18 +422,7 @@ func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content
 		},
 	}
 
-	// Send the command
-	select {
-	case wsConn.SendChan <- command:
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("context_id", contextID).
-			Str("event_type", eventType).
-			Msg("Sent response to Zed")
-		return nil
-	default:
-		return fmt.Errorf("failed to send response to Zed: channel full")
-	}
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -779,27 +773,13 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Str("agent_type", session.Metadata.AgentType).
 		Msg("Notifying external agent of new interaction")
 
-	// Find the external agent connection for this session type
-	// For now, we'll send to all connected external agents
-	// In a more sophisticated implementation, we'd track which agent is handling which session
-	apiServer.externalAgentWSManager.mu.RLock()
-	defer apiServer.externalAgentWSManager.mu.RUnlock()
-
-	if len(apiServer.externalAgentWSManager.connections) == 0 {
-		log.Warn().Str("session_id", sessionID).Msg("No external agents connected to handle session")
-		return nil
-	}
-
-	// Create the command to send to Zed
-	// CRITICAL: Include acp_thread_id if this session already has one (for follow-up messages)
+	// Build command data - include acp_thread_id if session already has one (for follow-up messages)
 	commandData := map[string]interface{}{
-		"session_id": sessionID,
 		"message":    interaction.PromptMessage,
 		"role":       "user",
 		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
 	}
 
-	// If session already has a Zed thread ID, include it so message goes to existing thread
 	if session.Metadata.ZedThreadID != "" {
 		commandData["acp_thread_id"] = session.Metadata.ZedThreadID
 		log.Info().
@@ -813,33 +793,8 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
-	// Send to all connected external agents (in future, route to specific agent)
-	var sentCount int
-	for agentSessionID, wsConn := range apiServer.externalAgentWSManager.connections {
-		select {
-		case wsConn.SendChan <- command:
-			log.Info().
-				Str("session_id", sessionID).
-				Str("agent_session_id", agentSessionID).
-				Str("interaction_id", interaction.ID).
-				Msg("Sent interaction to external agent via WebSocket")
-			sentCount++
-		default:
-			log.Warn().
-				Str("session_id", sessionID).
-				Str("agent_session_id", agentSessionID).
-				Msg("Failed to send to external agent: channel full")
-		}
-	}
-
-	if sentCount > 0 {
-		log.Info().
-			Str("session_id", sessionID).
-			Int("sent_count", sentCount).
-			Msg("Successfully notified external agents of new interaction")
-	}
-
-	return nil
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // handleMessageAdded processes message addition from external agent
@@ -971,8 +926,56 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		if targetInteraction != nil {
 			// Update the existing interaction with the AI response content
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
-			// NOTE: Zed sends full content each time (not incremental), so overwriting is correct
-			targetInteraction.ResponseMessage = content
+			//
+			// MULTI-MESSAGE HANDLING using Zed's message_id (restart-resilient):
+			// Zed sends a unique message_id with each message:
+			// - Same message_id = streaming update of same message (cumulative content) → OVERWRITE
+			// - Different message_id = new distinct message from agent → APPEND
+			//
+			// We persist LastZedMessageID in the database, so this works across restarts.
+			existingContent := targetInteraction.ResponseMessage
+			lastMessageID := targetInteraction.LastZedMessageID
+			shouldAppend := false
+
+			if lastMessageID == "" {
+				// First message for this interaction - overwrite
+				shouldAppend = false
+				log.Debug().
+					Str("interaction_id", targetInteraction.ID).
+					Str("message_id", messageID).
+					Msg("📝 [HELIX] First message for interaction (setting LastZedMessageID)")
+			} else if lastMessageID == messageID {
+				// Same message ID - this is a streaming update with cumulative content
+				shouldAppend = false
+				log.Debug().
+					Str("interaction_id", targetInteraction.ID).
+					Str("message_id", messageID).
+					Msg("📝 [HELIX] Streaming update (same message_id, overwriting)")
+			} else {
+				// Different message ID - this is a new distinct message from the agent
+				shouldAppend = true
+				log.Info().
+					Str("interaction_id", targetInteraction.ID).
+					Str("last_message_id", lastMessageID).
+					Str("new_message_id", messageID).
+					Msg("📝 [HELIX] New distinct message detected (different message_id)")
+			}
+
+			// Always update the LastZedMessageID to the current message
+			targetInteraction.LastZedMessageID = messageID
+
+			if shouldAppend && existingContent != "" {
+				// New distinct message - append it
+				targetInteraction.ResponseMessage = existingContent + "\n\n" + content
+				log.Info().
+					Str("interaction_id", targetInteraction.ID).
+					Int("existing_len", len(existingContent)).
+					Int("new_len", len(content)).
+					Msg("📝 [HELIX] Appending new message to interaction (multi-message response)")
+			} else {
+				// Cumulative update or first message - overwrite
+				targetInteraction.ResponseMessage = content
+			}
 			targetInteraction.Updated = time.Now()
 
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
@@ -996,56 +999,59 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", targetInteraction.ID).
 				Str("role", role).
-				Str("content", content).
+				Str("content_length", fmt.Sprintf("%d", len(content))).
+				Bool("appended_new_message", shouldAppend).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
 
-			// CRITICAL: Also send to response channel for HTTP streaming
-			// The request_id was sent to Zed in the chat_message command
-			// We need to find it using the request->session mapping
-			var foundRequestID string
-			if apiServer.requestToSessionMapping != nil {
-				for reqID, sessID := range apiServer.requestToSessionMapping {
-					if sessID == helixSessionID {
-						foundRequestID = reqID
-						break
-					}
-				}
-			}
-
-			if foundRequestID != "" {
-				responseChan, _, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
-				if exists {
-					select {
-					case responseChan <- content:
-						log.Info().
-							Str("session_id", helixSessionID).
-							Str("request_id", foundRequestID).
-							Int("content_length", len(content)).
-							Msg("✅ [HELIX] Sent message_added content to HTTP streaming channel")
-					default:
-						log.Warn().
-							Str("session_id", helixSessionID).
-							Str("request_id", foundRequestID).
-							Msg("HTTP response channel full or closed")
-					}
-				} else {
+			// DATABASE-FIRST: Link response to pending design review comment
+			// Query database for comments with pending request_id (survives API and container restarts)
+			go func(sessionID, responseContent string) {
+				pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
+				if err != nil {
 					log.Debug().
-						Str("session_id", helixSessionID).
-						Str("request_id", foundRequestID).
-						Msg("No HTTP response channel found (may not be an HTTP streaming request)")
+						Err(err).
+						Str("session_id", sessionID).
+						Msg("No pending design review comment found for session (this is normal for non-comment interactions)")
+					return
 				}
 
-				// CRITICAL: Also link agent response to design review comment via request_id
-				// This is the primary mechanism for persisting comment responses to database
-				go func(reqID, responseContent string) {
-					if err := apiServer.linkAgentResponseToCommentByRequestID(context.Background(), reqID, responseContent); err != nil {
-						log.Debug().
-							Err(err).
-							Str("request_id", reqID).
-							Msg("No design review comment linked to this request (this is normal for non-comment requests)")
+				// Found a pending comment - update it with the response
+				pendingComment.AgentResponse = responseContent
+				now := time.Now()
+				pendingComment.AgentResponseAt = &now
+
+				if err := apiServer.Store.UpdateSpecTaskDesignReviewComment(context.Background(), pendingComment); err != nil {
+					log.Error().
+						Err(err).
+						Str("comment_id", pendingComment.ID).
+						Str("session_id", sessionID).
+						Msg("Failed to update comment with agent response")
+					return
+				}
+
+				log.Info().
+					Str("comment_id", pendingComment.ID).
+					Str("session_id", sessionID).
+					Str("request_id", pendingComment.RequestID).
+					Int("response_length", len(responseContent)).
+					Msg("✅ [HELIX] Linked agent response to design review comment via database lookup")
+
+				// Also try HTTP streaming for real-time updates (if channel exists)
+				if pendingComment.RequestID != "" {
+					responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, pendingComment.RequestID)
+					if exists {
+						select {
+						case responseChan <- responseContent:
+							log.Debug().
+								Str("session_id", sessionID).
+								Str("request_id", pendingComment.RequestID).
+								Msg("Sent response to HTTP streaming channel")
+						default:
+							log.Debug().Msg("HTTP response channel full or closed")
+						}
 					}
-				}(foundRequestID, content)
-			}
+				}
+			}(helixSessionID, content)
 
 			// Reload session with all interactions so WebSocket event has latest data
 			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -1070,8 +1076,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 						Msg("🔍 [DEBUG] About to publish session update")
 
 					// Publish session update to frontend so UI updates in real-time
-					// Pass foundRequestID so we can also notify the commenter (for design review streaming)
-					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction, foundRequestID)
+					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
 					if err != nil {
 						log.Error().Err(err).
 							Str("session_id", helixSessionID).
@@ -1147,12 +1152,6 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // sendChatMessageToExternalAgent sends a chat message to an external agent session
 // This is the proper way to send messages that trigger agent responses
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
-	// Get the WebSocket connection for this session
-	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
-	if !exists || wsConn == nil {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
 	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
 	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
 	var acpThreadID interface{} = nil
@@ -1175,21 +1174,10 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"message":       message,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
-			"session_id":    sessionID,
 		},
 	}
 
-	// Send command to the external agent
-	select {
-	case wsConn.SendChan <- command:
-		log.Info().
-			Str("session_id", sessionID).
-			Str("request_id", requestID).
-			Msg("✅ Sent chat message to external agent")
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
-	}
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // sendCommandToExternalAgent sends a command to the external agent
@@ -1442,10 +1430,28 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	helixSessionID, ok := apiServer.contextMappings[acpThreadID]
 	apiServer.contextMappingsMutex.RUnlock()
 	if !ok {
-		log.Warn().
+		// FALLBACK: contextMappings may be empty after API restart
+		// Try to find session by ZedThreadID in database
+		log.Info().
 			Str("acp_thread_id", acpThreadID).
-			Msg("⚠️ [HELIX] No Helix session mapping found for this thread - skipping message_completed")
-		return nil
+			Msg("🔍 [HELIX] contextMappings miss in message_completed, attempting database fallback")
+
+		foundSession, err := apiServer.findSessionByZedThreadID(context.Background(), acpThreadID)
+		if err != nil || foundSession == nil {
+			log.Warn().
+				Str("acp_thread_id", acpThreadID).
+				Msg("⚠️ [HELIX] No Helix session mapping found for this thread (database fallback failed) - skipping message_completed")
+			return nil
+		}
+		helixSessionID = foundSession.ID
+		// Restore the mapping for future messages
+		apiServer.contextMappingsMutex.Lock()
+		apiServer.contextMappings[acpThreadID] = helixSessionID
+		apiServer.contextMappingsMutex.Unlock()
+		log.Info().
+			Str("acp_thread_id", acpThreadID).
+			Str("helix_session_id", helixSessionID).
+			Msg("✅ [HELIX] Found session via database fallback in message_completed, restored contextMappings")
 	}
 
 	log.Info().
@@ -1527,50 +1533,47 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
-	// Find request_id for this session to finalize comment and send done signal
-	var foundRequestID string
-	if apiServer.requestToSessionMapping != nil {
-		for reqID, sessID := range apiServer.requestToSessionMapping {
-			if sessID == helixSessionID {
-				foundRequestID = reqID
-				break
+	// DATABASE-FIRST: Finalize pending comment response
+	// Query database for pending comments (survives API and container restarts)
+	go func(sessionID string) {
+		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("session_id", sessionID).
+				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
+			return
+		}
+
+		// Finalize the comment (clear request_id and trigger next in queue)
+		if err := apiServer.finalizeCommentResponse(context.Background(), pendingComment.RequestID); err != nil {
+			log.Error().
+				Err(err).
+				Str("comment_id", pendingComment.ID).
+				Str("request_id", pendingComment.RequestID).
+				Msg("Failed to finalize comment response")
+			return
+		}
+
+		log.Info().
+			Str("comment_id", pendingComment.ID).
+			Str("session_id", sessionID).
+			Str("request_id", pendingComment.RequestID).
+			Msg("✅ [HELIX] Finalized comment response via database lookup")
+
+		// Send completion signal to done channel for HTTP streaming clients
+		if pendingComment.RequestID != "" {
+			_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, pendingComment.RequestID)
+			if exists {
+				select {
+				case doneChan <- true:
+					log.Debug().Str("request_id", pendingComment.RequestID).Msg("Sent done signal to channel")
+				default:
+					log.Debug().Msg("Done channel full")
+				}
 			}
 		}
-	}
-
-	// Also check if request_id was sent in the sync message (for some protocols)
-	if foundRequestID == "" {
-		if reqID, ok := syncMsg.Data["request_id"].(string); ok {
-			foundRequestID = reqID
-		}
-	}
-
-	if foundRequestID != "" {
-		// Finalize the comment response (clear request_id and trigger next in queue)
-		go func(reqID string) {
-			if err := apiServer.finalizeCommentResponse(context.Background(), reqID); err != nil {
-				log.Debug().
-					Err(err).
-					Str("request_id", reqID).
-					Msg("No design review comment linked to this request (this is normal for non-comment requests)")
-			}
-		}(foundRequestID)
-
-		// Clean up the request -> session and commenter mappings
-		delete(apiServer.requestToSessionMapping, foundRequestID)
-		delete(apiServer.requestToCommenterMapping, foundRequestID)
-
-		// Send completion signal to done channel for legacy handling
-		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
-		if exists {
-			select {
-			case doneChan <- true:
-				log.Info().Str("request_id", foundRequestID).Msg("✅ [HELIX] Sent done signal to channel")
-			default:
-				log.Warn().Str("request_id", foundRequestID).Msg("Done channel full")
-			}
-		}
-	}
+	}(helixSessionID)
 
 	return nil
 }

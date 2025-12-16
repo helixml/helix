@@ -457,6 +457,16 @@ function build-zed() {
 EOF
 
   echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+
+  # Copy Zed app icon for GNOME desktop integration
+  local ICON_SOURCE="$ZED_SOURCE_DIR/crates/zed/resources/app-icon-dev.png"
+  if [ -f "$ICON_SOURCE" ]; then
+    cp "$ICON_SOURCE" "$ZED_OUTPUT_DIR/app-icon.png"
+    echo "✅ Copied Zed app icon to $ZED_OUTPUT_DIR/app-icon.png"
+  else
+    echo "⚠️  Zed app icon not found at $ICON_SOURCE"
+  fi
+
   echo "🎉 Zed build completed successfully!"
   echo ""
   echo "Next steps:"
@@ -621,8 +631,14 @@ function start() {
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
-    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t 4 -T "Kodit Logs"
+      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
 
     # GPU runner logs with air hot reloading
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
@@ -632,8 +648,14 @@ function start() {
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
-    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t 4 -T "Kodit Logs"
+      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
 
     # Middle right pane (5) - contextual based on demos
     if [[ -n "$WITH_DEMOS" ]]; then

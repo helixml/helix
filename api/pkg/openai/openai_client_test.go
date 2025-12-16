@@ -415,6 +415,60 @@ func TestTLSSkipVerify_ConfigNotPassed(t *testing.T) {
 	})
 }
 
+// TestTrailingSlashStripped tests that trailing slashes are stripped from baseURL
+// to prevent double slashes when concatenating paths like "/models"
+func TestTrailingSlashStripped(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Logf("Server received request: %s %s", r.Method, r.URL.Path)
+
+		// Verify we don't get double slashes in the path
+		assert.NotContains(t, r.URL.Path, "//", "Path should not contain double slashes")
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]string{{"id": "test-model"}},
+		})
+	})
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	t.Run("WithTrailingSlash", func(t *testing.T) {
+		// Create client with trailing slash in URL
+		client := New("test-api-key", ts.URL+"/", false)
+
+		// Verify the baseURL was stripped of trailing slash
+		assert.Equal(t, ts.URL, client.BaseURL(), "BaseURL should have trailing slash stripped")
+
+		// Make a request that concatenates paths
+		models, err := client.ListModels(context.Background())
+		require.NoError(t, err)
+		require.NotEmpty(t, models)
+	})
+
+	t.Run("WithoutTrailingSlash", func(t *testing.T) {
+		// Create client without trailing slash
+		client := New("test-api-key", ts.URL, false)
+
+		// Verify the baseURL stayed the same
+		assert.Equal(t, ts.URL, client.BaseURL())
+
+		// Make a request that concatenates paths
+		models, err := client.ListModels(context.Background())
+		require.NoError(t, err)
+		require.NotEmpty(t, models)
+	})
+
+	t.Run("WithV1TrailingSlash", func(t *testing.T) {
+		// Simulate a URL like https://api.example.com/v1/
+		// Server handler should still work
+		client := New("test-api-key", ts.URL+"/v1/", false)
+
+		// Verify the trailing slash was stripped
+		assert.Equal(t, ts.URL+"/v1", client.BaseURL(), "BaseURL should have trailing slash stripped")
+	})
+}
+
 // TestTLSSkipVerify_ChatCompletion tests TLS skip verify for chat completions
 func TestTLSSkipVerify_ChatCompletion(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

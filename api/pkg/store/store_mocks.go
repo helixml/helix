@@ -2245,6 +2245,21 @@ func (mr *MockStoreMockRecorder) GetModel(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModel", reflect.TypeOf((*MockStore)(nil).GetModel), ctx, id)
 }
 
+// GetNextQueuedCommentForSession mocks base method.
+func (m *MockStore) GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNextQueuedCommentForSession", ctx, planningSessionID)
+	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNextQueuedCommentForSession indicates an expected call of GetNextQueuedCommentForSession.
+func (mr *MockStoreMockRecorder) GetNextQueuedCommentForSession(ctx, planningSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextQueuedCommentForSession", reflect.TypeOf((*MockStore)(nil).GetNextQueuedCommentForSession), ctx, planningSessionID)
+}
+
 // GetOAuthConnection mocks base method.
 func (m *MockStore) GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
@@ -2378,6 +2393,21 @@ func (m *MockStore) GetOrganizationMembership(ctx context.Context, q *GetOrganiz
 func (mr *MockStoreMockRecorder) GetOrganizationMembership(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationMembership", reflect.TypeOf((*MockStore)(nil).GetOrganizationMembership), ctx, q)
+}
+
+// GetPendingCommentByPlanningSessionID mocks base method.
+func (m *MockStore) GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPendingCommentByPlanningSessionID", ctx, planningSessionID)
+	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPendingCommentByPlanningSessionID indicates an expected call of GetPendingCommentByPlanningSessionID.
+func (mr *MockStoreMockRecorder) GetPendingCommentByPlanningSessionID(ctx, planningSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingCommentByPlanningSessionID", reflect.TypeOf((*MockStore)(nil).GetPendingCommentByPlanningSessionID), ctx, planningSessionID)
 }
 
 // GetPendingReviews mocks base method.
@@ -2618,6 +2648,21 @@ func (m *MockStore) GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentS
 func (mr *MockStoreMockRecorder) GetSessionsNeedingHelp(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsNeedingHelp", reflect.TypeOf((*MockStore)(nil).GetSessionsNeedingHelp), ctx)
+}
+
+// GetSessionsWithPendingComments mocks base method.
+func (m *MockStore) GetSessionsWithPendingComments(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSessionsWithPendingComments", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessionsWithPendingComments indicates an expected call of GetSessionsWithPendingComments.
+func (mr *MockStoreMockRecorder) GetSessionsWithPendingComments(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsWithPendingComments", reflect.TypeOf((*MockStore)(nil).GetSessionsWithPendingComments), ctx)
 }
 
 // GetSlackThread mocks base method.
@@ -3159,6 +3204,21 @@ func (mr *MockStoreMockRecorder) IncrementWolfSandboxCount(ctx, id any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementWolfSandboxCount", reflect.TypeOf((*MockStore)(nil).IncrementWolfSandboxCount), ctx, id)
 }
 
+// IsCommentBeingProcessedForSession mocks base method.
+func (m *MockStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCommentBeingProcessedForSession", ctx, planningSessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsCommentBeingProcessedForSession indicates an expected call of IsCommentBeingProcessedForSession.
+func (mr *MockStoreMockRecorder) IsCommentBeingProcessedForSession(ctx, planningSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommentBeingProcessedForSession", reflect.TypeOf((*MockStore)(nil).IsCommentBeingProcessedForSession), ctx, planningSessionID)
+}
+
 // ListAPIKeys mocks base method.
 func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -3356,18 +3416,18 @@ func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.C
 }
 
 // ListGuidelinesHistory mocks base method.
-func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error) {
+func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListGuidelinesHistory", ctx, organizationID, projectID)
+	ret := m.ctrl.Call(m, "ListGuidelinesHistory", ctx, organizationID, projectID, userID)
 	ret0, _ := ret[0].([]*types.GuidelinesHistory)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListGuidelinesHistory indicates an expected call of ListGuidelinesHistory.
-func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, projectID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListGuidelinesHistory(ctx, organizationID, projectID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGuidelinesHistory", reflect.TypeOf((*MockStore)(nil).ListGuidelinesHistory), ctx, organizationID, projectID, userID)
 }
 
 // ListHelpRequests mocks base method.
@@ -4132,6 +4192,21 @@ func (m *MockStore) ResetRunningExecutions(ctx context.Context) error {
 func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
+}
+
+// ResetStuckComments mocks base method.
+func (m *MockStore) ResetStuckComments(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetStuckComments", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResetStuckComments indicates an expected call of ResetStuckComments.
+func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetStuckComments", reflect.TypeOf((*MockStore)(nil).ResetStuckComments), ctx)
 }
 
 // ResetWolfInstanceOnReconnect mocks base method.

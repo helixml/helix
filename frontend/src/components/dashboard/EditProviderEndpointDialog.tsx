@@ -278,8 +278,8 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
             fullWidth
             required
             autoComplete="off"
-            placeholder="https://api.example.com"
-            helperText="Enter a valid HTTP or HTTPS URL"
+            placeholder="https://api.openai.com/v1"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">

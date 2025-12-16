@@ -56,6 +56,7 @@ interface AdvancedModelPickerProps {
   disabled?: boolean; // New prop to disable the picker
   hint?: string; // Optional hint text to display in the dialog
   recommendedModels?: string[]; // List of recommended model IDs to show at the top
+  autoSelectFirst?: boolean; // Whether to auto-select first model when none is selected (default: true)
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -151,6 +152,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   disabled = false, // Default to false
   hint,
   recommendedModels = [], // Default to empty array
+  autoSelectFirst = true, // Default to true for backward compatibility
 }) => {
   const router = useRouter()
   const lightTheme = useLightTheme();
@@ -190,11 +192,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   useEffect(() => {
     // For text type, we need to use chat models
     const effectiveType = currentType === "text" ? "chat" : currentType;
-    
+
     // Select first model if none selected or if current model doesn't match the new type
     if (allModels.length > 0) {
-      // If no model is selected, select the first one of the right type
-      if (!selectedModelId) {
+      // If no model is selected, select the first one of the right type (only if autoSelectFirst is enabled)
+      if (!selectedModelId && autoSelectFirst) {
         const firstModel = allModels.find(model => model.enabled && model.type === effectiveType);
         if (firstModel && firstModel.id) {
           onSelectModel(firstModel.provider?.name || '', firstModel.id);
@@ -224,7 +226,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         }
       }
     }
-  }, [allModels, selectedModelId, currentType, onSelectModel]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allModels, selectedModelId, currentType, autoSelectFirst]);
   
 
   // Find the full name/ID of the selected model, default if not found or not selected

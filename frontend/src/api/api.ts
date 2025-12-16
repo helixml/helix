@@ -1736,6 +1736,11 @@ export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
 
+export enum TypesBranchMode {
+  BranchModeNew = "new",
+  BranchModeExisting = "existing",
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -1995,6 +2000,12 @@ export interface TypesCreateSampleRepositoryRequest {
 export interface TypesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
+  /** For new mode: branch to create from (defaults to repo default) */
+  base_branch?: string;
+  /** Branch configuration */
+  branch_mode?: TypesBranchMode;
+  /** For new mode: user-specified prefix (task# appended) */
+  branch_prefix?: string;
   /** Optional: Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   priority?: TypesSpecTaskPriority;
@@ -2004,6 +2015,8 @@ export interface TypesCreateTaskRequest {
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
   user_id?: string;
+  /** For existing mode: branch to continue working on */
+  working_branch?: string;
 }
 
 export interface TypesCreateTeamRequest {
@@ -2118,20 +2131,18 @@ export interface TypesExecuteQuestionSetResponse {
 }
 
 export interface TypesExternalAgentConfig {
-  /** Whether to auto-connect RDP viewer */
-  auto_connect_rdp?: boolean;
-  /** Streaming resolution height (default: 1600) */
+  /** Desktop environment */
+  desktop_type?: string;
+  /** Explicit height (default: 1080) */
   display_height?: number;
-  /** Streaming refresh rate (default: 60) */
+  /** Refresh rate (default: 60) */
   display_refresh_rate?: number;
-  /** Video settings for streaming (Phase 3.5) - matches PDE display settings */
+  /** Explicit width (default: 1920) */
   display_width?: number;
-  /** Environment variables in KEY=VALUE format */
-  env_vars?: string[];
-  /** Relative path for the project directory */
-  project_path?: string;
-  /** Custom working directory */
-  workspace_dir?: string;
+  /** Display resolution - either use Resolution preset or explicit dimensions */
+  resolution?: string;
+  /** GNOME zoom percentage (100 default, 200 for 4k/5k) */
+  zoom_level?: number;
 }
 
 export interface TypesExternalAgentConnection {
@@ -2408,6 +2419,8 @@ export interface TypesGitRepositoryUpdateRequest {
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   external_url?: string;
+  /** Enable Kodit code intelligence indexing (pointer to distinguish unset from false) */
+  kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
   password?: string;
@@ -2458,6 +2471,8 @@ export interface TypesGuidelinesHistory {
   updated_by_email?: string;
   /** User display name (not persisted, populated at query time) */
   updated_by_name?: string;
+  /** Set for user-level (personal workspace) guidelines */
+  user_id?: string;
   version?: number;
 }
 
@@ -2522,6 +2537,12 @@ export interface TypesInteraction {
    */
   generation_id?: number;
   id?: string;
+  /**
+   * LastZedMessageID tracks the last Zed message ID received for this interaction.
+   * Used to detect multi-message responses: same ID = streaming update (overwrite),
+   * different ID = new distinct message (append). Persisted in DB for restart resilience.
+   */
+  last_zed_message_id?: string;
   mode?: TypesSessionMode;
   /** User prompt (text) */
   prompt_message?: string;
@@ -3940,8 +3961,14 @@ export interface TypesSpecApprovalResponse {
 export interface TypesSpecTask {
   /** Archive to hide from main view */
   archived?: boolean;
+  /** The base branch this was created from */
+  base_branch?: string;
+  /** "new" or "existing" */
+  branch_mode?: TypesBranchMode;
   /** Git tracking */
   branch_name?: string;
+  /** User-specified prefix for new branches (task# appended) */
+  branch_prefix?: string;
   /** Groups tasks from same clone operation */
   clone_group_id?: string;
   /** Clone tracking */
@@ -4092,6 +4119,12 @@ export interface TypesSpecTaskDesignReviewComment {
   interaction_id?: string;
   /** Optional line number */
   line_number?: number;
+  /**
+   * Database-backed queue for agent processing (restart-resilient)
+   * QueuedAt is set when comment is submitted for agent processing.
+   * Processing order: QueuedAt ASC. Cleared when agent response is received.
+   */
+  queued_at?: string;
   /** For inline comments - store the context around the comment */
   quoted_text?: string;
   /** Request ID used when sending to agent (for response linking) */
@@ -4167,18 +4200,6 @@ export interface TypesSpecTaskImplementationSessionsCreateRequest {
   project_path?: string;
   spec_task_id: string;
   workspace_config?: Record<string, any>;
-}
-
-export interface TypesSpecTaskImplementationStartResponse {
-  agent_instructions?: string;
-  base_branch?: string;
-  branch_name?: string;
-  created_at?: string;
-  local_path?: string;
-  pr_template_url?: string;
-  repository_id?: string;
-  repository_name?: string;
-  status?: string;
 }
 
 export enum TypesSpecTaskImplementationStatus {
@@ -4416,6 +4437,9 @@ export interface TypesStepInfoDetails {
 
 export interface TypesSystemSettingsRequest {
   huggingface_token?: string;
+  kodit_enrichment_model?: string;
+  /** Kodit enrichment model configuration */
+  kodit_enrichment_provider?: string;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4425,6 +4449,11 @@ export interface TypesSystemSettingsResponse {
   /** "database", "environment", or "none" */
   huggingface_token_source?: string;
   id?: string;
+  kodit_enrichment_model?: string;
+  /** true if both provider and model are configured */
+  kodit_enrichment_model_set?: boolean;
+  /** Kodit enrichment model configuration (not sensitive, returned as-is) */
+  kodit_enrichment_provider?: string;
   updated?: string;
 }
 
@@ -4681,12 +4710,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4724,6 +4753,10 @@ export interface TypesUpdateProviderEndpoint {
 
 export interface TypesUpdateTeamRequest {
   name?: string;
+}
+
+export interface TypesUpdateUserGuidelinesRequest {
+  guidelines?: string;
 }
 
 export interface TypesUsage {
@@ -4773,6 +4806,13 @@ export interface TypesUserAppAccessResponse {
   can_read?: boolean;
   can_write?: boolean;
   is_admin?: boolean;
+}
+
+export interface TypesUserGuidelinesResponse {
+  guidelines?: string;
+  guidelines_updated_at?: string;
+  guidelines_updated_by?: string;
+  guidelines_version?: number;
 }
 
 export interface TypesUserResponse {
@@ -4846,6 +4886,12 @@ export interface TypesWebsiteCrawler {
 export interface TypesWolfHeartbeatRequest {
   /** per-container disk usage breakdown */
   container_usage?: TypesContainerDiskUsage[];
+  /**
+   * Desktop image versions (content-addressable Docker image hashes)
+   * Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+   * Value: image hash (e.g., "a1b2c3d4e5f6...")
+   */
+  desktop_versions?: Record<string, string>;
   /** disk usage metrics for monitored partitions */
   disk_usage?: TypesDiskUsageMetric[];
   /** nvidia, amd, intel, none (from sandbox env) */
@@ -4854,8 +4900,6 @@ export interface TypesWolfHeartbeatRequest {
   privileged_mode_enabled?: boolean;
   /** /dev/dri/renderD128 or SOFTWARE (from sandbox env) */
   render_node?: string;
-  /** helix-sway image version (commit hash) */
-  sway_version?: string;
 }
 
 export interface TypesWolfInstanceRequest {
@@ -4869,6 +4913,8 @@ export interface TypesWolfInstanceResponse {
   address?: string;
   connected_sandboxes?: number;
   created_at?: string;
+  /** map of desktop name -> image hash */
+  desktop_versions?: Record<string, string>;
   disk_alert_level?: string;
   disk_usage?: TypesDiskUsageMetric[];
   gpu_type?: string;
@@ -4882,6 +4928,7 @@ export interface TypesWolfInstanceResponse {
   /** /dev/dri/renderD128 or SOFTWARE */
   render_node?: string;
   status?: string;
+  /** legacy, use DesktopVersions */
   sway_version?: string;
   updated_at?: string;
 }
@@ -6206,6 +6253,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns random uncompressible data for measuring available bandwidth before session creation. Used by adaptive bitrate to determine optimal initial bitrate before connecting. Only requires authentication, not session ownership.
+     *
+     * @tags ExternalAgents
+     * @name V1BandwidthProbeList
+     * @summary Initial bandwidth probe (no session required)
+     * @request GET:/api/v1/bandwidth-probe
+     * @secure
+     */
+    v1BandwidthProbeList: (
+      query?: {
+        /** Size of data to return in bytes (default 524288 = 512KB) */
+        size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/bandwidth-probe`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get status breakdown and progress of all cloned tasks
      *
      * @tags CloneGroups
@@ -6312,6 +6383,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsBandwidthProbeDetail
+     * @summary Bandwidth probe for adaptive bitrate
+     * @request GET:/api/v1/external-agents/{sessionID}/bandwidth-probe
+     * @secure
+     */
+    v1ExternalAgentsBandwidthProbeDetail: (
+      sessionId: string,
+      query?: {
+        /** Size of data to return in bytes (default 524288 = 512KB) */
+        size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/bandwidth-probe`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
@@ -10172,24 +10268,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Transition an approved spec task to implementation, creating a feature branch
-     *
-     * @tags SpecTasks
-     * @name V1SpecTasksStartImplementationCreate
-     * @summary Start implementation phase
-     * @request POST:/api/v1/spec-tasks/{taskId}/start-implementation
-     * @secure
-     */
-    v1SpecTasksStartImplementationCreate: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskImplementationStartResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/start-implementation`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
      *
      * @tags spec-driven-tasks
@@ -10810,6 +10888,62 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesList
+     * @summary Get user guidelines
+     * @request GET:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesList: (params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesUpdate
+     * @summary Update user guidelines
+     * @request PUT:/api/v1/users/me/guidelines
+     * @secure
+     */
+    v1UsersMeGuidelinesUpdate: (request: TypesUpdateUserGuidelinesRequest, params: RequestParams = {}) =>
+      this.request<TypesUserGuidelinesResponse, SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the version history of the current user's personal workspace guidelines
+     *
+     * @tags Users
+     * @name V1UsersMeGuidelinesHistoryList
+     * @summary Get user guidelines history
+     * @request GET:/api/v1/users/me/guidelines-history
+     * @secure
+     */
+    v1UsersMeGuidelinesHistoryList: (params: RequestParams = {}) =>
+      this.request<TypesGuidelinesHistory[], SystemHTTPError>({
+        path: `/api/v1/users/me/guidelines-history`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

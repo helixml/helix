@@ -341,6 +341,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		"SETTINGS_SYNC_PORT=9877",
 		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
+		// ZED_WORK_DIR: Consistent cwd for ACP session storage (ensures sessions restore on Zed restart)
+		fmt.Sprintf("ZED_WORK_DIR=%s", config.WorkspaceDir),
 	}
 
 	// Startup script lives in primary code repo at .helix/startup.sh
@@ -566,8 +568,8 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	return executor
 }
 
-// StartZedAgent implements the Executor interface for external agent sessions
-func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+// StartDesktop implements the Executor interface for desktop sessions (Wolf lobbies)
+func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// Get or create a per-session lock to prevent concurrent lobby creation for the same session
 	w.creationLocksMutex.Lock()
 	sessionLock, exists := w.creationLocks[agent.SessionID]
@@ -677,10 +679,16 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir", workspaceDir).
 		Msg("Created Sway compositor configuration for external agent")
 
+	// Determine desktop type from agent config or environment
+	desktopType := getDesktopTypeFromEnv() // Default from env
+	if agent.DesktopType != "" {
+		desktopType = parseDesktopType(agent.DesktopType)
+	}
+
 	// Define container hostname for external agent
 	// Use session ID (without ses_ prefix) so we can construct hostname from session ID
 	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
-	containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
+	containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 	// Build agent instance ID for this session-scoped agent
 	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
@@ -692,6 +700,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	helixSessionID := agent.SessionID
 	if agent.HelixSessionID != "" {
 		helixSessionID = agent.HelixSessionID
+	}
+
+	// Look up user to get git user name and email
+	var gitUserName, gitUserEmail string
+	if agent.UserID != "" {
+		user, err := w.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+		} else if user != nil {
+			gitUserName = user.FullName
+			gitUserEmail = user.Email
+			// Fall back to username if full name is empty
+			if gitUserName == "" {
+				gitUserName = user.Username
+			}
+		}
 	}
 
 	extraEnv := []string{
@@ -734,23 +758,65 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Pass API base URL for git cloning
 	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
 
+	// Pass git user configuration for commits to use user's identity
+	if gitUserName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_NAME=%s", gitUserName))
+	}
+	if gitUserEmail != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
+
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
-	// Extract video settings from agent config (Phase 3.5) with defaults
-	// Use 1080p as default - AMD GPUs only support up to 1080p hardware encoding
-	displayWidth := agent.DisplayWidth
-	if displayWidth == 0 {
-		displayWidth = 1920 // 1080p default (AMD GPU hardware encoder limit)
+	// Extract video settings from agent config with defaults
+	// Resolution preset takes precedence over explicit width/height
+	var displayWidth, displayHeight int
+	switch agent.Resolution {
+	case "5k":
+		displayWidth = 5120
+		displayHeight = 2880
+	case "4k":
+		displayWidth = 3840
+		displayHeight = 2160
+	case "1080p":
+		displayWidth = 1920
+		displayHeight = 1080
+	default:
+		// Fall back to explicit dimensions or 1080p default
+		displayWidth = agent.DisplayWidth
+		if displayWidth == 0 {
+			displayWidth = 1920 // 1080p default
+		}
+		displayHeight = agent.DisplayHeight
+		if displayHeight == 0 {
+			displayHeight = 1080 // 1080p default
+		}
 	}
-	displayHeight := agent.DisplayHeight
-	if displayHeight == 0 {
-		displayHeight = 1080 // 1080p default (AMD GPU hardware encoder limit)
-	}
+
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
 		displayRefreshRate = 60
 	}
+
+	// Calculate zoom level (auto 200% for 4k/5k, 100% otherwise)
+	zoomLevel := agent.ZoomLevel
+	if zoomLevel == 0 {
+		switch agent.Resolution {
+		case "5k", "4k":
+			zoomLevel = 200
+		default:
+			zoomLevel = 100
+		}
+	}
+
+	// Add display configuration to environment for startup script
+	extraEnv = append(extraEnv,
+		fmt.Sprintf("GAMESCOPE_WIDTH=%d", displayWidth),
+		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", displayHeight),
+		fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel),
+		fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", string(desktopType)), // For container hostname reconstruction
+	)
 
 	// Extra mounts for additional directories
 	extraMounts := []string{}
@@ -1038,8 +1104,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
-			DesktopType:       getDesktopTypeFromEnv(),
-			ZedImage:          w.computeZedImageFromVersion(getDesktopTypeFromEnv(), wolfInstance), // Use version from sandbox heartbeat
+			DesktopType:       desktopType,
+			ZedImage:          w.computeZedImageFromVersion(desktopType, wolfInstance), // Use version from sandbox heartbeat
 			DockerSocket:      dockerSocket,                                                        // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
@@ -1269,8 +1335,8 @@ func joinEnvVars(envVars []string) string {
 	return result
 }
 
-// StopZedAgent implements the Executor interface
-func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error {
+// StopDesktop implements the Executor interface
+func (w *WolfExecutor) StopDesktop(ctx context.Context, sessionID string) error {
 	log.Info().Str("session_id", sessionID).Msg("Stopping Zed agent via Wolf")
 
 	// CRITICAL: Only hold mutex when accessing in-memory map
@@ -1477,7 +1543,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		} else {
 			scopeType = hydra.ScopeTypeSession
 		}
-		// Always use session ID as the scope ID (matches StartZedAgent)
+		// Always use session ID as the scope ID (matches StartDesktop)
 		scopeID := sessionID
 
 		log.Info().
@@ -1606,7 +1672,7 @@ func (w *WolfExecutor) CleanupExpiredSessions(ctx context.Context, timeout time.
 			Dur("timeout", timeout).
 			Msg("Cleaning up expired Zed session")
 
-		err := w.StopZedAgent(ctx, sessionID)
+		err := w.StopDesktop(ctx, sessionID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -1634,7 +1700,7 @@ func (w *WolfExecutor) ListSessions() []*ZedSession {
 // StartZedInstance implements the Executor interface
 func (w *WolfExecutor) StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// For now, delegate to single-session method
-	return w.StartZedAgent(ctx, agent)
+	return w.StartDesktop(ctx, agent)
 }
 
 // CreateZedThread implements the Executor interface
@@ -1646,7 +1712,7 @@ func (w *WolfExecutor) CreateZedThread(ctx context.Context, instanceID, threadID
 // StopZedInstance implements the Executor interface
 func (w *WolfExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
 	// For now, delegate to single-session method
-	return w.StopZedAgent(ctx, instanceID)
+	return w.StopDesktop(ctx, instanceID)
 }
 
 // GetInstanceStatus implements the Executor interface
@@ -1876,8 +1942,18 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 						if envStr == expectedEnv {
 							// Found lobby - extract container hostname
 							// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
+							// Extract desktop type from HELIX_DESKTOP_TYPE env var (or default to env)
+							desktopType := getDesktopTypeFromEnv() // Default
+							for _, dt := range envList {
+								if dtStr, ok := dt.(string); ok {
+									if strings.HasPrefix(dtStr, "HELIX_DESKTOP_TYPE=") {
+										desktopType = parseDesktopType(strings.TrimPrefix(dtStr, "HELIX_DESKTOP_TYPE="))
+										break
+									}
+								}
+							}
 							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
-							containerHostname := fmt.Sprintf("%s-external-%s", getDesktopTypeFromEnv(), sessionIDPart)
+							containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 							log.Trace().
 								Str("helix_session_id", helixSessionID).
@@ -1972,10 +2048,10 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			}
 		}
 
-		// Try to stop via StopZedAgent first (uses session database record including soft-deleted)
+		// Try to stop via StopDesktop first (uses session database record including soft-deleted)
 		var stopError error
 		if sessionIDToStop != "" {
-			stopError = w.StopZedAgent(ctx, sessionIDToStop)
+			stopError = w.StopDesktop(ctx, sessionIDToStop)
 		}
 
 		// If session not found (even in soft-deleted), use lobby ID/PIN from activity record
@@ -2220,7 +2296,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
 // FindExistingLobbyForSession checks if a lobby already exists for this Helix session
 // Returns lobby ID if found, empty string if not found
 // This prevents creating duplicate lobbies when resume endpoint is called multiple times
-// PUBLIC: Used by both StartZedAgent and getSessionWolfAppState
+// PUBLIC: Used by both StartDesktop and getSessionWolfAppState
 func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error) {
 	// Check cache first (prevents Wolf API spam from dashboard polling)
 	w.lobbyCacheMutex.RLock()
