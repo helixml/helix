@@ -2537,6 +2537,12 @@ export interface TypesInteraction {
    */
   generation_id?: number;
   id?: string;
+  /**
+   * LastZedMessageID tracks the last Zed message ID received for this interaction.
+   * Used to detect multi-message responses: same ID = streaming update (overwrite),
+   * different ID = new distinct message (append). Persisted in DB for restart resilience.
+   */
+  last_zed_message_id?: string;
   mode?: TypesSessionMode;
   /** User prompt (text) */
   prompt_message?: string;
@@ -4113,6 +4119,12 @@ export interface TypesSpecTaskDesignReviewComment {
   interaction_id?: string;
   /** Optional line number */
   line_number?: number;
+  /**
+   * Database-backed queue for agent processing (restart-resilient)
+   * QueuedAt is set when comment is submitted for agent processing.
+   * Processing order: QueuedAt ASC. Cleared when agent response is received.
+   */
+  queued_at?: string;
   /** For inline comments - store the context around the comment */
   quoted_text?: string;
   /** Request ID used when sending to agent (for response linking) */
@@ -4425,6 +4437,9 @@ export interface TypesStepInfoDetails {
 
 export interface TypesSystemSettingsRequest {
   huggingface_token?: string;
+  kodit_enrichment_model?: string;
+  /** Kodit enrichment model configuration */
+  kodit_enrichment_provider?: string;
 }
 
 export interface TypesSystemSettingsResponse {
@@ -4434,6 +4449,11 @@ export interface TypesSystemSettingsResponse {
   /** "database", "environment", or "none" */
   huggingface_token_source?: string;
   id?: string;
+  kodit_enrichment_model?: string;
+  /** true if both provider and model are configured */
+  kodit_enrichment_model_set?: boolean;
+  /** Kodit enrichment model configuration (not sensitive, returned as-is) */
+  kodit_enrichment_provider?: string;
   updated?: string;
 }
 

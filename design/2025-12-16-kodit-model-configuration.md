@@ -208,6 +208,32 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 - **Self-hosted deployments:** Usually unaffected (quotas and billing typically disabled)
 - **Hosted environments (helix.ml):** Runner token requests would fail with quota/billing errors
 
+#### Fixes Applied
+
+Both bugs have been fixed in this implementation:
+
+**Bug 1 fix** (`api/pkg/controller/sessions.go:202-207`):
+```go
+func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
+    // Skip quota check for runner tokens (system-level access)
+    if userID == "runner-system" {
+        return nil
+    }
+    // ... rest of function
+}
+```
+
+**Bug 2 fix** (`api/pkg/controller/balance_check.go:10-15`):
+```go
+func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, orgID string, clientBillingEnabled bool) (bool, error) {
+    // Skip balance check for runner tokens (system-level access)
+    if user.TokenType == types.TokenTypeRunner {
+        return true, nil
+    }
+    // ... rest of function
+}
+```
+
 #### Root Cause
 
 The authentication middleware creates a user with `ID: "runner-system"` for runner tokens, but the downstream code assumes this is a real user ID with associated database records (user_meta, wallet, usage tracking).
@@ -403,6 +429,33 @@ kodit:
     # Embeddings - use internal Kodit embeddings for now
     # Future: Add EMBEDDING_ENDPOINT_* for Helix-proxied embeddings
 ```
+
+## Current Test Configuration
+
+Docker-compose files have been configured for testing runner token authentication:
+
+```yaml
+# Both docker-compose.yaml and docker-compose.dev.yaml now have:
+kodit:
+  environment:
+    - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
+    - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+    - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+    - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+    - ENRICHMENT_ENDPOINT_TIMEOUT=120
+```
+
+**How it works:**
+1. Kodit uses LiteLLM which parses `openai/kodit-model` as provider=openai, model=kodit-model
+2. LiteLLM sends just `kodit-model` as the model name to Helix
+3. Helix receives the request with runner token authentication
+4. Currently this will fail because `kodit-model` isn't a real model - the substitution logic needs to be implemented
+
+**To test runner token routing:**
+1. Start services with `docker compose --profile kodit up`
+2. Trigger an enrichment in Kodit (e.g., index a repository)
+3. Check Helix API logs for the incoming request
+4. Observe error: model "kodit-model" not found (expected until substitution is implemented)
 
 ## Implementation Order
 
