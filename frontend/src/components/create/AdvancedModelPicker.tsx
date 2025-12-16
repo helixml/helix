@@ -224,7 +224,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         }
       }
     }
-  }, [allModels, selectedModelId, currentType, onSelectModel]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allModels, selectedModelId, currentType]);
   
 
   // Find the full name/ID of the selected model, default if not found or not selected
