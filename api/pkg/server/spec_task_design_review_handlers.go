@@ -638,9 +638,26 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 	queue := s.sessionCommentQueue[sessionID]
 	if len(queue) == 0 {
 		// No more comments to process
-		delete(s.sessionCurrentComment, sessionID)
+		// IMPORTANT: Do NOT delete sessionCurrentComment here!
+		// This prevents a race condition where:
+		// 1. finalizeCommentResponse deletes sessionCurrentComment and spawns this goroutine
+		// 2. queueCommentForAgent sees empty currentComment and also spawns this goroutine
+		// 3. First goroutine processes comment, sets sessionCurrentComment
+		// 4. Second goroutine (this one) would incorrectly delete sessionCurrentComment
+		// The sessionCurrentComment is properly cleared by finalizeCommentResponse after each comment completes
 		s.sessionCommentMutex.Unlock()
-		log.Debug().Str("session_id", sessionID).Msg("Comment queue empty")
+		log.Debug().Str("session_id", sessionID).Msg("Comment queue empty, nothing to process")
+		return
+	}
+
+	// Check if there's already a comment being processed
+	// This prevents duplicate processing from concurrent goroutines
+	if currentComment := s.sessionCurrentComment[sessionID]; currentComment != "" {
+		s.sessionCommentMutex.Unlock()
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("current_comment", currentComment).
+			Msg("Comment already being processed, skipping duplicate processNextCommentInQueue call")
 		return
 	}
 
