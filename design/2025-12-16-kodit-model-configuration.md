@@ -457,6 +457,123 @@ kodit:
 3. Check Helix API logs for the incoming request
 4. Observe error: model "kodit-model" not found (expected until substitution is implemented)
 
+## Kodit MCP Proxy
+
+Expose Kodit's MCP server through Helix API, authenticated with user's Helix API key.
+
+### Architecture
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                        KODIT MCP PROXY ARCHITECTURE                           │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│   ┌──────────────┐   User API Key   ┌──────────────────────────────────────┐  │
+│   │  AI Coding   │ ─────────────────▶  Helix API                           │  │
+│   │  Assistant   │                   │  /api/v1/kodit/mcp                  │  │
+│   │  (e.g. Zed)  │                   │  (auth + proxy)                     │  │
+│   └──────────────┘                   └──────────────┬─────────────────────┘  │
+│                                                     │                        │
+│                                                     ▼                        │
+│                                      ┌──────────────────────────────────────┐│
+│                                      │         Kodit MCP Server             ││
+│                                      │    http://kodit:8632/mcp             ││
+│                                      │                                      ││
+│                                      │    - search_symbols                  ││
+│                                      │    - search_code                     ││
+│                                      │    - get_snippet                     ││
+│                                      │    - list_repositories               ││
+│                                      └──────────────────────────────────────┘│
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation
+
+#### 1. MCP Proxy Handler
+
+Create an HTTP handler that proxies MCP requests to Kodit:
+
+```go
+// api/pkg/server/kodit_mcp_proxy.go
+
+func (s *HelixAPIServer) koditMCPProxy(w http.ResponseWriter, r *http.Request) {
+    user := getRequestUser(r)
+    if !hasUser(user) {
+        http.Error(w, "unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    // Proxy to Kodit's MCP endpoint
+    koditURL := s.Cfg.Kodit.URL + "/mcp"
+    proxy := httputil.NewSingleHostReverseProxy(koditURL)
+
+    // Forward request with Kodit API key
+    r.Header.Set("Authorization", "Bearer " + s.Cfg.Kodit.APIKey)
+    proxy.ServeHTTP(w, r)
+}
+```
+
+#### 2. Route Registration
+
+```go
+// api/pkg/server/server.go
+
+// In registerRoutes():
+r.HandleFunc("/api/v1/kodit/mcp", s.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
+r.HandleFunc("/api/v1/kodit/mcp/{path:.*}", s.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
+```
+
+#### 3. Configuration
+
+Add Kodit URL to config:
+
+```go
+// api/pkg/config/config.go
+
+type KoditConfig struct {
+    URL    string `envconfig:"KODIT_URL" default:"http://kodit:8632"`
+    APIKey string `envconfig:"KODIT_API_KEY"`
+}
+```
+
+#### 4. Settings Sync Daemon Integration
+
+The settings-sync-daemon should automatically configure Kodit as an MCP server for agents:
+
+```go
+// api/cmd/settings-sync-daemon/mcp_config.go
+
+func getKoditMCPConfig(helixURL, apiKey string) *MCPServerConfig {
+    return &MCPServerConfig{
+        Name:        "kodit",
+        Description: "Code search and indexing",
+        ServerURL:   helixURL + "/api/v1/kodit/mcp",
+        Headers: map[string]string{
+            "Authorization": "Bearer " + apiKey,
+        },
+    }
+}
+```
+
+### Roadmap
+
+1. **Phase 6: MCP Proxy** (Current)
+   - [x] Design MCP proxy architecture
+   - [ ] Implement HTTP proxy handler
+   - [ ] Add route registration with auth middleware
+   - [ ] Add Kodit URL configuration
+
+2. **Phase 7: Agent Integration**
+   - [ ] Update settings-sync-daemon to expose Kodit MCP to agents
+   - [ ] Configure MCP server in Zed's agent_servers settings
+   - [ ] Test MCP tools in sandbox environment
+
+3. **Future: Optional Kodit Configuration**
+   - [ ] Make Kodit MCP server optional via agent skills configuration
+   - [ ] Allow per-user/per-organization Kodit settings
+   - [ ] Support multiple Kodit instances for different codebases
+
 ## Implementation Order
 
 1. **Phase 1: Backend Foundation**
