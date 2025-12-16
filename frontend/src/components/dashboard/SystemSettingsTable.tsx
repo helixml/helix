@@ -57,8 +57,9 @@ const SystemSettingsTable: FC = () => {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/api/v1/system/settings')
-      setSettings(response.data)
+      const data = await api.get<TypesSystemSettingsResponse>('/api/v1/system/settings')
+      console.log('SystemSettings GET response:', data)
+      setSettings(data)
     } catch (err: any) {
       console.error('Failed to load system settings:', err)
       if (err.response?.status === 403) {
@@ -80,8 +81,8 @@ const SystemSettingsTable: FC = () => {
         request.huggingface_token = newHfToken.trim()
       }
       
-      const response = await api.put('/api/v1/system/settings', request)
-      setSettings(response.data)
+      const data = await api.put<TypesSystemSettingsRequest, TypesSystemSettingsResponse>('/api/v1/system/settings', request)
+      setSettings(data)
       setEditDialogOpen(false)
       setNewHfToken('')
       snackbar.success('System settings updated successfully')
@@ -111,8 +112,8 @@ const SystemSettingsTable: FC = () => {
         huggingface_token: '' // Clear the token
       }
       
-      const response = await api.put('/api/v1/system/settings', request)
-      setSettings(response.data)
+      const data = await api.put<TypesSystemSettingsRequest, TypesSystemSettingsResponse>('/api/v1/system/settings', request)
+      setSettings(data)
       setEditDialogOpen(false)
       setNewHfToken('')
       snackbar.success('Hugging Face token cleared')
@@ -134,8 +135,8 @@ const SystemSettingsTable: FC = () => {
         kodit_enrichment_model: model,
       }
 
-      const response = await api.put('/api/v1/system/settings', request)
-      setSettings(response.data)
+      const data = await api.put<TypesSystemSettingsRequest, TypesSystemSettingsResponse>('/api/v1/system/settings', request)
+      setSettings(data)
       snackbar.success(`Code Intelligence model set to ${provider}/${model}`)
 
     } catch (err: any) {
@@ -159,8 +160,8 @@ const SystemSettingsTable: FC = () => {
         kodit_enrichment_model: '',
       }
 
-      const response = await api.put('/api/v1/system/settings', request)
-      setSettings(response.data)
+      const data = await api.put<TypesSystemSettingsRequest, TypesSystemSettingsResponse>('/api/v1/system/settings', request)
+      setSettings(data)
       snackbar.success('Code Intelligence model configuration cleared')
 
     } catch (err: any) {
@@ -337,6 +338,7 @@ const SystemSettingsTable: FC = () => {
                         buttonVariant="outlined"
                         disabled={saving}
                         hint="Select the model that Kodit will use for generating code documentation and enrichments."
+                        autoSelectFirst={false}
                       />
                       {settings?.kodit_enrichment_model_set && (
                         <Button

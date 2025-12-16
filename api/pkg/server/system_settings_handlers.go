@@ -88,6 +88,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		}
 	}
 
-	// Return masked response (without sensitive data)
-	writeResponse(rw, settings.ToResponse(), http.StatusOK)
+	// Return masked response with source information (same format as GET)
+	envToken := os.Getenv("HF_TOKEN")
+	writeResponse(rw, settings.ToResponseWithSource(settings.HuggingFaceToken, envToken), http.StatusOK)
 }
