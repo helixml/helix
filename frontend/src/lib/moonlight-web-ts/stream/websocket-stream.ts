@@ -33,7 +33,8 @@ const WsMessageType = {
   Pong: 0x41,
 } as const
 
-const WsVideoCodec = {
+// Exported for reuse in SSE video handling in MoonlightStreamViewer.tsx
+export const WsVideoCodec = {
   H264: 0x01,
   H264High444: 0x02,
   H265: 0x10,
@@ -46,10 +47,11 @@ const WsVideoCodec = {
   Av1High10_444: 0x23,
 } as const
 
-type WsVideoCodecType = typeof WsVideoCodec[keyof typeof WsVideoCodec]
+export type WsVideoCodecType = typeof WsVideoCodec[keyof typeof WsVideoCodec]
 
 // Map codec byte to WebCodecs codec string
-function codecToWebCodecsString(codec: WsVideoCodecType): string {
+// Exported for reuse in SSE video handling
+export function codecToWebCodecsString(codec: number): string {
   switch (codec) {
     case WsVideoCodec.H264: return "avc1.4d0033"
     case WsVideoCodec.H264High444: return "avc1.640032"
@@ -66,7 +68,8 @@ function codecToWebCodecsString(codec: WsVideoCodecType): string {
 }
 
 // Map codec byte to human-readable display name for stats UI
-function codecToDisplayName(codec: WsVideoCodecType | null): string {
+// Exported for reuse in SSE video handling
+export function codecToDisplayName(codec: number | null): string {
   if (codec === null) return "Unknown"
   switch (codec) {
     case WsVideoCodec.H264: return "H.264"
