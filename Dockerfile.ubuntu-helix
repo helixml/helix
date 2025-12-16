@@ -92,6 +92,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install meson>=1.1.0
 
 # Build libdrm 2.4.124 (required for Mesa 24.x with RDNA 3)
+# Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
 RUN cd /tmp && \
     curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
     tar xf libdrm.tar.xz && \
@@ -102,7 +103,7 @@ RUN cd /tmp && \
         --buildtype=release \
         -Damdgpu=enabled \
         -Dradeon=enabled \
-        -Dintel=disabled \
+        -Dintel=enabled \
         -Dnouveau=disabled \
         -Dvmwgfx=disabled && \
     ninja -C build -j$(nproc) && \
@@ -110,7 +111,12 @@ RUN cd /tmp && \
     ldconfig && \
     cd / && rm -rf /tmp/libdrm*
 
-# Build Mesa 24.3.4 with RADV (AMD Vulkan) and radeonsi (OpenGL)
+# Build Mesa 24.3.4 with drivers for AMD, Intel, and software rendering
+# - AMD: radeonsi (OpenGL), amd/RADV (Vulkan)
+# - Intel: iris (OpenGL Gen8+), crocus (OpenGL Gen4-7), intel/ANV (Vulkan), intel_hasvk (Vulkan Haswell)
+# - Software: llvmpipe, softpipe (fallback)
+# - Zink: OpenGL-on-Vulkan layer
+# NVIDIA uses proprietary drivers mounted at runtime, not Mesa
 RUN cd /tmp && \
     curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
     tar xf mesa.tar.xz && \
@@ -120,10 +126,12 @@ RUN cd /tmp && \
         --libdir=/usr/lib/x86_64-linux-gnu \
         --buildtype=release \
         -Dplatforms=x11,wayland \
-        -Dgallium-drivers=radeonsi,llvmpipe,softpipe,zink \
-        -Dvulkan-drivers=amd \
+        -Dgallium-drivers=radeonsi,iris,crocus,llvmpipe,softpipe,zink \
+        -Dvulkan-drivers=amd,intel,intel_hasvk \
         -Dglx=dri \
         -Degl=enabled \
+        -Dgbm=enabled \
+        -Dglvnd=enabled \
         -Dgles1=disabled \
         -Dgles2=enabled \
         -Dvalgrind=disabled \
