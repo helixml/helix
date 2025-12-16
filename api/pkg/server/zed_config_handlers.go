@@ -108,8 +108,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		serverMap := make(map[string]interface{})
 
 		// HTTP-based MCP server
-		if server.ServerURL != "" {
-			serverMap["server_url"] = server.ServerURL
+		// Zed expects "url" field for HTTP context_servers (untagged union)
+		if server.URL != "" {
+			serverMap["url"] = server.URL
 			if len(server.Headers) > 0 {
 				serverMap["headers"] = server.Headers
 			}
