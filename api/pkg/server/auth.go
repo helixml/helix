@@ -60,8 +60,27 @@ type CookieManager struct {
 }
 
 func NewCookieManager(config *config.ServerConfig) *CookieManager {
+	var secureCookies bool
+
+	if config.Auth.OIDC.SecureCookies {
+		// Explicit override: OIDC_SECURE_COOKIES=true forces secure cookies
+		// regardless of SERVER_URL protocol (e.g., behind HTTPS proxy)
+		secureCookies = true
+		log.Debug().Msg("OIDC_SECURE_COOKIES=true - forcing secure cookies")
+	} else {
+		// Auto-detect secure cookies based on SERVER_URL protocol
+		// - HTTPS: use Secure cookies (standard secure behavior)
+		// - HTTP: use non-Secure cookies (Safari strictly rejects Secure cookies over HTTP)
+		secureCookies = strings.HasPrefix(config.WebServer.URL, "https://")
+		if !secureCookies {
+			log.Debug().
+				Str("server_url", config.WebServer.URL).
+				Msg("SERVER_URL is HTTP - using non-secure cookies for browser compatibility")
+		}
+	}
+
 	return &CookieManager{
-		SecureCookies: config.Auth.OIDC.SecureCookies,
+		SecureCookies: secureCookies,
 	}
 }
 
