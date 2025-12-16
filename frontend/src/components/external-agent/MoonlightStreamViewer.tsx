@@ -1042,6 +1042,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
+    // Check if SSE was already set up by hot-switch (prevents duplicate EventSource)
+    // This can happen when user switches to SSE mode after connecting in another mode
+    if (sseEventSourceRef.current) {
+      console.log('[MoonlightStreamViewer] SSE already initialized by hot-switch, skipping duplicate setup');
+      hasInitializedSseRef.current = true;
+      return;
+    }
+
     console.log('[MoonlightStreamViewer] Initial connection with SSE mode - setting up SSE video');
     hasInitializedSseRef.current = true;
 
