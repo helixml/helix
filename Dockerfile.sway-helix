@@ -258,6 +258,7 @@ RUN chmod +x /zed-build/zed
 # IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
 RUN apt-get update && apt-get install -y imagemagick && rm -rf /var/lib/apt/lists/*
 COPY wolf/sway-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
 RUN for size in 16 24 32 48 64 128 256; do \
         mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
