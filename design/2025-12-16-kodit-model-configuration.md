@@ -573,7 +573,7 @@ The resulting context_servers config in Zed settings:
 {
   "context_servers": {
     "kodit": {
-      "server_url": "http://api:8080/api/v1/kodit/mcp",
+      "server_url": "http://api:8080/api/v1/kodit/mcp", // gitleaks:allow
       "headers": {
         "Authorization": "Bearer <user-api-key>"
       }
