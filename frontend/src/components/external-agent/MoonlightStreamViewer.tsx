@@ -617,12 +617,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
     if (sseVideoDecoderRef.current) {
       console.log('[MoonlightStreamViewer] Closing SSE VideoDecoder...');
-      try {
-        sseVideoDecoderRef.current.close();
-        sseVideoDecoderRef.current = null;
-      } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing SSE VideoDecoder:', err);
+      if (sseVideoDecoderRef.current.state !== 'closed') {
+        try {
+          sseVideoDecoderRef.current.close();
+        } catch (err) {
+          console.warn('[MoonlightStreamViewer] Error closing SSE VideoDecoder:', err);
+        }
       }
+      sseVideoDecoderRef.current = null;
     }
     // Also check for legacy SSE EventSource stored on stream object
     if (streamRef.current && (streamRef.current as any)._sseEventSource) {
@@ -739,8 +741,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const sseVideoDecoderRef = useRef<VideoDecoder | null>(null);
   const sseReceivedFirstKeyframeRef = useRef(false);
 
-  // Handle streaming mode changes - hot-switch between websocket/sse when possible
-  // Only reconnect when switching to/from webrtc (different protocol)
+  // Handle streaming mode changes - reconnect when switching between websocket and webrtc
+  // Note: SSE video is now controlled by qualityMode, not streamingMode
   useEffect(() => {
     if (previousStreamingModeRef.current === streamingMode) return;
 
@@ -749,461 +751,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     console.log('[MoonlightStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
     previousStreamingModeRef.current = newMode;
 
-    // Hot-switch between websocket and sse modes (same WebSocket connection)
-    const canHotSwitch = (prevMode === 'websocket' || prevMode === 'sse') &&
-                         (newMode === 'websocket' || newMode === 'sse');
-
-    if (canHotSwitch && isConnected && streamRef.current instanceof WebSocketStream) {
-      const wsStream = streamRef.current as WebSocketStream;
-
-      if (newMode === 'sse') {
-        // Switching to SSE mode: disable WS video, open SSE for video
-        console.log('[MoonlightStreamViewer] Hot-switching to SSE mode (no reconnect)');
-        wsStream.setVideoEnabled(false);
-
-        // Open SSE connection for video - use same session ID format as WebSocket
-        // WebSocket uses `{sessionId}-hq` format, so SSE must match
-        const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
-        const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
-        console.log('[MoonlightStreamViewer] Opening SSE video connection:', sseUrl);
-        const eventSource = new EventSource(sseUrl, { withCredentials: true });
-        sseEventSourceRef.current = eventSource;
-        sseReceivedFirstKeyframeRef.current = false;  // Reset for new SSE connection
-        // Reset SSE stats for new connection
-        sseStatsRef.current = {
-          framesDecoded: 0,
-          framesDropped: 0,
-          lastFrameTime: performance.now(),
-          frameCount: 0,
-          currentFps: 0,
-          width: 0,
-          height: 0,
-          codecString: '',
-          firstFramePtsUs: null,
-          firstFrameArrivalTime: null,
-          currentFrameLatencyMs: 0,
-          frameLatencySamples: [],
-        };
-
-        // Set up video decoder for SSE frames
-        // Use dedicated SSE canvas to avoid conflicts with WebSocket canvas
-        if (sseCanvasRef.current) {
-          const canvas = sseCanvasRef.current;
-          const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-
-          console.log('[SSE Video] Using dedicated SSE canvas:', {
-            canvasExists: !!canvas,
-            initialWidth: canvas?.width,
-            initialHeight: canvas?.height,
-          });
-
-          // Helper function to extract HEVC VPS/SPS/PPS NAL units from Annex B bitstream
-          // Returns ArrayBuffer containing the parameter sets for use as decoder description
-          const extractHevcParameterSets = (data: Uint8Array): ArrayBuffer | null => {
-            const paramSets: Uint8Array[] = [];
-            let i = 0;
-
-            // Find all NAL units in the bitstream
-            while (i < data.length - 4) {
-              // Look for start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
-              let startCodeLen = 0;
-              if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 0 && data[i+3] === 1) {
-                startCodeLen = 4;
-              } else if (data[i] === 0 && data[i+1] === 0 && data[i+2] === 1) {
-                startCodeLen = 3;
-              }
-
-              if (startCodeLen > 0) {
-                // Found a NAL unit - extract NAL type from first byte after start code
-                // HEVC NAL type is bits [6:1] of first byte
-                const nalTypeByte = data[i + startCodeLen];
-                const nalType = (nalTypeByte >> 1) & 0x3F;
-
-                // VPS = 32, SPS = 33, PPS = 34
-                if (nalType >= 32 && nalType <= 34) {
-                  // Find the end of this NAL (next start code or end of data)
-                  let j = i + startCodeLen + 1;
-                  while (j < data.length - 3) {
-                    if ((data[j] === 0 && data[j+1] === 0 && data[j+2] === 0 && data[j+3] === 1) ||
-                        (data[j] === 0 && data[j+1] === 0 && data[j+2] === 1)) {
-                      break;
-                    }
-                    j++;
-                  }
-                  // Include the start code in the parameter set
-                  const nalUnit = data.slice(i, j);
-                  paramSets.push(nalUnit);
-                  console.log(`[SSE Video] Found HEVC NAL type ${nalType} (${nalType === 32 ? 'VPS' : nalType === 33 ? 'SPS' : 'PPS'}), size: ${nalUnit.length}`);
-                  i = j;
-                  continue;
-                }
-              }
-              i++;
-            }
-
-            if (paramSets.length === 0) {
-              console.warn('[SSE Video] No HEVC parameter sets (VPS/SPS/PPS) found in keyframe');
-              return null;
-            }
-
-            // Concatenate all parameter sets
-            const totalLen = paramSets.reduce((sum, p) => sum + p.length, 0);
-            const result = new Uint8Array(totalLen);
-            let offset = 0;
-            for (const ps of paramSets) {
-              result.set(ps, offset);
-              offset += ps.length;
-            }
-            console.log(`[SSE Video] Extracted ${paramSets.length} HEVC parameter sets, total ${totalLen} bytes`);
-            return result.buffer;
-          };
-
-          // Track if we've configured HEVC with description
-          let hevcConfigured = false;
-          let currentCodecString = '';
-
-          eventSource.addEventListener('init', async (e: MessageEvent) => {
-            try {
-              const init = JSON.parse(e.data);
-              console.log('[MoonlightStreamViewer] SSE video init:', init);
-
-              // DEBUG: Check if we already have a decoder (multiple init events would be a bug)
-              if (sseVideoDecoderRef.current) {
-                console.warn('[SSE Video] === WARNING: INIT received but decoder already exists! ===');
-                console.warn('[SSE Video] Existing decoder debugId:', (sseVideoDecoderRef.current as any).__debugId);
-                console.warn('[SSE Video] This may indicate duplicate init events from server');
-              }
-
-              // Use dedicated SSE canvas (NOT the shared canvas that WebSocket uses)
-              const sseCanvas = sseCanvasRef.current;
-              if (!sseCanvas) {
-                console.error('[SSE Video] Canvas ref is null!');
-                return;
-              }
-              const sseCtx = sseCanvas.getContext('2d', { alpha: false, desynchronized: true });
-              if (!sseCtx) {
-                console.error('[SSE Video] Failed to get canvas context!');
-                return;
-              }
-              console.log('[SSE Video] Got canvas:', sseCanvas.width, 'x', sseCanvas.height, 'context:', !!sseCtx);
-
-              // Configure video decoder - use same codec strings as websocket-stream.ts
-              let codecString: string;
-              if (init.video_codec === 0x01) {
-                codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
-              } else if (init.video_codec === 0x02) {
-                codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
-              } else if (init.video_codec === 0x10) {
-                codecString = 'hvc1.1.6.L120.90';  // HEVC Main
-              } else if (init.video_codec === 0x11) {
-                codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
-              } else {
-                codecString = 'avc1.4d0033';  // Default to H.264
-              }
-              console.log(`[SSE Video] Using codec string: ${codecString} for ${init.width}x${init.height}@${init.fps}`);
-              currentCodecString = codecString; // Store for use in video handler
-
-              // Store codec in SSE stats for display
-              let codecDisplayName: string;
-              if (init.video_codec === 0x01) codecDisplayName = 'H.264';
-              else if (init.video_codec === 0x02) codecDisplayName = 'H.264 High';
-              else if (init.video_codec === 0x10) codecDisplayName = 'HEVC';
-              else if (init.video_codec === 0x11) codecDisplayName = 'HEVC Main10';
-              else codecDisplayName = `Unknown (0x${init.video_codec?.toString(16)})`;
-              sseStatsRef.current.codecString = codecDisplayName;
-
-              // Check if codec is supported - try hardware first, then software fallback
-              let useHardwareAcceleration: HardwareAcceleration = 'prefer-hardware';
-              try {
-                const hwSupport = await VideoDecoder.isConfigSupported({
-                  codec: codecString,
-                  codedWidth: init.width,
-                  codedHeight: init.height,
-                  hardwareAcceleration: 'prefer-hardware',
-                });
-
-                if (!hwSupport.supported) {
-                  console.log('[SSE Video] Hardware decoding not supported, trying software fallback');
-                  const swSupport = await VideoDecoder.isConfigSupported({
-                    codec: codecString,
-                    codedWidth: init.width,
-                    codedHeight: init.height,
-                  });
-
-                  if (!swSupport.supported) {
-                    console.error('[SSE Video] Video codec not supported (hardware or software):', codecString);
-                    return;
-                  }
-                  useHardwareAcceleration = 'no-preference';
-                  console.log('[SSE Video] Using software video decoding');
-                } else {
-                  console.log('[SSE Video] Using hardware video decoding');
-                }
-              } catch (e) {
-                console.error('[SSE Video] Failed to check codec support:', e);
-              }
-
-              // Create decoder with output callback
-              // IMPORTANT: Store canvas context NOW to avoid closure issues
-              // Use sseCanvasRef (dedicated SSE canvas) to avoid conflicts with WebSocket canvas
-              const capturedCanvas = sseCanvasRef.current;
-              const capturedCtx = capturedCanvas?.getContext('2d', { alpha: false, desynchronized: true });
-
-              const decoder = new VideoDecoder({
-                output: (frame: VideoFrame) => {
-                  try {
-                    if (capturedCtx && capturedCanvas) {
-                      if (capturedCanvas.width !== frame.displayWidth || capturedCanvas.height !== frame.displayHeight) {
-                        capturedCanvas.width = frame.displayWidth;
-                        capturedCanvas.height = frame.displayHeight;
-                      }
-                      capturedCtx.drawImage(frame, 0, 0);
-                    } else {
-                      // Try fallback to current SSE canvas ref
-                      const fallbackCanvas = sseCanvasRef.current;
-                      const fallbackCtx = fallbackCanvas?.getContext('2d');
-                      if (fallbackCtx && fallbackCanvas) {
-                        fallbackCanvas.width = frame.displayWidth;
-                        fallbackCanvas.height = frame.displayHeight;
-                        fallbackCtx.drawImage(frame, 0, 0);
-                      }
-                    }
-
-                    // Track SSE stats
-                    const stats = sseStatsRef.current;
-                    stats.framesDecoded++;
-                    stats.frameCount++;
-                    stats.width = frame.displayWidth;
-                    stats.height = frame.displayHeight;
-
-                    // Update FPS every second
-                    const now = performance.now();
-                    if (now - stats.lastFrameTime >= 1000) {
-                      stats.currentFps = stats.frameCount;
-                      stats.frameCount = 0;
-                      stats.lastFrameTime = now;
-                    }
-
-                    frame.close();
-                  } catch (err) {
-                    console.error('[SSE Video] Output callback error:', err);
-                    sseStatsRef.current.framesDropped++;
-                    try { frame.close(); } catch (e) { /* ignore */ }
-                  }
-                },
-                error: (err) => {
-                  console.error('[SSE Video] Decoder error:', err);
-                },
-              });
-
-              // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS/VPS)
-              // This tells WebCodecs to expect NAL start codes and in-band parameter sets
-              const decoderConfig: VideoDecoderConfig = {
-                codec: codecString,
-                codedWidth: init.width,
-                codedHeight: init.height,
-                hardwareAcceleration: useHardwareAcceleration,
-              };
-
-              // For H264, specify Annex B format to handle in-band SPS/PPS
-              if (codecString.startsWith('avc1')) {
-                // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
-                decoderConfig.avc = { format: 'annexb' };
-              }
-              // For HEVC, specify Annex B format to handle in-band VPS/SPS/PPS
-              if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
-                // @ts-ignore - hevc property for Annex B format
-                decoderConfig.hevc = { format: 'annexb' };
-              }
-
-              decoder.configure(decoderConfig);
-
-              // Pre-set canvas dimensions to match stream resolution
-              if (capturedCanvas && init.width && init.height) {
-                capturedCanvas.width = init.width;
-                capturedCanvas.height = init.height;
-              }
-
-              sseVideoDecoderRef.current = decoder;
-            } catch (err) {
-              console.error('[MoonlightStreamViewer] Failed to parse SSE init:', err);
-            }
-          });
-
-          eventSource.addEventListener('video', (e: MessageEvent) => {
-            const decoder = sseVideoDecoderRef.current;
-            if (!decoder || decoder.state !== 'configured') {
-              console.log('[SSE Video] Video handler: decoder not ready, state:', decoder?.state);
-              return;
-            }
-            // Log decoder ID once per second to verify we're using the right decoder
-            const now = Date.now();
-            if (!(window as any).__lastDecoderIdLog || now - (window as any).__lastDecoderIdLog > 1000) {
-              console.log('[SSE Video] Using decoder debugId:', (decoder as any).__debugId);
-              (window as any).__lastDecoderIdLog = now;
-            }
-
-            try {
-              // DEBUG: Log raw SSE event data length BEFORE JSON parsing
-              // This helps identify if truncation happens in EventSource or transport
-              const rawDataLength = e.data?.length || 0;
-              const sseFrameNum = (window as any).__sseRawFrameCount || 0;
-              (window as any).__sseRawFrameCount = sseFrameNum + 1;
-
-              // Log first 10 frames and then every 30th frame
-              if (sseFrameNum < 10 || sseFrameNum % 30 === 0) {
-                console.log('[SSE Video] RAW event.data length:', rawDataLength, 'chars (frame #' + sseFrameNum + ')');
-                // Log first/last 200 chars to see if event is truncated
-                if (rawDataLength < 10000) {
-                  const first200 = e.data?.substring(0, 200) || '';
-                  const last200 = e.data?.substring(Math.max(0, rawDataLength - 200)) || '';
-                  console.log('[SSE Video] RAW data START:', first200);
-                  console.log('[SSE Video] RAW data END:', last200);
-                  // Check if JSON ends properly with }
-                  const lastChar = e.data?.charAt(rawDataLength - 1);
-                  if (lastChar !== '}') {
-                    console.error('[SSE Video] JSON NOT PROPERLY TERMINATED! Last char:', lastChar, 'expected: }');
-                  }
-                }
-              }
-
-              const frame = JSON.parse(e.data);
-
-              // Skip delta frames until we receive the first keyframe
-              // (keyframe contains in-band VPS/SPS/PPS needed for HEVC decoding)
-              if (!sseReceivedFirstKeyframeRef.current) {
-                if (!frame.keyframe) {
-                  console.log('[SSE Video] Waiting for first keyframe, skipping delta frame');
-                  return;
-                }
-                console.log('[SSE Video] === FIRST KEYFRAME RECEIVED ===');
-                console.log('[SSE Video] Keyframe data size:', frame.data?.length, 'base64 chars');
-                console.log('[SSE Video] Keyframe PTS:', frame.pts);
-                console.log('[SSE Video] Decoder state at keyframe:', decoder.state);
-                console.log('[SSE Video] Decoder debugId:', (decoder as any).__debugId);
-                sseReceivedFirstKeyframeRef.current = true;
-              }
-
-              // Debug: check incoming data size
-              const base64Length = frame.data?.length || 0;
-              if (base64Length < 2000) {
-                console.warn('[SSE Video] Suspiciously small frame data:', base64Length, 'base64 chars, keyframe:', frame.keyframe, 'rawEventLength:', rawDataLength);
-              }
-
-              const binaryString = atob(frame.data);
-              const bytes = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-              }
-
-              // Debug: hexdump first 32 bytes of keyframes to verify NAL structure
-              // HEVC Annex B should start with 0x00 0x00 0x00 0x01 (4-byte start code)
-              // or 0x00 0x00 0x01 (3-byte start code)
-              if (frame.keyframe && bytes.length >= 32) {
-                const hexBytes = Array.from(bytes.slice(0, 32))
-                  .map(b => b.toString(16).padStart(2, '0'))
-                  .join(' ');
-                console.log('[SSE Video] Keyframe first 32 bytes:', hexBytes);
-
-                // Check for NAL start code
-                const hasStartCode4 = bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 0 && bytes[3] === 1;
-                const hasStartCode3 = bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1;
-                console.log('[SSE Video] NAL start code detected:', hasStartCode4 ? '4-byte' : hasStartCode3 ? '3-byte' : 'NONE');
-
-                if (!hasStartCode4 && !hasStartCode3) {
-                  console.error('[SSE Video] ⚠️ KEYFRAME DOES NOT START WITH NAL START CODE - frame data may be corrupt or in wrong format');
-                }
-
-                // For HEVC: verify that parameter sets (VPS/SPS/PPS) are present in the keyframe
-                // The decoder was configured with hevc: { format: 'annexb' } which handles in-band parameter sets
-                // No hvcC reconfiguration needed - Annex B format is sufficient
-                if (!hevcConfigured && (currentCodecString.startsWith('hvc1') || currentCodecString.startsWith('hev1'))) {
-                  console.log('[SSE Video] HEVC codec detected, checking for VPS/SPS/PPS in keyframe...');
-                  const paramSets = extractHevcParameterSets(bytes);
-                  if (paramSets) {
-                    console.log('[SSE Video] ✅ HEVC parameter sets found in keyframe (', paramSets.byteLength, 'bytes) - decoder should work with Annex B format');
-                    hevcConfigured = true;
-                  } else {
-                    console.error('[SSE Video] ⚠️ No HEVC parameter sets in keyframe - decoding will likely fail!');
-                    console.error('[SSE Video] Server should prepend cached VPS/SPS/PPS to keyframes for late SSE subscribers');
-                  }
-                }
-              }
-
-              const chunk = new EncodedVideoChunk({
-                type: frame.keyframe ? 'key' : 'delta',
-                timestamp: frame.pts,
-                data: bytes,
-              });
-              // Log decode info (throttled - every 30 frames to avoid spam)
-              const frameNumber = (window as any).__sseFrameCount || 0;
-              const shouldLog = frameNumber % 30 === 0 || frameNumber < 5;
-
-              if (shouldLog) {
-                console.log('[SSE Video] BEFORE decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
-                console.log('[SSE Video] Decoding chunk:', chunk.type, 'size:', bytes.length, 'pts:', frame.pts);
-              }
-
-              try {
-                decoder.decode(chunk);
-                if (shouldLog) {
-                  console.log('[SSE Video] AFTER decode - state:', decoder.state, 'queueSize:', decoder.decodeQueueSize);
-                }
-
-                // NOTE: Don't flush after keyframes - it resets decoder state and breaks subsequent delta frames
-              } catch (decodeErr) {
-                console.error('[SSE Video] decode() threw exception:', decodeErr);
-              }
-
-              // Check decoder state after decode
-              if (decoder.decodeQueueSize > 10) {
-                console.warn('[SSE Video] Decoder queue backing up:', decoder.decodeQueueSize);
-              }
-            } catch (err) {
-              console.error('[MoonlightStreamViewer] Failed to decode SSE video frame:', err);
-            }
-          });
-
-          eventSource.addEventListener('stop', () => {
-            console.log('[MoonlightStreamViewer] SSE video stopped');
-            if (sseVideoDecoderRef.current) {
-              sseVideoDecoderRef.current.close();
-              sseVideoDecoderRef.current = null;
-            }
-          });
-
-          eventSource.onerror = (err) => {
-            console.error('[MoonlightStreamViewer] SSE video error:', err);
-          };
-        }
-      } else if (newMode === 'websocket') {
-        // Switching to WebSocket mode: close SSE, enable WS video
-        console.log('[MoonlightStreamViewer] Hot-switching to WebSocket mode (no reconnect)');
-
-        // Close SSE connection
-        if (sseEventSourceRef.current) {
-          sseEventSourceRef.current.close();
-          sseEventSourceRef.current = null;
-        }
-        if (sseVideoDecoderRef.current) {
-          sseVideoDecoderRef.current.close();
-          sseVideoDecoderRef.current = null;
-        }
-
-        // Re-enable video on WebSocket
-        wsStream.setVideoEnabled(true);
-
-        // Re-attach canvas to stream for rendering
-        if (canvasRef.current) {
-          wsStream.setCanvas(canvasRef.current);
-        }
-      }
-    } else {
-      // Full reconnect needed (switching to/from webrtc or not connected)
-      console.log('[MoonlightStreamViewer] Full reconnect needed for mode switch');
-      console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
-      reconnect(5000);
-    }
+    // Switching between websocket and webrtc requires full reconnect (different protocols)
+    console.log('[MoonlightStreamViewer] Full reconnect needed for mode switch');
+    console.log('[MoonlightStreamViewer] Using 5s delay to wait for moonlight-web cleanup');
+    reconnect(5000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamingMode, sessionId]); // Only trigger on mode/session changes, not on reconnect/isConnected changes
 
@@ -1243,7 +794,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sseEventSourceRef.current = null;
       }
       if (sseVideoDecoderRef.current) {
-        sseVideoDecoderRef.current.close();
+        // Only close if not already closed
+        if (sseVideoDecoderRef.current.state !== 'closed') {
+          try {
+            sseVideoDecoderRef.current.close();
+          } catch (err) {
+            console.warn('[SSE Video] Error closing decoder:', err);
+          }
+        }
         sseVideoDecoderRef.current = null;
       }
     } else if (prevMode === 'high') {
@@ -1305,7 +863,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             canvas.width = init.width;
             canvas.height = init.height;
 
-            const codecString = init.codec || 'hvc1.1.6.L120.90';
+            // Detect codec from video_codec numeric value (same as websocket-stream.ts)
+            let codecString: string;
+            if (init.video_codec === 0x01) {
+              codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
+            } else if (init.video_codec === 0x02) {
+              codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
+            } else if (init.video_codec === 0x10) {
+              codecString = 'hvc1.1.6.L120.90';  // HEVC Main
+            } else if (init.video_codec === 0x11) {
+              codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
+            } else {
+              codecString = 'avc1.4d0033';  // Default to H.264
+            }
+            console.log(`[SSE Video] Codec: ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
+
             const decoder = new VideoDecoder({
               output: (frame: VideoFrame) => {
                 if (ctx && canvas.width > 0 && canvas.height > 0) {
@@ -1320,15 +892,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               },
             });
 
-            decoder.configure({
+            // Configure decoder with Annex B format for in-band parameter sets
+            const decoderConfig: VideoDecoderConfig = {
               codec: codecString,
               codedWidth: init.width,
               codedHeight: init.height,
               hardwareAcceleration: 'prefer-hardware',
-              ...(codecString.startsWith('hvc1') || codecString.startsWith('hev1')
-                ? { hevc: { format: 'annexb' } }
-                : {}),
-            });
+            };
+            // Add format hints for H264/HEVC - required for Annex B streams
+            if (codecString.startsWith('avc1')) {
+              // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+              decoderConfig.avc = { format: 'annexb' };
+            }
+            if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
+              // @ts-ignore - hevc property for Annex B format
+              decoderConfig.hevc = { format: 'annexb' };
+            }
+            decoder.configure(decoderConfig);
 
             sseVideoDecoderRef.current = decoder;
             sseStatsRef.current.width = init.width;
@@ -1373,7 +953,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         eventSource.addEventListener('stop', () => {
           console.log('[SSE Video] Stopped');
           if (sseVideoDecoderRef.current) {
-            sseVideoDecoderRef.current.close();
+            if (sseVideoDecoderRef.current.state !== 'closed') {
+              try {
+                sseVideoDecoderRef.current.close();
+              } catch (err) {
+                console.warn('[SSE Video] Error closing decoder on stop:', err);
+              }
+            }
             sseVideoDecoderRef.current = null;
           }
         });
@@ -1452,7 +1038,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           canvas.width = init.width;
           canvas.height = init.height;
 
-          const codecString = init.codec || 'hvc1.1.6.L120.90';
+          // Detect codec from video_codec numeric value (same as websocket-stream.ts)
+          let codecString: string;
+          if (init.video_codec === 0x01) {
+            codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
+          } else if (init.video_codec === 0x02) {
+            codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
+          } else if (init.video_codec === 0x10) {
+            codecString = 'hvc1.1.6.L120.90';  // HEVC Main
+          } else if (init.video_codec === 0x11) {
+            codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
+          } else {
+            codecString = 'avc1.4d0033';  // Default to H.264
+          }
+          console.log(`[SSE Video] Codec (initial): ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
+
           const decoder = new VideoDecoder({
             output: (frame: VideoFrame) => {
               if (ctx && canvas.width > 0 && canvas.height > 0) {
@@ -1467,15 +1067,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             },
           });
 
-          decoder.configure({
+          // Configure decoder with Annex B format for in-band parameter sets
+          const decoderConfig: VideoDecoderConfig = {
             codec: codecString,
             codedWidth: init.width,
             codedHeight: init.height,
             hardwareAcceleration: 'prefer-hardware',
-            ...(codecString.startsWith('hvc1') || codecString.startsWith('hev1')
-              ? { hevc: { format: 'annexb' } }
-              : {}),
-          });
+          };
+          // Add format hints for H264/HEVC - required for Annex B streams
+          if (codecString.startsWith('avc1')) {
+            // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+            decoderConfig.avc = { format: 'annexb' };
+          }
+          if (codecString.startsWith('hvc1') || codecString.startsWith('hev1')) {
+            // @ts-ignore - hevc property for Annex B format
+            decoderConfig.hevc = { format: 'annexb' };
+          }
+          decoder.configure(decoderConfig);
 
           sseVideoDecoderRef.current = decoder;
           sseStatsRef.current.width = init.width;
@@ -1520,7 +1128,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       eventSource.addEventListener('stop', () => {
         console.log('[SSE Video] Stopped (initial)');
         if (sseVideoDecoderRef.current) {
-          sseVideoDecoderRef.current.close();
+          if (sseVideoDecoderRef.current.state !== 'closed') {
+            try {
+              sseVideoDecoderRef.current.close();
+            } catch (err) {
+              console.warn('[SSE Video] Error closing decoder on stop (initial):', err);
+            }
+          }
           sseVideoDecoderRef.current = null;
         }
       });
