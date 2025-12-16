@@ -1137,8 +1137,8 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
 fi
 
 if [ "$SANDBOX" = true ]; then
-    # When installing sandbox node, API_HOST, RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+    # When installing sandbox node without controlplane, API_HOST, RUNNER_TOKEN are required
+    if [ "$CONTROLPLANE" != true ] && ([ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]); then
         echo "Error: When installing sandbox node, you must specify --api-host, --runner-token"
         echo "to connect to an external controlplane, for example:"
         echo
@@ -2023,22 +2023,30 @@ CADDYEOF"
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
         echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
-    echo "│"
-    echo "│ Start the Helix services by running:"
-    echo "│"
-    echo "│ cd $INSTALL_DIR"
-    if [ "$NEED_SUDO" = "true" ]; then
-        echo "│ sudo docker compose up -d --remove-orphans"
+    # When sandbox is being installed with controlplane, we auto-start services later
+    if [ "$SANDBOX" = true ]; then
+        echo "│"
+        echo "│ Services will be started automatically."
+        echo "│ Helix will be available at $API_HOST"
+        echo "└───────────────────────────────────────────────────────────────────────────"
     else
-        echo "│ docker compose up -d --remove-orphans"
+        echo "│"
+        echo "│ Start the Helix services by running:"
+        echo "│"
+        echo "│ cd $INSTALL_DIR"
+        if [ "$NEED_SUDO" = "true" ]; then
+            echo "│ sudo docker compose up -d --remove-orphans"
+        else
+            echo "│ docker compose up -d --remove-orphans"
+        fi
+        if [ "$CADDY" = true ]; then
+            echo "│ sudo systemctl restart caddy"
+        fi
+        echo "│"
+        echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
+        echo "│ This will take a minute or so to boot."
+        echo "└───────────────────────────────────────────────────────────────────────────"
     fi
-    if [ "$CADDY" = true ]; then
-        echo "│ sudo systemctl restart caddy"
-    fi
-    echo "│"
-    echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-    echo "│ This will take a minute or so to boot."
-    echo "└───────────────────────────────────────────────────────────────────────────"
 
     # Auto-restart services if configs were changed and services are running
     if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
@@ -2109,12 +2117,39 @@ if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlpl
     echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
-# Check if helix_default network exists, create it if it doesn't
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network..."
-    docker network create helix_default
+# Check if helix_default network exists
+# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
+# If standalone runner (no docker-compose.yaml), create network if needed
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+if [ -f "\$SCRIPT_DIR/docker-compose.yaml" ]; then
+    # Controlplane is on same machine - network should be created by docker compose
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Error: helix_default network does not exist."
+        echo "Please run 'docker compose up -d' first to start the controlplane."
+        echo "The controlplane creates the network with correct Docker Compose labels."
+        exit 1
+    fi
+    # Check if network has correct Docker Compose labels
+    NETWORK_LABEL=\$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+    if [ "\$NETWORK_LABEL" != "default" ]; then
+        echo "Error: helix_default network exists but has incorrect labels."
+        echo "This happens when the network was created manually instead of by Docker Compose."
+        echo ""
+        echo "To fix, run:"
+        echo "  docker network rm helix_default"
+        echo "  docker compose up -d"
+        echo "  ./runner.sh"
+        exit 1
+    fi
+    echo "helix_default network exists with correct labels."
 else
-    echo "helix_default network already exists."
+    # Standalone runner - create network if needed
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Creating helix_default network..."
+        docker network create helix_default
+    else
+        echo "helix_default network already exists."
+    fi
 fi
 
 # Detect total number of GPUs based on vendor
@@ -2344,7 +2379,7 @@ if [ "$SANDBOX" = true ]; then
     # Configure NVIDIA runtime if needed
     if [ "$GPU_VENDOR" = "nvidia" ] && check_nvidia_runtime_needed; then
         echo "Configuring NVIDIA Docker runtime..."
-        configure_nvidia_runtime
+        install_nvidia_docker
     fi
 
     # Create sandbox.sh script (embedded, like runner.sh)
@@ -2365,12 +2400,40 @@ MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
 PAIRING_PIN="${PAIRING_PIN}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
-# Check if helix_default network exists, create it if it doesn't
-if ! docker network inspect helix_default >/dev/null 2>&1; then
-    echo "Creating helix_default network..."
-    docker network create helix_default
+# Check if helix_default network exists
+# If docker-compose.yaml exists (controlplane on same machine), require network from docker compose
+# If standalone sandbox (no docker-compose.yaml), create network if needed
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/docker-compose.yaml" ]; then
+    # Controlplane is on same machine - network should be created by docker compose
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Error: helix_default network does not exist."
+        echo "Please run 'docker compose up -d' first to start the controlplane."
+        echo "The controlplane creates the network with correct Docker Compose labels."
+        exit 1
+    fi
+    # Check if network has correct Docker Compose labels
+    NETWORK_LABEL=$(docker network inspect helix_default --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || echo "")
+    if [ "$NETWORK_LABEL" != "default" ]; then
+        echo "Error: helix_default network exists but has incorrect labels."
+        echo "This happens when the network was created manually instead of by Docker Compose."
+        echo ""
+        echo "To fix, run:"
+        echo "  docker stop helix-sandbox 2>/dev/null; docker rm helix-sandbox 2>/dev/null"
+        echo "  docker network rm helix_default"
+        echo "  docker compose up -d"
+        echo "  ./sandbox.sh"
+        exit 1
+    fi
+    echo "helix_default network exists with correct labels."
 else
-    echo "helix_default network already exists."
+    # Standalone sandbox - create network if needed
+    if ! docker network inspect helix_default >/dev/null 2>&1; then
+        echo "Creating helix_default network..."
+        docker network create helix_default
+    else
+        echo "helix_default network already exists."
+    fi
 fi
 
 # Stop and remove existing sandbox container if it exists
@@ -2489,7 +2552,13 @@ EOF
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
+    # When controlplane is on same machine, use Docker network hostname
+    # localhost inside sandbox container resolves to container itself, not the host
+    if [ "$CONTROLPLANE" = true ]; then
+        sed -i "s|\${HELIX_API_URL}|http://api:8080|g" $INSTALL_DIR/sandbox.sh
+    else
+        sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
+    fi
     sed -i "s|\${WOLF_INSTANCE_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
@@ -2509,6 +2578,24 @@ EOF
 
     echo "Sandbox script created at $INSTALL_DIR/sandbox.sh"
     echo
+
+    # If controlplane is also being installed, run docker compose first to create the network
+    if [ "$CONTROLPLANE" = true ]; then
+        echo "Starting controlplane services first (creates Docker network with correct labels)..."
+        cd $INSTALL_DIR
+        if [ "$NEED_SUDO" = "true" ]; then
+            sudo docker compose up -d --remove-orphans
+        else
+            docker compose up -d --remove-orphans
+        fi
+        # Restart Caddy if it was installed (for HTTPS reverse proxy)
+        if [ "$CADDY" = true ]; then
+            echo "Restarting Caddy reverse proxy..."
+            sudo systemctl restart caddy
+        fi
+        echo "Waiting for controlplane to be ready..."
+        sleep 5
+    fi
 
     # Run the sandbox script to start the container
     echo "Starting sandbox container..."
