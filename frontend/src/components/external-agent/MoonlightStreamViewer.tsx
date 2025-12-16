@@ -528,10 +528,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         } else if (data.type === 'stageStarting') {
           setStatus(data.stage);
         } else if (data.type === 'disconnected') {
-          // WebSocket disconnected - show reconnecting status
-          console.log('[MoonlightStreamViewer] Stream disconnected');
+          // WebSocket disconnected - auto-reconnect will start shortly
+          // Set isConnecting=true immediately so we show "Reconnecting..." not "Disconnected" overlay
+          console.log('[MoonlightStreamViewer] Stream disconnected, will auto-reconnect');
           setIsConnected(false);
-          setStatus('Disconnected - reconnecting...');
+          setIsConnecting(true);  // Show connecting state immediately (auto-reconnect is coming)
+          setStatus('Reconnecting...');
           onConnectionChange?.(false);
         } else if (data.type === 'reconnecting') {
           // Show reconnection attempt in status
