@@ -700,6 +700,22 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		helixSessionID = agent.HelixSessionID
 	}
 
+	// Look up user to get git user name and email
+	var gitUserName, gitUserEmail string
+	if agent.UserID != "" {
+		user, err := w.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+		} else if user != nil {
+			gitUserName = user.FullName
+			gitUserEmail = user.Email
+			// Fall back to username if full name is empty
+			if gitUserName == "" {
+				gitUserName = user.Username
+			}
+		}
+	}
+
 	extraEnv := []string{
 		// Agent identification (used for WebSocket connection)
 		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agentInstanceID),
@@ -739,6 +755,14 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 
 	// Pass API base URL for git cloning
 	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
+
+	// Pass git user configuration for commits to use user's identity
+	if gitUserName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_NAME=%s", gitUserName))
+	}
+	if gitUserEmail != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
