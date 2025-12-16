@@ -97,6 +97,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   }); // SSE-specific stats for the inline decoder
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
+  const isExplicitlyClosingRef = useRef(false); // Track explicit close to prevent spurious "Reconnecting..." state
 
   // Generate unique UUID for this component instance (persists across re-renders)
   // This ensures multiple floating windows get different Moonlight client IDs
@@ -205,6 +206,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Connect to stream
   const connect = useCallback(async () => {
+    // Reset explicit close flag - we're starting a new connection
+    isExplicitlyClosingRef.current = false;
+
     // Generate fresh UUID for EVERY connection attempt
     // This prevents Wolf session ID conflicts when reconnecting to the same Helix session
     // (Wolf requires unique client_unique_id per connection to avoid stale state corruption)
@@ -527,13 +531,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         } else if (data.type === 'stageStarting') {
           setStatus(data.stage);
         } else if (data.type === 'disconnected') {
-          // WebSocket disconnected - auto-reconnect will start shortly
-          // Set isConnecting=true immediately so we show "Reconnecting..." not "Disconnected" overlay
-          console.log('[MoonlightStreamViewer] Stream disconnected, will auto-reconnect');
+          // WebSocket disconnected
+          console.log('[MoonlightStreamViewer] Stream disconnected');
           setIsConnected(false);
-          setIsConnecting(true);  // Show connecting state immediately (auto-reconnect is coming)
-          setStatus('Reconnecting...');
           onConnectionChange?.(false);
+
+          // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
+          // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
+          if (isExplicitlyClosingRef.current) {
+            console.log('[MoonlightStreamViewer] Explicit close - showing Disconnected overlay');
+            setIsConnecting(false);
+            setStatus('Disconnected');
+          } else {
+            console.log('[MoonlightStreamViewer] Unexpected disconnect - will auto-reconnect');
+            setIsConnecting(true);
+            setStatus('Reconnecting...');
+          }
         } else if (data.type === 'reconnecting') {
           // Show reconnection attempt in status
           console.log(`[MoonlightStreamViewer] Reconnecting attempt ${data.attempt}`);
@@ -605,6 +618,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Disconnect
   const disconnect = useCallback(() => {
     console.log('[MoonlightStreamViewer] disconnect() called, cleaning up stream resources');
+
+    // Mark as explicitly closing to prevent 'disconnected' event from showing "Reconnecting..." UI
+    isExplicitlyClosingRef.current = true;
 
     // Close SSE EventSource if it exists (from hot-switch or initial SSE mode)
     if (sseEventSourceRef.current) {
