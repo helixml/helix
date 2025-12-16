@@ -342,7 +342,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
 		// ZED_WORK_DIR: Consistent cwd for ACP session storage (ensures sessions restore on Zed restart)
-		fmt.Sprintf("ZED_WORK_DIR=%s", config.WorkspaceDir),
+		// Always /home/retro/work inside the container (where WorkspaceDir is mounted)
+		"ZED_WORK_DIR=/home/retro/work",
 	}
 
 	// Startup script lives in primary code repo at .helix/startup.sh
