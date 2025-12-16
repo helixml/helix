@@ -1493,6 +1493,13 @@ export class WebSocketStream {
 
     console.log(`[WebSocketStream] Setting video enabled: ${enabled}`)
 
+    // When re-enabling video, reset keyframe flag so we wait for a fresh keyframe
+    // The decoder needs VPS/SPS/PPS parameter sets from a keyframe after being paused
+    if (enabled) {
+      this.receivedFirstKeyframe = false
+      console.log("[WebSocketStream] Reset keyframe flag - will wait for fresh keyframe")
+    }
+
     // Send control message to server
     // Format: type(1) + JSON payload
     const json = JSON.stringify({ set_video_enabled: enabled })
