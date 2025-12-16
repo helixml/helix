@@ -1081,6 +1081,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
 
+	// Kodit MCP proxy routes - expose Kodit's MCP server through Helix API with user auth
+	// Supports both streamable HTTP and SSE transports for MCP protocol
+	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
