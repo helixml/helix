@@ -535,6 +535,25 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if updateReq.HelixAppID != "" {
 		task.HelixAppID = updateReq.HelixAppID
+
+		// Sync session's ParentApp so restart uses new agent's display settings
+		if task.PlanningSessionID != "" {
+			session, err := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
+				session.ParentApp = updateReq.HelixAppID
+				if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+					log.Warn().Err(err).
+						Str("session_id", task.PlanningSessionID).
+						Str("new_agent", updateReq.HelixAppID).
+						Msg("Failed to update session ParentApp (continuing)")
+				} else {
+					log.Info().
+						Str("session_id", task.PlanningSessionID).
+						Str("new_agent", updateReq.HelixAppID).
+						Msg("Updated session ParentApp to match spec task agent")
+				}
+			}
+		}
 	}
 
 	// Update in store
