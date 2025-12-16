@@ -25,7 +25,7 @@ import {
 } from '../wolf/chartStyles';
 // getApi import removed - we create API object directly instead of using cached singleton
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
-import { WebSocketStream } from '../../lib/moonlight-web-ts/stream/websocket-stream';
+import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/moonlight-web-ts/stream/websocket-stream';
 import { SseStream } from '../../lib/moonlight-web-ts/stream/sse-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
@@ -863,19 +863,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             canvas.width = init.width;
             canvas.height = init.height;
 
-            // Detect codec from video_codec numeric value (same as websocket-stream.ts)
-            let codecString: string;
-            if (init.video_codec === 0x01) {
-              codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
-            } else if (init.video_codec === 0x02) {
-              codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
-            } else if (init.video_codec === 0x10) {
-              codecString = 'hvc1.1.6.L120.90';  // HEVC Main
-            } else if (init.video_codec === 0x11) {
-              codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
-            } else {
-              codecString = 'avc1.4d0033';  // Default to H.264
-            }
+            // Use shared codec utilities from websocket-stream.ts
+            const codecString = codecToWebCodecsString(init.video_codec);
             console.log(`[SSE Video] Codec: ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
 
             const decoder = new VideoDecoder({
@@ -1038,19 +1027,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           canvas.width = init.width;
           canvas.height = init.height;
 
-          // Detect codec from video_codec numeric value (same as websocket-stream.ts)
-          let codecString: string;
-          if (init.video_codec === 0x01) {
-            codecString = 'avc1.4d0033';  // H.264 Main Profile Level 5.1
-          } else if (init.video_codec === 0x02) {
-            codecString = 'avc1.640032';  // H.264 High Profile Level 5.0
-          } else if (init.video_codec === 0x10) {
-            codecString = 'hvc1.1.6.L120.90';  // HEVC Main
-          } else if (init.video_codec === 0x11) {
-            codecString = 'hvc1.2.4.L120.90';  // HEVC Main 10
-          } else {
-            codecString = 'avc1.4d0033';  // Default to H.264
-          }
+          // Use shared codec utilities from websocket-stream.ts
+          const codecString = codecToWebCodecsString(init.video_codec);
           console.log(`[SSE Video] Codec (initial): ${codecString} (video_codec=0x${init.video_codec?.toString(16)})`);
 
           const decoder = new VideoDecoder({
