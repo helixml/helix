@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -639,6 +640,26 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 			},
 		},
 	},
+	// Clone Feature Demo - 5 data pipeline projects
+	{
+		ID:            "clone-demo-pipelines",
+		Name:          "Data Pipeline Logging Migration (Clone Demo)",
+		Description:   "Demonstrates the clone feature: complete a task on one data pipeline, then clone it to 4 similar pipelines. Shows how specs and implementation plans transfer across repositories with similar structure.",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Python", "Structlog", "AsyncIO", "Data Pipelines", "Financial Data"},
+		ReadmeURL:     "",
+		Difficulty:    "intermediate",
+		Category:      "clone-demo",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Add structured logging with correlation ID tracing for compliance. All log entries must include a correlation_id that propagates through async operations to enable request tracing across the pipeline.",
+				Priority: "high",
+				Labels:   []string{"observability", "compliance", "logging"},
+				Context:  "This is a financial data pipeline that requires audit logging for regulatory compliance. The correlation ID must be present in all log entries to trace a single data ingestion request through all stages (fetch → transform → load). The pipeline has async operations that require explicit context propagation using Python's contextvars module.",
+			},
+		},
+	},
 }
 
 // listSimpleSampleProjects godoc
@@ -719,6 +740,38 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	// Use organization from request (if provided), otherwise it's a personal project
 	// Don't auto-assign user's first org - respect their workspace context
 	orgID := req.OrganizationID
+
+	// Deduplicate project name within the workspace (org or personal)
+	// Build a set of existing names and add (1), (2), etc. if needed
+	var existingProjects []*types.Project
+	var listErr error
+	if orgID != "" {
+		existingProjects, listErr = s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+			OrganizationID: orgID,
+		})
+	} else {
+		existingProjects, listErr = s.Store.ListProjects(ctx, &store.ListProjectsQuery{
+			UserID: user.ID,
+		})
+	}
+	if listErr != nil {
+		log.Warn().Err(listErr).Msg("failed to list projects for name deduplication (continuing)")
+	}
+
+	existingNames := make(map[string]bool)
+	for _, p := range existingProjects {
+		existingNames[p.Name] = true
+	}
+
+	// Auto-increment name if it already exists: MyProject -> MyProject (1) -> MyProject (2)
+	baseName := projectName
+	uniqueName := baseName
+	suffix := 1
+	for existingNames[uniqueName] {
+		uniqueName = fmt.Sprintf("%s (%d)", baseName, suffix)
+		suffix++
+	}
+	projectName = uniqueName
 
 	log.Info().
 		Str("user_id", user.ID).
@@ -909,6 +962,189 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
+	} else if req.SampleProjectID == "clone-demo-pipelines" {
+		// Special case: Create FIVE separate projects for the clone demo
+		// Each project has its own repository. Only the first (Stocks) gets the task.
+		// Projects are created in reverse order so "Start Here" appears first in the UI.
+
+		// Define the 5 pipelines - order matters: last created appears first in UI
+		pipelineConfigs := []struct {
+			sampleCodeID string
+			nameSuffix   string
+			description  string
+			hasTask      bool
+		}{
+			{"clone-demo-pipeline-indicators", " - Indicators", "Economic indicators data pipeline", false},
+			{"clone-demo-pipeline-options", " - Options", "Options chains data pipeline", false},
+			{"clone-demo-pipeline-forex", " - Forex", "Foreign exchange rates data pipeline", false},
+			{"clone-demo-pipeline-bonds", " - Bonds", "Bond yields data pipeline", false},
+			{"clone-demo-pipeline-stocks", " - Stocks (Start Here)", "Stock price data pipeline - START HERE", true},
+		}
+
+		// We already created the first project above (with the sample project name)
+		// We need to:
+		// 1. Delete it (we'll recreate with proper naming)
+		// 2. Create all 5 projects with proper names
+
+		// Delete the auto-created project - we'll create 5 new ones
+		if delErr := s.Store.DeleteProject(ctx, createdProject.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("project_id", createdProject.ID).Msg("Failed to delete placeholder project for clone demo")
+		}
+
+		// Track the "start here" project ID to return
+		var startHereProjectID string
+		var totalTasksCreated int
+
+		// Get external agent app for spec tasks
+		var demoAgentApp *types.App
+		if req.HelixAppID != "" {
+			demoAgentApp, _ = s.Store.GetApp(ctx, req.HelixAppID)
+		}
+		if demoAgentApp == nil {
+			demoAgentApp, _ = s.getUserDefaultExternalAgentApp(ctx, user.ID)
+		}
+
+		for _, pipelineCfg := range pipelineConfigs {
+			// Get sample code for this pipeline
+			pipelineSampleCode, codeErr := sampleCodeService.GetProjectCode(ctx, pipelineCfg.sampleCodeID)
+			if codeErr != nil {
+				log.Error().Err(codeErr).Str("sample_id", pipelineCfg.sampleCodeID).Msg("Failed to get pipeline sample code")
+				continue
+			}
+
+			// Create unique project name
+			pipelineProjectName := baseName + pipelineCfg.nameSuffix
+			pipelineUniqueName := pipelineProjectName
+			pipelineSuffix := 1
+			for existingNames[pipelineUniqueName] {
+				pipelineUniqueName = fmt.Sprintf("%s (%d)", pipelineProjectName, pipelineSuffix)
+				pipelineSuffix++
+			}
+			existingNames[pipelineUniqueName] = true
+
+			// Create project
+			pipelineProject := &types.Project{
+				ID:             system.GenerateProjectID(),
+				Name:           pipelineUniqueName,
+				Description:    pipelineCfg.description,
+				UserID:         user.ID,
+				OrganizationID: orgID,
+				Technologies:   sampleProject.Technologies,
+				StartupScript:  pipelineSampleCode.StartupScript,
+				Status:         "active",
+			}
+
+			createdPipelineProject, createErr := s.Store.CreateProject(ctx, pipelineProject)
+			if createErr != nil {
+				log.Error().Err(createErr).Str("project_name", pipelineUniqueName).Msg("Failed to create pipeline project")
+				continue
+			}
+
+			// Create code repository for this pipeline
+			codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdPipelineProject, pipelineCfg.sampleCodeID)
+			if repoErr != nil {
+				log.Error().Err(repoErr).Str("project_id", createdPipelineProject.ID).Msg("Failed to initialize pipeline code repo")
+				continue
+			}
+
+			codeRepo := &types.GitRepository{
+				ID:             codeRepoID,
+				Name:           data.SlugifyName(createdPipelineProject.Name),
+				Description:    fmt.Sprintf("Code repository for %s", createdPipelineProject.Name),
+				OwnerID:        user.ID,
+				OrganizationID: createdPipelineProject.OrganizationID,
+				ProjectID:      createdPipelineProject.ID,
+				RepoType:       "code",
+				Status:         "ready",
+				LocalPath:      codeRepoPath,
+				DefaultBranch:  "main",
+				Metadata:       map[string]interface{}{"clone_demo": true},
+			}
+
+			if repoCreateErr := s.Store.CreateGitRepository(ctx, codeRepo); repoCreateErr != nil {
+				log.Error().Err(repoCreateErr).Str("project_id", createdPipelineProject.ID).Msg("Failed to create pipeline git repo entry")
+				continue
+			}
+
+			// Set code repo as default
+			createdPipelineProject.DefaultRepoID = codeRepo.ID
+			if demoAgentApp != nil {
+				createdPipelineProject.DefaultHelixAppID = demoAgentApp.ID
+			}
+			if updateErr := s.Store.UpdateProject(ctx, createdPipelineProject); updateErr != nil {
+				log.Warn().Err(updateErr).Msg("Failed to update pipeline project defaults")
+			}
+
+			// Initialize startup script
+			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdPipelineProject.Name, pipelineSampleCode.StartupScript); scriptErr != nil {
+				log.Warn().Err(scriptErr).Msg("Failed to initialize startup script in pipeline repo")
+			}
+
+			log.Info().
+				Str("project_id", createdPipelineProject.ID).
+				Str("project_name", pipelineUniqueName).
+				Bool("has_task", pipelineCfg.hasTask).
+				Msg("✅ Created clone demo pipeline project")
+
+			// Create task only for the "Start Here" project
+			if pipelineCfg.hasTask {
+				startHereProjectID = createdPipelineProject.ID
+
+				// Create the logging task
+				for i := len(sampleProject.TaskPrompts) - 1; i >= 0; i-- {
+					taskPrompt := sampleProject.TaskPrompts[i]
+					task := &types.SpecTask{
+						ID:             system.GenerateSpecTaskID(),
+						ProjectID:      createdPipelineProject.ID,
+						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
+						Description:    taskPrompt.Prompt,
+						Type:           inferTaskType(taskPrompt.Labels),
+						Priority:       taskPrompt.Priority,
+						Status:         "backlog",
+						OriginalPrompt: taskPrompt.Prompt,
+						EstimatedHours: estimateHoursFromPrompt(taskPrompt.Prompt, taskPrompt.Context),
+						CreatedBy:      user.ID,
+						CreatedAt:      time.Now(),
+						UpdatedAt:      time.Now(),
+					}
+
+					if demoAgentApp != nil {
+						task.HelixAppID = demoAgentApp.ID
+					}
+
+					task.Labels = taskPrompt.Labels
+					task.Metadata = map[string]interface{}{
+						"context":        taskPrompt.Context,
+						"constraints":    taskPrompt.Constraints,
+						"sample_project": sampleProject.ID,
+						"clone_demo":     true,
+					}
+
+					if taskErr := s.Store.CreateSpecTask(ctx, task); taskErr != nil {
+						log.Warn().Err(taskErr).Msg("Failed to create clone demo task")
+					} else {
+						totalTasksCreated++
+					}
+				}
+			}
+
+			// Small delay between project creations to ensure proper ordering by created_at
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		log.Info().
+			Str("start_here_project_id", startHereProjectID).
+			Int("tasks_created", totalTasksCreated).
+			Msg("✅ Clone demo: Created 5 pipeline projects")
+
+		return &types.ForkSimpleProjectResponse{
+			ProjectID:    startHereProjectID,
+			TasksCreated: totalTasksCreated,
+			Message: fmt.Sprintf("Created 5 data pipeline projects for the clone demo. "+
+				"Start with the 'Stocks (Start Here)' project, complete the logging task, "+
+				"then clone it to the other 4 pipelines (Bonds, Forex, Options, Indicators). "+
+				"%d task(s) ready to work on.", totalTasksCreated),
+		}, nil
 	} else {
 		// Use hardcoded sample code for all other samples
 		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID)

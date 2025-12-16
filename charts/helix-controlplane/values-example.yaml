@@ -440,7 +440,21 @@ typesense:
     #     app: typesense
 
 # Kodit configuration
-# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml 
+# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml
 # and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+#
+# Kodit is automatically configured to use Helix as its LLM proxy for code enrichments.
+# By default, it uses the runner token secret "helix-runner-secrets" with key "api-token".
+# If your runner token is in a different secret, override it like this:
 kodit:
   enabled: true
+  # controllers:
+  #   kodit:
+  #     containers:
+  #       kodit:
+  #         env:
+  #           ENRICHMENT_ENDPOINT_API_KEY:
+  #             valueFrom:
+  #               secretKeyRef:
+  #                 name: "my-custom-secret"    # Your secret name
+  #                 key: "my-api-key"           # Key within the secret

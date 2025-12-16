@@ -17,12 +17,19 @@ type SystemSettings struct {
 	// Future: This will be the lowest priority in token resolution hierarchy
 	HuggingFaceToken string `json:"huggingface_token,omitempty" gorm:"column:huggingface_token"`
 
-	// Future global settings can be added here
+	// Kodit enrichment model configuration
+	// Used when Kodit sends requests with model "kodit-model" - Helix substitutes with these values
+	KoditEnrichmentProvider string `json:"kodit_enrichment_provider,omitempty" gorm:"column:kodit_enrichment_provider"` // e.g., "together_ai", "openai", "helix"
+	KoditEnrichmentModel    string `json:"kodit_enrichment_model,omitempty" gorm:"column:kodit_enrichment_model"`       // e.g., "Qwen/Qwen3-8B", "gpt-4o", "llama3:instruct"
 }
 
 // SystemSettingsRequest represents the request payload for updating system settings
 type SystemSettingsRequest struct {
 	HuggingFaceToken *string `json:"huggingface_token,omitempty"`
+
+	// Kodit enrichment model configuration
+	KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
+	KoditEnrichmentModel    *string `json:"kodit_enrichment_model,omitempty"`
 }
 
 // SystemSettingsResponse represents the response payload for system settings (without sensitive data)
@@ -34,15 +41,23 @@ type SystemSettingsResponse struct {
 	// Sensitive fields are masked
 	HuggingFaceTokenSet    bool   `json:"huggingface_token_set"`
 	HuggingFaceTokenSource string `json:"huggingface_token_source"` // "database", "environment", or "none"
+
+	// Kodit enrichment model configuration (not sensitive, returned as-is)
+	KoditEnrichmentProvider string `json:"kodit_enrichment_provider"`
+	KoditEnrichmentModel    string `json:"kodit_enrichment_model"`
+	KoditEnrichmentModelSet bool   `json:"kodit_enrichment_model_set"` // true if both provider and model are configured
 }
 
 // ToResponse converts SystemSettings to SystemSettingsResponse (masking sensitive data)
 func (s *SystemSettings) ToResponse() *SystemSettingsResponse {
 	return &SystemSettingsResponse{
-		ID:                  s.ID,
-		Created:             s.Created,
-		Updated:             s.Updated,
-		HuggingFaceTokenSet: s.HuggingFaceToken != "",
+		ID:                      s.ID,
+		Created:                 s.Created,
+		Updated:                 s.Updated,
+		HuggingFaceTokenSet:     s.HuggingFaceToken != "",
+		KoditEnrichmentProvider: s.KoditEnrichmentProvider,
+		KoditEnrichmentModel:    s.KoditEnrichmentModel,
+		KoditEnrichmentModelSet: s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
 	}
 }
 
@@ -63,11 +78,14 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 	}
 
 	return &SystemSettingsResponse{
-		ID:                     s.ID,
-		Created:                s.Created,
-		Updated:                s.Updated,
-		HuggingFaceTokenSet:    hasToken,
-		HuggingFaceTokenSource: source,
+		ID:                      s.ID,
+		Created:                 s.Created,
+		Updated:                 s.Updated,
+		HuggingFaceTokenSet:     hasToken,
+		HuggingFaceTokenSource:  source,
+		KoditEnrichmentProvider: s.KoditEnrichmentProvider,
+		KoditEnrichmentModel:    s.KoditEnrichmentModel,
+		KoditEnrichmentModelSet: s.KoditEnrichmentProvider != "" && s.KoditEnrichmentModel != "",
 	}
 }
 

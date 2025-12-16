@@ -535,6 +535,25 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if updateReq.HelixAppID != "" {
 		task.HelixAppID = updateReq.HelixAppID
+
+		// Sync session's ParentApp so restart uses new agent's display settings
+		if task.PlanningSessionID != "" {
+			session, err := s.Store.GetSession(r.Context(), task.PlanningSessionID)
+			if err == nil && session != nil && session.ParentApp != updateReq.HelixAppID {
+				session.ParentApp = updateReq.HelixAppID
+				if _, err := s.Store.UpdateSession(r.Context(), *session); err != nil {
+					log.Warn().Err(err).
+						Str("session_id", task.PlanningSessionID).
+						Str("new_agent", updateReq.HelixAppID).
+						Msg("Failed to update session ParentApp (continuing)")
+				} else {
+					log.Info().
+						Str("session_id", task.PlanningSessionID).
+						Str("new_agent", updateReq.HelixAppID).
+						Msg("Updated session ParentApp to match spec task agent")
+				}
+			}
+		}
 	}
 
 	// Update in store
@@ -605,7 +624,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		if task.PlanningSessionID != "" {
 			session, sessionErr := s.Store.GetSession(r.Context(), task.PlanningSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.PlanningSessionID)
+				stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
@@ -625,7 +644,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		// Get all sessions for this task's project and stop ones related to this task
 		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(r.Context(), taskID)
 		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
-			stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), externalAgent.ID)
+			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), externalAgent.ID)
 			if stopErr != nil {
 				log.Warn().
 					Err(stopErr).

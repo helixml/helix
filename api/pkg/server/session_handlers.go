@@ -123,17 +123,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Load external agent config from app if agent type is external
 		if agentType == "zed_external" && startReq.ExternalAgentConfig == nil {
 			if app.Config.Helix.ExternalAgentConfig != nil {
-				// Check if the config has meaningful values (not just an empty struct)
+				// Check if the config has meaningful values (display settings)
 				appConfig := app.Config.Helix.ExternalAgentConfig
-				if appConfig.WorkspaceDir != "" || appConfig.ProjectPath != "" || len(appConfig.EnvVars) > 0 {
+				if appConfig.Resolution != "" || appConfig.DesktopType != "" || appConfig.DisplayWidth > 0 {
 					startReq.ExternalAgentConfig = appConfig
 					log.Debug().
 						Str("app_id", startReq.AppID).
 						Msg("Loaded external agent config from app configuration")
-				} else {
-					log.Debug().
-						Str("app_id", startReq.AppID).
-						Msg("App has empty external agent config, will use defaults")
 				}
 			}
 		}
@@ -378,24 +374,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				Str("user_id", user.ID).
 				Msg("External agent type specified with no configuration, using defaults")
 
-			// Create default configuration
-			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{
-				WorkspaceDir:   "workspace",
-				ProjectPath:    "workspace/project",
-				EnvVars:        []string{},
-				AutoConnectRDP: true,
-			}
-		}
-
-		// Validate external agent configuration for security
-		if err := startReq.ExternalAgentConfig.Validate(); err != nil {
-			log.Warn().
-				Err(err).
-				Str("session_id", session.ID).
-				Str("user_id", user.ID).
-				Msg("Invalid external agent configuration")
-			http.Error(rw, fmt.Sprintf("invalid external agent configuration: %s", err.Error()), http.StatusBadRequest)
-			return
+			// Create empty configuration - wolf_executor handles workspace paths
+			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{}
 		}
 
 		log.Info().
@@ -416,18 +396,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				ProjectPath: "workspace", // Use relative path
 			}
 
-			// Apply external agent configuration if provided
+			// Apply display settings from external agent configuration
 			if startReq.ExternalAgentConfig != nil {
-				if startReq.ExternalAgentConfig.WorkspaceDir != "" {
-					zedAgent.WorkDir = startReq.ExternalAgentConfig.WorkspaceDir
-				}
-				if startReq.ExternalAgentConfig.ProjectPath != "" {
-					zedAgent.ProjectPath = startReq.ExternalAgentConfig.ProjectPath
-				}
-				if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
-					zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
-				}
-				// Apply video settings (Phase 3.5)
 				if startReq.ExternalAgentConfig.DisplayWidth > 0 {
 					zedAgent.DisplayWidth = startReq.ExternalAgentConfig.DisplayWidth
 				}
@@ -436,6 +406,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 				if startReq.ExternalAgentConfig.DisplayRefreshRate > 0 {
 					zedAgent.DisplayRefreshRate = startReq.ExternalAgentConfig.DisplayRefreshRate
+				}
+				// CRITICAL: Also copy resolution preset, zoom level, and desktop type
+				// These are needed for proper GNOME 2x HiDPI scaling
+				if startReq.ExternalAgentConfig.Resolution != "" {
+					zedAgent.Resolution = startReq.ExternalAgentConfig.Resolution
+				}
+				if startReq.ExternalAgentConfig.ZoomLevel > 0 {
+					zedAgent.ZoomLevel = startReq.ExternalAgentConfig.ZoomLevel
+				}
+				if startReq.ExternalAgentConfig.DesktopType != "" {
+					zedAgent.DesktopType = startReq.ExternalAgentConfig.DesktopType
 				}
 			}
 
@@ -446,17 +427,20 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			}
 
 			// Register session in executor so RDP endpoint can find it
-			agentResp, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
+			agentResp, regErr := s.externalAgentExecutor.StartDesktop(req.Context(), zedAgent)
 			if regErr != nil {
 				log.Error().Err(regErr).Str("session_id", session.ID).Msg("Failed to register session in external agent executor")
 				http.Error(rw, fmt.Sprintf("failed to initialize external agent: %s", regErr.Error()), http.StatusInternalServerError)
 				return
 			}
 
-			// Store lobby ID and PIN in session metadata (Phase 3: Multi-tenancy + Streaming)
-			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" {
+			// Store lobby ID, PIN, and Wolf instance ID in session (Phase 3: Multi-tenancy + Streaming)
+			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" || agentResp.WolfInstanceID != "" {
 				session.Metadata.WolfLobbyID = agentResp.WolfLobbyID
 				session.Metadata.WolfLobbyPIN = agentResp.WolfLobbyPIN
+				// CRITICAL: Store WolfInstanceID on session record - required for wolf-app-state endpoint
+				// Without this, the frontend gets stuck at "Starting Desktop" forever
+				session.WolfInstanceID = agentResp.WolfInstanceID
 				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
 				if err != nil {
 					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby data in session")
@@ -465,7 +449,8 @@ If the user asks for information about Helix or installing Helix, refer them to 
 						Str("session_id", session.ID).
 						Str("lobby_id", agentResp.WolfLobbyID).
 						Str("lobby_pin", agentResp.WolfLobbyPIN).
-						Msg("✅ Stored lobby ID and PIN in session metadata (chat endpoint)")
+						Str("wolf_instance_id", agentResp.WolfInstanceID).
+						Msg("✅ Stored lobby ID, PIN, and Wolf instance ID in session (chat endpoint)")
 				}
 			}
 
@@ -677,87 +662,6 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	)
 
 	return session, nil
-}
-
-// sendSessionToWebSocketAgents sends a new session request directly to connected WebSocket agents
-// This bypasses NATS routing and sends session communication via WebSocket (NATS is only for lifecycle)
-func (s *HelixAPIServer) sendSessionToWebSocketAgents(ctx context.Context, sessionID string, messageContent interface{}) error {
-	log.Info().
-		Str("session_id", sessionID).
-		Msg("🔄 WEBSOCKET_ROUTING: Sending session to WebSocket agents")
-
-	// Check if any external agents are connected via WebSocket
-	if s.externalAgentWSManager == nil {
-		return fmt.Errorf("WebSocket manager not initialized")
-	}
-
-	connections := s.externalAgentWSManager.listConnections()
-	if len(connections) == 0 {
-		return fmt.Errorf("no external agents connected via WebSocket")
-	}
-
-	log.Info().
-		Int("connection_count", len(connections)).
-		Str("session_id", sessionID).
-		Msg("🔄 WEBSOCKET_ROUTING: Found connected external agents")
-
-	// Extract message content as string
-	var messageText string
-	if content, ok := messageContent.(map[string]interface{}); ok {
-		if parts, exists := content["parts"]; exists {
-			if partsArray, ok := parts.([]interface{}); ok && len(partsArray) > 0 {
-				if firstPart, ok := partsArray[0].(string); ok {
-					messageText = firstPart
-				}
-			}
-		}
-	}
-
-	if messageText == "" {
-		messageText = "Initialize external agent session"
-	}
-
-	// Create thread creation command for external agents
-	command := types.ExternalAgentCommand{
-		Type: "create_thread",
-		Data: map[string]interface{}{
-			"session_id": sessionID,
-			"message":    messageText,
-		},
-	}
-
-	// Send to all connected external agents
-	s.externalAgentWSManager.mu.RLock()
-	defer s.externalAgentWSManager.mu.RUnlock()
-
-	sentCount := 0
-	for agentID, conn := range s.externalAgentWSManager.connections {
-		select {
-		case conn.SendChan <- command:
-			sentCount++
-			log.Info().
-				Str("agent_id", agentID).
-				Str("session_id", sessionID).
-				Str("message", messageText).
-				Msg("🔄 WEBSOCKET_ROUTING: Sent session to external agent")
-		default:
-			log.Warn().
-				Str("agent_id", agentID).
-				Str("session_id", sessionID).
-				Msg("🔄 WEBSOCKET_ROUTING: Failed to send to agent (channel full)")
-		}
-	}
-
-	if sentCount == 0 {
-		return fmt.Errorf("failed to send session to any connected agents")
-	}
-
-	log.Info().
-		Int("sent_count", sentCount).
-		Str("session_id", sessionID).
-		Msg("✅ WEBSOCKET_ROUTING: Successfully sent session to external agents")
-
-	return nil
 }
 
 // getAgentTypeFromApp determines the agent type from the app's assistant configuration
@@ -1880,6 +1784,34 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	// The app ID comes from session.ParentApp (the agent assigned to the session)
+	if session.ParentApp != "" {
+		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			agent.DisplayWidth = width
+			agent.DisplayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("session_id", id).
+				Str("app_id", session.ParentApp).
+				Int("display_width", width).
+				Int("display_height", height).
+				Int("display_refresh_rate", agent.DisplayRefreshRate).
+				Str("resolution", agent.Resolution).
+				Int("zoom_level", agent.ZoomLevel).
+				Str("desktop_type", agent.DesktopType).
+				Msg("Using display settings from app's ExternalAgentConfig for session resume")
+		}
+	}
+
 	// Add user's API token to agent environment for git operations
 	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
 		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
@@ -1893,7 +1825,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Msg("Resuming external agent session")
 
 	// Start the external agent (this will create a new Wolf lobby)
-	response, err := s.externalAgentExecutor.StartZedAgent(ctx, agent)
+	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1992,13 +1924,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 // agentName specifies which ACP agent to use (e.g., "qwen", "claude", "gemini", "codex")
 // or empty string for NativeAgent (Zed's built-in agent).
 func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string, agentName string) error {
-	// Find the external agent WebSocket connection
-	conn, exists := s.externalAgentWSManager.getConnection(sessionID)
-	if !exists {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
-	// Create the open_thread command
 	data := map[string]interface{}{
 		"acp_thread_id": acpThreadID,
 	}
@@ -2012,18 +1937,8 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 		Data: data,
 	}
 
-	// Send the command via WebSocket
-	select {
-	case conn.SendChan <- command:
-		log.Info().
-			Str("session_id", sessionID).
-			Str("acp_thread_id", acpThreadID).
-			Str("agent_name", agentName).
-			Msg("📤 Queued open_thread command for Zed")
-		return nil
-	default:
-		return fmt.Errorf("send channel full for session %s", sessionID)
-	}
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	return s.sendCommandToExternalAgent(sessionID, command)
 }
 
 // getSessionIdleStatus godoc
@@ -2136,7 +2051,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 	}
 
 	// Stop the Zed agent (Wolf container)
-	err = s.externalAgentExecutor.StopZedAgent(ctx, sessionID)
+	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
 	if err != nil {
 		log.Error().
 			Err(err).

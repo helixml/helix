@@ -6,6 +6,10 @@ interface FloatingModalConfig {
   runner?: TypesDashboardRunner
   sessionId?: string
   wolfLobbyId?: string
+  // Display settings for streaming (from app's ExternalAgentConfig)
+  displayWidth?: number
+  displayHeight?: number
+  displayFps?: number
 }
 
 interface FloatingModalContextType {

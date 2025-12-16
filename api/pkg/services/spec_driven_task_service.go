@@ -156,6 +156,12 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		helixAppID = req.AppID
 	}
 
+	// Default branch mode to "new" if not specified
+	branchMode := req.BranchMode
+	if branchMode == "" {
+		branchMode = types.BranchModeNew
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -169,6 +175,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
 		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
 		UseHostDocker:  req.UseHostDocker, // Use host Docker socket (requires privileged sandbox)
+		// Branch configuration
+		BranchMode:   branchMode,
+		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
+		BranchPrefix: req.BranchPrefix,  // User-specified prefix for new branches
+		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -420,6 +431,38 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = width
+			displayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidth).
+				Int("display_height", displayHeight).
+				Int("display_refresh_rate", displayRefreshRate).
+				Str("resolution", resolution).
+				Int("zoom_level", zoomLevel).
+				Str("desktop_type", desktopType).
+				Msg("Using display settings from app's ExternalAgentConfig")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.ZedAgent{
@@ -432,6 +475,12 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -446,8 +495,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartDesktop...")
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -545,8 +594,27 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		delete(task.Metadata, "error_timestamp")
 	}
 
-	// Generate feature branch name using task number (e.g., feature/install-uv-123)
-	branchName := GenerateFeatureBranchName(task)
+	// Handle branch configuration based on mode
+	var branchName string
+	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
+		// Existing mode: use the branch name that was set during task creation
+		branchName = task.BranchName
+		log.Info().
+			Str("task_id", task.ID).
+			Str("branch_name", branchName).
+			Msg("Continuing work on existing branch")
+	} else {
+		// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
+		branchName = GenerateFeatureBranchName(task)
+
+		// Set base branch if not already set (defaults to repo default, handled in agent prompt)
+		if task.BaseBranch == "" && project != nil && project.DefaultRepoID != "" {
+			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo != nil && repo.DefaultBranch != "" {
+				task.BaseBranch = repo.DefaultBranch
+			}
+		}
+	}
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
@@ -660,6 +728,27 @@ Follow these guidelines when making changes:
 		}
 	}
 
+	// Build git instructions based on branch mode
+	var gitInstructions string
+	if task.BranchMode == types.BranchModeExisting {
+		// Continuing work on existing branch
+		gitInstructions = fmt.Sprintf(`**If making code changes:**
+1. git checkout %s  (continue on existing branch)
+2. Make your changes
+3. git push origin %s`, branchName, branchName)
+	} else {
+		// Creating new branch from base
+		baseBranch := task.BaseBranch
+		if baseBranch == "" {
+			baseBranch = "main" // fallback
+		}
+		gitInstructions = fmt.Sprintf(`**If making code changes:**
+1. git fetch origin && git checkout %s && git pull origin %s
+2. git checkout -b %s  (create new branch from %s)
+3. Make your changes
+4. git push origin %s`, baseBranch, baseBranch, branchName, baseBranch, branchName)
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -670,13 +759,10 @@ Follow these guidelines when making changes:
 
 **Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
-**If making code changes:**
-1. git checkout -b %s
-2. Make your changes
-3. git push origin %s
+%s
 
 **For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, branchName, branchName, primaryRepoName)
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions, primaryRepoName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -721,6 +807,38 @@ Follow these guidelines when making changes:
 		return
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidthJDI := 1920
+	displayHeightJDI := 1080
+	displayRefreshRateJDI := 60
+	resolutionJDI := ""
+	zoomLevelJDI := 0
+	desktopTypeJDI := ""
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidthJDI = width
+			displayHeightJDI = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRateJDI = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolutionJDI = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevelJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopTypeJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidthJDI).
+				Int("display_height", displayHeightJDI).
+				Int("display_refresh_rate", displayRefreshRateJDI).
+				Str("resolution", resolutionJDI).
+				Int("zoom_level", zoomLevelJDI).
+				Str("desktop_type", desktopTypeJDI).
+				Msg("Just Do It: Using display settings from app's ExternalAgentConfig")
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
@@ -732,13 +850,19 @@ Follow these guidelines when making changes:
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidthJDI,
+		DisplayHeight:       displayHeightJDI,
+		DisplayRefreshRate:  displayRefreshRateJDI,
+		Resolution:          resolutionJDI,
+		ZoomLevel:           zoomLevelJDI,
+		DesktopType:         desktopTypeJDI,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
 
 	// Start the Zed agent via Wolf executor
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -858,8 +982,24 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			}
 		}
 
-		// Generate feature branch name using task number (e.g., feature/install-uv-123)
-		branchName := GenerateFeatureBranchName(task)
+		// Handle branch configuration based on mode
+		var branchName string
+		if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
+			// Existing mode: use the branch name that was set during task creation
+			branchName = task.BranchName
+			log.Info().
+				Str("task_id", task.ID).
+				Str("branch_name", branchName).
+				Msg("[ApproveSpecs] Continuing work on existing branch")
+		} else {
+			// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
+			branchName = GenerateFeatureBranchName(task)
+
+			// Set base branch if not already set
+			if task.BaseBranch == "" {
+				task.BaseBranch = repo.DefaultBranch
+			}
+		}
 
 		// Specs approved - move to implementation
 		task.Status = types.TaskStatusImplementation

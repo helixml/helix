@@ -21,6 +21,10 @@ interface SseStreamStats {
   bytesReceived: number
   connected: boolean
   transport: "sse"
+  // Throughput metrics for adaptive bitrate
+  totalBitrateMbps: number
+  rttMs: number  // Approximated from frame delivery timing
+  isHighLatency: boolean
 }
 
 interface SseVideoFrame {
@@ -67,6 +71,14 @@ export class SseStream {
   private frameCount = 0
   private currentFps = 0
 
+  // Throughput tracking for adaptive bitrate
+  private lastThroughputTime = 0
+  private lastThroughputBytes = 0
+  private currentThroughputMbps = 0
+  private frameLatencies: number[] = []  // Track frame delivery latencies
+  private estimatedRttMs = 0
+  private isHighLatency = false
+
   // Stream info
   private streamWidth = 0
   private streamHeight = 0
@@ -84,7 +96,9 @@ export class SseStream {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.eventSource = new EventSource(this.sseUrl)
+      // withCredentials: true ensures browser sends cookies for authentication
+      // This is required for the Helix proxy to authenticate the request
+      this.eventSource = new EventSource(this.sseUrl, { withCredentials: true })
 
       this.eventSource.onopen = () => {
         console.log("[SseStream] Connected to SSE endpoint")
@@ -164,22 +178,51 @@ export class SseStream {
       }
     })
 
-    this.videoDecoder.configure({
+    // Configure decoder with Annex B format for H264/H265 (in-band SPS/PPS/VPS)
+    // This tells WebCodecs to expect NAL start codes and in-band parameter sets
+    const config: VideoDecoderConfig = {
       codec: codecString,
       codedWidth: width,
       codedHeight: height,
       hardwareAcceleration: "prefer-hardware",
-    })
+    }
+
+    // For H264, specify Annex B format to handle in-band SPS/PPS
+    if (codecString.startsWith("avc1")) {
+      // @ts-ignore - avc property is part of the spec but not in TypeScript types yet
+      config.avc = { format: "annexb" }
+    }
+    // For HEVC, specify Annex B format to handle in-band VPS/SPS/PPS
+    if (codecString.startsWith("hvc1") || codecString.startsWith("hev1")) {
+      // @ts-ignore - hevc property for Annex B format
+      config.hevc = { format: "annexb" }
+    }
+
+    try {
+      this.videoDecoder.configure(config)
+      console.log("[SseStream] Video decoder configured:", config)
+    } catch (e) {
+      console.error("[SseStream] Failed to configure video decoder:", e)
+      // Try without the format hint as fallback
+      this.videoDecoder.configure({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: "prefer-hardware",
+      })
+      console.log("[SseStream] Video decoder configured (fallback mode)")
+    }
   }
 
   private getCodecString(codec: number): string {
     // Map server codec enum to WebCodecs codec string
+    // These must match websocket-stream.ts codecToWebCodecsString()
     switch (codec) {
-      case 0x01: return "avc1.640028"  // H.264 High
-      case 0x02: return "avc1.f4001e"  // H.264 High 4:4:4
+      case 0x01: return "avc1.4d0033"  // H.264 Main Profile Level 5.1 (supports 4K)
+      case 0x02: return "avc1.640032"  // H.264 High Profile Level 5.0
       case 0x10: return "hvc1.1.6.L120.90"  // HEVC Main
       case 0x11: return "hvc1.2.4.L120.90"  // HEVC Main 10
-      default: return "avc1.640028"  // Default to H.264
+      default: return "avc1.4d0033"  // Default to H.264
     }
   }
 
@@ -199,7 +242,7 @@ export class SseStream {
 
     this.bytesReceived += bytes.length
 
-    // Update FPS counter
+    // Update FPS counter and throughput
     const now = performance.now()
     this.frameCount++
     if (now - this.lastFrameTime > 1000) {
@@ -207,6 +250,47 @@ export class SseStream {
       this.frameCount = 0
       this.lastFrameTime = now
     }
+
+    // Calculate throughput (Mbps) every second
+    if (this.lastThroughputTime === 0) {
+      this.lastThroughputTime = now
+      this.lastThroughputBytes = this.bytesReceived
+    } else if (now - this.lastThroughputTime >= 1000) {
+      const deltaBytes = this.bytesReceived - this.lastThroughputBytes
+      const deltaSec = (now - this.lastThroughputTime) / 1000
+      this.currentThroughputMbps = (deltaBytes * 8) / (1000000 * deltaSec)
+      this.lastThroughputTime = now
+      this.lastThroughputBytes = this.bytesReceived
+    }
+
+    // Estimate latency from frame PTS vs arrival time
+    // PTS is in microseconds from stream start, we compare inter-frame timing
+    // If frames arrive in bursts (many at once), that indicates network buffering/latency
+    const expectedInterFrameMs = 1000 / 60  // Assume 60fps
+    if (this.frameLatencies.length > 0) {
+      const lastArrival = this.frameLatencies[this.frameLatencies.length - 1]
+      const interFrameMs = now - lastArrival
+      // If frames arrive much faster than expected, they were batched (high latency indicator)
+      // If they arrive slower, the network is struggling
+      if (interFrameMs < expectedInterFrameMs * 0.3) {
+        // Frames arriving in burst - estimate RTT from burst size
+        this.estimatedRttMs = Math.min(500, this.estimatedRttMs + 10)
+      } else if (interFrameMs > expectedInterFrameMs * 2) {
+        // Frames delayed - network struggling
+        this.estimatedRttMs = Math.min(500, interFrameMs)
+      } else {
+        // Normal delivery - decay RTT estimate
+        this.estimatedRttMs = Math.max(20, this.estimatedRttMs * 0.95)
+      }
+    }
+    this.frameLatencies.push(now)
+    // Keep only last 60 frame times (1 second at 60fps)
+    if (this.frameLatencies.length > 60) {
+      this.frameLatencies.shift()
+    }
+
+    // High latency if estimated RTT > 150ms
+    this.isHighLatency = this.estimatedRttMs > 150
 
     try {
       const chunk = new EncodedVideoChunk({
@@ -257,6 +341,10 @@ export class SseStream {
       bytesReceived: this.bytesReceived,
       connected: this.eventSource?.readyState === EventSource.OPEN,
       transport: "sse",
+      // Throughput metrics for adaptive bitrate
+      totalBitrateMbps: this.currentThroughputMbps,
+      rttMs: this.estimatedRttMs,
+      isHighLatency: this.isHighLatency,
     }
   }
 
@@ -306,16 +394,19 @@ export function buildSseStreamUrl(
   hostId: number,
   appId: number,
   sessionId: string,
-  settings: StreamSettings
+  width: number,
+  height: number,
+  fps: number,
+  bitrate: number
 ): string {
   const params = new URLSearchParams({
     host_id: hostId.toString(),
     app_id: appId.toString(),
     session_id: sessionId,
-    width: settings.width.toString(),
-    height: settings.height.toString(),
-    fps: settings.fps.toString(),
-    bitrate: settings.bitrate.toString(),
+    width: width.toString(),
+    height: height.toString(),
+    fps: fps.toString(),
+    bitrate: bitrate.toString(),
   })
 
   return `${baseUrl}/sse/stream?${params.toString()}`

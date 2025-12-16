@@ -268,7 +268,7 @@ func TestExternalAgentModelParameter(t *testing.T) {
 			},
 		},
 		ExternalAgentConfig: &types.ExternalAgentConfig{
-			WorkspaceDir: "/tmp/test",
+			Resolution: "1080p",
 		},
 	}
 

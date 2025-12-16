@@ -73,6 +73,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 	log.Info().
 		Str("admin_user", user.ID).
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
+		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
 		Msg("system settings updated by admin")
 
 	// Push updated settings to all connected runners
@@ -87,6 +88,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		}
 	}
 
-	// Return masked response (without sensitive data)
-	writeResponse(rw, settings.ToResponse(), http.StatusOK)
+	// Return masked response with source information (same format as GET)
+	envToken := os.Getenv("HF_TOKEN")
+	writeResponse(rw, settings.ToResponseWithSource(settings.HuggingFaceToken, envToken), http.StatusOK)
 }

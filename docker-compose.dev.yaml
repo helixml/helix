@@ -180,6 +180,12 @@ services:
       - DATA_DIR=/data
       - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
+      # External enrichment provider - uses Helix as proxy with runner token auth
+      - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
+      - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_TIMEOUT=120
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
       - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
@@ -285,7 +291,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=TRUE
-      - GOP_SIZE=${GOP_SIZE:-120}
+      - GOP_SIZE=${GOP_SIZE:-240}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
@@ -407,7 +413,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=TRUE
-      - GOP_SIZE=${GOP_SIZE:-120}
+      - GOP_SIZE=${GOP_SIZE:-240}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
@@ -528,7 +534,7 @@ services:
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       - WOLF_USE_ZERO_COPY=FALSE
-      - GOP_SIZE=${GOP_SIZE:-120}
+      - GOP_SIZE=${GOP_SIZE:-240}
       # Moonlight Web configuration
       - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}

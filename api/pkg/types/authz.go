@@ -211,6 +211,25 @@ type UserMeta struct {
 	ID     string     `json:"id"`
 	Slug   string     `json:"slug" gorm:"uniqueIndex"` // URL-friendly username slug for GitHub-style URLs
 	Config UserConfig `json:"config" gorm:"type:json"`
+
+	// Guidelines for AI agents - personal workspace style guides, conventions, and instructions
+	Guidelines          string    `json:"guidelines" gorm:"type:text"`
+	GuidelinesVersion   int       `json:"guidelines_version" gorm:"default:0"`            // Incremented on each update
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`                          // When guidelines were last updated
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by" gorm:"type:varchar(255)"` // User ID who last updated guidelines
+}
+
+// UpdateUserGuidelinesRequest is the request body for updating user guidelines
+type UpdateUserGuidelinesRequest struct {
+	Guidelines string `json:"guidelines"`
+}
+
+// UserGuidelinesResponse is the response for user guidelines endpoints
+type UserGuidelinesResponse struct {
+	Guidelines          string    `json:"guidelines"`
+	GuidelinesVersion   int       `json:"guidelines_version"`
+	GuidelinesUpdatedAt time.Time `json:"guidelines_updated_at"`
+	GuidelinesUpdatedBy string    `json:"guidelines_updated_by"`
 }
 
 type UserConfig struct {

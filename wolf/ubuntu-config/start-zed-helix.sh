@@ -551,8 +551,41 @@ fi
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
 echo "Using vanilla Ubuntu settings (no custom HiDPI scaling)"
 
+# =========================================================================
+# Performance tuning for Zed on XWayland
+# =========================================================================
+# Zed is laggy on XWayland due to the extra compositing layer and frame timing
+# issues. These settings help mitigate the lag.
+#
+# For best performance, Zed should use native Wayland, but GNOME runs as an
+# X11 session on XWayland in this container, so no Wayland socket is available.
+# =========================================================================
+
+# Disable vsync - let the timer-based refresh control frame pacing instead
+# With XWayland, vsync (FIFO mode) can cause frame timing conflicts with
+# the X11 refresh timer, leading to stuttering. MAILBOX mode is actually
+# smoother on XWayland despite higher CPU usage.
+# export ZED_DISPLAY_SYNC=block  # Disabled - causes more stutter on XWayland
+echo "ZED_DISPLAY_SYNC=<default> (using MAILBOX mode for XWayland compatibility)"
+
+# Disable MSAA for path rendering to reduce GPU/CPU overhead
+# Sample count of 1 means no anti-aliasing on paths, which improves performance
+export ZED_PATH_SAMPLE_COUNT=1
+echo "ZED_PATH_SAMPLE_COUNT=1 (MSAA disabled for performance)"
+
+# NVIDIA-specific: Force threaded optimizations for better multi-core usage
+export __GL_THREADED_OPTIMIZATIONS=1
+
+# Limit Vulkan frame latency to reduce input lag
+export VK_LAYER_NV_optimus_present_mode_hint=MAILBOX
+
 while true; do
     echo "Launching Zed..."
+    # Launch Zed directly - this blocks until Zed exits
+    # GNOME icon matching works because:
+    # 1. Zed sets app_id to "dev.zed.Zed-Dev" (from ReleaseChannel::Dev)
+    # 2. Desktop file at /usr/share/applications/dev.zed.Zed-Dev.desktop has matching StartupWMClass
+    # NOTE: gio launch doesn't block, so we can't use it in a restart loop
     /zed-build/zed "${ZED_FOLDERS[@]}" || true
     echo "Zed exited, restarting in 2 seconds..."
     sleep 2

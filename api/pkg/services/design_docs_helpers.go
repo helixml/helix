@@ -62,13 +62,22 @@ func GenerateDesignDocPath(task *types.SpecTask, taskNumber int) string {
 
 // GenerateFeatureBranchName creates a human-readable feature branch name
 // Format: "feature/shortname-N" e.g., "feature/install-cowsay-123"
+// If task.BranchPrefix is set by user, uses that instead of auto-generating from name
 // Uses task.TaskNumber if set, otherwise falls back to last 8 chars of task ID
 func GenerateFeatureBranchName(task *types.SpecTask) string {
-	sanitizedName := sanitizeForBranchName(task.Name)
+	// Use user-specified prefix if provided
+	var baseName string
+	if task.BranchPrefix != "" {
+		// User provided a prefix like "feature/user-auth" - sanitize it
+		baseName = sanitizeBranchPrefix(task.BranchPrefix)
+	} else {
+		// Auto-generate from task name
+		baseName = "feature/" + sanitizeForBranchName(task.Name)
+	}
 
 	// Use TaskNumber if available (new format), otherwise use ID suffix (backwards compat)
 	if task.TaskNumber > 0 {
-		return fmt.Sprintf("feature/%s-%d", sanitizedName, task.TaskNumber)
+		return fmt.Sprintf("%s-%d", baseName, task.TaskNumber)
 	}
 
 	// Fallback for old tasks without TaskNumber
@@ -76,5 +85,29 @@ func GenerateFeatureBranchName(task *types.SpecTask) string {
 	if len(taskIDSuffix) > 8 {
 		taskIDSuffix = taskIDSuffix[len(taskIDSuffix)-8:]
 	}
-	return fmt.Sprintf("feature/%s-%s", sanitizedName, taskIDSuffix)
+	return fmt.Sprintf("%s-%s", baseName, taskIDSuffix)
+}
+
+// sanitizeBranchPrefix cleans up a user-provided branch prefix
+// Allows forward slashes for namespacing like "feature/user-auth" or "fix/login-bug"
+func sanitizeBranchPrefix(prefix string) string {
+	// Convert to lowercase
+	name := strings.ToLower(prefix)
+
+	// Remove special characters except hyphens, underscores, forward slashes, and alphanumeric
+	reg := regexp.MustCompile(`[^a-z0-9-_/]`)
+	name = reg.ReplaceAllString(name, "")
+
+	// Replace multiple hyphens with single hyphen
+	reg = regexp.MustCompile(`-+`)
+	name = reg.ReplaceAllString(name, "-")
+
+	// Replace multiple slashes with single slash
+	reg = regexp.MustCompile(`/+`)
+	name = reg.ReplaceAllString(name, "/")
+
+	// Trim hyphens and slashes from start and end
+	name = strings.Trim(name, "-/")
+
+	return name
 }
