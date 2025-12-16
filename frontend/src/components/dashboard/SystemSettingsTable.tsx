@@ -21,7 +21,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Typography,
   Alert,
   CircularProgress,
@@ -29,7 +28,6 @@ import {
 import {
   Visibility,
   VisibilityOff,
-  Edit as EditIcon,
   Clear as ClearIcon,
   Save as SaveIcon,
   Refresh as RefreshIcon,
@@ -37,6 +35,7 @@ import {
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { TypesSystemSettingsResponse, TypesSystemSettingsRequest } from '../../api/api'
+import AdvancedModelPicker from '../create/AdvancedModelPicker'
 
 const SystemSettingsTable: FC = () => {
   const api = useApi()
@@ -52,10 +51,6 @@ const SystemSettingsTable: FC = () => {
   const [showToken, setShowToken] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Edit dialog state for Code Intelligence model
-  const [koditDialogOpen, setKoditDialogOpen] = useState(false)
-  const [koditProvider, setKoditProvider] = useState('')
-  const [koditModel, setKoditModel] = useState('')
 
   const loadSettings = async () => {
     try {
@@ -129,26 +124,18 @@ const SystemSettingsTable: FC = () => {
     }
   }
 
-  const handleOpenKoditDialog = () => {
-    // Pre-fill with current values
-    setKoditProvider(settings?.kodit_enrichment_provider || '')
-    setKoditModel(settings?.kodit_enrichment_model || '')
-    setKoditDialogOpen(true)
-  }
-
-  const handleSaveKoditSettings = async () => {
+  const handleSelectKoditModel = async (provider: string, model: string) => {
     try {
       setSaving(true)
 
       const request: TypesSystemSettingsRequest = {
-        kodit_enrichment_provider: koditProvider.trim(),
-        kodit_enrichment_model: koditModel.trim(),
+        kodit_enrichment_provider: provider,
+        kodit_enrichment_model: model,
       }
 
       const response = await api.put('/api/v1/system/settings', request)
       setSettings(response.data)
-      setKoditDialogOpen(false)
-      snackbar.success('Code Intelligence model configuration updated')
+      snackbar.success(`Code Intelligence model set to ${provider}/${model}`)
 
     } catch (err: any) {
       console.error('Failed to update Code Intelligence settings:', err)
@@ -173,9 +160,6 @@ const SystemSettingsTable: FC = () => {
 
       const response = await api.put('/api/v1/system/settings', request)
       setSettings(response.data)
-      setKoditDialogOpen(false)
-      setKoditProvider('')
-      setKoditModel('')
       snackbar.success('Code Intelligence model configuration cleared')
 
     } catch (err: any) {
@@ -343,14 +327,16 @@ const SystemSettingsTable: FC = () => {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Box display="flex" gap={1}>
-                      <Button
-                        startIcon={<EditIcon />}
-                        onClick={handleOpenKoditDialog}
-                        size="small"
-                      >
-                        Configure
-                      </Button>
+                    <Box display="flex" gap={1} alignItems="center">
+                      <AdvancedModelPicker
+                        selectedProvider={settings?.kodit_enrichment_provider}
+                        selectedModelId={settings?.kodit_enrichment_model}
+                        onSelectModel={handleSelectKoditModel}
+                        currentType="chat"
+                        buttonVariant="outlined"
+                        disabled={saving}
+                        hint="Select the model that Kodit will use for generating code documentation and enrichments."
+                      />
                       {settings?.kodit_enrichment_model_set && (
                         <Button
                           startIcon={<ClearIcon />}
@@ -415,56 +401,6 @@ const SystemSettingsTable: FC = () => {
             onClick={handleSaveSettings}
             startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
             disabled={saving}
-            variant="contained"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Code Intelligence Model Dialog */}
-      <Dialog open={koditDialogOpen} onClose={() => setKoditDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Configure Code Intelligence Model</DialogTitle>
-        <DialogContent>
-          <Box mt={1}>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              This model will be used by Kodit (Code Intelligence) for generating code documentation,
-              examples, and architecture documentation. Select an LLM provider and model from your
-              configured inference providers.
-            </Alert>
-
-            <TextField
-              fullWidth
-              label="Provider"
-              value={koditProvider}
-              onChange={(e) => setKoditProvider(e.target.value)}
-              placeholder="e.g., helix, together_ai, openai"
-              helperText="The inference provider name (must be configured in Inference Providers)"
-              sx={{ mb: 2 }}
-            />
-
-            <TextField
-              fullWidth
-              label="Model"
-              value={koditModel}
-              onChange={(e) => setKoditModel(e.target.value)}
-              placeholder="e.g., llama3:instruct, Qwen/Qwen3-8B, gpt-4o"
-              helperText="The model ID available from the selected provider"
-            />
-
-            <Typography variant="caption" color="text.secondary" display="block" mt={2}>
-              Examples: helix/llama3:instruct, together_ai/Qwen/Qwen3-8B, openai/gpt-4o
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setKoditDialogOpen(false)} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSaveKoditSettings}
-            startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />}
-            disabled={saving || !koditProvider.trim() || !koditModel.trim()}
             variant="contained"
           >
             {saving ? 'Saving...' : 'Save'}

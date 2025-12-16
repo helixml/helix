@@ -82,7 +82,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}
 		if settings.KoditEnrichmentProvider == "" || settings.KoditEnrichmentModel == "" {
 			log.Warn().Msg("kodit-model requested but no enrichment model configured in system settings")
-			http.Error(rw, "Code Intelligence model not configured. Please configure the enrichment model in Admin > Code Intelligence settings.", http.StatusBadRequest)
+			http.Error(rw, "Code Intelligence model not configured. Please configure the enrichment model in Admin > System Settings.", http.StatusBadRequest)
 			return
 		}
 
