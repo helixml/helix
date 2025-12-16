@@ -98,8 +98,16 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			env["OPENAI_MODEL"] = d.codeAgentConfig.Model
 		}
 
-		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
-			baseURL, d.codeAgentConfig.Model)
+		// Configure Kodit MCP server for code intelligence
+		// The agent will use this to connect to Kodit's MCP server through the Helix API proxy
+		koditMCPURL := d.rewriteLocalhostURL(d.apiURL) + "/api/v1/kodit/mcp"
+		env["KODIT_MCP_URL"] = koditMCPURL
+		if d.userAPIKey != "" {
+			env["KODIT_MCP_API_KEY"] = d.userAPIKey
+		}
+
+		log.Printf("Using qwen_code runtime: base_url=%s, model=%s, kodit_mcp=%s",
+			baseURL, d.codeAgentConfig.Model, koditMCPURL)
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
