@@ -407,19 +407,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 // sendResponseToZed sends a response back to Zed via WebSocket
 func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content string, isComplete bool) error {
-	// Get the WebSocket connection for this session
-	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
-	if !exists || wsConn == nil {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
 	// Determine event type based on completion status
 	eventType := "chat_response_chunk"
 	if isComplete {
 		eventType = "chat_response_done"
 	}
 
-	// Create command to send to Zed
 	command := types.ExternalAgentCommand{
 		Type: eventType,
 		Data: map[string]interface{}{
@@ -429,18 +422,7 @@ func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content
 		},
 	}
 
-	// Send the command
-	select {
-	case wsConn.SendChan <- command:
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("context_id", contextID).
-			Str("event_type", eventType).
-			Msg("Sent response to Zed")
-		return nil
-	default:
-		return fmt.Errorf("failed to send response to Zed: channel full")
-	}
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -791,27 +773,13 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Str("agent_type", session.Metadata.AgentType).
 		Msg("Notifying external agent of new interaction")
 
-	// Find the external agent connection for this session type
-	// For now, we'll send to all connected external agents
-	// In a more sophisticated implementation, we'd track which agent is handling which session
-	apiServer.externalAgentWSManager.mu.RLock()
-	defer apiServer.externalAgentWSManager.mu.RUnlock()
-
-	if len(apiServer.externalAgentWSManager.connections) == 0 {
-		log.Warn().Str("session_id", sessionID).Msg("No external agents connected to handle session")
-		return nil
-	}
-
-	// Create the command to send to Zed
-	// CRITICAL: Include acp_thread_id if this session already has one (for follow-up messages)
+	// Build command data - include acp_thread_id if session already has one (for follow-up messages)
 	commandData := map[string]interface{}{
-		"session_id": sessionID,
 		"message":    interaction.PromptMessage,
 		"role":       "user",
 		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
 	}
 
-	// If session already has a Zed thread ID, include it so message goes to existing thread
 	if session.Metadata.ZedThreadID != "" {
 		commandData["acp_thread_id"] = session.Metadata.ZedThreadID
 		log.Info().
@@ -825,29 +793,8 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Data: commandData,
 	}
 
-	// Get the specific WebSocket connection for this session
-	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
-	if !exists || wsConn == nil {
-		log.Warn().
-			Str("session_id", sessionID).
-			Msg("⚠️ [HELIX] No WebSocket connection found for session - cannot notify external agent")
-		return nil
-	}
-
-	// Send to the specific external agent connection for this session
-	select {
-	case wsConn.SendChan <- command:
-		log.Info().
-			Str("session_id", sessionID).
-			Str("interaction_id", interaction.ID).
-			Msg("✅ [HELIX] Sent interaction to external agent via WebSocket")
-	default:
-		log.Warn().
-			Str("session_id", sessionID).
-			Msg("⚠️ [HELIX] Failed to send to external agent: channel full")
-	}
-
-	return nil
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // handleMessageAdded processes message addition from external agent
@@ -1205,12 +1152,6 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // sendChatMessageToExternalAgent sends a chat message to an external agent session
 // This is the proper way to send messages that trigger agent responses
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
-	// Get the WebSocket connection for this session
-	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
-	if !exists || wsConn == nil {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
 	// Look up the session to get its ZedThreadID - we want to continue in the existing thread
 	// instead of creating a new one. This maintains the 1:1 mapping between Zed threads and Helix sessions.
 	var acpThreadID interface{} = nil
@@ -1233,21 +1174,10 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			"message":       message,
 			"request_id":    requestID,
 			"acp_thread_id": acpThreadID, // Use existing thread if available, nil = create new
-			"session_id":    sessionID,
 		},
 	}
 
-	// Send command to the external agent
-	select {
-	case wsConn.SendChan <- command:
-		log.Info().
-			Str("session_id", sessionID).
-			Str("request_id", requestID).
-			Msg("✅ Sent chat message to external agent")
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
-	}
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // sendCommandToExternalAgent sends a command to the external agent

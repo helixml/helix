@@ -1924,13 +1924,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 // agentName specifies which ACP agent to use (e.g., "qwen", "claude", "gemini", "codex")
 // or empty string for NativeAgent (Zed's built-in agent).
 func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string, agentName string) error {
-	// Find the external agent WebSocket connection
-	conn, exists := s.externalAgentWSManager.getConnection(sessionID)
-	if !exists {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
-	// Create the open_thread command
 	data := map[string]interface{}{
 		"acp_thread_id": acpThreadID,
 	}
@@ -1944,18 +1937,8 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 		Data: data,
 	}
 
-	// Send the command via WebSocket
-	select {
-	case conn.SendChan <- command:
-		log.Info().
-			Str("session_id", sessionID).
-			Str("acp_thread_id", acpThreadID).
-			Str("agent_name", agentName).
-			Msg("📤 Queued open_thread command for Zed")
-		return nil
-	default:
-		return fmt.Errorf("send channel full for session %s", sessionID)
-	}
+	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
+	return s.sendCommandToExternalAgent(sessionID, command)
 }
 
 // getSessionIdleStatus godoc
