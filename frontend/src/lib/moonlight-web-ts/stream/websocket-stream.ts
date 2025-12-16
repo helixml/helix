@@ -138,6 +138,10 @@ export class WebSocketStream {
   private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null
   private closed = false  // True when explicitly closed (prevents reconnection)
 
+  // Connection timeout - if onOpen doesn't fire within this time, force reconnect
+  private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private readonly CONNECTION_TIMEOUT_MS = 15000  // 15 seconds
+
   // Heartbeat for stale connection detection
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
   private lastMessageTime = 0
@@ -338,6 +342,29 @@ export class WebSocketStream {
     this.ws.addEventListener("close", this.onClose.bind(this))
     this.ws.addEventListener("error", this.onError.bind(this))
     this.ws.addEventListener("message", this.onMessage.bind(this))
+
+    // Start connection timeout - if onOpen doesn't fire, force reconnect
+    this.clearConnectionTimeout()
+    this.connectionTimeoutId = setTimeout(() => {
+      console.warn(`[WebSocketStream] Connection timeout (${this.CONNECTION_TIMEOUT_MS}ms), forcing reconnect`)
+      this.dispatchInfoEvent({ type: "error", message: "Connection timeout" })
+      // Close the stuck WebSocket and trigger reconnection
+      if (this.ws) {
+        try {
+          this.ws.close()
+        } catch (e) {
+          // Ignore
+        }
+      }
+      // onClose will handle reconnection
+    }, this.CONNECTION_TIMEOUT_MS)
+  }
+
+  private clearConnectionTimeout() {
+    if (this.connectionTimeoutId) {
+      clearTimeout(this.connectionTimeoutId)
+      this.connectionTimeoutId = null
+    }
   }
 
   private onOpen() {
@@ -345,6 +372,10 @@ export class WebSocketStream {
     this.connected = true
     this.reconnectAttempts = 0
     this.lastMessageTime = Date.now()
+
+    // Clear connection timeout - we connected successfully
+    this.clearConnectionTimeout()
+
     this.dispatchInfoEvent({ type: "connected" })
 
     // Start heartbeat monitoring for stale connections
@@ -360,6 +391,9 @@ export class WebSocketStream {
   private onClose(event: CloseEvent) {
     console.log("[WebSocketStream] Disconnected:", event.code, event.reason)
     this.connected = false
+
+    // Clear connection timeout if it's still running
+    this.clearConnectionTimeout()
 
     // Stop heartbeat
     this.stopHeartbeat()
@@ -599,7 +633,15 @@ export class WebSocketStream {
         this.renderVideoFrame(frame)
       },
       error: (e: Error) => {
-        console.error("[WebSocketStream] Video decoder error:", e)
+        console.error("[WebSocketStream] Video decoder error, will wait for next keyframe:", e)
+        // Reset keyframe flag so we wait for a fresh keyframe before decoding again
+        this.receivedFirstKeyframe = false
+        // Attempt decoder recovery if we have the codec info
+        if (this.lastVideoCodec !== null && this.lastVideoWidth > 0 && this.lastVideoHeight > 0) {
+          console.log("[WebSocketStream] Attempting decoder recovery...")
+          this.initVideoDecoder(this.lastVideoCodec, this.lastVideoWidth, this.lastVideoHeight)
+            .catch(err => console.error("[WebSocketStream] Failed to recover video decoder:", err))
+        }
       },
     })
 
@@ -1554,6 +1596,9 @@ export class WebSocketStream {
       clearTimeout(this.reconnectTimeoutId)
       this.reconnectTimeoutId = null
     }
+
+    // Clear connection timeout
+    this.clearConnectionTimeout()
 
     // Stop heartbeat
     this.stopHeartbeat()

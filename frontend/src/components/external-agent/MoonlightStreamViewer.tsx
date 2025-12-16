@@ -714,6 +714,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setTimeout(connect, delayMs);
   }, [disconnect, connect]);
 
+  // Ref to reconnect function for use in closures (avoids stale closure issues)
+  const reconnectRef = useRef(reconnect);
+  useEffect(() => { reconnectRef.current = reconnect; }, [reconnect]);
+
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
@@ -820,6 +824,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         wsStream.setCanvas(canvasRef.current);
       }
     } else if (newMode === 'sse') {
+      // Defensive cleanup: close any stale SSE resources before opening new ones
+      // This handles edge cases like rapid mode cycling or race conditions
+      if (sseEventSourceRef.current) {
+        console.log('[MoonlightStreamViewer] Closing stale SSE EventSource before reopening');
+        sseEventSourceRef.current.close();
+        sseEventSourceRef.current = null;
+      }
+      if (sseVideoDecoderRef.current) {
+        console.log('[MoonlightStreamViewer] Closing stale SSE decoder before reopening');
+        if (sseVideoDecoderRef.current.state !== 'closed') {
+          try {
+            sseVideoDecoderRef.current.close();
+          } catch (err) {
+            console.warn('[SSE Video] Error closing stale decoder:', err);
+          }
+        }
+        sseVideoDecoderRef.current = null;
+      }
+
       // Open SSE connection for video
       const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
       const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
@@ -877,7 +900,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 sseStatsRef.current.lastFrameTime = performance.now();
               },
               error: (err: Error) => {
-                console.error('[SSE Video] Decoder error:', err);
+                console.error('[SSE Video] Decoder error, will reconnect:', err);
+                // Close SSE resources
+                if (sseEventSourceRef.current) {
+                  sseEventSourceRef.current.close();
+                  sseEventSourceRef.current = null;
+                }
+                if (sseVideoDecoderRef.current && sseVideoDecoderRef.current.state !== 'closed') {
+                  try {
+                    sseVideoDecoderRef.current.close();
+                  } catch (closeErr) {
+                    console.warn('[SSE Video] Error closing decoder after error:', closeErr);
+                  }
+                }
+                sseVideoDecoderRef.current = null;
+                sseReceivedFirstKeyframeRef.current = false;
+                // Reconnect with the same mode (reconnect preserves qualityMode)
+                setTimeout(() => reconnectRef.current(1000), 500);
               },
             });
 
@@ -1041,7 +1080,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               sseStatsRef.current.lastFrameTime = performance.now();
             },
             error: (err: Error) => {
-              console.error('[SSE Video] Decoder error:', err);
+              console.error('[SSE Video] Decoder error (initial), will reconnect:', err);
+              // Close SSE resources
+              if (sseEventSourceRef.current) {
+                sseEventSourceRef.current.close();
+                sseEventSourceRef.current = null;
+              }
+              if (sseVideoDecoderRef.current && sseVideoDecoderRef.current.state !== 'closed') {
+                try {
+                  sseVideoDecoderRef.current.close();
+                } catch (closeErr) {
+                  console.warn('[SSE Video] Error closing decoder after error:', closeErr);
+                }
+              }
+              sseVideoDecoderRef.current = null;
+              sseReceivedFirstKeyframeRef.current = false;
+              hasInitializedSseRef.current = false; // Allow re-initialization
+              // Reconnect with the same mode (reconnect preserves qualityMode)
+              setTimeout(() => reconnectRef.current(1000), 500);
             },
           });
 
@@ -2789,17 +2845,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             gap: 2,
           }}
         >
-          <CircularProgress size={48} sx={{ color: 'warning.main' }} />
           <Typography variant="h6" sx={{ color: 'white' }}>
-            Connecting...
+            Disconnected
           </Typography>
           <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
-            {status || 'Attempting to reconnect...'}
+            {status || 'Connection lost'}
           </Typography>
           <Button
             variant="contained"
             color="primary"
-            onClick={reconnect}
+            onClick={() => reconnect()}
             startIcon={<Refresh />}
             sx={{ mt: 2 }}
           >
