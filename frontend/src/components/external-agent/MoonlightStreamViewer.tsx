@@ -1181,6 +1181,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected, qualityMode, sessionId]);
 
+  // Reset SSE initialization flag when connection is lost
+  // This allows SSE to be re-initialized on reconnect
+  useEffect(() => {
+    if (!isConnected) {
+      hasInitializedSseRef.current = false;
+    }
+  }, [isConnected]);
+
   // Track previous user bitrate for reconnection
   // Initialize to a sentinel value (-1) to distinguish "not yet set" from "set to null"
   const previousUserBitrateRef = useRef<number | null | undefined>(undefined);
