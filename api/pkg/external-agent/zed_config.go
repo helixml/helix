@@ -165,7 +165,23 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// 2. Pass-through external MCP servers
+	// 2. Add Kodit MCP server for code intelligence (via Helix API proxy)
+	// The Helix proxy at /api/v1/kodit/mcp authenticates users and forwards to Kodit
+	koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
+	config.ContextServers["kodit"] = ContextServerConfig{
+		Command: "helix-cli",
+		Args: []string{
+			"mcp", "proxy",
+			"--url", koditMCPURL,
+			"--name", "kodit",
+		},
+		Env: map[string]string{
+			"HELIX_URL":   helixAPIURL,
+			"HELIX_TOKEN": helixToken,
+		},
+	}
+
+	// 3. Pass-through external MCP servers
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)

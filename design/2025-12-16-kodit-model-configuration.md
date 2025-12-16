@@ -490,83 +490,96 @@ Expose Kodit's MCP server through Helix API, authenticated with user's Helix API
 
 ### Implementation
 
+#### Authentication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          AUTHENTICATION FLOW                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   1. Client sends request to Helix with user's API key                      │
+│      Authorization: Bearer <helix-api-key>                                  │
+│                                                                             │
+│   2. Helix auth middleware validates user API key                          │
+│      (authRouter requires valid Helix authentication)                       │
+│                                                                             │
+│   3. Helix proxy forwards to Kodit's internal MCP endpoint                  │
+│      (Kodit doesn't require API key by default - runs in trusted network)  │
+│                                                                             │
+│   4. If KODIT_API_KEY is configured, proxy adds it to forwarded request    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key points:**
+- Helix API key auth is **required** (public endpoint)
+- Kodit API key is **optional** (internal service, trusted network)
+
 #### 1. MCP Proxy Handler
 
-Create an HTTP handler that proxies MCP requests to Kodit:
-
-```go
-// api/pkg/server/kodit_mcp_proxy.go
-
-func (s *HelixAPIServer) koditMCPProxy(w http.ResponseWriter, r *http.Request) {
-    user := getRequestUser(r)
-    if !hasUser(user) {
-        http.Error(w, "unauthorized", http.StatusUnauthorized)
-        return
-    }
-
-    // Proxy to Kodit's MCP endpoint
-    koditURL := s.Cfg.Kodit.URL + "/mcp"
-    proxy := httputil.NewSingleHostReverseProxy(koditURL)
-
-    // Forward request with Kodit API key
-    r.Header.Set("Authorization", "Bearer " + s.Cfg.Kodit.APIKey)
-    proxy.ServeHTTP(w, r)
-}
-```
+See implementation in `api/pkg/server/kodit_mcp_proxy.go`:
+- Authenticates user via Helix API key (authRouter middleware)
+- Proxies to Kodit at `KODIT_BASE_URL/mcp`
+- Optionally forwards `KODIT_API_KEY` if configured
+- Supports SSE streaming for MCP transport
 
 #### 2. Route Registration
 
+Routes are registered on `authRouter` (requires authentication):
+
 ```go
 // api/pkg/server/server.go
-
-// In registerRoutes():
-r.HandleFunc("/api/v1/kodit/mcp", s.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
-r.HandleFunc("/api/v1/kodit/mcp/{path:.*}", s.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
+authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
+authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods("GET", "POST", "OPTIONS")
 ```
 
-#### 3. Configuration
+#### 3. Configuration (existing)
 
-Add Kodit URL to config:
+Kodit config already exists in `api/pkg/config/config.go`:
 
 ```go
-// api/pkg/config/config.go
-
-type KoditConfig struct {
-    URL    string `envconfig:"KODIT_URL" default:"http://kodit:8632"`
-    APIKey string `envconfig:"KODIT_API_KEY"`
+type Kodit struct {
+    BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
+    APIKey  string `envconfig:"KODIT_API_KEY" default:"dev-key"`
+    Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
 }
 ```
 
-#### 4. Settings Sync Daemon Integration
+#### 4. Automatic Agent Integration
 
-The settings-sync-daemon should automatically configure Kodit as an MCP server for agents:
+Kodit is automatically configured as a context_server in Zed's settings for all agents:
 
 ```go
-// api/cmd/settings-sync-daemon/mcp_config.go
+// api/pkg/external-agent/zed_config.go (in GenerateZedMCPConfig)
 
-func getKoditMCPConfig(helixURL, apiKey string) *MCPServerConfig {
-    return &MCPServerConfig{
-        Name:        "kodit",
-        Description: "Code search and indexing",
-        ServerURL:   helixURL + "/api/v1/kodit/mcp",
-        Headers: map[string]string{
-            "Authorization": "Bearer " + apiKey,
-        },
-    }
+// Add Kodit MCP server for code intelligence (via Helix API proxy)
+koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
+config.ContextServers["kodit"] = ContextServerConfig{
+    Command: "helix-cli",
+    Args:    []string{"mcp", "proxy", "--url", koditMCPURL, "--name", "kodit"},
+    Env: map[string]string{
+        "HELIX_URL":   helixAPIURL,
+        "HELIX_TOKEN": helixToken,
+    },
 }
 ```
+
+This means:
+- **All agents (Zed built-in and Qwen Code) automatically have access to Kodit**
+- Uses `helix-cli mcp proxy` to connect to the HTTP MCP endpoint
+- Authentication flows through the Helix API proxy
 
 ### Roadmap
 
-1. **Phase 6: MCP Proxy** (Current)
+1. **Phase 6: MCP Proxy** ✅ Implemented
    - [x] Design MCP proxy architecture
-   - [ ] Implement HTTP proxy handler
-   - [ ] Add route registration with auth middleware
-   - [ ] Add Kodit URL configuration
+   - [x] Implement HTTP proxy handler (`api/pkg/server/kodit_mcp_proxy.go`)
+   - [x] Add route registration with auth middleware
+   - [x] Kodit URL configuration already exists
 
-2. **Phase 7: Agent Integration**
-   - [ ] Update settings-sync-daemon to expose Kodit MCP to agents
-   - [ ] Configure MCP server in Zed's agent_servers settings
+2. **Phase 7: Agent Integration** ✅ Implemented
+   - [x] Kodit automatically added as context_server in `GenerateZedMCPConfig`
+   - [x] All agents (Zed built-in and Qwen Code) have access via ACP
    - [ ] Test MCP tools in sandbox environment
 
 3. **Future: Optional Kodit Configuration**
