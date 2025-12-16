@@ -26,7 +26,6 @@ import {
 // getApi import removed - we create API object directly instead of using cached singleton
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/moonlight-web-ts/stream/websocket-stream';
-import { SseStream } from '../../lib/moonlight-web-ts/stream/sse-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
@@ -80,8 +79,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const sseCanvasRef = useRef<HTMLCanvasElement>(null); // Separate canvas for SSE mode (avoids conflicts)
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | SseStream | null>(null); // Stream instance from moonlight-web
-  const sseInputWsRef = useRef<WebSocketStream | null>(null); // WebSocket for input when using SSE mode
+  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance from moonlight-web
   const sseStatsRef = useRef({
     framesDecoded: 0,
     framesDropped: 0,
@@ -351,7 +349,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         sessionId,
       });
 
-      let stream: Stream | WebSocketStream | SseStream;
+      let stream: Stream | WebSocketStream;
 
       // WebSocket mode: always connect via WebSocket for input
       // qualityMode determines video source (hot-switched after connect):
@@ -640,26 +638,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
     }
 
-    // Close SSE input WebSocket if it exists
-    if (sseInputWsRef.current) {
-      console.log('[MoonlightStreamViewer] Closing SSE input WebSocket...');
-      try {
-        sseInputWsRef.current.close();
-      } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing SSE input WebSocket:', err);
-      }
-      sseInputWsRef.current = null;
-    }
-
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
-        // Check if it's an SseStream
-        if (streamRef.current instanceof SseStream) {
-          console.log('[MoonlightStreamViewer] Closing SseStream...');
-          streamRef.current.close();
-        } else if (streamRef.current instanceof WebSocketStream) {
-          // Check if it's a WebSocketStream (has close() method)
+        if (streamRef.current instanceof WebSocketStream) {
+          // WebSocketStream (has close() method)
           console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
           streamRef.current.close();
         } else {
@@ -1675,11 +1658,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // WebSocket high mode: get frame latency from WebSocket stats
         const stats = stream.getStats();
         frameDrift = stats.frameLatencyMs;
-      } else if (stream instanceof SseStream) {
-        // Legacy SseStream class (not used in current architecture)
-        return;
       } else {
-        return; // Unsupported stream type
+        return; // Unsupported stream type (WebRTC has its own congestion control)
       }
 
       const currentBitrate = userBitrate || requestedBitrate;
@@ -1967,11 +1947,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const wheelHandler = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      // Send to stream - use SSE input WebSocket if in SSE mode, otherwise main stream
-      const input = sseInputWsRef.current?.getInput() ??
-        (streamRef.current && 'getInput' in streamRef.current
-          ? (streamRef.current as WebSocketStream | Stream).getInput()
-          : null);
+      // Send to stream (WebSocketStream handles input for all quality modes)
+      const input = streamRef.current && 'getInput' in streamRef.current
+        ? (streamRef.current as WebSocketStream | Stream).getInput()
+        : null;
       input?.onMouseWheel(event);
     };
 
@@ -2335,12 +2314,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     const container = containerRef.current;
 
-    // Helper to get input handler - works for SSE mode (separate input WS) or normal modes
+    // Helper to get input handler (WebSocketStream handles input for all quality modes)
     const getInput = () => {
-      return sseInputWsRef.current?.getInput() ??
-        (streamRef.current && 'getInput' in streamRef.current
-          ? (streamRef.current as WebSocketStream | Stream).getInput()
-          : null);
+      return streamRef.current && 'getInput' in streamRef.current
+        ? (streamRef.current as WebSocketStream | Stream).getInput()
+        : null;
     };
 
     // Track last Escape press for double-Escape reset
