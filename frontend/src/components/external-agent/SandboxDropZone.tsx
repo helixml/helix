@@ -141,7 +141,7 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
 
   return (
     <Box
-      sx={{ position: 'relative', width: '100%', height: '100%' }}
+      sx={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
