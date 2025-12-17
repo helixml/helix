@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -863,24 +862,11 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 }
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
-	auth := apiServer.authMiddleware
-
-	switch auth.cfg.adminUserSrc {
-	case config.AdminSrcTypeEnv:
-		user := getRequestUser(req)
-		return auth.isUserAdmin(user.ID)
-	case config.AdminSrcTypeJWT:
-		token := getRequestToken(req)
-		if token == "" {
-			return false
-		}
-		user, err := auth.authenticator.ValidateUserToken(context.Background(), token)
-		if err != nil {
-			return false
-		}
-		return user.Admin
+	user := getRequestUser(req)
+	if user.ID == "" {
+		return false
 	}
-	return false
+	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
 // dashboard godoc
@@ -1115,6 +1101,64 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 	}
 
 	return updatedUser, nil
+}
+
+// adminDeleteUser godoc
+// @Summary Delete a user (Admin only)
+// @Description Permanently delete a user and all associated data. Only admins can use this endpoint.
+// @Tags    users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} map[string]string "Success message"
+// @Failure 400 {object} system.HTTPError "Invalid request"
+// @Failure 403 {object} system.HTTPError "Not authorized"
+// @Failure 404 {object} system.HTTPError "User not found"
+// @Router /api/v1/admin/users/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *http.Request) (map[string]string, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can delete users")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	// Prevent admin from deleting themselves
+	if targetUserID == adminUser.ID {
+		return nil, system.NewHTTPError400("cannot delete your own account")
+	}
+
+	// Verify the target user exists
+	targetUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: targetUserID})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("user not found")
+		}
+		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
+	}
+
+	// Delete the user
+	err = apiServer.Store.DeleteUser(ctx, targetUserID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to delete user: " + err.Error())
+	}
+
+	log.Info().
+		Str("admin_id", adminUser.ID).
+		Str("admin_email", adminUser.Email).
+		Str("deleted_user_id", targetUserID).
+		Str("deleted_user_email", targetUser.Email).
+		Msg("admin deleted user")
+
+	return map[string]string{
+		"message": "user deleted successfully",
+		"user_id": targetUserID,
+	}, nil
 }
 
 // getSchedulerHeartbeats godoc

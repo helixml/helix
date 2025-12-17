@@ -64,9 +64,9 @@ type Options struct {
 	Port        int
 	FrontendURL string // Can either be a URL to frontend or a path to static files
 	RunnerToken string
-	// a list of keycloak ids that are considered admins
-	// if the string '*' is included it means ALL users
-	AdminIDs []string
+	// Set to "all" for dev mode where everyone is admin
+	// Otherwise uses database admin field
+	AdminUsers string
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string
@@ -182,8 +182,7 @@ func NewServer(
 			ClientID:     cfg.Auth.OIDC.ClientID,
 			ClientSecret: cfg.Auth.OIDC.ClientSecret,
 			RedirectURL:  helixRedirectURL,
-			AdminUserIDs: cfg.WebServer.AdminIDs,
-			AdminUserSrc: cfg.WebServer.AdminSrc,
+			AdminUsers:   cfg.WebServer.AdminUsers,
 			Audience:     cfg.Auth.OIDC.Audience,
 			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
 			Store:        store,
@@ -275,9 +274,8 @@ func NewServer(
 			authenticator,
 			store,
 			authMiddlewareConfig{
-				adminUserIDs: cfg.WebServer.AdminIDs,
-				adminUserSrc: cfg.WebServer.AdminSrc,
-				runnerToken:  cfg.WebServer.RunnerToken,
+				adminUsers:  cfg.WebServer.AdminUsers,
+				runnerToken: cfg.WebServer.RunnerToken,
 			},
 		),
 		providerManager:   providerManager,
@@ -801,6 +799,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.usersList)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/users", system.DefaultWrapper(apiServer.createUser)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/users/{id}/password", system.DefaultWrapper(apiServer.adminResetPassword)).Methods(http.MethodPut)
+	adminRouter.HandleFunc("/admin/users/{id}", system.DefaultWrapper(apiServer.adminDeleteUser)).Methods(http.MethodDelete)
 	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)

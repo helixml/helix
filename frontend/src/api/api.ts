@@ -4710,12 +4710,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -5233,6 +5233,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Permanently delete a user and all associated data. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersDelete
+     * @summary Delete a user (Admin only)
+     * @request DELETE:/api/v1/admin/users/{id}
+     * @secure
+     */
+    v1AdminUsersDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
