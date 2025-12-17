@@ -824,6 +824,22 @@ export default function TaskCard({
           </Box>
         )}
 
+        {/* Pull Request phase - awaiting merge in external repo */}
+        {task.phase === 'pull_request' && (
+          <Box sx={{ mt: 1.5, textAlign: 'center' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontSize: '0.7rem',
+                color: 'text.secondary',
+                fontStyle: 'italic',
+              }}
+            >
+              Address review comments with agent. Moves to Merged when PR closes.
+            </Typography>
+          </Box>
+        )}
+
         {/* Completed tasks */}
         {task.status === 'done' && task.merged_to_main && (
           <Box sx={{ mt: 1.5 }}>
