@@ -615,9 +615,12 @@ shadowing code was posted for RDNA3/GFX11, which is **required for proper SR-IOV
 This enables mid-command buffer preemption needed for vGPU isolation. The V710 uses this
 technology for Azure NVv5 instances.
 
-### Build Command Used
+### Build Command Used (DEPRECATED)
 
 ```dockerfile
+# NOTE: --vulkan=pro is DEPRECATED - AMD shows warning:
+# "WARNING: 'pro' is deprecated, 'radv' will be used instead"
+# AMD deprecated PRO because they merged MxGPU fixes into their RADV build
 RUN amdgpu-install -y \
     --usecase=graphics \
     --vulkan=pro \
@@ -626,8 +629,96 @@ RUN amdgpu-install -y \
     --accept-eula
 ```
 
-The `--vulkan=pro` flag installs AMD's closed-source Vulkan driver designed for
-Radeon PRO workstation GPUs, which includes the V710.
+## Update: AMD Official Repository Approach (2025-12-17 06:00 UTC)
+
+### `--vulkan=pro` Deprecated
+
+AMD deprecated the `--vulkan=pro` flag. When used, it shows:
+```
+WARNING: 'pro' is deprecated, 'radv' will be used instead
+```
+
+This suggests AMD has merged the necessary MxGPU/SR-IOV patches into their
+official RADV build distributed via their repositories.
+
+### Solution: Use AMD's Official RADV from AMD Repos
+
+Instead of building Mesa from source or using deprecated flags, we now use
+AMD's official repositories which contain their enterprise-tested RADV:
+
+**Dockerfile.ubuntu-helix changes:**
+```dockerfile
+# Add AMD GPG key and repositories manually (not using amdgpu-install)
+# Based on: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/native-install/ubuntu.html
+RUN mkdir -p /etc/apt/keyrings \
+    && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
+    && chmod 644 /etc/apt/keyrings/rocm.gpg
+
+# Add AMD repositories with proper GPG signing
+# Using version 7.1.1 which has both ROCm and graphics packages for jammy
+RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1.1 jammy main" > /etc/apt/sources.list.d/rocm.list \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.1.1/ubuntu jammy main" >> /etc/apt/sources.list.d/rocm.list \
+    && echo "Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600" > /etc/apt/preferences.d/rocm-pin-600
+
+# Install AMD graphics stack (Mesa + RADV Vulkan driver from AMD's repos)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       mesa-vulkan-drivers \
+       mesa-vdpau-drivers \
+       libgl1-mesa-dri \
+       libglx-mesa0 \
+       libegl-mesa0 \
+       libgbm1 \
+       libdrm-amdgpu1 \
+       libdrm2 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Key points:**
+- Uses official AMD documentation method
+- ROCm 7.1.1 matches host ROCm version
+- `Pin-Priority: 600` ensures AMD packages take precedence over Ubuntu's
+- No amdgpu-install package (avoids conffile conflicts)
+
+### Dockerfile.sandbox: rocm-smi Fix
+
+Fixed GPU monitoring tool installation:
+```dockerfile
+# Install rocm-smi CLI (not just rocm-smi-lib library)
+RUN apt-get install -y rocm-smi amd-smi \
+    && ln -sf /opt/rocm/bin/rocm-smi /usr/local/bin/rocm-smi \
+    && ln -sf /opt/rocm/bin/amd-smi /usr/local/bin/amd-smi
+```
+
+## Update: Streaming Failure Investigation (2025-12-17)
+
+### Issue: VA-API Context Creation Failure
+
+After deploying the AMD RADV fix, streaming is not working at all on AMD VM.
+Fresh session fails to establish desktop stream.
+
+**Wolf logs show:**
+```
+Using h264 encoder: va
+Could not create context for type=gst.va.display.handle
+Pipeline failed to reach PLAYING state
+```
+
+**Analysis:**
+- Wolf correctly detects VA-API encoder availability
+- VA-API driver (radeonsi_drv_video.so) is present in sandbox container
+- Context creation fails when GStreamer tries to connect to compositor's video output
+- This may be a separate issue from Zed GPU crashes
+
+### New dmesg Errors
+
+User reported additional dmesg errors appearing. Investigation ongoing.
+
+**TODO:**
+- Capture full dmesg output from AMD VM
+- Check if VA-API works inside desktop container
+- Verify DRI device permissions and access
+- Check if interpipesrc/interpipesink connection is the issue
 
 ## References
 
