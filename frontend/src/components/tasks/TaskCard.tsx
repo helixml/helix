@@ -97,6 +97,7 @@ interface TaskCardProps {
   projectId?: string
   focusStartPlanning?: boolean // When true, focus the Start Planning button
   isArchiving?: boolean // When true, show spinner on archive button (parent is archiving this task)
+  hasExternalRepo?: boolean // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
 }
 
 // Interface for checklist items from API
@@ -398,6 +399,7 @@ export default function TaskCard({
   projectId,
   focusStartPlanning = false,
   isArchiving = false,
+  hasExternalRepo = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -767,7 +769,9 @@ export default function TaskCard({
                 disabled={approveImplementationMutation.isPending}
                 sx={{ flex: 1 }}
               >
-                {approveImplementationMutation.isPending ? 'Accepting...' : 'Accept'}
+                {approveImplementationMutation.isPending
+                  ? (hasExternalRepo ? 'Opening PR...' : 'Accepting...')
+                  : (hasExternalRepo ? 'Open PR' : 'Accept')}
               </Button>
             </Box>
           </Box>
