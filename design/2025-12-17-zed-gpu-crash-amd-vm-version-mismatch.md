@@ -1181,6 +1181,85 @@ Expected: Modern Xwayland with explicit sync may not need syncshaders
 - It provides crash dumps if issues recur
 - The performance cost may be acceptable for our use case
 
+## Update: Zed GPU Wait Reverted (2025-12-17)
+
+### New Hypothesis: Zed's wait_for_gpu() Removal Caused the Bug
+
+We found a suspicious commit in the Zed fork:
+
+```
+d1b66c5bfd perf(gpui): remove synchronous GPU wait from draw() for better scroll perf
+```
+
+This commit removed `self.wait_for_gpu()` at the end of `draw()`, which:
+- Previously blocked the main thread until the GPU completed the previous frame
+- Limited frames in-flight to ~2
+- Provided implicit synchronization
+
+**Why this could cause AMD MxGPU crashes:**
+
+1. Without the synchronous wait, more GPU commands are in-flight simultaneously
+2. AMD MxGPU (SR-IOV) has timing variability from virtual function scheduling
+3. Race conditions that work on bare-metal may fail with MxGPU timing
+4. The `RADV_DEBUG=hang` (syncshaders) masks this by forcing serialization
+
+**Why helix-sway wasn't affected:**
+
+helix-sway uses native Wayland, which has simpler buffer synchronization than
+Xwayland. The race condition may only manifest with Xwayland's DRI3 buffer
+sharing combined with MxGPU timing.
+
+### Changes Made
+
+1. **Reverted Zed commits** (in helixml/zed):
+   - `d1b66c5bfd` - Restored `wait_for_gpu()` at end of draw()
+   - `22828b047d` - Removed ZED_DISPLAY_SYNC env var (not related, but reverted for clean test)
+
+2. **Kept RADV_DEBUG=hang** - For safety, since we haven't tested without it yet
+
+### Future Testing Roadmap
+
+When time permits, test the following in order:
+
+**Test 1: Verify current config still works**
+```bash
+# Current: Zed with wait_for_gpu() restored + RADV_DEBUG=hang
+# Expected: Works (both safeguards in place)
+```
+
+**Test 2: Remove RADV_DEBUG=hang**
+```bash
+# In Dockerfile.ubuntu-helix, comment out:
+# ENV RADV_DEBUG=hang
+# Rebuild and test
+# If crashes return: syncshaders is required, Zed fix alone isn't enough
+# If no crashes: Zed's wait_for_gpu() alone is sufficient
+```
+
+**Test 3: If Test 2 works, try re-adding performance optimization**
+```bash
+# In Zed, carefully re-add the wait_for_gpu() removal with safeguards:
+# - Maybe keep the wait but with shorter timeout
+# - Or add explicit Vulkan fences for Xwayland case
+# - Or detect MxGPU and use conservative mode
+```
+
+**Test 4: Performance comparison**
+```bash
+# Compare scroll performance:
+# A) With wait_for_gpu() (current)
+# B) Without wait_for_gpu() + RADV_DEBUG=hang
+# C) Without wait_for_gpu() + proper Vulkan sync (if we implement it)
+```
+
+### Production Configuration (2025-12-17)
+
+Shipping with both safeguards:
+- ✅ Zed: `wait_for_gpu()` restored (synchronous GPU wait)
+- ✅ RADV_DEBUG=hang enabled (syncshaders for extra safety)
+
+This may have performance impact on scrolling, but stability is priority.
+
 ### Final Working Dockerfile Configuration
 
 ```dockerfile
