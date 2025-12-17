@@ -78,6 +78,7 @@ interface SpecTaskWithExtras {
   design_docs_pushed_at?: string
   clone_group_id?: string
   cloned_from_id?: string
+  pull_request_url?: string
 }
 
 interface KanbanColumn {
@@ -826,13 +827,31 @@ export default function TaskCard({
 
         {/* Pull Request phase - awaiting merge in external repo */}
         {task.phase === 'pull_request' && (
-          <Box sx={{ mt: 1.5, textAlign: 'center' }}>
+          <Box sx={{ mt: 1.5 }}>
+            {task.pull_request_url && (
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<LaunchIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  window.open(task.pull_request_url, '_blank')
+                }}
+                fullWidth
+                sx={{ mb: 1 }}
+              >
+                View Pull Request
+              </Button>
+            )}
             <Typography
               variant="caption"
               sx={{
                 fontSize: '0.7rem',
                 color: 'text.secondary',
                 fontStyle: 'italic',
+                display: 'block',
+                textAlign: 'center',
               }}
             >
               Address review comments with agent.<br />Moves to Merged when PR closes.
