@@ -561,8 +561,17 @@ type Store interface {
 	DeleteProject(ctx context.Context, projectID string) error
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
-	DetachRepositoryFromProject(ctx context.Context, repoID string) error
+	DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error // NOTE: signature changed to include projectID
 	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
+
+	// Project-Repository junction table methods (many-to-many relationship)
+	CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error
+	DeleteProjectRepository(ctx context.Context, projectID, repositoryID string) error
+	DeleteProjectRepositoriesByProject(ctx context.Context, projectID string) error
+	DeleteProjectRepositoriesByRepository(ctx context.Context, repositoryID string) error
+	ListProjectRepositories(ctx context.Context, q *types.ListProjectRepositoriesQuery) ([]*types.ProjectRepository, error)
+	GetProjectsForRepository(ctx context.Context, repositoryID string) ([]string, error)
+	GetRepositoriesForProject(ctx context.Context, projectID string) ([]string, error)
 	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
 	// Used to assign unique task numbers for human-readable design doc paths
 	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)

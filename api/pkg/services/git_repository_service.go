@@ -221,6 +221,18 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		return nil, err
 	}
 
+	// If a project was specified, also create junction table entry
+	// (AttachRepositoryToProject writes to both junction table and legacy project_id column)
+	if request.ProjectID != "" {
+		if err := s.store.AttachRepositoryToProject(ctx, request.ProjectID, gitRepo.ID); err != nil {
+			log.Warn().Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("project_id", request.ProjectID).
+				Msg("Failed to attach repository to project via junction table")
+			// Don't fail the request - repo was created, junction is secondary
+		}
+	}
+
 	log.Info().
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).

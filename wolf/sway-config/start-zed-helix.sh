@@ -573,6 +573,12 @@ else
     done
 fi
 
+# Add Sway user guide as a separate file to open (if it exists)
+USER_GUIDE_PATH="$WORK_DIR/SWAY-USER-GUIDE.md"
+if [ -f "$USER_GUIDE_PATH" ]; then
+    echo "  + SWAY-USER-GUIDE.md (opening as file)"
+fi
+
 # Launch ACP log viewer in Kitty (for debugging agent issues)
 # This runs in background and provides visibility into Qwen Code/agent behavior
 if [ "$SHOW_ACP_DEBUG_LOGS" = "true" ] || [ -n "$HELIX_DEBUG" ]; then
@@ -601,7 +607,12 @@ echo "Starting Zed with auto-restart loop (close window to reload updated binary
 echo "Using Wayland backend (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
 
 while true; do
-    /zed-build/zed "${ZED_FOLDERS[@]}" || true
+    # Open folders + user guide file (if exists)
+    if [ -f "$USER_GUIDE_PATH" ]; then
+        /zed-build/zed "${ZED_FOLDERS[@]}" "$USER_GUIDE_PATH" || true
+    else
+        /zed-build/zed "${ZED_FOLDERS[@]}" || true
+    fi
     echo "Zed exited, restarting in 2 seconds..."
     sleep 2
 done

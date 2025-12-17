@@ -94,6 +94,12 @@ rm -rf ~/.qwen
 ln -sf $QWEN_DATA_DIR ~/.qwen
 echo "✅ Qwen data directory set to persistent storage: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
+# Copy Sway user guide to workspace (if not already present)
+if [ -f /cfg/sway/SWAY-USER-GUIDE.md ] && [ ! -f $WORK_DIR/SWAY-USER-GUIDE.md ]; then
+    cp /cfg/sway/SWAY-USER-GUIDE.md $WORK_DIR/SWAY-USER-GUIDE.md
+    echo "✅ Sway user guide copied to workspace (see SWAY-USER-GUIDE.md for keyboard shortcuts)"
+fi
+
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)
@@ -142,6 +148,92 @@ custom_launcher() {
     mkdir -p $HOME/.config/waybar
     cp -u /cfg/waybar/* $HOME/.config/waybar/
 
+    # Create custom waybar CSS for better workspace visibility
+    cat > $HOME/.config/waybar/style.css << 'WAYBAR_CSS'
+/* Helix custom waybar styling */
+* {
+    font-family: "Ubuntu", "Font Awesome 6 Free", sans-serif;
+    font-size: 14px;
+}
+
+window#waybar {
+    background-color: rgba(30, 30, 40, 0.95);
+    color: #ffffff;
+}
+
+/* Workspace buttons - always visible, clickable */
+#workspaces button {
+    padding: 0 8px;
+    margin: 2px 2px;
+    background-color: #404050;
+    color: #888888;
+    border-radius: 4px;
+    border: 1px solid #555555;
+    min-width: 30px;
+}
+
+#workspaces button:hover {
+    background-color: #505060;
+    color: #ffffff;
+}
+
+#workspaces button.focused {
+    background-color: #7c3aed;
+    color: #ffffff;
+    border: 1px solid #a855f7;
+}
+
+#workspaces button.urgent {
+    background-color: #dc2626;
+    color: #ffffff;
+}
+
+/* Has windows indicator */
+#workspaces button.visible {
+    background-color: #505060;
+    color: #cccccc;
+}
+
+/* Separator between sections */
+#custom-separator, #custom-separator2 {
+    color: #555555;
+    padding: 0 4px;
+}
+
+/* App launcher icons */
+#custom-firefox, #custom-kitty {
+    padding: 0 8px;
+    font-size: 16px;
+}
+
+#custom-firefox:hover, #custom-kitty:hover {
+    background-color: #404050;
+    border-radius: 4px;
+}
+
+/* Keyboard layout flags */
+#custom-keyboard-us, #custom-keyboard-gb, #custom-keyboard-fr {
+    padding: 0 6px;
+    font-size: 14px;
+}
+
+#custom-keyboard-us:hover, #custom-keyboard-gb:hover, #custom-keyboard-fr:hover {
+    background-color: #404050;
+    border-radius: 4px;
+}
+
+/* System info */
+#cpu, #memory, #temperature, #pulseaudio, #network {
+    padding: 0 8px;
+    color: #aaaaaa;
+}
+
+#custom-clock {
+    padding: 0 10px;
+    color: #ffffff;
+}
+WAYBAR_CSS
+
     # Configure GTK applications: dark mode + grayscale antialiasing
     # (RGB subpixel rendering looks bad when desktop is scaled via streaming)
     mkdir -p $HOME/.config/gtk-3.0
@@ -166,13 +258,30 @@ GTK_EOF
     "sway/workspaces",
     "sway/mode",
     "sway/scratchpad",
+    "custom/separator",
     "custom/firefox",
     "custom/kitty",
-    "custom/onlyoffice",
+    "custom/separator2",
     "custom/keyboard-us",
     "custom/keyboard-gb",
     "custom/keyboard-fr"
   ],
+  "sway/workspaces": {
+    "disable-scroll": true,
+    "all-outputs": true,
+    "format": " {name} ",
+    "persistent-workspaces": {
+      "*": [1, 2, 3, 4]
+    }
+  },
+  "custom/separator": {
+    "format": "|",
+    "tooltip": false
+  },
+  "custom/separator2": {
+    "format": "|",
+    "tooltip": false
+  },
   "modules-center": [
     "sway/window"
   ],
@@ -196,12 +305,6 @@ GTK_EOF
     "tooltip": true,
     "tooltip-format": "Kitty Terminal",
     "on-click": "kitty"
-  },
-  "custom/onlyoffice": {
-    "format": "📄",
-    "tooltip": true,
-    "tooltip-format": "OnlyOffice",
-    "on-click": "onlyoffice-desktopeditors"
   },
   "custom/keyboard-us": {
     "format": "🇺🇸",
@@ -274,12 +377,19 @@ EOF
     mkdir -p $HOME/.config/sway/
     cp /cfg/sway/config $HOME/.config/sway/config
 
+    # CRITICAL: Replace modifier key BEFORE bindings are processed
+    # GOW base config has "set $mod Mod4" at the top - we must change it in-place
+    # Super/Cmd key is captured by macOS/browsers, Alt passes through reliably
+    sed -i 's/set \$mod Mod4/set $mod Mod1/' $HOME/.config/sway/config
+    echo "[Sway] Changed modifier key from Super (Mod4) to Alt (Mod1)"
+
     # Copy our custom Helix configuration (included by GOW base config on line 2)
     cp /cfg/sway/custom-cfg $HOME/.config/sway/custom-cfg
 
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
     echo "# Helix Desktop custom configuration" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Disable Xwayland - force native Wayland (fixes Zed input issues)" >> $HOME/.config/sway/config
     echo "xwayland disable" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
@@ -313,7 +423,6 @@ EOF
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
