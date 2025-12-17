@@ -143,6 +143,7 @@ RUN cd /tmp && \
 # This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
 # NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
 # Note: SPIRV-Tools v2024.3 requires specific SPIRV-Headers revision 2acb319
+# Must install to x86_64-linux-gnu libdir for pkg-config to find it
 RUN cd /tmp && \
     git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
     cd SPIRV-Tools && \
@@ -150,6 +151,7 @@ RUN cd /tmp && \
     cd external/spirv-headers && git checkout 2acb319af38d43be3ea76bfabf3998e5281d8d12 && cd ../.. && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
           -DCMAKE_BUILD_TYPE=Release \
           -DSPIRV_SKIP_TESTS=ON \
           -G Ninja .. && \
