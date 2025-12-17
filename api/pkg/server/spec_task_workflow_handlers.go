@@ -95,6 +95,35 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
+		// Send message to agent to push a commit (triggers PR creation)
+		// The git handler will create the PR when it receives a push in pull_request status
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+
+			message := `Your implementation has been approved! Please push your changes now to open a Pull Request.
+
+If you have uncommitted changes, commit them first. If all changes are already committed, you can push an empty commit:
+git commit --allow-empty -m "chore: open pull request for review"
+git push origin ` + specTask.BranchName + `
+
+This will open a Pull Request in Azure DevOps for code review.`
+
+			_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Str("planning_session_id", specTask.PlanningSessionID).
+					Msg("Failed to send PR instruction to agent via WebSocket")
+			} else {
+				log.Info().
+					Str("task_id", specTask.ID).
+					Str("branch_name", specTask.BranchName).
+					Msg("Implementation approved - sent PR instruction to agent via WebSocket")
+			}
+		}()
+
 		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
 		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
