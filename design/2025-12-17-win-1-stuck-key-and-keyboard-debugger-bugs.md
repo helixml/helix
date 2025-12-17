@@ -148,20 +148,65 @@ The `preventDefault()` on `keydown` tells the browser "don't do the default acti
 - `/prod/home/luke/pm/wolf/src/moonlight-server/control/input_handler.cpp` - keyboard event handling
 - `/prod/home/luke/pm/wolf/src/moonlight-server/control/keyboard_state.hpp` - state tracker
 
+### Existing Partial Fix
+
+There's already a `resetInputState` function in `MoonlightStreamViewer.tsx:2442-2482` that:
+- Sends keyup for all modifier keys (Shift, Ctrl, Alt, Meta, CapsLock)
+- Sends mouseup for all mouse buttons
+- Is called on window focus and blur
+
+**But it only resets modifiers, not regular keys like "1"!**
+
 ### Recommended Fix
 
-If browser interception is confirmed, possible solutions:
+Extend the existing `resetInputState` mechanism to track and release ALL pressed keys:
 
-1. **Use `keydown` with `event.repeat` for synthetic keyup detection:**
-   Track pressed keys in JavaScript. If we receive a keydown for a key we didn't see keyup for, synthesize the keyup first.
+```typescript
+// Track all currently pressed keys (not just modifiers)
+const pressedKeysRef = useRef<Set<string>>(new Set());
 
-2. **Use `blur` event to release all keys:**
-   When the window loses focus (tab switch), send KEY_RELEASE for all currently pressed keys.
+const handleKeyDown = (event: KeyboardEvent) => {
+    pressedKeysRef.current.add(event.code);
+    // ... existing logic
+};
 
-3. **Capture keyboard at lower level:**
-   Investigate if the Gamepad API or Pointer Lock API can capture keyboard more reliably.
+const handleKeyUp = (event: KeyboardEvent) => {
+    pressedKeysRef.current.delete(event.code);
+    // ... existing logic
+};
 
-4. **Document limitation:**
+const resetInputState = useCallback(() => {
+    const input = getInputHandler();
+    if (!input) return;
+
+    // Release ALL tracked pressed keys
+    pressedKeysRef.current.forEach((code) => {
+        const fakeEvent = new KeyboardEvent('keyup', {
+            code,
+            key: '', // key name not critical for release
+            bubbles: true,
+            cancelable: true,
+        });
+        input.onKeyUp(fakeEvent);
+    });
+    pressedKeysRef.current.clear();
+
+    // ... existing mouse button reset
+}, []);
+```
+
+This fix:
+1. Tracks every key that receives keydown
+2. Removes from tracking when keyup is received
+3. On blur/focus, releases ALL tracked keys (not just modifiers)
+4. Handles the Win+1 case: "1" is added to tracking on keydown, browser intercepts keyup, blur event fires (tab switch), "1" gets released
+
+### Alternative Solutions
+
+1. **Capture keyboard at lower level:**
+   Investigate if the Keyboard Lock API can capture browser shortcuts (requires secure context + user gesture).
+
+2. **Document limitation:**
    Some browser shortcuts cannot be overridden. Users should avoid using Windows shortcuts that conflict with browser shortcuts.
 
 ---
