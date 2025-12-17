@@ -408,6 +408,8 @@ func parseIntQuery(value string, defaultValue int) int {
 // @Accept json
 // @Produce json
 // @Param taskId path string true "SpecTask ID"
+// @Param keyboard query string false "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection"
+// @Param timezone query string false "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection"
 // @Success 200 {object} types.SpecTask
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -427,6 +429,16 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	if taskID == "" {
 		http.Error(w, "task ID is required", http.StatusBadRequest)
 		return
+	}
+
+	// Parse optional query parameters for browser locale settings
+	// These allow testing keyboard layout detection via ?keyboard=fr&timezone=Europe/Paris
+	opts := types.StartPlanningOptions{
+		KeyboardLayout: r.URL.Query().Get("keyboard"),
+		Timezone:       r.URL.Query().Get("timezone"),
+	}
+	if opts.KeyboardLayout != "" {
+		log.Info().Str("task_id", taskID).Str("keyboard", opts.KeyboardLayout).Msg("Using keyboard layout override from query param")
 	}
 
 	// Get the task
@@ -451,13 +463,13 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
 	if task.JustDoItMode {
-		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task)
+		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusImplementation
 		task.UpdatedAt = time.Now()
 	} else {
 		// Normal mode: Start spec generation
-		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusSpecGeneration
 		task.UpdatedAt = time.Now()

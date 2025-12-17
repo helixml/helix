@@ -222,7 +222,8 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 
 	// Delegate to the canonical StartSpecGeneration implementation
 	// This ensures both explicit start and auto-start use the same code path
-	o.specTaskService.StartSpecGeneration(ctx, task)
+	// Auto-start doesn't have user browser context, so pass empty options
+	o.specTaskService.StartSpecGeneration(ctx, task, types.StartPlanningOptions{})
 
 	return nil
 }
