@@ -1,7 +1,7 @@
 # Zed GPU Crash on AMD VM - Version Mismatch Analysis
 
 **Date:** 2025-12-17
-**Status:** Fix implemented - Mesa 25.0.7 build with AMD-only drivers
+**Status:** Mesa 25.0.7 STILL CRASHES - Switching to AMD PRO userspace
 **Severity:** Critical - Crashes GPU, requires GPU reset
 
 ## Summary
@@ -521,9 +521,83 @@ exists at all container levels.
 - helix-sway: `helix-sway:73fd7b`
 - Base image: `ghcr.io/games-on-whales/gstreamer:1.26.7`
 
+## Update: Mesa 25.0.7 Still Crashes (2025-12-17 05:04 UTC)
+
+### Mesa 25.0.7 Build Attempted
+
+Built and deployed helix-ubuntu with:
+- Mesa: 25.0.7 (from source)
+- LLVM: 18 (from apt.llvm.org)
+- Vulkan drivers: AMD only (RADV)
+- Gallium drivers: radeonsi, llvmpipe, softpipe
+
+**Result: STILL CRASHES** when clicking "follow agent" button in Zed.
+
+### New Error Pattern
+
+The dmesg output shows a **different** error pattern than before:
+
+```
+[1889979.164332] [drm:gfx_v11_0_bad_op_irq [amdgpu]] *ERROR* Illegal opcode in command stream
+[1889979.164664] amdgpu 0002:00:00.0: amdgpu: ring gfx_0.0.0 timeout, signaled seq=571789211, emitted seq=571789213
+[1889979.164669] amdgpu 0002:00:00.0: amdgpu:  Process zed pid 2948129 thread zed pid 2948129
+[1889979.164673] amdgpu 0002:00:00.0: amdgpu: GPU reset begin!. Source:  1
+[1889979.164657] [drm:gfx_v11_0_priv_reg_irq [amdgpu]] *ERROR* Illegal register access in command stream
+[1889979.913677] amdgpu 0002:00:00.0: amdgpu: GPU reset(5) succeeded!
+```
+
+**Key errors:**
+1. `gfx_v11_0_bad_op_irq` - **Illegal opcode in command stream**
+2. `gfx_v11_0_priv_reg_irq` - **Illegal register access in command stream**
+
+This is fundamentally different from the NULL pointer page faults seen earlier. The GPU is receiving commands it doesn't understand.
+
+### Root Cause Analysis
+
+**The Radeon Pro V710 MxGPU is a virtualized GPU (vGPU)**, not a full discrete GPU:
+- PCI ID: `1002:7461` (V710 Virtual Function)
+- Type: SR-IOV Virtual Function for GPU partitioning
+- Used in Azure NVv4-series VMs
+
+**Why RADV (Mesa) is generating illegal opcodes:**
+
+1. **MxGPU restrictions**: The V710 MxGPU exposes a subset of RDNA 3 (gfx11) capabilities. Certain instructions and registers available on consumer RDNA 3 GPUs may be disabled or restricted in the vGPU.
+
+2. **RADV doesn't know about MxGPU limitations**: RADV detects `gfx1101` (RDNA 3) and emits the full instruction set. The vGPU rejects instructions it can't execute.
+
+3. **Privileged register access**: Some GPU registers are restricted in virtualized environments for isolation. RADV may be trying to access registers that only work on bare-metal.
+
+4. **AMD PRO driver has vGPU support**: AMD's proprietary userspace drivers are designed for enterprise vGPU products and know about these restrictions.
+
+### Solution: Switch to AMD PRO Userspace
+
+AMD's `amdgpu-install` with `--usecase=graphics` provides Mesa/Vulkan drivers specifically built and tested for AMD enterprise GPUs including MxGPU:
+
+```dockerfile
+# Replace Mesa source build with AMD PRO graphics userspace
+RUN wget https://repo.radeon.com/amdgpu-install/6.1.3/ubuntu/jammy/amdgpu-install_6.1.60103-1_all.deb && \
+    apt install -y ./amdgpu-install_6.1.60103-1_all.deb && \
+    amdgpu-install --usecase=graphics --no-dkms -y && \
+    rm amdgpu-install_*.deb
+```
+
+**Note**: Using version 6.1.3 (matches AMDGPU PRO 6.16.6 kernel driver on host).
+
+**What AMD PRO userspace includes:**
+- Mesa 3D built with AMD-specific patches
+- RADV Vulkan driver with enterprise GPU support
+- libdrm with AMD PRO modifications
+- Tested against MxGPU/SR-IOV configurations
+
+**Why this should work:**
+- AMD tests their PRO userspace against V710 MxGPU
+- Driver knows which instructions/registers are available
+- Designed for datacenter/cloud virtualized GPU scenarios
+
 ## References
 
 - [Mesa RADV driver](https://docs.mesa3d.org/drivers/radv.html)
 - [AMD PRO drivers for Linux](https://www.amd.com/en/support/linux-drivers)
 - [Zed Linux GPU troubleshooting](https://zed.dev/docs/linux#graphics-issues)
 - [Azure NV-series VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/nv-series)
+- [AMD ROCm Container Documentation](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html)
