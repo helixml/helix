@@ -1976,9 +1976,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     if (!containerSize || !canvasRef.current) return;
 
     // Get the actual canvas internal dimensions (set by WebCodecs when frames are rendered)
+    // NOTE: HTML canvas elements default to 300x150, NOT 0! We must detect this and use
+    // the intended resolution (width/height props) as fallback, otherwise the aspect ratio
+    // calculation will be wrong (300/150 = 2.0 instead of 16:9 = 1.777).
     const canvas = canvasRef.current;
-    const canvasWidth = canvas.width || 1920;  // Default to 1080p if not yet set
-    const canvasHeight = canvas.height || 1080;
+    const isDefaultDimensions = canvas.width === 300 && canvas.height === 150;
+    const canvasWidth = isDefaultDimensions ? width : canvas.width;
+    const canvasHeight = isDefaultDimensions ? height : canvas.height;
 
     if (canvasWidth === 0 || canvasHeight === 0) return;
 
@@ -2002,7 +2006,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
 
     setCanvasDisplaySize({ width: displayWidth, height: displayHeight });
-  }, [containerSize]);
+  }, [containerSize, width, height]);
 
   // Update canvas display size when canvas dimensions change (after first frame is rendered)
   useEffect(() => {
@@ -2011,6 +2015,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const checkCanvasDimensions = () => {
       const canvas = canvasRef.current;
       if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+
+      // Skip if canvas still has HTML default dimensions (300x150)
+      // Wait for actual video dimensions to be set by WebCodecs
+      const isDefaultDimensions = canvas.width === 300 && canvas.height === 150;
+      if (isDefaultDimensions) return;
 
       const containerWidth = containerSize.width;
       const containerHeight = containerSize.height;
