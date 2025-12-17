@@ -73,7 +73,16 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
         size={size}
         value={url}
         onChange={(e) => onUrlChange(e.target.value)}
-        placeholder="https://github.com/org/repo.git"
+        placeholder={
+          type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
+            ? "https://dev.azure.com/organization/project/_git/repository"
+            : "https://github.com/org/repo.git"
+        }
+        helperText={
+          type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
+            ? "Full URL to your Azure DevOps repository"
+            : undefined
+        }
         required
       />
 
