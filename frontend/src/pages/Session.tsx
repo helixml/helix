@@ -195,10 +195,11 @@ const ExternalAgentDesktopViewer: React.FC<{
           variant="contained"
           color="primary"
           size="large"
-          startIcon={<PlayArrow />}
+          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
           onClick={handleResume}
+          disabled={isResuming}
         >
-          Start Desktop
+          {isResuming ? 'Starting...' : 'Start Desktop'}
         </Button>
       </Box>
     );
