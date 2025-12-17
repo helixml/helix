@@ -56,22 +56,22 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # ====================================================================
-# Install AMD PRO Graphics Userspace (amdgpu-install)
+# Install AMD GPU Drivers (version 7.0.1 - Azure recommended)
 # ====================================================================
-# CRITICAL: Upstream Mesa RADV generates illegal opcodes on AMD Radeon Pro V710 MxGPU
-# (Azure NVv5-series vGPU). The V710 is a virtualized GPU with restricted instruction set.
-# RADV doesn't know about MxGPU restrictions and emits unsupported GFX11 instructions.
-#
-# Error: [drm:gfx_v11_0_bad_op_irq [amdgpu]] *ERROR* Illegal opcode in command stream
-#        [drm:gfx_v11_0_priv_reg_irq [amdgpu]] *ERROR* Illegal register access in command stream
-#
-# AMD's PRO userspace is designed for enterprise vGPU products (MxGPU/SR-IOV) and
-# knows which instructions/registers are available on virtualized GPUs.
-#
-# Version 7.0.1 is recommended by Azure documentation for V710:
+# Version 7.0.1 is recommended by Azure documentation for NVv5 VMs with V710:
 # https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide
 #
-# NOTE: This installs ONLY userspace (--no-dkms). Kernel driver is on the host.
+# KNOWN ISSUE: RADV (Mesa's open-source Vulkan driver) generates illegal opcodes
+# on AMD Radeon Pro V710 MxGPU (Azure NVv5-series vGPU).
+#
+# The V710 is a virtualized GPU (SR-IOV) with restricted instruction set.
+# Errors seen:
+#   [drm:gfx_v11_0_bad_op_irq [amdgpu]] *ERROR* Illegal opcode in command stream
+#   [drm:gfx_v11_0_priv_reg_irq [amdgpu]] *ERROR* Illegal register access in command stream
+#
+# ALTERNATIVE: Version 6.4.4 has the proprietary vulkan-amdgpu-pro driver
+# with a different shader compiler. If 7.0.1 crashes, try switching to 6.4.4.
+# See build-arg AMDGPU_VERSION below.
 ARG AMDGPU_VERSION=7.0.1
 
 RUN apt-get update && apt-get install -y \
@@ -89,25 +89,22 @@ RUN apt-get update && apt-get install -y \
     python3 python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
-# Add AMD GPG key and repositories manually (not using amdgpu-install)
-# This avoids conffile conflicts and gives us proper signed-by configuration
-# Based on: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/native-install/ubuntu.html
+# Add AMD GPG key for repositories
 RUN mkdir -p /etc/apt/keyrings \
     && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
     && chmod 644 /etc/apt/keyrings/rocm.gpg
 
-# Add AMD repositories with proper GPG signing
-# Using version 7.1.1 which has both ROCm and graphics packages for jammy
-RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1.1 jammy main" > /etc/apt/sources.list.d/rocm.list \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.1.1/ubuntu jammy main" >> /etc/apt/sources.list.d/rocm.list \
-    && echo "Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600" > /etc/apt/preferences.d/rocm-pin-600
+# Add AMD repository (version from AMDGPU_VERSION build arg)
+# Note: 7.0.1 only has 'main', 6.4.4 also has 'proprietary' for vulkan-amdgpu-pro
+RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/amdgpu/${AMDGPU_VERSION}/ubuntu jammy main" > /etc/apt/sources.list.d/amdgpu.list \
+    && echo "Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600" > /etc/apt/preferences.d/amdgpu-pin-600
 
-# Install AMD graphics stack (Mesa + RADV Vulkan driver from AMD's repos)
-# This should include AMD's enterprise patches for MxGPU
+# Install AMD graphics stack from AMD repos
+# mesa-vulkan-drivers: RADV Vulkan driver from AMD's build
+# libgl1-mesa-dri: OpenGL driver (RadeonSI) for desktop compositing
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        mesa-vulkan-drivers \
-       mesa-vdpau-drivers \
        libgl1-mesa-dri \
        libglx-mesa0 \
        libegl-mesa0 \
@@ -118,7 +115,8 @@ RUN apt-get update \
 
 # Verify installation
 RUN ldconfig && \
-    echo "AMD PRO Graphics Userspace installed:" && \
+    echo "AMD GPU Drivers installed (version ${AMDGPU_VERSION}):" && \
+    ls -la /etc/vulkan/icd.d/ 2>/dev/null || true && \
     dpkg -l | grep -E 'amdgpu|vulkan|mesa' | head -20 || true
 
 # ====================================================================
