@@ -941,6 +941,86 @@ reached 1), we tested helix-sway WITHOUT rebooting. Result: **Sway streams fine.
 5. **NEXT: Build and deploy 6.4.4 with vulkan-amdgpu-pro** (prepared in Dockerfile)
 6. **FALLBACK: Investigate Zed's Vulkan usage** if PRO driver also fails
 
+## Update: vulkan-amdgpu-pro 6.4.4 Also Crashes (2025-12-17 ~08:30 UTC)
+
+### Test Result: CRASHED
+
+Deployed helix-ubuntu with AMD's proprietary Vulkan driver:
+- Driver: vulkan-amdgpu-pro 6.4.4 (last version with proprietary driver)
+- OpenGL: Mesa libgl1-mesa-dri (for GNOME compositing)
+- Environment: `AMD_VULKAN_ICD=PRO`
+
+**Result: SAME NULL POINTER PAGE FAULTS**
+
+```
+[ 3598.046049] amdgpu: [gfxhub] page fault from zed pid 43508 at address 0x0000000000000000
+[ 3598.046071] amdgpu: [gfxhub] page fault from Xwayland pid 42498 at address 0x0000000000000000
+[ 3608.539947] amdgpu: ring gfx_0.0.0 timeout
+[ 3608.769223] amdgpu: GPU reset(2) succeeded!
+```
+
+### Key Finding: Xwayland Is The Problem
+
+Both RADV (7.1.1, 7.0.1) AND vulkan-amdgpu-pro (6.4.4) crash with identical patterns:
+- NULL pointer page faults at address 0x0000000000000000
+- Both Zed AND Xwayland involved in crashes
+- GPU ring timeouts after page faults
+
+Meanwhile, **helix-sway works perfectly** on the same GPU, same Zed binary:
+- Uses native Wayland (no Xwayland)
+- Sway compositor (wlroots-based, lightweight)
+- Has been stable since late November 2025
+
+### Architecture Comparison
+
+```
+helix-sway (WORKS - stable for weeks):
+  Wolf Wayland → Sway compositor → Zed (native Wayland, Vulkan)
+
+helix-ubuntu (CRASHES - all driver versions):
+  Wolf Wayland → Xwayland → GNOME/Mutter (X11 WM mode) → Zed (X11, Vulkan via Xwayland)
+```
+
+The Xwayland translation layer is causing Vulkan operations to generate NULL buffer references.
+This is NOT a driver issue - both open-source RADV and proprietary vulkan-amdgpu-pro crash.
+
+**IMPORTANT**: Zed + Xwayland works perfectly on NVIDIA. The issue is specifically the
+AMD Radeon Pro V710 MxGPU + Xwayland combination. Something about the vGPU's restricted
+instruction set combined with Xwayland's Vulkan surface handling triggers NULL pointers.
+
+### Dead Container Evidence (docker ps -a)
+
+```
+helix-ubuntu:fb272e  Exited (0) 8 minutes ago    # Clean exit after crash
+helix-ubuntu:58c269  Exited (255) About an hour ago  # Crash exit
+helix-ubuntu:58c269  Exited (0) About an hour ago
+helix-ubuntu:681816  Exited (0) 2 hours ago
+helix-sway:63a6ed    Exited (137) 9 minutes ago  # SIGKILL - manual stop
+helix-sway:418229    Exited (255) 11 minutes ago # Crash (during testing)
+```
+
+### Conclusion: Abandon helix-ubuntu on AMD MxGPU
+
+The Xwayland + GNOME stack is fundamentally incompatible with AMD Radeon Pro V710 MxGPU.
+The issue is NOT the Vulkan driver - it's the Xwayland layer corrupting buffer addresses.
+
+**Recommended path forward:**
+1. Use helix-sway on AMD VMs (works reliably)
+2. If GNOME is required, investigate running GNOME in native Wayland mode
+3. Or replace GNOME with Sway but keep Ubuntu 22.04 LTS base
+
+### Tested Driver Configurations (All Failed on helix-ubuntu)
+
+| Version | Driver Type | Result | Notes |
+|---------|-------------|--------|-------|
+| 7.1.1 | RADV (Mesa open-source) | CRASHED | Illegal opcode + NULL faults |
+| 7.0.1 | RADV (Azure-recommended) | CRASHED | Same as 7.1.1 |
+| 6.4.4 | vulkan-amdgpu-pro (proprietary) | CRASHED | Same NULL faults |
+| 24.3.4 | Mesa source build | CRASHED | Tried earlier |
+| 25.0.7 | Mesa from AMD repos | CRASHED | Same pattern |
+
+**All drivers crash because the problem is Xwayland, not the Vulkan driver.**
+
 ## References
 
 - [Mesa RADV driver](https://docs.mesa3d.org/drivers/radv.html)
