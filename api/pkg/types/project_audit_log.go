@@ -7,11 +7,12 @@ type AuditEventType string
 
 const (
 	// Task lifecycle events
-	AuditEventTaskCreated   AuditEventType = "task_created"
-	AuditEventTaskCloned    AuditEventType = "task_cloned" // Task cloned from another task
-	AuditEventTaskApproved  AuditEventType = "task_approved"
-	AuditEventTaskCompleted AuditEventType = "task_completed"
-	AuditEventTaskArchived  AuditEventType = "task_archived"
+	AuditEventTaskCreated    AuditEventType = "task_created"
+	AuditEventTaskCloned     AuditEventType = "task_cloned" // Task cloned from another task
+	AuditEventTaskApproved   AuditEventType = "task_approved"
+	AuditEventTaskCompleted  AuditEventType = "task_completed"
+	AuditEventTaskArchived   AuditEventType = "task_archived"
+	AuditEventTaskUnarchived AuditEventType = "task_unarchived"
 
 	// Agent interaction events
 	AuditEventAgentPrompt  AuditEventType = "agent_prompt"  // Prompt sent from Helix UI to agent
