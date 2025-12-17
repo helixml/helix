@@ -3159,6 +3159,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // WebRTC mode: hide overlay when video is ready to play
           if (streamingMode === 'webrtc') {
             console.log('[MoonlightStreamViewer] WebRTC video can play - hiding overlay');
+            // Clear video start timeout - video arrived successfully
+            if (videoStartTimeoutRef.current) {
+              clearTimeout(videoStartTimeoutRef.current);
+              videoStartTimeoutRef.current = null;
+            }
             setIsConnecting(false);
             setStatus('Streaming active');
           }
