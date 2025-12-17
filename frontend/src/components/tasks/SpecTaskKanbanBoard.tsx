@@ -232,7 +232,7 @@ const DroppableColumn: React.FC<{
     const accent = getColumnAccent(column.id);
 
     return (
-      <Box key={column.id} sx={{ width: 340, flexShrink: 0, height: '100%' }}>
+      <Box key={column.id} sx={{ width: 300, flexShrink: 0, height: '100%' }}>
         <Box sx={{
           height: '100%',
           display: 'flex',
