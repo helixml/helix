@@ -286,6 +286,13 @@ EOF
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
     echo "# Helix Desktop custom configuration" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+    echo "# CRITICAL: Override modifier key to Alt (Mod1) instead of Super (Mod4)" >> $HOME/.config/sway/config
+    echo "# Super/Cmd key is captured by macOS (Cmd+Shift+2/3 = screenshots)" >> $HOME/.config/sway/config
+    echo "# and by browsers, so it doesn't reach the streamed desktop." >> $HOME/.config/sway/config
+    echo "# Alt passes through browser streaming reliably." >> $HOME/.config/sway/config
+    echo "set \$mod Mod1" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Disable Xwayland - force native Wayland (fixes Zed input issues)" >> $HOME/.config/sway/config
     echo "xwayland disable" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config

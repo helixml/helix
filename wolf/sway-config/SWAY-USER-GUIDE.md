@@ -2,15 +2,18 @@
 
 This guide explains how to use the Sway tiling window manager in Helix Desktop sessions.
 
-## The Problem: Modifier Keys in Browser Streaming
+## Keyboard Modifier Key: Alt
 
-Sway uses the **Super** (Windows/Command) key as its modifier, but when streaming
-through the browser, this key is usually captured by your browser or OS and doesn't
-reach the remote desktop.
+Helix configures Sway to use **Alt** as the modifier key (not Super/Cmd).
 
-## Solution: Use the Waybar and Terminal Commands
+This is because Super/Cmd is captured by your OS:
+- macOS: Cmd+Shift+2/3 = screenshots
+- Windows: Win key opens Start menu
+- Browsers: Often capture these keys for their own shortcuts
 
-### Waybar (Top Panel)
+**Alt passes through browser streaming reliably.**
+
+## Using the Waybar (Top Panel)
 
 The waybar at the top provides clickable controls:
 
@@ -85,29 +88,32 @@ swaymsg fullscreen toggle
 swaymsg kill
 ```
 
-### If Keyboard Shortcuts Work
+## Keyboard Shortcuts
 
-If your browser does pass through the Super key (try pressing it), these shortcuts work:
+All shortcuts use **Alt** as the modifier key.
 
 | Shortcut | Action |
 |----------|--------|
-| `Super + 1/2/3...` | Switch to workspace |
-| `Super + Shift + 1/2/3...` | Move window to workspace |
-| `Super + Enter` | Open terminal |
-| `Super + d` | App launcher |
-| `Super + Shift + q` | Close window |
-| `Super + f` | Toggle fullscreen |
-| `Super + Arrow keys` | Move focus |
+| `Alt + 1/2/3...` | Switch to workspace |
+| `Alt + Shift + 1/2/3...` | Move window to workspace |
+| `Alt + Enter` | Open terminal |
+| `Alt + d` | App launcher (dmenu) |
+| `Alt + Shift + q` | Close window |
+| `Alt + f` | Toggle fullscreen |
+| `Alt + Arrow keys` | Move focus between windows |
+| `Alt + Shift + Arrow keys` | Move window |
+| `Alt + h/j/k/l` | Move focus (vim-style) |
+| `Alt + Shift + h/j/k/l` | Move window (vim-style) |
 
 ## Quick Reference Card
 
-| Task | How to do it |
-|------|--------------|
-| Open terminal | Click 🐱 in waybar |
-| Switch workspace | Click workspace number in waybar |
-| Move window to workspace 2 | `swaymsg move container to workspace 2` |
-| Go to workspace 1 | `swaymsg workspace 1` or click "1" in waybar |
-| Open Firefox | Click 🦊 or run `firefox` |
-| Change keyboard layout | Click flag icon (🇺🇸 🇬🇧 🇫🇷) |
-| Fullscreen | `swaymsg fullscreen toggle` |
-| Close window | `swaymsg kill` |
+| Task | Keyboard | Mouse/Terminal |
+|------|----------|----------------|
+| Open terminal | `Alt + Enter` | Click 🐱 in waybar |
+| Switch to workspace 2 | `Alt + 2` | Click "2" in waybar |
+| Move window to workspace 2 | `Alt + Shift + 2` | `swaymsg move container to workspace 2` |
+| Close window | `Alt + Shift + q` | `swaymsg kill` |
+| Fullscreen | `Alt + f` | `swaymsg fullscreen toggle` |
+| Open Firefox | `Alt + Shift + f` | Click 🦊 in waybar |
+| Change keyboard layout | - | Click flag icon (🇺🇸 🇬🇧 🇫🇷) |
+| App launcher | `Alt + d` | - |
