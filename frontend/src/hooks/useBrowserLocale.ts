@@ -4,6 +4,9 @@
  * Detects the user's browser language/locale and derives the appropriate
  * XKB keyboard layout code for use in desktop containers.
  *
+ * Supports a `?keyboard=XX` query parameter override for testing different
+ * layouts without changing browser settings.
+ *
  * @see design/2025-12-17-keyboard-layout-option.md
  */
 
@@ -14,6 +17,8 @@ export interface BrowserLocaleInfo {
   keyboardLayout: string;
   /** IANA timezone, e.g., "America/New_York" */
   timezone: string;
+  /** Whether the keyboard layout was overridden via query param */
+  isOverridden: boolean;
 }
 
 /**
@@ -55,25 +60,66 @@ function deriveKeyboardLayout(language: string): string {
 }
 
 /**
+ * Valid XKB layout codes that can be used as overrides.
+ * This prevents injection of arbitrary values via query params.
+ */
+const VALID_LAYOUTS = new Set([
+  'us', 'gb', 'fr', 'de', 'es', 'it', 'pt', 'br', 'ru', 'jp', 'cn', 'kr',
+  'nl', 'se', 'no', 'dk', 'fi', 'pl', 'cz', 'hu', 'ro', 'bg', 'ua', 'tr',
+  'gr', 'il', 'ar', 'th', 'vn', 'in', 'ch', 'be', 'at', 'ie', 'au', 'nz',
+]);
+
+/**
+ * Gets keyboard layout override from URL query parameter.
+ * Returns null if no valid override is present.
+ *
+ * @example
+ * // URL: /specs/123?keyboard=fr
+ * getKeyboardOverride() // returns "fr"
+ */
+function getKeyboardOverride(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+  const override = params.get('keyboard')?.toLowerCase();
+
+  if (override) {
+    if (VALID_LAYOUTS.has(override)) {
+      console.log(`%c[Keyboard Override] Using layout from URL: ${override}`, 'color: #4CAF50; font-weight: bold; font-size: 14px;');
+      console.log(`[Keyboard Override] Full URL: ${window.location.href}`);
+      return override;
+    } else {
+      console.warn(`[Keyboard Override] Invalid layout "${override}" - not in allowed list. Using browser default.`);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Hook to get browser locale information for keyboard layout configuration.
  *
  * Returns the browser's language preference, derived keyboard layout,
  * and timezone. Used to automatically configure keyboard layouts in
  * desktop containers to match the user's local setup.
  *
+ * Supports `?keyboard=XX` query parameter to override detected layout for testing.
+ *
  * @example
  * ```tsx
- * const { keyboardLayout, timezone } = useBrowserLocale();
- * // keyboardLayout: "fr" for French browser
+ * const { keyboardLayout, timezone, isOverridden } = useBrowserLocale();
+ * // keyboardLayout: "fr" for French browser (or from ?keyboard=fr)
  * // timezone: "Europe/Paris"
+ * // isOverridden: true if using query param
  * ```
  */
 export function useBrowserLocale(): BrowserLocaleInfo {
   const language = navigator.language || 'en-US';
-  const keyboardLayout = deriveKeyboardLayout(language);
+  const override = getKeyboardOverride();
+  const keyboardLayout = override || deriveKeyboardLayout(language);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-  return { language, keyboardLayout, timezone };
+  return { language, keyboardLayout, timezone, isOverridden: !!override };
 }
 
 /**
@@ -82,8 +128,9 @@ export function useBrowserLocale(): BrowserLocaleInfo {
  */
 export function getBrowserLocale(): BrowserLocaleInfo {
   const language = navigator.language || 'en-US';
-  const keyboardLayout = deriveKeyboardLayout(language);
+  const override = getKeyboardOverride();
+  const keyboardLayout = override || deriveKeyboardLayout(language);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-  return { language, keyboardLayout, timezone };
+  return { language, keyboardLayout, timezone, isOverridden: !!override };
 }
