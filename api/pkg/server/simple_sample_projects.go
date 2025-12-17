@@ -860,6 +860,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
 		}
 
+		// Create junction table entry for project-repository relationship
+		if err := s.Store.AttachRepositoryToProject(ctx, createdProject.ID, codeRepoID); err != nil {
+			log.Warn().Err(err).Str("repo_id", codeRepoID).Str("project_id", createdProject.ID).
+				Msg("Failed to attach repository to project via junction table")
+		}
+
 		log.Info().
 			Str("project_id", createdProject.ID).
 			Str("repo_id", codeRepoID).
@@ -910,6 +916,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			return nil, system.NewHTTPError500("failed to create notebooks repository")
 		}
 
+		// Create junction table entry for project-repository relationship
+		if err := s.Store.AttachRepositoryToProject(ctx, createdProject.ID, notebooksRepoID); err != nil {
+			log.Warn().Err(err).Str("repo_id", notebooksRepoID).Str("project_id", createdProject.ID).
+				Msg("Failed to attach repository to project via junction table")
+		}
+
 		log.Info().
 			Str("project_id", createdProject.ID).
 			Str("repo_id", notebooksRepoID).
@@ -943,6 +955,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		if err != nil {
 			log.Error().Err(err).Msg("❌ Failed to create pyforest repository entry")
 			return nil, system.NewHTTPError500("failed to create pyforest repository")
+		}
+
+		// Create junction table entry for project-repository relationship
+		if err := s.Store.AttachRepositoryToProject(ctx, createdProject.ID, pyforestRepoID); err != nil {
+			log.Warn().Err(err).Str("repo_id", pyforestRepoID).Str("project_id", createdProject.ID).
+				Msg("Failed to attach repository to project via junction table")
 		}
 
 		log.Info().
@@ -1064,6 +1082,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			if repoCreateErr := s.Store.CreateGitRepository(ctx, codeRepo); repoCreateErr != nil {
 				log.Error().Err(repoCreateErr).Str("project_id", createdPipelineProject.ID).Msg("Failed to create pipeline git repo entry")
 				continue
+			}
+
+			// Create junction table entry for project-repository relationship
+			if err := s.Store.AttachRepositoryToProject(ctx, createdPipelineProject.ID, codeRepo.ID); err != nil {
+				log.Warn().Err(err).Str("repo_id", codeRepo.ID).Str("project_id", createdPipelineProject.ID).
+					Msg("Failed to attach repository to project via junction table")
 			}
 
 			// Set code repo as default
@@ -1190,6 +1214,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Interface("repo", codeRepo).
 				Msg("❌ Failed to create git repository entry for sample code repo")
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
+		}
+
+		// Create junction table entry for project-repository relationship
+		if err := s.Store.AttachRepositoryToProject(ctx, createdProject.ID, codeRepoID); err != nil {
+			log.Warn().Err(err).Str("repo_id", codeRepoID).Str("project_id", createdProject.ID).
+				Msg("Failed to attach repository to project via junction table")
 		}
 
 		log.Info().

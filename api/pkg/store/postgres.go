@@ -164,6 +164,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.HelpRequest{},
 		&types.JobCompletion{},
 		&types.GitRepository{},
+		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
 		&types.PersonalDevEnvironment{}, // DEPRECATED - stub for backward compatibility
@@ -251,6 +252,20 @@ func (s *PostgresStore) autoMigrate() error {
 
 	if err := createFK(s.gdb, types.QuestionSetExecution{}, types.QuestionSet{}, "question_set_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	// Project-Repository junction table FKs (cascade delete when project or repo is deleted)
+	if err := createFK(s.gdb, types.ProjectRepository{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for project_repositories -> projects")
+	}
+	if err := createFK(s.gdb, types.ProjectRepository{}, types.GitRepository{}, "repository_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK for project_repositories -> git_repositories")
+	}
+
+	// Migrate existing project_id values to junction table
+	if err := s.migrateProjectRepositories(context.Background()); err != nil {
+		log.Err(err).Msg("failed to migrate project repositories to junction table")
+		// Don't return error - this is a one-time migration, data will be migrated on next startup
 	}
 
 	// Ensure default project exists for spec tasks
@@ -620,29 +635,71 @@ func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, project
 	return nil
 }
 
-// AttachRepositoryToProject attaches a repository to a project
+// AttachRepositoryToProject attaches a repository to a project.
+// This writes to BOTH the junction table (for many-to-many support) AND the legacy
+// project_id column (for backward compatibility/rollback).
 func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
 	if projectID == "" || repoID == "" {
 		return fmt.Errorf("project id or repository id not specified")
 	}
 
-	err := s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	// Get repository to find organization_id
+	repo, err := s.GetGitRepository(ctx, repoID)
 	if err != nil {
-		return fmt.Errorf("error attaching repository to project: %w", err)
+		return fmt.Errorf("failed to get repository: %w", err)
 	}
+
+	// Write to junction table (idempotent - does nothing if already exists)
+	err = s.CreateProjectRepository(ctx, projectID, repoID, repo.OrganizationID)
+	if err != nil {
+		return fmt.Errorf("error creating project repository junction: %w", err)
+	}
+
+	// Also write to legacy project_id column for backward compatibility
+	// This allows rollback to older code versions
+	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error updating legacy project_id: %w", err)
+	}
+
 	return nil
 }
 
-// DetachRepositoryFromProject detaches a repository from its project
-func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
+// DetachRepositoryFromProject detaches a repository from a specific project.
+// NOTE: Signature changed to require projectID since a repo can now be attached to multiple projects.
+func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, projectID string, repoID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project id not specified")
+	}
 	if repoID == "" {
 		return fmt.Errorf("repository id not specified")
 	}
 
-	err := s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", "").Error
+	// Delete from junction table
+	err := s.DeleteProjectRepository(ctx, projectID, repoID)
 	if err != nil {
-		return fmt.Errorf("error detaching repository from project: %w", err)
+		return fmt.Errorf("error deleting project repository junction: %w", err)
 	}
+
+	// Check if this repo is still attached to other projects
+	projectIDs, err := s.GetProjectsForRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("error checking remaining project attachments: %w", err)
+	}
+
+	// Update legacy project_id column:
+	// - If attached to other projects, set to the first one (for backward compat)
+	// - If not attached to any project, clear it
+	var newProjectID string
+	if len(projectIDs) > 0 {
+		newProjectID = projectIDs[0]
+	}
+
+	err = s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repoID).Update("project_id", newProjectID).Error
+	if err != nil {
+		return fmt.Errorf("error updating legacy project_id: %w", err)
+	}
+
 	return nil
 }
 
