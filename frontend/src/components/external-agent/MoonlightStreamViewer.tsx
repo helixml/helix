@@ -3154,6 +3154,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
+        onMouseEnter={resetInputState}
         onContextMenu={handleContextMenu}
         onCanPlay={() => {
           // WebRTC mode: hide overlay when video is ready to play
@@ -3194,6 +3195,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
+        onMouseEnter={resetInputState}
         onContextMenu={handleContextMenu}
         style={{
           // Use calculated dimensions to maintain aspect ratio
@@ -3231,6 +3233,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
+        onMouseEnter={resetInputState}
         onContextMenu={handleContextMenu}
         style={{
           // Use calculated dimensions to maintain aspect ratio
