@@ -15,11 +15,16 @@ export function useApproveImplementation(specTaskId: string) {
       return response.data
     },
     onSuccess: (response: TypesSpecTask) => {
-      if (response.pull_request_id) {
-        snackbar.success('Implementation approved! Pull request ID: ' + response.pull_request_id)
+      if (response.pull_request_url) {
+        // External repo (ADO) - show link to PR
+        snackbar.success(`Implementation approved! View PR: ${response.pull_request_url}`)
+      } else if (response.pull_request_id) {
+        // PR exists but no URL
+        snackbar.success('Implementation approved! Pull request #' + response.pull_request_id + ' created')
       } else {
+        // Internal repo - agent will merge
         snackbar.success('Implementation approved! Agent will merge to your primary branch...')
-      }      
+      }
       // Invalidate queries to refetch task
       queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
       queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
