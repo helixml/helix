@@ -1005,53 +1005,51 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// DATABASE-FIRST: Link response to pending design review comment
 			// Query database for comments with pending request_id (survives API and container restarts)
-			go func(sessionID, responseContent string) {
-				pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
-				if err != nil {
-					log.Debug().
-						Err(err).
+			// IMPORTANT: Get the pending comment ID synchronously to avoid race conditions
+			// If we spawn a goroutine and it runs after message_completed, the next comment
+			// might already have RequestID set, causing us to update the wrong comment.
+			pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
+			if err == nil && pendingComment != nil {
+				// Found a pending comment - capture its ID and RequestID synchronously
+				commentID := pendingComment.ID
+				requestID := pendingComment.RequestID
+
+				// Update the comment with streaming response content
+				go func(sessionID, commentID, requestID, responseContent string) {
+					// Use the request_id to update - this ensures we update the correct comment
+					if err := apiServer.updateCommentWithStreamingResponse(context.Background(), requestID, responseContent); err != nil {
+						log.Debug().
+							Err(err).
+							Str("session_id", sessionID).
+							Str("request_id", requestID).
+							Msg("Failed to update comment with streaming response (this is normal for non-comment interactions)")
+						return
+					}
+
+					log.Info().
+						Str("comment_id", commentID).
 						Str("session_id", sessionID).
-						Msg("No pending design review comment found for session (this is normal for non-comment interactions)")
-					return
-				}
+						Str("request_id", requestID).
+						Int("response_length", len(responseContent)).
+						Msg("✅ [HELIX] Updated comment with streaming agent response")
 
-				// Found a pending comment - update it with the response
-				pendingComment.AgentResponse = responseContent
-				now := time.Now()
-				pendingComment.AgentResponseAt = &now
-
-				if err := apiServer.Store.UpdateSpecTaskDesignReviewComment(context.Background(), pendingComment); err != nil {
-					log.Error().
-						Err(err).
-						Str("comment_id", pendingComment.ID).
-						Str("session_id", sessionID).
-						Msg("Failed to update comment with agent response")
-					return
-				}
-
-				log.Info().
-					Str("comment_id", pendingComment.ID).
-					Str("session_id", sessionID).
-					Str("request_id", pendingComment.RequestID).
-					Int("response_length", len(responseContent)).
-					Msg("✅ [HELIX] Linked agent response to design review comment via database lookup")
-
-				// Also try HTTP streaming for real-time updates (if channel exists)
-				if pendingComment.RequestID != "" {
-					responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, pendingComment.RequestID)
-					if exists {
-						select {
-						case responseChan <- responseContent:
-							log.Debug().
-								Str("session_id", sessionID).
-								Str("request_id", pendingComment.RequestID).
-								Msg("Sent response to HTTP streaming channel")
-						default:
-							log.Debug().Msg("HTTP response channel full or closed")
+					// Also try HTTP streaming for real-time updates (if channel exists)
+					if requestID != "" {
+						responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+						if exists {
+							select {
+							case responseChan <- responseContent:
+								log.Debug().
+									Str("session_id", sessionID).
+									Str("request_id", requestID).
+									Msg("Sent response to HTTP streaming channel")
+							default:
+								log.Debug().Msg("HTTP response channel full or closed")
+							}
 						}
 					}
-				}
-			}(helixSessionID, content)
+				}(helixSessionID, commentID, requestID, content)
+			}
 
 			// Reload session with all interactions so WebSocket event has latest data
 			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -1535,45 +1533,50 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 
 	// DATABASE-FIRST: Finalize pending comment response
 	// Query database for pending comments (survives API and container restarts)
-	go func(sessionID string) {
-		pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), sessionID)
-		if err != nil {
-			log.Debug().
-				Err(err).
+	// IMPORTANT: Get the pending comment ID and RequestID synchronously to avoid race conditions
+	// The comment with RequestID set is the one we're finalizing - capture it NOW before any async work
+	pendingComment, err := apiServer.Store.GetPendingCommentByPlanningSessionID(context.Background(), helixSessionID)
+	if err == nil && pendingComment != nil {
+		// Capture the request_id synchronously - this is the comment we're finalizing
+		requestID := pendingComment.RequestID
+		commentID := pendingComment.ID
+
+		go func(sessionID, commentID, requestID string) {
+			// Finalize the comment using the captured request_id
+			// This ensures we finalize the correct comment even if another one starts processing
+			if err := apiServer.finalizeCommentResponse(context.Background(), requestID); err != nil {
+				log.Error().
+					Err(err).
+					Str("comment_id", commentID).
+					Str("request_id", requestID).
+					Msg("Failed to finalize comment response")
+				return
+			}
+
+			log.Info().
+				Str("comment_id", commentID).
 				Str("session_id", sessionID).
-				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
-			return
-		}
+				Str("request_id", requestID).
+				Msg("✅ [HELIX] Finalized comment response via database lookup")
 
-		// Finalize the comment (clear request_id and trigger next in queue)
-		if err := apiServer.finalizeCommentResponse(context.Background(), pendingComment.RequestID); err != nil {
-			log.Error().
-				Err(err).
-				Str("comment_id", pendingComment.ID).
-				Str("request_id", pendingComment.RequestID).
-				Msg("Failed to finalize comment response")
-			return
-		}
-
-		log.Info().
-			Str("comment_id", pendingComment.ID).
-			Str("session_id", sessionID).
-			Str("request_id", pendingComment.RequestID).
-			Msg("✅ [HELIX] Finalized comment response via database lookup")
-
-		// Send completion signal to done channel for HTTP streaming clients
-		if pendingComment.RequestID != "" {
-			_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, pendingComment.RequestID)
-			if exists {
-				select {
-				case doneChan <- true:
-					log.Debug().Str("request_id", pendingComment.RequestID).Msg("Sent done signal to channel")
-				default:
-					log.Debug().Msg("Done channel full")
+			// Send completion signal to done channel for HTTP streaming clients
+			if requestID != "" {
+				_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+				if exists {
+					select {
+					case doneChan <- true:
+						log.Debug().Str("request_id", requestID).Msg("Sent done signal to channel")
+					default:
+						log.Debug().Msg("Done channel full")
+					}
 				}
 			}
-		}
-	}(helixSessionID)
+		}(helixSessionID, commentID, requestID)
+	} else {
+		log.Debug().
+			Str("session_id", helixSessionID).
+			Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
+	}
 
 	return nil
 }
