@@ -42,8 +42,6 @@ RUN apt-get update && apt-get install -y \
     gosu sudo dbus dbus-x11 \
     # Xwayland and X11 utilities
     xwayland x11-xserver-utils xdotool x11-utils \
-    # Mesa and graphics libraries
-    mesa-utils libgl1-mesa-dri libgl1-mesa-glx libegl1 libgles2 \
     # PulseAudio for sound
     pulseaudio libpulse0 \
     # Basic utilities
@@ -56,6 +54,173 @@ RUN apt-get update && apt-get install -y \
 RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
+
+# ====================================================================
+# Build libdrm + Mesa from source for AMD RDNA 3 (gfx1101) support
+# ====================================================================
+# Ubuntu 22.04's default Mesa 23.2 + libdrm 2.4.113 causes GPU crashes on
+# AMD Radeon Pro V710 MxGPU (gfx1101/RDNA 3) with ROCm 6.16+ kernel driver.
+# The Mesa PPAs have dropped 22.04 support, so we build from source.
+#
+# Mesa 25.0.7 gives better error messages ("Illegal opcode in command stream")
+# than older versions which just showed NULL pointer page faults.
+#
+# DEBUG: Set RADV_DEBUG=hang to get command stream decode on crash.
+# DEBUG: UMR is installed for GPU wave/register inspection.
+#
+# This adds ~10-15 min to build time but ensures proper crash debugging.
+ARG LIBDRM_VERSION=2.4.124
+ARG MESA_VERSION=25.0.7
+ARG SPIRV_LLVM_TRANSLATOR_VERSION=18.1.3
+ARG SPIRV_TOOLS_VERSION=vulkan-sdk-1.4.304.0
+
+# Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x requires 18)
+RUN apt-get update && apt-get install -y wget gnupg software-properties-common && \
+    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" > /etc/apt/sources.list.d/llvm-18.list && \
+    apt-get update && rm -rf /var/lib/apt/lists/*
+
+# Install build dependencies (LLVM 18 for Mesa 25.x)
+RUN apt-get update && apt-get install -y \
+    # Build tools (meson from apt is too old, will install via pip)
+    ninja-build cmake pkg-config python3 python3-pip python3-setuptools \
+    python3-mako flex bison git \
+    # libdrm build dependencies
+    libpciaccess-dev \
+    # Mesa dependencies
+    libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
+    libxcb-sync-dev libxcb-xfixes0-dev libxcb-shm0-dev libxcb-randr0-dev \
+    libxcb-glx0-dev libxshmfence-dev libx11-xcb-dev libx11-dev libxext-dev \
+    libxfixes-dev libxxf86vm-dev libxrandr-dev \
+    libwayland-dev libwayland-egl-backend-dev wayland-protocols \
+    libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
+    # LLVM 18 from apt.llvm.org
+    llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
+    libvulkan-dev glslang-dev glslang-tools \
+    libva-dev libvdpau-dev libglvnd-dev \
+    # Runtime dependencies
+    libvulkan1 vulkan-tools mesa-utils \
+    # UMR dependencies for GPU debugging
+    libncurses-dev libpciaccess0 libsdl2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install newer meson via pip (Mesa 25.x requires meson >= 1.1.0, Ubuntu 22.04 has 0.61)
+# Also install ply for Intel Vulkan GRL kernels
+RUN pip3 install "meson>=1.3.0" ply
+
+# Build and install UMR (AMD GPU debugger) for crash analysis
+# UMR can decode command streams, inspect waves, and read registers
+RUN cd /tmp && \
+    git clone https://gitlab.freedesktop.org/tomstdenis/umr.git && \
+    cd umr && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr -DUMR_NO_GUI=ON -DUMR_NO_LLVM=ON .. && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/umr
+
+# Build SPIRV-LLVM-Translator v18.1.3 from source (required for Intel Vulkan)
+# Ubuntu's spirv-llvm-translator packages only go up to LLVM 15
+# This provides LLVMSPIRVLib which Mesa's Intel ANV driver needs
+# NO FALLBACKS - Intel support is required, fail if this doesn't build
+RUN cd /tmp && \
+    curl -L https://github.com/KhronosGroup/SPIRV-LLVM-Translator/archive/v${SPIRV_LLVM_TRANSLATOR_VERSION}.tar.gz -o spirv-llvm-translator.tar.gz && \
+    tar xf spirv-llvm-translator.tar.gz && \
+    cd SPIRV-LLVM-Translator-${SPIRV_LLVM_TRANSLATOR_VERSION} && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_SKIP_INSTALL_RPATH=ON \
+          -DLLVM_DIR=/usr/lib/llvm-18/cmake \
+          -G Ninja .. && \
+    ninja -j$(nproc) && \
+    ninja install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/SPIRV-LLVM-Translator* /tmp/spirv-llvm-translator.tar.gz
+
+# Build SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
+# This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
+# NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
+# Note: vulkan-sdk-1.4.304.0 requires specific SPIRV-Headers revision 3f17b2a
+# Must install to x86_64-linux-gnu libdir for pkg-config to find it
+RUN cd /tmp && \
+    git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
+    cd SPIRV-Tools && \
+    git clone https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
+    cd external/spirv-headers && git checkout 3f17b2af6784bfa2c5aa5dbb8e0e74a607dd8b3b && cd ../.. && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSPIRV_SKIP_TESTS=ON \
+          -G Ninja .. && \
+    ninja -j$(nproc) && \
+    ninja install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/SPIRV-Tools
+
+# Build libdrm 2.4.124 (required for Mesa 25.x with RDNA 3)
+# Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
+RUN cd /tmp && \
+    curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
+    tar xf libdrm.tar.xz && \
+    cd libdrm-${LIBDRM_VERSION} && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        --buildtype=release \
+        -Damdgpu=enabled \
+        -Dradeon=enabled \
+        -Dintel=enabled \
+        -Dnouveau=disabled \
+        -Dvmwgfx=disabled && \
+    ninja -C build -j$(nproc) && \
+    ninja -C build install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libdrm*
+
+# Build Mesa 25.0.7 with drivers for AMD, Intel, and software rendering
+# - AMD: radeonsi (OpenGL), amd/RADV (Vulkan)
+# - Intel: iris (OpenGL Gen8+), crocus (OpenGL Gen4-7), intel/ANV (Vulkan), intel_hasvk (Vulkan Haswell)
+# - Software: llvmpipe, softpipe (fallback)
+# - Zink: OpenGL-on-Vulkan layer
+# NVIDIA uses proprietary drivers mounted at runtime, not Mesa
+RUN cd /tmp && \
+    curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
+    tar xf mesa.tar.xz && \
+    cd mesa-${MESA_VERSION} && \
+    meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib/x86_64-linux-gnu \
+        --buildtype=release \
+        -Dplatforms=x11,wayland \
+        -Dgallium-drivers=radeonsi,iris,crocus,llvmpipe,softpipe,zink \
+        -Dvulkan-drivers=amd,intel,intel_hasvk \
+        -Dglx=dri \
+        -Degl=enabled \
+        -Dgbm=enabled \
+        -Dglvnd=enabled \
+        -Dgles1=disabled \
+        -Dgles2=enabled \
+        -Dvalgrind=disabled \
+        -Dlibunwind=disabled \
+        -Dllvm=enabled \
+        -Dshared-llvm=enabled \
+        -Dgallium-opencl=disabled \
+        -Dgallium-rusticl=false && \
+    ninja -C build -j$(nproc) && \
+    ninja -C build install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/mesa*
+
+# Set RADV debug options for crash analysis
+# hang: Dump command stream and shaders on GPU hang/timeout
+# This is CRITICAL for debugging the illegal opcode crashes
+# Enables syncshaders (GPU command serialization) and hang detection.
+# This may mask race conditions but provides crash dumps if issues occur.
+# TODO: Test if Zed's restored wait_for_gpu() alone fixes crashes (see design doc)
+ENV RADV_DEBUG=hang
 
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)

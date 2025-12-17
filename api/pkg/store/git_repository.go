@@ -35,18 +35,21 @@ func (s *PostgresStore) GetGitRepository(ctx context.Context, id string) (*types
 func (s *PostgresStore) ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
 	var repos []*types.GitRepository
 
-	query := s.gdb.WithContext(ctx)
+	query := s.gdb.WithContext(ctx).Model(&types.GitRepository{})
 	if request.OwnerID != "" {
-		query = query.Where("owner_id = ?", request.OwnerID)
+		query = query.Where("git_repositories.owner_id = ?", request.OwnerID)
 	}
 	if request.OrganizationID != "" {
-		query = query.Where("organization_id = ?", request.OrganizationID)
-	}
-	if request.ProjectID != "" {
-		query = query.Where("project_id = ?", request.ProjectID)
+		query = query.Where("git_repositories.organization_id = ?", request.OrganizationID)
 	}
 
-	err := query.Order("created_at DESC").Find(&repos).Error
+	// Use junction table for project filtering (supports many-to-many)
+	if request.ProjectID != "" {
+		query = query.Joins("INNER JOIN project_repositories ON project_repositories.repository_id = git_repositories.id").
+			Where("project_repositories.project_id = ?", request.ProjectID)
+	}
+
+	err := query.Order("git_repositories.created_at DESC").Find(&repos).Error
 	if err != nil {
 		return nil, err
 	}

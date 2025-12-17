@@ -1473,3 +1473,138 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 
 	return nil
 }
+
+// @Summary Upload file to sandbox
+// @Description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
+// @Tags ExternalAgents
+// @Accept multipart/form-data
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param file formData file true "File to upload"
+// @Success 200 {object} types.SandboxFileUploadResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/upload [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for file upload")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for file upload")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for file upload")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Read the multipart body to forward it
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read upload request body")
+		http.Error(res, "Failed to read file", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("body_size", len(bodyBytes)).
+		Str("content_type", req.Header.Get("Content-Type")).
+		Msg("Uploading file to sandbox via RevDial")
+
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for file upload")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP POST request over RevDial tunnel
+	// Important: preserve the Content-Type header with multipart boundary
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/upload", bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create upload request")
+		http.Error(res, "Failed to create upload request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", req.Header.Get("Content-Type"))
+	httpReq.ContentLength = int64(len(bodyBytes))
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write upload request to RevDial")
+		http.Error(res, "Failed to send upload request", http.StatusInternalServerError)
+		return
+	}
+
+	uploadResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read upload response from RevDial")
+		http.Error(res, "Failed to read upload response", http.StatusInternalServerError)
+		return
+	}
+	defer uploadResp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(uploadResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read upload response body")
+		http.Error(res, "Failed to read upload response", http.StatusInternalServerError)
+		return
+	}
+
+	// Check upload server response status
+	if uploadResp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status", uploadResp.StatusCode).
+			Str("response", string(respBody)).
+			Msg("Screenshot server returned error for upload")
+		http.Error(res, string(respBody), uploadResp.StatusCode)
+		return
+	}
+
+	// Return the response from screenshot server
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+	res.Write(respBody)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("response", string(respBody)).
+		Msg("Successfully uploaded file to sandbox")
+}

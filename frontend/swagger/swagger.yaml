@@ -6073,6 +6073,18 @@ definitions:
       public_key:
         type: string
     type: object
+  types.SandboxFileUploadResponse:
+    properties:
+      filename:
+        description: Original filename
+        type: string
+      path:
+        description: 'Full path: /home/retro/work/incoming/filename'
+        type: string
+      size:
+        description: File size in bytes
+        type: integer
+    type: object
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -10069,6 +10081,55 @@ paths:
       security:
       - BearerAuth: []
       summary: Set session clipboard content
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload a file to the sandbox incoming folder (~/work/incoming/).
+        Files can be dragged and dropped onto the sandbox viewer to upload them.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SandboxFileUploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Upload file to sandbox
       tags:
       - ExternalAgents
   /api/v1/filestore/config:

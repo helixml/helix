@@ -220,6 +220,8 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
 # Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
 RUN mkdir -p /cfg/sway
 ADD wolf/sway-config/config /cfg/sway/custom-cfg
+ADD wolf/sway-config/SWAY-USER-GUIDE.md /cfg/sway/SWAY-USER-GUIDE.md
+RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
 
 # Copy and setup Zed startup script and helper scripts
 ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
