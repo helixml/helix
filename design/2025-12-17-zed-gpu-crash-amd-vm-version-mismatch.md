@@ -862,6 +862,11 @@ This confirms the issue is RADV generating incompatible opcodes for MxGPU.
 **DEFINITIVE CONCLUSION:** RADV is incompatible with V710 MxGPU, even with clean GPU state.
 The crash happens within 2 minutes of a fresh boot. This is NOT GPU state corruption.
 
+**Important observation:** helix-sway has worked reliably for weeks on the same GPU with the
+same Wolf/sandbox setup. The VA-API context creation errors we see with helix-ubuntu are a
+**downstream symptom** of the Vulkan crashes, not a separate issue. GNOME/Mutter and Zed's
+Vulkan usage corrupts the GPU state, which then breaks VA-API in the sandbox.
+
 **Remaining options:**
 
 1. **Proprietary vulkan-amdgpu-pro driver (version 6.4.4)** - Already prepared in Dockerfile
