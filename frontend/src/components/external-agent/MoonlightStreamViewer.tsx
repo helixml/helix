@@ -2346,7 +2346,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       element = videoRef.current;
     }
 
-    if (!element || !streamRef.current) {
+    // If no element, return fallback (but with proper position approximation)
+    if (!element) {
       return new DOMRect(0, 0, width, height);
     }
 
@@ -2354,6 +2355,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     // For WebSocket mode: canvas is already sized to maintain aspect ratio,
     // so bounding rect IS the video content area (no letterboxing)
+    // Note: We don't need streamRef here - the canvas position is correct regardless
     if (streamingMode === 'websocket') {
       return new DOMRect(
         boundingRect.x,
@@ -2365,7 +2367,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     // For WebRTC mode: video element uses objectFit: contain, so we need to
     // calculate where the actual video content appears within the element
-    const videoSize = streamRef.current.getStreamerSize() || [width, height];
+    // Use stream's size if available, otherwise fall back to props (which are the intended resolution)
+    const videoSize = streamRef.current?.getStreamerSize() || [width, height];
     const videoAspect = videoSize[0] / videoSize[1];
     const boundingRectAspect = boundingRect.width / boundingRect.height;
 
