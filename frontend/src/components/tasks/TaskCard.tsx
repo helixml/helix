@@ -835,7 +835,7 @@ export default function TaskCard({
                 fontStyle: 'italic',
               }}
             >
-              Address review comments with agent. Moves to Merged when PR closes.
+              Address review comments with agent.<br />Moves to Merged when PR closes.
             </Typography>
           </Box>
         )}
