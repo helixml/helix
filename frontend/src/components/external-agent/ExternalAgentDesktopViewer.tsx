@@ -199,7 +199,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         <ScreenshotViewer
           sessionId={sessionId}
           autoRefresh={true}
-          refreshInterval={3000}
+          refreshInterval={1500}
           enableStreaming={false}
           showToolbar={false}
           showTimestamp={false}
