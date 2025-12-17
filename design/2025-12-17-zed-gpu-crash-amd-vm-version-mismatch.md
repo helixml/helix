@@ -999,15 +999,17 @@ helix-sway:63a6ed    Exited (137) 9 minutes ago  # SIGKILL - manual stop
 helix-sway:418229    Exited (255) 11 minutes ago # Crash (during testing)
 ```
 
-### Conclusion: Abandon helix-ubuntu on AMD MxGPU
+### Next Steps: Investigate AMD MxGPU + Xwayland Bug
 
-The Xwayland + GNOME stack is fundamentally incompatible with AMD Radeon Pro V710 MxGPU.
-The issue is NOT the Vulkan driver - it's the Xwayland layer corrupting buffer addresses.
+The issue is NOT the Vulkan driver - it's something in the Xwayland + AMD MxGPU combination.
+This is a bug that can be fixed, not a fundamental incompatibility.
 
-**Recommended path forward:**
-1. Use helix-sway on AMD VMs (works reliably)
-2. If GNOME is required, investigate running GNOME in native Wayland mode
-3. Or replace GNOME with Sway but keep Ubuntu 22.04 LTS base
+**Investigation paths:**
+1. **Zed's Vulkan code** - Compare X11 vs Wayland surface creation in blade-graphics
+2. **Xwayland DRI3** - Check AMD-specific code paths in Xwayland buffer sharing
+3. **Vulkan validation** - Run Zed with Vulkan validation layers to catch the NULL pointer
+4. **GNOME native Wayland** - Try removing GDK_BACKEND=x11 to run GNOME in Wayland mode
+5. **Trace the NULL** - Use GPU debugging tools to find where the NULL buffer originates
 
 ### Tested Driver Configurations (All Failed on helix-ubuntu)
 
@@ -1021,10 +1023,53 @@ The issue is NOT the Vulkan driver - it's the Xwayland layer corrupting buffer a
 
 **All drivers crash because the problem is Xwayland, not the Vulkan driver.**
 
+## Update: Mesa 25.0.7 Source Build with RADV_DEBUG=hang (2025-12-17)
+
+### Configuration Restored for Debugging
+
+Restored Dockerfile.ubuntu-helix to Mesa 25.0.7 source build with debugging tools:
+
+**Build Configuration:**
+- Mesa: 25.0.7 (from source)
+- LLVM: 18 (from apt.llvm.org)
+- libdrm: 2.4.124 (from source)
+- Vulkan drivers: RADV (AMD), ANV (Intel if spirv-llvm-translator available)
+- Gallium drivers: radeonsi, iris, crocus, llvmpipe, softpipe, zink
+
+**Debugging Tools Added:**
+- **RADV_DEBUG=hang**: Dumps command stream and shaders on GPU hang
+- **UMR**: AMD GPU debugger for wave/register inspection
+
+**Why this configuration:**
+The Mesa 25.0.7 source build gave the most informative error ("Illegal opcode in command stream")
+compared to the PRO driver which just showed NULL pointer page faults. With RADV_DEBUG=hang,
+we should get the actual shader disassembly and command stream that caused the crash.
+
+**Debugging procedure when crash occurs:**
+1. Check dmesg for "Illegal opcode" errors
+2. Check Zed logs for RADV hang dump: `~/.local/share/zed/logs/`
+3. Use UMR to inspect GPU state: `sudo umr --ring-dump gfx` (requires setuid on umr)
+4. Collect command stream decode from RADV hang output
+
 ## References
 
+### Azure & AMD Official Documentation
+- [Azure N-series AMD GPU Driver Setup for Linux](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide)
+- [NVads V710 v5 Series Specifications](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/nvadsv710-v5-series)
+- [AMD ROCm Container Documentation](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html)
+
+### SR-IOV Technical References
+- [Phoronix: Firmware Assisted Shadowing for RDNA3 SR-IOV](https://www.phoronix.com/news/AMDGPU-FW-Assisted-Shadow-GFX11)
+- [Phoronix: AMD RADV Register Shadowing for MCBP](https://www.phoronix.com/news/AMD-RADV-Register-Shadowing)
+- [Linux 6.2 AMDGPU SR-IOV Fixes for RDNA3/GFX11](https://www.phoronix.com/news/Linux-6.2-AMDGPU-Changes)
+- [AMD GIM Open-Source Driver](https://www.phoronix.com/news/AMD-GIM-Open-Source)
+- [Kernel Patch: drm/amdgpu/gfx11 bad opcode interrupt](https://mail-archive.com/amd-gfx@lists.freedesktop.org/msg109673.html)
+
+### Mesa & RADV
 - [Mesa RADV driver](https://docs.mesa3d.org/drivers/radv.html)
+- [Mesa 24.3.0 Release Notes](https://docs.mesa3d.org/relnotes/24.3.0)
+
+### Debugging Tools
+- [UMR: AMD GPU User-Mode Register Debugger](https://umr.readthedocs.io/en/main/build.html)
 - [AMD PRO drivers for Linux](https://www.amd.com/en/support/linux-drivers)
 - [Zed Linux GPU troubleshooting](https://zed.dev/docs/linux#graphics-issues)
-- [Azure NV-series VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/nv-series)
-- [AMD ROCm Container Documentation](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html)
