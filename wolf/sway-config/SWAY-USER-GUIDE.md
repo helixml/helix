@@ -21,7 +21,6 @@ The waybar at the top provides clickable controls:
 - **Workspace numbers** - Click to switch between workspaces (1, 2, 3...)
 - **🦊** - Launch Firefox
 - **🐱** - Launch Kitty terminal
-- **📄** - Launch OnlyOffice
 - **🇺🇸 🇬🇧 🇫🇷** - Switch keyboard layout
 
 **Right side:**

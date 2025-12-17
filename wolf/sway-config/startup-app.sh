@@ -201,12 +201,12 @@ window#waybar {
 }
 
 /* App launcher icons */
-#custom-firefox, #custom-kitty, #custom-onlyoffice {
+#custom-firefox, #custom-kitty {
     padding: 0 8px;
     font-size: 16px;
 }
 
-#custom-firefox:hover, #custom-kitty:hover, #custom-onlyoffice:hover {
+#custom-firefox:hover, #custom-kitty:hover {
     background-color: #404050;
     border-radius: 4px;
 }
@@ -261,7 +261,6 @@ GTK_EOF
     "custom/separator",
     "custom/firefox",
     "custom/kitty",
-    "custom/onlyoffice",
     "custom/separator2",
     "custom/keyboard-us",
     "custom/keyboard-gb",
@@ -306,12 +305,6 @@ GTK_EOF
     "tooltip": true,
     "tooltip-format": "Kitty Terminal",
     "on-click": "kitty"
-  },
-  "custom/onlyoffice": {
-    "format": "📄",
-    "tooltip": true,
-    "tooltip-format": "OnlyOffice",
-    "on-click": "onlyoffice-desktopeditors"
   },
   "custom/keyboard-us": {
     "format": "🇺🇸",
@@ -430,7 +423,6 @@ EOF
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
