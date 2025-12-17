@@ -170,6 +170,21 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*types.SpecTask{}
 	}
 
+	// Compute PullRequestURL for tasks with PullRequestID (external repos like ADO)
+	if projectID != "" {
+		project, err := s.Store.GetProject(ctx, projectID)
+		if err == nil && project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo.ExternalURL != "" {
+				for _, task := range tasks {
+					if task.PullRequestID != "" && task.PullRequestURL == "" {
+						task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
+					}
+				}
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }
