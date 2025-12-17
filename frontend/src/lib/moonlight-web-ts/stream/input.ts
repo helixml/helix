@@ -17,6 +17,14 @@ const TOUCH_AS_CLICK_MAX_TIME_MS = 300
 // How much to move to open up the screen keyboard when having three touches at the same time
 const TOUCHES_AS_KEYBOARD_DISTANCE = 100
 
+// Scroll axis snapping configuration
+// Minimum movement to establish axis lock (prevents accidental diagonal scrolling)
+const SCROLL_AXIS_LOCK_THRESHOLD = 3
+// Ratio of primary to secondary axis to maintain lock (e.g., 3:1 means primary must be 3x secondary)
+const SCROLL_AXIS_LOCK_RATIO = 2.5
+// Time in ms before axis lock resets (when user stops scrolling)
+const SCROLL_AXIS_LOCK_TIMEOUT_MS = 150
+
 const CONTROLLER_RUMBLE_INTERVAL_MS = 60
 
 function trySendChannel(channel: RTCDataChannel | null, buffer: ByteBuffer) {
@@ -79,6 +87,12 @@ export class StreamInput {
     private controllerInputs: Array<RTCDataChannel | null> = []
 
     private touchSupported: boolean | null = null
+
+    // Scroll state for axis snapping and smooth accumulation
+    private scrollAccumulatorX = 0
+    private scrollAccumulatorY = 0
+    private scrollAxisLock: 'x' | 'y' | null = null
+    private scrollAxisLockTimeout: ReturnType<typeof setTimeout> | null = null
 
     constructor(config?: StreamInputConfig, peer?: RTCPeerConnection,) {
         if (peer) {
@@ -235,49 +249,104 @@ export class StreamInput {
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
 
-        if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
-            // Pixel mode - use adaptive scaling based on magnitude
-            // Large values (>30) are likely mouse wheel notches - scale down aggressively
-            // Small values are likely touchpad - minimal scaling to preserve sensitivity
-            const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
-            if (magnitude > 30) {
-                // Mouse wheel: scale down to prevent oversensitivity
-                // 100-150 → 10-15 for high-res mode
-                deltaX = deltaX / 10;
-                deltaY = deltaY / 10;
-            } else {
-                // Touchpad: light scaling to keep smooth scrolling working
-                // 1-10 → 0.5-5 for high-res mode (accumulated over many events)
-                deltaX = deltaX / 2;
-                deltaY = deltaY / 2;
+        // Reset axis lock timeout on each scroll event
+        if (this.scrollAxisLockTimeout) {
+            clearTimeout(this.scrollAxisLockTimeout);
+        }
+        this.scrollAxisLockTimeout = setTimeout(() => {
+            // Reset axis lock and accumulators when user stops scrolling
+            this.scrollAxisLock = null;
+            this.scrollAccumulatorX = 0;
+            this.scrollAccumulatorY = 0;
+        }, SCROLL_AXIS_LOCK_TIMEOUT_MS);
+
+        // Apply axis snapping for trackpad (small, continuous movements)
+        // Mouse wheel events are typically large and discrete, so skip snapping for those
+        const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+        const isTrackpad = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && magnitude <= 30;
+
+        if (isTrackpad) {
+            const absX = Math.abs(deltaX);
+            const absY = Math.abs(deltaY);
+
+            // Establish axis lock if not already locked and movement is significant
+            if (this.scrollAxisLock === null && (absX > SCROLL_AXIS_LOCK_THRESHOLD || absY > SCROLL_AXIS_LOCK_THRESHOLD)) {
+                // Lock to whichever axis has more movement
+                this.scrollAxisLock = absY >= absX ? 'y' : 'x';
             }
-        } else if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-            // Line mode (Firefox) - multiply to match high-res scale
-            // Firefox sends 1-3 per notch, we want ~10-15 for high-res
-            deltaX = deltaX * 5;
-            deltaY = deltaY * 5;
-        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-            // Page mode - multiply for reasonable scroll
-            deltaX = deltaX * 50;
-            deltaY = deltaY * 50;
+
+            // Apply axis lock - zero out the non-dominant axis
+            // But allow switching if the other axis becomes strongly dominant
+            if (this.scrollAxisLock === 'y') {
+                if (absX > absY * SCROLL_AXIS_LOCK_RATIO && absX > SCROLL_AXIS_LOCK_THRESHOLD) {
+                    // User is now scrolling strongly horizontal - switch lock
+                    this.scrollAxisLock = 'x';
+                    deltaY = 0;
+                } else {
+                    deltaX = 0;
+                }
+            } else if (this.scrollAxisLock === 'x') {
+                if (absY > absX * SCROLL_AXIS_LOCK_RATIO && absY > SCROLL_AXIS_LOCK_THRESHOLD) {
+                    // User is now scrolling strongly vertical - switch lock
+                    this.scrollAxisLock = 'y';
+                    deltaX = 0;
+                } else {
+                    deltaY = 0;
+                }
+            }
         }
 
-        // Ensure non-zero values don't round to zero (preserves scroll direction)
-        // This is critical for touchpad which sends many small deltas
-        const roundAwayFromZero = (v: number) => {
-            if (v === 0) return 0;
-            if (v > 0 && v < 1) return 1;
-            if (v < 0 && v > -1) return -1;
-            return Math.round(v);
-        };
+        // Scale deltas to v120 units (Linux high-res scroll standard)
+        // v120: 120 units = 1 wheel notch (15 degrees), fractional values for smooth scrolling
+        if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+            if (magnitude > 30) {
+                // Mouse wheel: browser sends ~100-150 pixels per notch
+                // Map to ~120 v120 per notch: 100px × 1.2 = 120 v120
+                deltaX = deltaX * 1.2;
+                deltaY = deltaY * 1.2;
+            } else {
+                // Trackpad: browser sends 1-10 pixels per event, high frequency
+                // Need to scale UP to v120 units for meaningful scroll
+                // ~40 pixels of trackpad movement should = 1 line (120 v120)
+                // Multiply by 3: 40px × 3 = 120 v120
+                deltaX = deltaX * 3;
+                deltaY = deltaY * 3;
+            }
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+            // Line mode (Firefox) - 1 line = 120 v120
+            deltaX = deltaX * 120;
+            deltaY = deltaY * 120;
+        } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+            // Page mode - 1 page = ~10 lines = 1200 v120
+            deltaX = deltaX * 1200;
+            deltaY = deltaY * 1200;
+        }
+
+        // Accumulate fractional values instead of rounding each event
+        // This preserves smooth scrolling on trackpads that send many small deltas
+        this.scrollAccumulatorX += deltaX;
+        this.scrollAccumulatorY += deltaY;
+
+        // Extract integer portion to send, keep fractional remainder
+        const sendX = Math.trunc(this.scrollAccumulatorX);
+        const sendY = Math.trunc(this.scrollAccumulatorY);
+        this.scrollAccumulatorX -= sendX;
+        this.scrollAccumulatorY -= sendY;
+
+        // Only send if there's something to send
+        if (sendX === 0 && sendY === 0) {
+            return;
+        }
 
         if (this.config.mouseScrollMode == "highres") {
-            this.sendMouseWheelHighRes(roundAwayFromZero(deltaX), roundAwayFromZero(-deltaY))
+            this.sendMouseWheelHighRes(sendX, -sendY)
         } else if (this.config.mouseScrollMode == "normal") {
             // Normal mode uses Int8 (-128 to 127), scale down further
-            const normalX = deltaX / 10;
-            const normalY = -deltaY / 10;
-            this.sendMouseWheel(roundAwayFromZero(normalX), roundAwayFromZero(normalY))
+            const normalX = Math.trunc(sendX / 10);
+            const normalY = Math.trunc(-sendY / 10);
+            if (normalX !== 0 || normalY !== 0) {
+                this.sendMouseWheel(normalX, normalY)
+            }
         }
     }
 
