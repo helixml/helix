@@ -302,7 +302,7 @@ RUN apt-get update && \
     # Prefer Mozilla's Firefox over Ubuntu's snap transitional package
     echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
     apt-get update && \
-    apt-get install -y firefox && \
+    apt-get install -y --allow-downgrades firefox && \
     rm -rf /var/lib/apt/lists/* && \
     # Configure Firefox policies to suppress first-run dialogs and sidebar
     mkdir -p /usr/lib/firefox/distribution && \
