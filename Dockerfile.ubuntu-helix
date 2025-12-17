@@ -222,6 +222,12 @@ RUN cd /tmp && \
 # TODO: Test if Zed's restored wait_for_gpu() alone fixes crashes (see design doc)
 ENV RADV_DEBUG=hang
 
+# RadeonSI (OpenGL) debug options for GL apps
+# sync_compile: Always compile shaders synchronously (prevents race conditions)
+# check_vm: Check VM faults and dump debug info
+# Note: RadeonSI doesn't have a syncshaders equivalent like RADV
+ENV AMD_DEBUG=sync_compile,check_vm
+
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
 # ====================================================================
@@ -238,7 +244,7 @@ RUN apt-get update && apt-get install -y \
     # System utilities
     gnome-control-center \
     gnome-tweaks \
-    # Keyring for Chrome password storage (auto-unlock with empty password)
+    # Keyring for browser password storage (auto-unlock with empty password)
     gnome-keyring libsecret-tools \
     # Ubuntu theming
     yaru-theme-gtk \
@@ -283,60 +289,47 @@ RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
 RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 
 # ====================================================================
-# Install Google Chrome (stable) - default browser
+# Install Firefox from Mozilla APT repo (Chrome has GPU issues on AMD MxGPU)
+# Ubuntu 22.04's default firefox package is a snap transitional package
+# which doesn't work in Docker containers. Use Mozilla's official repo.
 # ====================================================================
 RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    # Add Mozilla APT repository
     mkdir -p /etc/apt/keyrings && \
-    wget -q https://dl.google.com/linux/linux_signing_key.pub -O /etc/apt/keyrings/google-chrome.asc && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
+    # Prefer Mozilla's Firefox over Ubuntu's snap transitional package
+    echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
     apt-get update && \
-    apt-get install -y google-chrome-stable && \
+    apt-get install -y --allow-downgrades firefox && \
     rm -rf /var/lib/apt/lists/* && \
-    # Configure Chrome enterprise policies (suppress all first-run dialogs)
-    mkdir -p /etc/opt/chrome/policies/managed && \
+    # Configure Firefox policies to suppress first-run dialogs and sidebar
+    mkdir -p /usr/lib/firefox/distribution && \
     echo '{ \
-      "DefaultBrowserSettingEnabled": false, \
-      "MetricsReportingEnabled": false, \
-      "BrowserSignin": 0, \
-      "PromotionalTabsEnabled": false, \
-      "ShowFirstRunBubble": false, \
-      "WelcomePageOnOSUpgradeEnabled": false, \
-      "SyncDisabled": true, \
-      "ImportBookmarks": false, \
-      "ImportHistory": false, \
-      "ImportSavedPasswords": false, \
-      "ImportSearchEngine": false, \
-      "RestoreOnStartup": 5, \
-      "PasswordManagerEnabled": true \
-    }' > /etc/opt/chrome/policies/managed/helix.json && \
-    # Create master preferences to skip first run and welcome page
-    mkdir -p /opt/google/chrome && \
-    echo '{ \
-      "distribution": { \
-        "skip_first_run_ui": true, \
-        "suppress_first_run_default_browser_prompt": true, \
-        "do_not_create_desktop_shortcut": true, \
-        "do_not_create_quick_launch_shortcut": true, \
-        "do_not_create_taskbar_shortcut": true, \
-        "do_not_launch_chrome": true, \
-        "do_not_register_for_update_launch": true, \
-        "make_chrome_default": false, \
-        "make_chrome_default_for_user": false, \
-        "suppress_first_run_bubble": true, \
-        "import_bookmarks": false, \
-        "import_history": false, \
-        "import_home_page": false, \
-        "import_search_engine": false \
-      }, \
-      "browser": { \
-        "check_default_browser": false, \
-        "show_home_button": false \
-      }, \
-      "sync_promo": { \
-        "show_on_first_run_allowed": false \
-      }, \
-      "first_run_tabs": ["about:blank"] \
-    }' > /opt/google/chrome/master_preferences
+      "policies": { \
+        "DisableFirstRunPage": true, \
+        "DisableTelemetry": true, \
+        "DontCheckDefaultBrowser": true, \
+        "NoDefaultBookmarks": true, \
+        "OfferToSaveLogins": true, \
+        "PasswordManagerEnabled": true, \
+        "Preferences": { \
+          "sidebar.revamp": { \
+            "Value": false, \
+            "Status": "locked" \
+          }, \
+          "sidebar.verticalTabs": { \
+            "Value": false, \
+            "Status": "locked" \
+          }, \
+          "browser.tabs.tabmanager.enabled": { \
+            "Value": false, \
+            "Status": "locked" \
+          } \
+        } \
+      } \
+    }' > /usr/lib/firefox/distribution/policies.json
 
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
@@ -450,7 +443,7 @@ RUN chmod +x /zed-build/zed
 
 # Install Zed desktop file and icon for GNOME integration
 # The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
-# Generate all standard icon sizes to match Chrome/GNOME expectations
+# Generate all standard icon sizes to match GNOME expectations
 # IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
 COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
@@ -485,25 +478,8 @@ RUN mkdir -p /etc/skel/.config/devilspie2
 COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua
 RUN chmod 644 /etc/skel/.config/devilspie2/helix-tiling.lua
 
-# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
-# Chrome checks for this file to determine if it's the first launch
-RUN mkdir -p /etc/skel/.config/google-chrome && \
-    touch /etc/skel/.config/google-chrome/"First Run" && \
-    # Also create Default profile directory with minimal preferences
-    mkdir -p /etc/skel/.config/google-chrome/Default && \
-    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
-      > /etc/skel/.config/google-chrome/Default/Preferences
-
-# Install Chrome wrapper with container-optimized startup flags
-# Disables: component updates, sync, background networking, translation
-# This significantly reduces Chrome startup time in containers
-COPY wolf/ubuntu-config/google-chrome-wrapper.sh /usr/local/bin/google-chrome-wrapper.sh
-RUN chmod 755 /usr/local/bin/google-chrome-wrapper.sh && \
-    # Update Chrome desktop file to use wrapper
-    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome-wrapper.sh|g' \
-        /usr/share/applications/google-chrome.desktop && \
-    # Pre-build fontconfig cache (major speedup for first launch)
-    fc-cache -f -v
+# Pre-build fontconfig cache (major speedup for first browser launch)
+RUN fc-cache -f -v
 
 # ====================================================================
 # Final setup
