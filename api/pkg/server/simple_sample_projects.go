@@ -1148,6 +1148,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 						log.Warn().Err(taskErr).Msg("Failed to create clone demo task")
 					} else {
 						totalTasksCreated++
+						// Log audit event for task creation
+						if s.auditLogService != nil {
+							s.auditLogService.LogTaskCreated(ctx, task, user.ID, user.Email)
+						}
 					}
 				}
 			}
@@ -1335,6 +1339,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 				Msg("Failed to create spec task")
 		} else {
 			tasksCreated++
+			// Log audit event for task creation
+			if s.auditLogService != nil {
+				s.auditLogService.LogTaskCreated(ctx, task, user.ID, user.Email)
+			}
 		}
 	}
 

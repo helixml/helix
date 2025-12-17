@@ -1,3 +1,4 @@
+// Spec-driven task handlers with audit logging integration
 package server
 
 import (
@@ -61,6 +62,11 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for task creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogTaskCreated(ctx, task, user.ID, user.Email)
 	}
 
 	log.Info().
@@ -259,6 +265,11 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get updated task")
 		http.Error(w, "failed to get updated task", http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for spec approval
+	if req.Approved && s.auditLogService != nil {
+		s.auditLogService.LogTaskApproved(ctx, task, user.ID, user.Email)
 	}
 
 	log.Info().
