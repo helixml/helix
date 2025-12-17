@@ -352,9 +352,9 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 
 	if branchName == "" {
 		branchName = gitRepo.DefaultBranch
-		if branchName == "" {
-			branchName = "main"
-		}
+	}
+	if branchName == "" {
+		return nil, fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
 	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
@@ -1005,6 +1005,9 @@ func (s *GitRepositoryService) initializeGitRepository(
 // For external repositories, this clones them as BARE repositories to allow
 // receiving pushes from agents. The actual working copy is created on-demand
 // when needed for operations like CreateOrUpdateFileContents.
+//
+// IMPORTANT: This clones ALL branches from the external repo and detects the
+// default branch from HEAD (preserving 'master' if that's what the remote uses).
 func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitRepository) error {
 	var (
 		repo *git.Repository
@@ -1018,6 +1021,8 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				URL:      gitRepo.ExternalURL,
 				Progress: os.Stdout,
 				Bare:     true,
+				// Clone ALL branches, not just the default one
+				// This ensures we have all remote branches available locally
 			}
 
 			cloneOptions.Auth = s.GetAuthConfig(gitRepo)
@@ -1026,6 +1031,11 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 			if err != nil {
 				return fmt.Errorf("failed to clone git repository: %w", err)
 			}
+
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("external_url", gitRepo.ExternalURL).
+				Msg("Cloned external repository as bare repo")
 		}
 	} else {
 		repo, err = git.PlainOpen(gitRepo.LocalPath)
@@ -1034,6 +1044,26 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 		}
 	}
 
+	// Detect default branch from HEAD if not already set
+	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
+	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
+		headRef, err := repo.Head()
+		if err == nil && headRef.Name().IsBranch() {
+			detectedBranch := headRef.Name().Short()
+			if gitRepo.DefaultBranch == "" || gitRepo.DefaultBranch != detectedBranch {
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("detected_branch", detectedBranch).
+					Str("previous_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from repository HEAD")
+				gitRepo.DefaultBranch = detectedBranch
+			}
+		} else if err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Could not detect default branch from HEAD")
+		}
+	}
+
+	// List all branches
 	refs, err := repo.References()
 	if err == nil {
 		branches := []string{}
@@ -1045,6 +1075,12 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 			return nil
 		})
 		gitRepo.Branches = branches
+
+		log.Debug().
+			Str("repo_id", gitRepo.ID).
+			Strs("branches", branches).
+			Str("default_branch", gitRepo.DefaultBranch).
+			Msg("Updated repository branch information")
 	}
 
 	gitRepo.LastActivity = time.Now()

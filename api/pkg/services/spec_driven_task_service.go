@@ -769,7 +769,21 @@ Follow these guidelines when making changes:
 		// Creating new branch from base
 		baseBranch := task.BaseBranch
 		if baseBranch == "" {
-			baseBranch = "main" // fallback
+			// Use the primary repo's default branch as fallback
+			for _, repo := range projectRepos {
+				if repo.ID == primaryRepoID && repo.DefaultBranch != "" {
+					baseBranch = repo.DefaultBranch
+					break
+				}
+			}
+		}
+		if baseBranch == "" {
+			// Last resort: use "main" but log a warning
+			baseBranch = "main"
+			log.Warn().
+				Str("task_id", task.ID).
+				Str("project_id", task.ProjectID).
+				Msg("No base branch or default branch configured, falling back to 'main'")
 		}
 		gitInstructions = fmt.Sprintf(`**If making code changes:**
 1. git fetch origin && git checkout %s && git pull origin %s

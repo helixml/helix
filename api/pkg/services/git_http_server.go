@@ -685,8 +685,9 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		s.handleFeatureBranchPush(ctx, repo, pushedBranch, latestCommitHash, repoPath)
 	}
 
-	// Check for pushes to main/master (merge detection)
-	if pushedBranch == repo.DefaultBranch || pushedBranch == "main" || pushedBranch == "master" {
+	// Check for pushes to the default branch (merge detection)
+	// Only trigger if we know the default branch - don't assume main/master
+	if repo.DefaultBranch != "" && pushedBranch == repo.DefaultBranch {
 		s.handleMainBranchPush(ctx, repo, latestCommitHash, repoPath)
 	}
 
