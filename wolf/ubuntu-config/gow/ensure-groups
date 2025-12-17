@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# GOW script to ensure user has access to required device groups
+
+set -e
+
+source /opt/gow/bash-lib/utils.sh
+
+declare -A group_map
+
+for dev in "$@"; do
+    if [ -e "$dev" ]; then
+        dev_group=$(stat -c "%G" "$dev")
+        dev_gid=$(stat -c "%g" "$dev")
+
+        if [ "$dev_group" = "UNKNOWN" ]; then
+            new_name="gow-gid-$dev_gid"
+            # We only have a GID for this group; create a named group for it
+            # this isn't 100% necessary but it prevents some useless noise in the console
+            groupadd -g "$dev_gid" "$new_name"
+            group_map[$new_name]=1
+        else
+            # the group already exists; just add it to the list
+            group_map[$dev_group]=1
+        fi
+
+        # is this device read/writable by the group? if not, make it so
+        if [ "$(stat -c "%a" "$dev" | cut -c2)" -lt 6 ]; then
+            chmod g+rw "$dev"
+        fi
+    else
+        gow_log "Path '$dev' is not present."
+    fi
+done
+
+groups=$(join_by "," "${!group_map[@]}")
+if [ "$groups" != "" ]; then
+    gow_log "Adding user '${UNAME}' to groups: $groups"
+    usermod -G "$groups" "${UNAME}"
+else
+    gow_log "Not modifying user groups ($groups)"
+fi

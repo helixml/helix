@@ -332,6 +332,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
+          onDoubleClick={handleMaximize}
           sx={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -431,6 +432,9 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
                 sessionId={modalConfig.sessionId}
                 wolfLobbyId={modalConfig.wolfLobbyId || modalConfig.sessionId}
                 height={size.height - 48}
+                displayWidth={modalConfig.displayWidth}
+                displayHeight={modalConfig.displayHeight}
+                displayFps={modalConfig.displayFps}
               />
             )}
           </Box>

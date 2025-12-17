@@ -126,6 +126,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		OwnerID:         req.User.ID,
 		SessionID:       req.Session.ID,
 		InteractionID:   interactionID,
+		ProjectID:       req.User.ProjectID,
+		SpecTaskID:      req.User.SpecTaskID,
 		OriginalRequest: bts,
 	})
 
@@ -198,6 +200,12 @@ func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, err
 
 // checkInferenceTokenQuota checks if the user has exceeded their monthly token quota for global providers
 func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
+	// Skip quota check for runner tokens (system-level access)
+	// Runner tokens are used by internal services like Kodit for enrichments
+	if userID == "runner-system" {
+		return nil
+	}
+
 	// Skip quota check if inference quotas are disabled
 	if !c.Options.Config.SubscriptionQuotas.Enabled || !c.Options.Config.SubscriptionQuotas.Inference.Enabled {
 		return nil

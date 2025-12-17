@@ -17,12 +17,40 @@ type WolfInstance struct {
 	GPUType               string    `gorm:"type:varchar(100)" json:"gpu_type"`          // nvidia, amd, intel, none (legacy, use GPUVendor)
 	GPUVendor             string    `gorm:"type:varchar(100)" json:"gpu_vendor"`        // nvidia, amd, intel, none (from sandbox heartbeat)
 	RenderNode            string    `gorm:"type:varchar(255)" json:"render_node"`       // /dev/dri/renderD128 or SOFTWARE (from sandbox heartbeat)
-	SwayVersion           string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (commit hash)
+	SwayVersion           string    `gorm:"type:varchar(100)" json:"sway_version"`      // helix-sway image version (legacy, use DesktopVersionsJSON)
+	// Desktop versions stored as JSON map
+	// e.g., {"sway": "a1b2c3...", "zorin": "d4e5f6..."}
+	DesktopVersionsJSON   string    `gorm:"type:text" json:"-"`
 	DiskUsageJSON         string    `gorm:"type:text" json:"-"`                         // JSON-encoded disk usage metrics
 	DiskAlertLevel        string    `gorm:"type:varchar(20)" json:"disk_alert_level"`   // highest alert level: ok, warning, critical
 	PrivilegedModeEnabled bool      `gorm:"default:false" json:"privileged_mode_enabled"` // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+// GetDesktopVersions parses the JSON and returns the map
+func (w *WolfInstance) GetDesktopVersions() map[string]string {
+	if w.DesktopVersionsJSON == "" {
+		return nil
+	}
+	var versions map[string]string
+	if err := json.Unmarshal([]byte(w.DesktopVersionsJSON), &versions); err != nil {
+		return nil
+	}
+	return versions
+}
+
+// GetDesktopVersion returns the version for a specific desktop type
+func (w *WolfInstance) GetDesktopVersion(desktopType string) string {
+	versions := w.GetDesktopVersions()
+	if versions == nil {
+		// Fall back to legacy SwayVersion field for backward compatibility
+		if desktopType == "sway" && w.SwayVersion != "" {
+			return w.SwayVersion
+		}
+		return ""
+	}
+	return versions[desktopType]
 }
 
 // WolfInstance status constants
@@ -42,7 +70,10 @@ type WolfInstanceRequest struct {
 
 // WolfHeartbeatRequest is the request body for Wolf instance heartbeat
 type WolfHeartbeatRequest struct {
-	SwayVersion           string               `json:"sway_version,omitempty"`            // helix-sway image version (commit hash)
+	// Desktop image versions (content-addressable Docker image hashes)
+	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+	// Value: image hash (e.g., "a1b2c3d4e5f6...")
+	DesktopVersions       map[string]string    `json:"desktop_versions,omitempty"`
 	DiskUsage             []DiskUsageMetric    `json:"disk_usage,omitempty"`              // disk usage metrics for monitored partitions
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`         // per-container disk usage breakdown
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"` // true if HYDRA_PRIVILEGED_MODE_ENABLED=true
@@ -109,22 +140,23 @@ type ContainerDiskUsageSummary struct {
 
 // WolfInstanceResponse is the API response for a Wolf instance
 type WolfInstanceResponse struct {
-	ID                    string            `json:"id"`
-	Name                  string            `json:"name"`
-	Address               string            `json:"address"`
-	Status                string            `json:"status"`
-	LastHeartbeat         time.Time         `json:"last_heartbeat"`
-	ConnectedSandboxes    int               `json:"connected_sandboxes"`
-	MaxSandboxes          int               `json:"max_sandboxes"`
-	GPUType               string            `json:"gpu_type"`
-	GPUVendor             string            `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none (from sandbox heartbeat)
-	RenderNode            string            `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
-	SwayVersion           string            `json:"sway_version"`
-	DiskUsage             []DiskUsageMetric `json:"disk_usage,omitempty"`
-	DiskAlertLevel        string            `json:"disk_alert_level,omitempty"`
-	PrivilegedModeEnabled bool              `json:"privileged_mode_enabled"`
-	CreatedAt             time.Time         `json:"created_at"`
-	UpdatedAt             time.Time         `json:"updated_at"`
+	ID                    string              `json:"id"`
+	Name                  string              `json:"name"`
+	Address               string              `json:"address"`
+	Status                string              `json:"status"`
+	LastHeartbeat         time.Time           `json:"last_heartbeat"`
+	ConnectedSandboxes    int                 `json:"connected_sandboxes"`
+	MaxSandboxes          int                 `json:"max_sandboxes"`
+	GPUType               string              `json:"gpu_type"`
+	GPUVendor             string              `json:"gpu_vendor,omitempty"`        // nvidia, amd, intel, none (from sandbox heartbeat)
+	RenderNode            string              `json:"render_node,omitempty"`       // /dev/dri/renderD128 or SOFTWARE
+	SwayVersion           string              `json:"sway_version"`                // legacy, use DesktopVersions
+	DesktopVersions       map[string]string   `json:"desktop_versions,omitempty"`  // map of desktop name -> image hash
+	DiskUsage             []DiskUsageMetric   `json:"disk_usage,omitempty"`
+	DiskAlertLevel        string              `json:"disk_alert_level,omitempty"`
+	PrivilegedModeEnabled bool                `json:"privileged_mode_enabled"`
+	CreatedAt             time.Time           `json:"created_at"`
+	UpdatedAt             time.Time           `json:"updated_at"`
 }
 
 // ToResponse converts a WolfInstance to WolfInstanceResponse
@@ -141,6 +173,7 @@ func (w *WolfInstance) ToResponse() *WolfInstanceResponse {
 		GPUVendor:             w.GPUVendor,
 		RenderNode:            w.RenderNode,
 		SwayVersion:           w.SwayVersion,
+		DesktopVersions:       w.GetDesktopVersions(),
 		DiskAlertLevel:        w.DiskAlertLevel,
 		PrivilegedModeEnabled: w.PrivilegedModeEnabled,
 		CreatedAt:             w.CreatedAt,

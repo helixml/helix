@@ -1,9 +1,12 @@
 // Stream transport mode
+// - 'websocket': WebSocket for both video and input (L7-only, works everywhere)
+// - 'webrtc': WebRTC for video/audio, WebSocket for signaling (requires TURN)
+// Note: SSE video is now controlled by qualityMode='sse', not streamingMode
 export type StreamingMode = 'websocket' | 'webrtc';
 
 // Stream settings interface
 export interface StreamSettings {
-  videoSize: '720p' | '1080p' | '1440p' | '4k' | 'native' | 'custom';
+  videoSize: '720p' | '1080p' | '1440p' | '4k' | '5k' | 'native' | 'custom';
   videoSizeCustom: { width: number; height: number };
   bitrate: number;
   packetSize: number;

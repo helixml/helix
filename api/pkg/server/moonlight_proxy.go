@@ -171,6 +171,16 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		backendReq.RequestURI += "?" + r.URL.RawQuery
 	}
 
+	// Add moonlight-web authentication credentials
+	// This is required for ALL requests to moonlight-web (HTTP and WebSocket)
+	moonlightCreds := apiServer.getMoonlightCredentials()
+	backendReq.Header.Set("Authorization", "Bearer "+moonlightCreds)
+
+	log.Debug().
+		Str("path", backendPath).
+		Bool("has_auth", backendReq.Header.Get("Authorization") != "").
+		Msg("Forwarding HTTP request to Moonlight Web with credentials")
+
 	// Write HTTP request to RevDial connection
 	if err := backendReq.Write(conn); err != nil {
 		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
@@ -196,9 +206,55 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 
 	// Copy response status and body
 	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		log.Error().Err(err).Msg("Failed to copy response body")
-		return
+
+	// Check if this is an SSE response - needs special handling to prevent buffering
+	if resp.Header.Get("Content-Type") == "text/event-stream" {
+		log.Debug().Msg("Proxying SSE stream - using flush-friendly copy")
+
+		// Get flusher for streaming response
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			log.Error().Msg("ResponseWriter does not support Flusher - SSE will be buffered")
+		}
+
+		// Copy with periodic flushing for SSE
+		// DEBUG: Use larger buffer to avoid fragmenting SSE events
+		buf := make([]byte, 256*1024) // 256KB buffer for large video frames
+		totalBytes := 0
+		chunkCount := 0
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				totalBytes += n
+				chunkCount++
+				// Log every 30 chunks or first 5 to debug truncation
+				if chunkCount <= 5 || chunkCount%30 == 0 {
+					log.Debug().Int("chunk", chunkCount).Int("bytes", n).Int("totalBytes", totalBytes).Msg("SSE chunk read")
+				}
+				_, writeErr := w.Write(buf[:n])
+				if writeErr != nil {
+					log.Error().Err(writeErr).Msg("Failed to write SSE data")
+					return
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			if readErr == io.EOF {
+				log.Debug().Int("totalBytes", totalBytes).Int("chunks", chunkCount).Msg("SSE stream ended")
+				break
+			}
+			if readErr != nil {
+				log.Error().Err(readErr).Msg("Failed to read SSE data")
+				return
+			}
+		}
+	} else {
+		// Regular HTTP response
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			log.Error().Err(err).Msg("Failed to copy response body")
+			return
+		}
 	}
 }
 

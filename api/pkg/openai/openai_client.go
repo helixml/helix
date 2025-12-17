@@ -58,6 +58,10 @@ func New(apiKey string, baseURL string, billingEnabled bool, models ...string) *
 // NewWithOptions creates a new OpenAI client with the given API key, base URL, and options.
 // If models are provided, models will be filtered to only include the provided models.
 func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts ClientOptions, models ...string) *RetryableClient {
+	// Strip trailing slash from baseURL to prevent double slashes when concatenating paths
+	// e.g., "https://api.example.com/v1/" + "/models" would become ".../v1//models"
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 

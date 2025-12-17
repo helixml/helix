@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
@@ -34,6 +35,7 @@ type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
+	gitRepositoryService     *GitRepositoryService        // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
 	SendMessageToAgent       SpecTaskMessageSender        // Callback to send messages to agents via WebSocket
 	helixAgentID             string                       // ID of Helix agent for spec generation
@@ -45,6 +47,7 @@ type SpecDrivenTaskService struct {
 	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService       // Service for inter-session coordination
+	wg                       sync.WaitGroup
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -55,12 +58,14 @@ func NewSpecDrivenTaskService(
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
 	externalAgentExecutor external_agent.Executor,
+	gitRepositoryService *GitRepositoryService,
 	registerRequestMapping RequestMappingRegistrar,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:                  store,
 		controller:             controller,
 		externalAgentExecutor:  externalAgentExecutor,
+		gitRepositoryService:   gitRepositoryService,
 		RegisterRequestMapping: registerRequestMapping,
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
@@ -151,6 +156,12 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		helixAppID = req.AppID
 	}
 
+	// Default branch mode to "new" if not specified
+	branchMode := req.BranchMode
+	if branchMode == "" {
+		branchMode = types.BranchModeNew
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -164,6 +175,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		HelixAppID:     helixAppID,        // Helix agent used for entire workflow
 		JustDoItMode:   req.JustDoItMode,  // Set Just Do It mode from request
 		UseHostDocker:  req.UseHostDocker, // Use host Docker socket (requires privileged sandbox)
+		// Branch configuration
+		BranchMode:   branchMode,
+		BaseBranch:   req.BaseBranch,    // User-specified base branch (empty = use repo default)
+		BranchPrefix: req.BranchPrefix,  // User-specified prefix for new branches
+		BranchName:   req.WorkingBranch, // For existing mode, this is the branch to continue on
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -288,11 +304,15 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
+	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
+	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
+
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: "",             // Don't override agent's system prompt
-		AgentType:    "zed_external", // Use Zed agent for git access
-		Stream:       false,
-		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		SystemPrompt:     "",             // Don't override agent's system prompt
+		AgentType:        "zed_external", // Use Zed agent for git access
+		Stream:           false,
+		SpecTaskID:       task.ID,           // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -400,11 +420,47 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Get user's personal API token for git operations (not app-scoped keys)
-	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
+	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+		UserID:     task.CreatedBy,
+		ProjectID:  task.ProjectID,
+		SpecTaskID: task.ID,
+	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for SpecTask")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
 		return
+	}
+
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = width
+			displayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidth).
+				Int("display_height", displayHeight).
+				Int("display_refresh_rate", displayRefreshRate).
+				Str("resolution", resolution).
+				Int("zoom_level", zoomLevel).
+				Str("desktop_type", desktopType).
+				Msg("Using display settings from app's ExternalAgentConfig")
+		}
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
@@ -419,6 +475,12 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
@@ -433,8 +495,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartZedAgent...")
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Calling StartDesktop...")
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -532,8 +594,27 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		delete(task.Metadata, "error_timestamp")
 	}
 
-	// Generate feature branch name using task number (e.g., feature/install-uv-123)
-	branchName := GenerateFeatureBranchName(task)
+	// Handle branch configuration based on mode
+	var branchName string
+	if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
+		// Existing mode: use the branch name that was set during task creation
+		branchName = task.BranchName
+		log.Info().
+			Str("task_id", task.ID).
+			Str("branch_name", branchName).
+			Msg("Continuing work on existing branch")
+	} else {
+		// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
+		branchName = GenerateFeatureBranchName(task)
+
+		// Set base branch if not already set (defaults to repo default, handled in agent prompt)
+		if task.BaseBranch == "" && project != nil && project.DefaultRepoID != "" {
+			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo != nil && repo.DefaultBranch != "" {
+				task.BaseBranch = repo.DefaultBranch
+			}
+		}
+	}
 
 	// Update task status directly to implementation (skip all spec phases)
 	// NOTE: If HelixAppID was inherited from project, it will be persisted here
@@ -549,11 +630,15 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		return
 	}
 
+	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
+	codeAgentRuntimeJDI := s.getCodeAgentRuntimeForTask(ctx, task)
+
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: "",             // Don't override agent's system prompt
-		AgentType:    "zed_external", // Use Zed agent for git access
-		Stream:       false,
-		SpecTaskID:   task.ID, // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		SystemPrompt:     "",             // Don't override agent's system prompt
+		AgentType:        "zed_external", // Use Zed agent for git access
+		Stream:           false,
+		SpecTaskID:       task.ID,              // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
 	}
 
 	session := &types.Session{
@@ -643,6 +728,27 @@ Follow these guidelines when making changes:
 		}
 	}
 
+	// Build git instructions based on branch mode
+	var gitInstructions string
+	if task.BranchMode == types.BranchModeExisting {
+		// Continuing work on existing branch
+		gitInstructions = fmt.Sprintf(`**If making code changes:**
+1. git checkout %s  (continue on existing branch)
+2. Make your changes
+3. git push origin %s`, branchName, branchName)
+	} else {
+		// Creating new branch from base
+		baseBranch := task.BaseBranch
+		if baseBranch == "" {
+			baseBranch = "main" // fallback
+		}
+		gitInstructions = fmt.Sprintf(`**If making code changes:**
+1. git fetch origin && git checkout %s && git pull origin %s
+2. git checkout -b %s  (create new branch from %s)
+3. Make your changes
+4. git push origin %s`, baseBranch, baseBranch, branchName, baseBranch, branchName)
+	}
+
 	promptWithBranch := fmt.Sprintf(`%s
 %s
 ---
@@ -653,13 +759,10 @@ Follow these guidelines when making changes:
 
 **Shell commands:** Specify is_background (true or false) on all shell commands - it's required. Use true for long-running operations (builds, servers, installs).
 
-**If making code changes:**
-1. git checkout -b %s
-2. Make your changes
-3. git push origin %s
+%s
 
 **For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, branchName, branchName, primaryRepoName)
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions, primaryRepoName)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -693,11 +796,47 @@ Follow these guidelines when making changes:
 	}
 
 	// Get user's personal API token for git operations
-	userAPIKey, err := s.getOrCreatePersonalAPIKey(ctx, task.CreatedBy)
+	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+		UserID:     task.CreatedBy,
+		ProjectID:  task.ProjectID,
+		SpecTaskID: task.ID,
+	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API key for Just Do It task")
 		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API key: %v", err))
 		return
+	}
+
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidthJDI := 1920
+	displayHeightJDI := 1080
+	displayRefreshRateJDI := 60
+	resolutionJDI := ""
+	zoomLevelJDI := 0
+	desktopTypeJDI := ""
+	if task.HelixAppID != "" {
+		app, err := s.store.GetApp(ctx, task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidthJDI = width
+			displayHeightJDI = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRateJDI = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolutionJDI = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevelJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopTypeJDI = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+			log.Debug().
+				Str("task_id", task.ID).
+				Int("display_width", displayWidthJDI).
+				Int("display_height", displayHeightJDI).
+				Int("display_refresh_rate", displayRefreshRateJDI).
+				Str("resolution", resolutionJDI).
+				Int("zoom_level", zoomLevelJDI).
+				Str("desktop_type", desktopTypeJDI).
+				Msg("Just Do It: Using display settings from app's ExternalAgentConfig")
+		}
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
@@ -711,13 +850,19 @@ Follow these guidelines when making changes:
 		PrimaryRepositoryID: primaryRepoID,      // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,      // ALL project repos to checkout
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
+		DisplayWidth:        displayWidthJDI,
+		DisplayHeight:       displayHeightJDI,
+		DisplayRefreshRate:  displayRefreshRateJDI,
+		Resolution:          resolutionJDI,
+		ZoomLevel:           zoomLevelJDI,
+		DesktopType:         desktopTypeJDI,
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
 		},
 	}
 
 	// Start the Zed agent via Wolf executor
-	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for Just Do It mode")
 		s.markTaskFailed(ctx, task, err.Error())
@@ -814,21 +959,47 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			}
 		}
 
-		var baseBranch string
-		var primaryRepoName string
-		if project.DefaultRepoID != "" {
-			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
-			if err == nil && repo != nil {
-				baseBranch = repo.DefaultBranch
-				primaryRepoName = repo.Name
-			}
-		}
-		if baseBranch == "" {
-			baseBranch = "main"
+		if project.DefaultRepoID == "" {
+			return fmt.Errorf("default repository not set for project")
 		}
 
-		// Generate feature branch name using task number (e.g., feature/install-uv-123)
-		branchName := GenerateFeatureBranchName(task)
+		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err != nil {
+			return fmt.Errorf("failed to get default repository: %w", err)
+		}
+
+		if repo.DefaultBranch == "" {
+			return fmt.Errorf("default branch not set for repository, please set it")
+		}
+
+		if repo.ExternalURL != "" {
+			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("ApproveSpecs: pulling from remote")
+
+			err = s.gitRepositoryService.PullFromRemote(ctx, repo.ID, repo.DefaultBranch, false)
+			if err != nil {
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("Failed to pull from remote")
+				return fmt.Errorf("failed to update base branch from external repository '%s', error: %w", repo.ExternalURL, err)
+			}
+		}
+
+		// Handle branch configuration based on mode
+		var branchName string
+		if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
+			// Existing mode: use the branch name that was set during task creation
+			branchName = task.BranchName
+			log.Info().
+				Str("task_id", task.ID).
+				Str("branch_name", branchName).
+				Msg("[ApproveSpecs] Continuing work on existing branch")
+		} else {
+			// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
+			branchName = GenerateFeatureBranchName(task)
+
+			// Set base branch if not already set
+			if task.BaseBranch == "" {
+				task.BaseBranch = repo.DefaultBranch
+			}
+		}
 
 		// Specs approved - move to implementation
 		task.Status = types.TaskStatusImplementation
@@ -851,15 +1022,18 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			agentInstructionService := NewAgentInstructionService(s.store)
 
 			// Send approval instruction asynchronously (don't block the response)
+			s.wg.Add(1)
 			go func() {
+				defer s.wg.Done()
+
 				err := agentInstructionService.SendApprovalInstruction(
 					context.Background(),
 					sessionID,
 					task.CreatedBy, // User who created the task
 					task,
 					branchName,
-					baseBranch,
-					primaryRepoName,
+					repo.DefaultBranch,
+					repo.Name,
 				)
 				if err != nil {
 					log.Error().
@@ -1073,39 +1247,28 @@ func convertPriorityToInt(priority string) int {
 	}
 }
 
+type SandboxAPIKeyRequest struct {
+	UserID     string
+	ProjectID  string
+	SpecTaskID string
+}
+
 // getOrCreatePersonalAPIKey gets or creates a personal API key for the user
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, userID string) (string, error) {
-	// List user's existing API keys
-	keys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
+func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, req *SandboxAPIKeyRequest) (string, error) {
+	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
+		Owner:      req.UserID,
+		OwnerType:  types.OwnerTypeUser,
+		ProjectID:  req.ProjectID,
+		SpecTaskID: req.SpecTaskID,
 	})
-	if err != nil {
-		return "", fmt.Errorf("failed to list user API keys: %w", err)
+	if err != nil && err != store.ErrNotFound {
+		return "", fmt.Errorf("failed to get existing API key: %w", err)
 	}
 
-	// Filter out app-scoped API keys - we need a personal API key for full access
-	// App-scoped keys have restricted path access and can't be used for RevDial
-	var personalKeys []*types.ApiKey
-	for _, key := range keys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
-			personalKeys = append(personalKeys, key)
-		}
+	if existing != nil {
+		return existing.Key, nil
 	}
-
-	// Use user's first personal API key if available
-	if len(personalKeys) > 0 {
-		log.Debug().
-			Str("user_id", userID).
-			Str("api_key_name", personalKeys[0].Name).
-			Bool("key_is_personal", true).
-			Msg("Using user's existing personal API key for git operations")
-		return personalKeys[0].Key, nil
-	}
-
-	// No personal API keys exist - create one automatically
-	log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
 
 	newKey, err := system.GenerateAPIKey()
 	if err != nil {
@@ -1113,12 +1276,13 @@ func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, u
 	}
 
 	apiKey := &types.ApiKey{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
-		Key:       newKey,
-		Name:      "Auto-generated for agent access",
-		Type:      types.APIkeytypeAPI,
-		// AppID is nil - this is a personal key
+		Owner:      req.UserID,
+		OwnerType:  types.OwnerTypeUser,
+		Key:        newKey,
+		Name:       "Auto-generated for sandbox agent access - " + req.ProjectID + " - " + req.SpecTaskID,
+		Type:       types.APIkeytypeAPI,
+		ProjectID:  req.ProjectID,
+		SpecTaskID: req.SpecTaskID,
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -1127,9 +1291,50 @@ func (s *SpecDrivenTaskService) getOrCreatePersonalAPIKey(ctx context.Context, u
 	}
 
 	log.Info().
-		Str("user_id", userID).
+		Str("user_id", req.UserID).
+		Str("project_id", req.ProjectID).
+		Str("spec_task_id", req.SpecTaskID).
 		Str("key_name", createdKey.Name).
 		Msg("✅ Created personal API key for agent access")
 
 	return createdKey.Key, nil
+}
+
+// getCodeAgentRuntimeForTask gets the CodeAgentRuntime from the task's associated app configuration.
+// This is used to send the correct agent_name in open_thread commands when resuming sessions.
+func (s *SpecDrivenTaskService) getCodeAgentRuntimeForTask(ctx context.Context, task *types.SpecTask) types.CodeAgentRuntime {
+	if task.HelixAppID == "" {
+		log.Debug().Str("spec_task_id", task.ID).Msg("Spec task has no HelixAppID, defaulting to zed_agent runtime")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	app, err := s.store.GetApp(ctx, task.HelixAppID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", task.ID).
+			Str("helix_app_id", task.HelixAppID).
+			Msg("Failed to get app for code agent runtime, defaulting to zed_agent")
+		return types.CodeAgentRuntimeZedAgent
+	}
+
+	// Find the zed_external assistant in the app config
+	for _, assistant := range app.Config.Helix.Assistants {
+		if assistant.AgentType == types.AgentTypeZedExternal {
+			if assistant.CodeAgentRuntime != "" {
+				log.Debug().
+					Str("spec_task_id", task.ID).
+					Str("helix_app_id", task.HelixAppID).
+					Str("code_agent_runtime", string(assistant.CodeAgentRuntime)).
+					Msg("Found code agent runtime from app config")
+				return assistant.CodeAgentRuntime
+			}
+			break
+		}
+	}
+
+	log.Debug().
+		Str("spec_task_id", task.ID).
+		Str("helix_app_id", task.HelixAppID).
+		Msg("No code agent runtime configured in app, defaulting to zed_agent")
+	return types.CodeAgentRuntimeZedAgent
 }

@@ -96,7 +96,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
 	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
 	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -105,12 +105,22 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Convert to response format - include ALL fields from zedConfig
 	contextServers := make(map[string]interface{})
 	for name, server := range zedConfig.ContextServers {
-		serverMap := map[string]interface{}{
-			"command": server.Command,
-			"args":    server.Args,
-		}
-		if len(server.Env) > 0 {
-			serverMap["env"] = server.Env
+		serverMap := make(map[string]interface{})
+
+		// HTTP-based MCP server
+		// Zed expects "url" field for HTTP context_servers (untagged union)
+		if server.URL != "" {
+			serverMap["url"] = server.URL
+			if len(server.Headers) > 0 {
+				serverMap["headers"] = server.Headers
+			}
+		} else {
+			// Stdio-based MCP server
+			serverMap["command"] = server.Command
+			serverMap["args"] = server.Args
+			if len(server.Env) > 0 {
+				serverMap["env"] = server.Env
+			}
 		}
 		contextServers[name] = serverMap
 	}
@@ -351,7 +361,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 
 	// Always generate config - GenerateZedMCPConfig has sensible defaults
 	// (anthropic/claude-sonnet-4-5-latest, theme, language_models routing, etc.)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")

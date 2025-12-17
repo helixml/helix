@@ -177,7 +177,7 @@ services:
       - "host.docker.internal:host-gateway"
   kodit:
     profiles: [kodit]
-    image: registry.helixml.tech/helix/kodit:latest
+    image: registry.helixml.tech/helix/kodit:0.5.16
     # ports:
     #   - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
@@ -198,11 +198,10 @@ services:
       # - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
       # - EMBEDDING_ENDPOINT_TIMEOUT=120
 
-      # External enrichment provider
-      - ENRICHMENT_ENDPOINT_TYPE=openai
-      - ENRICHMENT_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
+      # External enrichment provider - uses Helix as proxy with runner token auth
       - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
-      - ENRICHMENT_ENDPOINT_MODEL=qwen3:8b
+      - ENRICHMENT_ENDPOINT_MODEL=openai/kodit-model
+      - ENRICHMENT_ENDPOINT_API_KEY=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
       - ENRICHMENT_ENDPOINT_TIMEOUT=120
 

@@ -254,7 +254,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 3000, host: true }
+  server: { port: 3000, host: '0.0.0.0' }
 })`,
 			"tsconfig.json": `{
   "compilerOptions": {
@@ -3143,6 +3143,864 @@ diff output-cobol.txt output-python.txt
 ` + "```" + `
 
 Outputs should be identical.
+`,
+		},
+	}
+
+	// Clone Demo - Pipeline Stocks (Start Here)
+	s.sampleProjects["clone-demo-pipeline-stocks"] = &SampleProjectCode{
+		ID:           "clone-demo-pipeline-stocks",
+		Name:         "Stocks Pipeline (Start Here)",
+		Description:  "Stock price data ingestion pipeline - START HERE for clone demo",
+		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
+		Language:     "python",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+echo "📂 Working in: $(pwd)"
+
+export PATH="$HOME/.local/bin:$PATH"
+
+if ! command -v python3 &> /dev/null; then
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-pip
+fi
+
+if [ -f "requirements.txt" ]; then
+    pip3 install --break-system-packages -r requirements.txt
+fi
+
+echo "✅ Stocks Pipeline ready"
+echo ""
+echo "📋 This is the START HERE project for the clone demo"
+echo "1. Complete the logging task on this pipeline first"
+echo "2. Then use Clone to apply it to the other 4 pipelines"
+`,
+		GitIgnore: `__pycache__/
+*.pyc
+.venv/
+*.log
+`,
+		Files: map[string]string{
+			"README.md": `# Stocks Pipeline (Start Here)
+
+Stock price data ingestion pipeline for financial data platform.
+
+## Clone Demo Instructions
+
+**This is the starting point for the clone feature demo.**
+
+1. Complete the "Add structured logging" task on this project
+2. Once done, click "Clone" on the task card
+3. Select the other 4 pipeline projects (Bonds, Forex, Options, Indicators)
+4. Watch the cloned tasks run with the learned implementation pattern
+
+## Pipeline Structure
+
+` + "```" + `
+src/
+├── client.py      # API client for stock data source
+├── transform.py   # Data transformation (has async operations!)
+├── loader.py      # Database loader
+└── config.py      # Configuration
+` + "```" + `
+
+## The Task
+
+Add structured logging with correlation IDs that propagate through async operations.
+
+## Running the Pipeline
+
+` + "```bash" + `
+python3 -m src.client  # Fetch stock data
+` + "```" + `
+`,
+			"requirements.txt": `structlog>=24.4.0
+aiohttp>=3.10.0
+asyncio-throttle>=1.0.0
+`,
+			"src/__init__.py": `"""Stocks data ingestion pipeline."""
+`,
+			"src/config.py": `"""Pipeline configuration."""
+
+# Data source configuration
+API_BASE_URL = "https://api.marketdata.example.com"
+API_KEY = "demo-key"
+
+# Database configuration
+DB_CONNECTION_STRING = "postgresql://localhost/stocks"
+
+# Pipeline settings
+BATCH_SIZE = 100
+REQUEST_TIMEOUT = 30
+`,
+			"src/client.py": `"""Stock data API client."""
+
+import asyncio
+from typing import List, Dict, Any
+
+from .config import API_BASE_URL, API_KEY, REQUEST_TIMEOUT
+
+
+async def fetch_stock_prices(symbols: List[str]) -> List[Dict[str, Any]]:
+    """Fetch current stock prices for given symbols.
+
+    Args:
+        symbols: List of stock ticker symbols (e.g., ['AAPL', 'MSFT'])
+
+    Returns:
+        List of price data dictionaries
+    """
+    # Simulate API call - in production this would use aiohttp
+    await asyncio.sleep(0.1)  # Simulated network latency
+
+    # Return sample data
+    return [
+        {
+            "symbol": symbol,
+            "price": 150.00 + hash(symbol) % 100,
+            "volume": 1000000 + hash(symbol) % 500000,
+            "timestamp": "2024-01-15T14:30:00Z"
+        }
+        for symbol in symbols
+    ]
+
+
+async def fetch_historical_data(symbol: str, days: int = 30) -> List[Dict[str, Any]]:
+    """Fetch historical price data for a symbol."""
+    await asyncio.sleep(0.05)  # Simulated latency
+
+    return [
+        {"date": f"2024-01-{i:02d}", "close": 150.0 + i, "volume": 1000000}
+        for i in range(1, min(days + 1, 31))
+    ]
+
+
+if __name__ == "__main__":
+    async def main():
+        prices = await fetch_stock_prices(["AAPL", "MSFT", "GOOGL"])
+        for p in prices:
+            print(f"{p['symbol']}: ${p['price']:.2f}")
+
+    asyncio.run(main())
+`,
+			"src/transform.py": `"""Stock data transformation logic."""
+
+import asyncio
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+
+@dataclass
+class StockPrice:
+    """Normalized stock price record."""
+    symbol: str
+    price: float
+    volume: int
+    timestamp: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "price": self.price,
+            "volume": self.volume,
+            "timestamp": self.timestamp
+        }
+
+
+async def validate_price(data: Dict[str, Any]) -> bool:
+    """Validate a price record asynchronously."""
+    await asyncio.sleep(0.01)  # Simulated validation check
+
+    # Validation rules
+    if data.get("price", 0) <= 0:
+        return False
+    if data.get("volume", 0) < 0:
+        return False
+    if not data.get("symbol"):
+        return False
+
+    return True
+
+
+async def transform_prices(raw_data: List[Dict[str, Any]]) -> List[StockPrice]:
+    """Transform raw API data to normalized StockPrice objects."""
+    results = []
+
+    for item in raw_data:
+        is_valid = await validate_price(item)
+
+        if not is_valid:
+            continue
+
+        results.append(StockPrice(
+            symbol=item["symbol"],
+            price=float(item["price"]),
+            volume=int(item["volume"]),
+            timestamp=item["timestamp"]
+        ))
+
+    return results
+
+
+async def enrich_with_historical(
+    prices: List[StockPrice],
+    fetch_history_fn
+) -> List[Dict[str, Any]]:
+    """Enrich current prices with historical data."""
+    enriched = []
+
+    for price in prices:
+        history = await fetch_history_fn(price.symbol, days=5)
+
+        enriched.append({
+            **price.to_dict(),
+            "history": history,
+            "avg_5d": sum(h["close"] for h in history) / len(history) if history else None
+        })
+
+    return enriched
+`,
+			"src/loader.py": `"""Database loader for stock data."""
+
+import asyncio
+from typing import List, Dict, Any
+
+from .config import DB_CONNECTION_STRING
+
+
+async def save_prices(prices: List[Dict[str, Any]]) -> int:
+    """Save price records to database.
+
+    Args:
+        prices: List of price dictionaries to save
+
+    Returns:
+        Number of records saved
+    """
+    # Simulated database operation
+    await asyncio.sleep(0.05)
+
+    # In production: INSERT INTO stock_prices ...
+    saved_count = len(prices)
+
+    return saved_count
+
+
+async def save_batch(prices: List[Dict[str, Any]], batch_size: int = 100) -> int:
+    """Save prices in batches for better performance."""
+    total_saved = 0
+
+    for i in range(0, len(prices), batch_size):
+        batch = prices[i:i + batch_size]
+        saved = await save_prices(batch)
+        total_saved += saved
+
+    return total_saved
+`,
+			"tests/__init__.py": `"""Tests for stocks pipeline."""
+`,
+			"tests/test_transform.py": `"""Tests for transform module."""
+
+import asyncio
+import pytest
+from src.transform import transform_prices, validate_price, StockPrice
+
+
+def test_transform_valid_data():
+    """Test transformation of valid stock data."""
+    raw_data = [
+        {"symbol": "AAPL", "price": 150.0, "volume": 1000000, "timestamp": "2024-01-15T14:30:00Z"},
+        {"symbol": "MSFT", "price": 350.0, "volume": 500000, "timestamp": "2024-01-15T14:30:00Z"},
+    ]
+
+    result = asyncio.run(transform_prices(raw_data))
+
+    assert len(result) == 2
+    assert result[0].symbol == "AAPL"
+    assert result[0].price == 150.0
+
+
+def test_validate_rejects_negative_price():
+    """Test that negative prices are rejected."""
+    data = {"symbol": "TEST", "price": -10.0, "volume": 100, "timestamp": "2024-01-15"}
+
+    is_valid = asyncio.run(validate_price(data))
+
+    assert is_valid is False
+`,
+		},
+	}
+
+	// Clone Demo - Pipeline Bonds
+	s.sampleProjects["clone-demo-pipeline-bonds"] = &SampleProjectCode{
+		ID:           "clone-demo-pipeline-bonds",
+		Name:         "Bonds Pipeline",
+		Description:  "Bond yields data ingestion pipeline",
+		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
+		Language:     "python",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+echo "📂 Working in: $(pwd)"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v python3 &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y python3 python3-pip
+fi
+if [ -f "requirements.txt" ]; then
+    pip3 install --break-system-packages -r requirements.txt
+fi
+echo "✅ Bonds Pipeline ready"
+`,
+		GitIgnore: `__pycache__/
+*.pyc
+.venv/
+*.log
+`,
+		Files: map[string]string{
+			"README.md": `# Bonds Pipeline
+
+Bond yields data ingestion pipeline for fixed income data.
+
+## Pipeline Structure
+
+Same structure as Stocks Pipeline - the logging pattern should transfer directly.
+
+## Data Model
+
+- CUSIP (bond identifier)
+- Issuer name
+- Yield percentage
+- Maturity date
+- Credit rating
+`,
+			"requirements.txt": `structlog>=24.4.0
+aiohttp>=3.10.0
+`,
+			"src/__init__.py": `"""Bonds data ingestion pipeline."""
+`,
+			"src/config.py": `"""Pipeline configuration."""
+API_BASE_URL = "https://api.bonddata.example.com"
+API_KEY = "demo-key"
+DB_CONNECTION_STRING = "postgresql://localhost/bonds"
+BATCH_SIZE = 50
+`,
+			"src/client.py": `"""Bond data API client."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def fetch_bond_yields(cusips: List[str]) -> List[Dict[str, Any]]:
+    """Fetch current bond yields."""
+    await asyncio.sleep(0.1)
+    return [
+        {
+            "cusip": cusip,
+            "issuer": f"Issuer {cusip[:3]}",
+            "yield_pct": 4.5 + hash(cusip) % 200 / 100,
+            "maturity_date": "2030-01-15",
+            "rating": "AA"
+        }
+        for cusip in cusips
+    ]
+
+
+async def fetch_yield_curve(currency: str = "USD") -> List[Dict[str, Any]]:
+    """Fetch treasury yield curve data."""
+    await asyncio.sleep(0.05)
+    return [
+        {"tenor": "3M", "yield": 4.2},
+        {"tenor": "2Y", "yield": 4.5},
+        {"tenor": "10Y", "yield": 4.8},
+        {"tenor": "30Y", "yield": 5.0},
+    ]
+`,
+			"src/transform.py": `"""Bond data transformation logic."""
+
+import asyncio
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+
+@dataclass
+class BondYield:
+    cusip: str
+    issuer: str
+    yield_pct: float
+    maturity_date: str
+    rating: str
+
+
+async def validate_bond(data: Dict[str, Any]) -> bool:
+    """Validate bond record."""
+    await asyncio.sleep(0.01)
+    if not data.get("cusip"):
+        return False
+    if data.get("yield_pct", 0) < 0:
+        return False
+    return True
+
+
+async def transform_bonds(raw_data: List[Dict[str, Any]]) -> List[BondYield]:
+    """Transform raw bond data."""
+    results = []
+    for item in raw_data:
+        is_valid = await validate_bond(item)
+        if not is_valid:
+            continue
+        results.append(BondYield(
+            cusip=item["cusip"],
+            issuer=item["issuer"],
+            yield_pct=float(item["yield_pct"]),
+            maturity_date=item["maturity_date"],
+            rating=item.get("rating", "NR")
+        ))
+    return results
+`,
+			"src/loader.py": `"""Database loader for bond data."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def save_yields(yields: List[Dict[str, Any]]) -> int:
+    """Save yield records to database."""
+    await asyncio.sleep(0.05)
+    return len(yields)
+`,
+		},
+	}
+
+	// Clone Demo - Pipeline Forex
+	s.sampleProjects["clone-demo-pipeline-forex"] = &SampleProjectCode{
+		ID:           "clone-demo-pipeline-forex",
+		Name:         "Forex Pipeline",
+		Description:  "Foreign exchange rates data ingestion pipeline",
+		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
+		Language:     "python",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+echo "📂 Working in: $(pwd)"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v python3 &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y python3 python3-pip
+fi
+if [ -f "requirements.txt" ]; then
+    pip3 install --break-system-packages -r requirements.txt
+fi
+echo "✅ Forex Pipeline ready"
+`,
+		GitIgnore: `__pycache__/
+*.pyc
+.venv/
+*.log
+`,
+		Files: map[string]string{
+			"README.md": `# Forex Pipeline
+
+Foreign exchange rates data ingestion pipeline.
+
+## Data Model
+
+- Currency pair (e.g., EUR/USD)
+- Bid price
+- Ask price
+- Spread
+- Timestamp
+`,
+			"requirements.txt": `structlog>=24.4.0
+aiohttp>=3.10.0
+`,
+			"src/__init__.py": `"""Forex data ingestion pipeline."""
+`,
+			"src/config.py": `"""Pipeline configuration."""
+API_BASE_URL = "https://api.fxdata.example.com"
+API_KEY = "demo-key"
+DB_CONNECTION_STRING = "postgresql://localhost/forex"
+`,
+			"src/client.py": `"""Forex data API client."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def fetch_fx_rates(pairs: List[str]) -> List[Dict[str, Any]]:
+    """Fetch current FX rates."""
+    await asyncio.sleep(0.1)
+    return [
+        {
+            "pair": pair,
+            "bid": 1.0850 + hash(pair) % 100 / 10000,
+            "ask": 1.0852 + hash(pair) % 100 / 10000,
+            "timestamp": "2024-01-15T14:30:00Z"
+        }
+        for pair in pairs
+    ]
+
+
+async def fetch_historical_rates(pair: str, days: int = 30) -> List[Dict[str, Any]]:
+    """Fetch historical FX rates."""
+    await asyncio.sleep(0.05)
+    return [
+        {"date": f"2024-01-{i:02d}", "close": 1.0850 + i * 0.001}
+        for i in range(1, min(days + 1, 31))
+    ]
+`,
+			"src/transform.py": `"""Forex data transformation logic."""
+
+import asyncio
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+
+@dataclass
+class FxRate:
+    pair: str
+    bid: float
+    ask: float
+    spread: float
+    timestamp: str
+
+
+async def validate_rate(data: Dict[str, Any]) -> bool:
+    """Validate FX rate."""
+    await asyncio.sleep(0.01)
+    if not data.get("pair"):
+        return False
+    bid = data.get("bid", 0)
+    ask = data.get("ask", 0)
+    if bid <= 0 or ask <= 0:
+        return False
+    if bid > ask:  # Bid must be less than ask
+        return False
+    return True
+
+
+async def transform_rates(raw_data: List[Dict[str, Any]]) -> List[FxRate]:
+    """Transform raw FX data."""
+    results = []
+    for item in raw_data:
+        is_valid = await validate_rate(item)
+        if not is_valid:
+            continue
+        bid = float(item["bid"])
+        ask = float(item["ask"])
+        results.append(FxRate(
+            pair=item["pair"],
+            bid=bid,
+            ask=ask,
+            spread=ask - bid,
+            timestamp=item["timestamp"]
+        ))
+    return results
+`,
+			"src/loader.py": `"""Database loader for FX data."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def save_rates(rates: List[Dict[str, Any]]) -> int:
+    """Save FX rates to database."""
+    await asyncio.sleep(0.05)
+    return len(rates)
+`,
+		},
+	}
+
+	// Clone Demo - Pipeline Options
+	s.sampleProjects["clone-demo-pipeline-options"] = &SampleProjectCode{
+		ID:           "clone-demo-pipeline-options",
+		Name:         "Options Pipeline",
+		Description:  "Options chains data ingestion pipeline",
+		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
+		Language:     "python",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+echo "📂 Working in: $(pwd)"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v python3 &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y python3 python3-pip
+fi
+if [ -f "requirements.txt" ]; then
+    pip3 install --break-system-packages -r requirements.txt
+fi
+echo "✅ Options Pipeline ready"
+`,
+		GitIgnore: `__pycache__/
+*.pyc
+.venv/
+*.log
+`,
+		Files: map[string]string{
+			"README.md": `# Options Pipeline
+
+Options chains data ingestion pipeline for derivatives data.
+
+## Data Model
+
+- Underlying symbol
+- Strike price
+- Expiration date
+- Option type (call/put)
+- Bid/Ask prices
+- Greeks (delta, gamma, theta, vega)
+`,
+			"requirements.txt": `structlog>=24.4.0
+aiohttp>=3.10.0
+`,
+			"src/__init__.py": `"""Options data ingestion pipeline."""
+`,
+			"src/config.py": `"""Pipeline configuration."""
+API_BASE_URL = "https://api.optionsdata.example.com"
+API_KEY = "demo-key"
+DB_CONNECTION_STRING = "postgresql://localhost/options"
+`,
+			"src/client.py": `"""Options data API client."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def fetch_options_chain(underlying: str, expiry: str) -> List[Dict[str, Any]]:
+    """Fetch options chain for an underlying."""
+    await asyncio.sleep(0.1)
+    strikes = [140, 145, 150, 155, 160]
+    return [
+        {
+            "underlying": underlying,
+            "strike": strike,
+            "expiry": expiry,
+            "type": opt_type,
+            "bid": 2.50 + (strike - 150) * 0.1,
+            "ask": 2.55 + (strike - 150) * 0.1,
+            "delta": 0.5 if opt_type == "call" else -0.5,
+            "gamma": 0.02,
+            "theta": -0.05,
+            "vega": 0.15
+        }
+        for strike in strikes
+        for opt_type in ["call", "put"]
+    ]
+
+
+async def fetch_greeks(option_id: str) -> Dict[str, float]:
+    """Fetch Greeks for a specific option."""
+    await asyncio.sleep(0.02)
+    return {"delta": 0.5, "gamma": 0.02, "theta": -0.05, "vega": 0.15}
+`,
+			"src/transform.py": `"""Options data transformation logic."""
+
+import asyncio
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+
+@dataclass
+class OptionContract:
+    underlying: str
+    strike: float
+    expiry: str
+    option_type: str
+    bid: float
+    ask: float
+    delta: float
+    gamma: float
+    theta: float
+    vega: float
+
+
+async def validate_option(data: Dict[str, Any]) -> bool:
+    """Validate option contract."""
+    await asyncio.sleep(0.01)
+    if not data.get("underlying"):
+        return False
+    if data.get("strike", 0) <= 0:
+        return False
+    if data.get("type") not in ["call", "put"]:
+        return False
+    return True
+
+
+async def transform_options(raw_data: List[Dict[str, Any]]) -> List[OptionContract]:
+    """Transform raw options data."""
+    results = []
+    for item in raw_data:
+        is_valid = await validate_option(item)
+        if not is_valid:
+            continue
+        results.append(OptionContract(
+            underlying=item["underlying"],
+            strike=float(item["strike"]),
+            expiry=item["expiry"],
+            option_type=item["type"],
+            bid=float(item["bid"]),
+            ask=float(item["ask"]),
+            delta=float(item.get("delta", 0)),
+            gamma=float(item.get("gamma", 0)),
+            theta=float(item.get("theta", 0)),
+            vega=float(item.get("vega", 0))
+        ))
+    return results
+`,
+			"src/loader.py": `"""Database loader for options data."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def save_options(options: List[Dict[str, Any]]) -> int:
+    """Save options to database."""
+    await asyncio.sleep(0.05)
+    return len(options)
+`,
+		},
+	}
+
+	// Clone Demo - Pipeline Indicators
+	s.sampleProjects["clone-demo-pipeline-indicators"] = &SampleProjectCode{
+		ID:           "clone-demo-pipeline-indicators",
+		Name:         "Indicators Pipeline",
+		Description:  "Economic indicators data ingestion pipeline",
+		Technologies: []string{"Python", "AsyncIO", "Financial Data"},
+		Language:     "python",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+echo "📂 Working in: $(pwd)"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v python3 &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y python3 python3-pip
+fi
+if [ -f "requirements.txt" ]; then
+    pip3 install --break-system-packages -r requirements.txt
+fi
+echo "✅ Indicators Pipeline ready"
+`,
+		GitIgnore: `__pycache__/
+*.pyc
+.venv/
+*.log
+`,
+		Files: map[string]string{
+			"README.md": `# Economic Indicators Pipeline
+
+Economic indicators data ingestion pipeline for macro data.
+
+## Data Model
+
+- Indicator code (e.g., GDP, CPI, UNEMPLOYMENT)
+- Country/Region
+- Value
+- Period (monthly, quarterly, annual)
+- Release date
+- Previous value
+- Revision flag
+`,
+			"requirements.txt": `structlog>=24.4.0
+aiohttp>=3.10.0
+`,
+			"src/__init__.py": `"""Economic indicators data ingestion pipeline."""
+`,
+			"src/config.py": `"""Pipeline configuration."""
+API_BASE_URL = "https://api.econdata.example.com"
+API_KEY = "demo-key"
+DB_CONNECTION_STRING = "postgresql://localhost/indicators"
+`,
+			"src/client.py": `"""Economic indicators API client."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def fetch_indicators(codes: List[str], country: str = "US") -> List[Dict[str, Any]]:
+    """Fetch economic indicators."""
+    await asyncio.sleep(0.1)
+    return [
+        {
+            "code": code,
+            "country": country,
+            "value": 2.5 + hash(code) % 100 / 10,
+            "period": "2024-Q1",
+            "release_date": "2024-01-15",
+            "previous": 2.4 + hash(code) % 100 / 10,
+            "is_revised": False
+        }
+        for code in codes
+    ]
+
+
+async def fetch_historical_indicator(code: str, periods: int = 8) -> List[Dict[str, Any]]:
+    """Fetch historical values for an indicator."""
+    await asyncio.sleep(0.05)
+    return [
+        {"period": f"2023-Q{4-i}" if i < 4 else f"2022-Q{8-i}", "value": 2.5 + i * 0.1}
+        for i in range(periods)
+    ]
+`,
+			"src/transform.py": `"""Economic indicators transformation logic."""
+
+import asyncio
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
+
+
+@dataclass
+class EconomicIndicator:
+    code: str
+    country: str
+    value: float
+    period: str
+    release_date: str
+    previous: Optional[float]
+    is_revised: bool
+    change: Optional[float]
+
+
+async def validate_indicator(data: Dict[str, Any]) -> bool:
+    """Validate indicator."""
+    await asyncio.sleep(0.01)
+    if not data.get("code"):
+        return False
+    if not data.get("period"):
+        return False
+    # Value can be negative (e.g., GDP contraction)
+    return True
+
+
+async def transform_indicators(raw_data: List[Dict[str, Any]]) -> List[EconomicIndicator]:
+    """Transform raw indicator data."""
+    results = []
+    for item in raw_data:
+        is_valid = await validate_indicator(item)
+        if not is_valid:
+            continue
+
+        value = float(item["value"])
+        previous = float(item["previous"]) if item.get("previous") else None
+        change = value - previous if previous is not None else None
+
+        results.append(EconomicIndicator(
+            code=item["code"],
+            country=item["country"],
+            value=value,
+            period=item["period"],
+            release_date=item["release_date"],
+            previous=previous,
+            is_revised=item.get("is_revised", False),
+            change=change
+        ))
+    return results
+`,
+			"src/loader.py": `"""Database loader for indicators data."""
+
+import asyncio
+from typing import List, Dict, Any
+
+
+async def save_indicators(indicators: List[Dict[str, Any]]) -> int:
+    """Save indicators to database."""
+    await asyncio.sleep(0.05)
+    return len(indicators)
 `,
 		},
 	}

@@ -100,11 +100,10 @@ type HelixAPIServer struct {
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
-	// Comment queue per planning session - serializes comment responses
-	sessionCommentQueue       map[string][]string // planning_session_id -> queue of comment_ids waiting for response
-	sessionCurrentComment     map[string]string   // planning_session_id -> currently processing comment_id
-	sessionCommentMutex       sync.RWMutex        // Mutex for comment queue operations
-	requestToCommenterMapping map[string]string   // request_id -> commenter user_id (for design review streaming)
+	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
+	sessionCommentTimeout map[string]*time.Timer // planning_session_id -> timeout timer for current comment
+	sessionCommentMutex   sync.RWMutex           // Mutex for timeout operations
+	requestToCommenterMapping map[string]string // request_id -> commenter user_id (for design review streaming)
 	inferenceServer           *openai.InternalHelixServer
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager
@@ -245,13 +244,21 @@ func NewServer(
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
-	apiServer := &HelixAPIServer{
-		Cfg:        cfg,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
+	gitRepositoryService := services.NewGitRepositoryService(
+		store,
+		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
+		cfg.WebServer.URL,         // Server base URL
+		"Helix System",            // Git user name
+		"system@helix.ml",         // Git user email
+	)
 
+	apiServer := &HelixAPIServer{
+		Cfg:                         cfg,
+		Store:                       store,
+		Stripe:                      stripe,
+		Controller:                  controller,
+		Janitor:                     janitor,
+		gitRepositoryService:        gitRepositoryService,
 		externalAgentExecutor:       externalAgentExecutor,
 		externalAgentWSManager:      externalAgentWSManager,
 		externalAgentRunnerManager:  externalAgentRunnerManager,
@@ -260,8 +267,7 @@ func NewServer(
 		requestToSessionMapping:     make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
-		sessionCommentQueue:         make(map[string][]string),
-		sessionCurrentComment:       make(map[string]string),
+		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingRateLimiter:        make(map[string]time.Time),
 		inferenceServer:             inferenceServer,
@@ -299,7 +305,8 @@ func NewServer(
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
 			externalAgentExecutor,      // Wolf executor for launching external agents
-			nil,                        // Will set callback after apiServer is constructed
+			gitRepositoryService,
+			nil, // Will set callback after apiServer is constructed
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -318,15 +325,6 @@ func NewServer(
 	if err := apiServer.moonlightProxy.Start(); err != nil {
 		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
 	}
-
-	// Initialize Git Repository Service using filestore mount
-	apiServer.gitRepositoryService = services.NewGitRepositoryService(
-		store,
-		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
-		cfg.WebServer.URL,         // Server base URL
-		"Helix System",            // Git user name
-		"system@helix.ml",         // Git user email
-	)
 
 	// Initialize git repository base directory
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
@@ -427,6 +425,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// 2. Handling HuggingFace model IDs like "Qwen/Qwen3-Coder" correctly
 	// 3. Detecting when providers come back online after being down
 	apiServer.StartModelCacheRefresh(ctx)
+
+	// Resume comment queue processing for any comments that were pending before restart
+	go apiServer.ResumeCommentQueueProcessing(ctx)
 
 	apiServer.startUserWebSocketServer(
 		ctx,
@@ -544,6 +545,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/token-usage", apiServer.getUserTokenUsage).Methods(http.MethodGet)
+
+	// User guidelines (personal workspace)
+	authRouter.HandleFunc("/users/me/guidelines", apiServer.getUserGuidelines).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/me/guidelines", apiServer.updateUserGuidelines).Methods(http.MethodPut)
+	authRouter.HandleFunc("/users/me/guidelines-history", apiServer.getUserGuidelinesHistory).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
 
 	// Billing
@@ -691,6 +698,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/bandwidth-probe", apiServer.getBandwidthProbe).Methods("GET")
+	authRouter.HandleFunc("/bandwidth-probe", apiServer.getInitialBandwidthProbe).Methods("GET") // Initial probe (no session required)
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
@@ -991,7 +1000,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
@@ -1072,6 +1080,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
+
+	// Kodit MCP proxy routes - expose Kodit's MCP server through Helix API with user auth
+	// Supports both streamable HTTP and SSE transports for MCP protocol
+	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)

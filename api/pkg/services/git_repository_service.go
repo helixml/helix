@@ -470,10 +470,12 @@ func (s *GitRepositoryService) countCommitsBetween(repo *git.Repository, from, t
 }
 
 // UpdateRepository updates an existing repository's metadata
+// koditAPIKey is optional - only needed when enabling KoditIndexing for local (non-external) repos
 func (s *GitRepositoryService) UpdateRepository(
 	ctx context.Context,
 	repoID string,
 	request *types.GitRepositoryUpdateRequest,
+	koditAPIKey string,
 ) (*types.GitRepository, error) {
 
 	if request.ExternalType == types.ExternalRepositoryTypeADO {
@@ -527,6 +529,17 @@ func (s *GitRepositoryService) UpdateRepository(
 		existing.AzureDevOps = request.AzureDevOps
 	}
 
+	// Check if we're enabling Kodit indexing (must check before modifying existing)
+	shouldRegisterKodit := s.koditService != nil &&
+		request.KoditIndexing != nil &&
+		*request.KoditIndexing &&
+		!existing.KoditIndexing
+
+	// Handle KoditIndexing update
+	if request.KoditIndexing != nil {
+		existing.KoditIndexing = *request.KoditIndexing
+	}
+
 	existing.UpdatedAt = time.Now()
 
 	// Update in store
@@ -535,9 +548,47 @@ func (s *GitRepositoryService) UpdateRepository(
 		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
 	}
 
+	// Register with Kodit if indexing was just enabled
+	if shouldRegisterKodit {
+		// Determine the clone URL for Kodit
+		// For external repos: use ExternalURL
+		// For local repos: use CloneURL with embedded API key auth
+		koditCloneURL := existing.ExternalURL
+		if !existing.IsExternal {
+			if koditAPIKey == "" {
+				return nil, fmt.Errorf("cannot register local repository with Kodit without API key")
+			}
+			koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
+		}
+
+		koditResp, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to register repository with Kodit: %w", err)
+		}
+
+		if koditResp != nil {
+			// Store Kodit repository ID in metadata
+			if existing.Metadata == nil {
+				existing.Metadata = make(map[string]interface{})
+			}
+			existing.Metadata["kodit_repo_id"] = koditResp.Data.Id
+
+			if err := s.store.UpdateGitRepository(ctx, existing); err != nil {
+				return nil, fmt.Errorf("failed to update repository with Kodit ID: %w", err)
+			}
+
+			log.Info().
+				Str("repo_id", repoID).
+				Str("kodit_repo_id", koditResp.Data.Id).
+				Bool("is_local", !existing.IsExternal).
+				Msg("Registered repository with Kodit for code intelligence")
+		}
+	}
+
 	log.Info().
 		Str("repo_id", repoID).
 		Str("name", existing.Name).
+		Bool("kodit_indexing", existing.KoditIndexing).
 		Msg("updated git repository")
 
 	return existing, nil

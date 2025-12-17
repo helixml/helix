@@ -128,7 +128,7 @@ func waitForAPIServer() error {
 }
 
 func getAPIClient(userAPIKey string) (*client.HelixClient, error) {
-	apiClient, err := client.NewClient("http://localhost:8080", userAPIKey)
+	apiClient, err := client.NewClient("http://localhost:8080", userAPIKey, false)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func TestExternalAgentModelParameter(t *testing.T) {
 			},
 		},
 		ExternalAgentConfig: &types.ExternalAgentConfig{
-			WorkspaceDir: "/tmp/test",
+			Resolution: "1080p",
 		},
 	}
 

@@ -2519,6 +2519,12 @@ definitions:
         type: string
       owner_type:
         $ref: '#/definitions/types.OwnerType'
+      project_id:
+        description: Used for isolation and metrics tracking
+        type: string
+      spec_task_id:
+        description: Used for isolation and metrics tracking
+        type: string
       type:
         $ref: '#/definitions/types.APIKeyType'
     type: object
@@ -2954,6 +2960,17 @@ definitions:
       wip_limits:
         $ref: '#/definitions/types.WIPLimits'
     type: object
+  types.BranchMode:
+    enum:
+    - new
+    - existing
+    type: string
+    x-enum-comments:
+      BranchModeExisting: Continue work on existing branch
+      BranchModeNew: Create new branch from base
+    x-enum-varnames:
+    - BranchModeNew
+    - BranchModeExisting
   types.ChatCompletionMessage:
     properties:
       content:
@@ -3208,10 +3225,16 @@ definitions:
     enum:
     - zed_agent
     - qwen_code
+    - claude_code
+    - gemini_cli
+    - codex_cli
     type: string
     x-enum-varnames:
     - CodeAgentRuntimeZedAgent
     - CodeAgentRuntimeQwenCode
+    - CodeAgentRuntimeClaudeCode
+    - CodeAgentRuntimeGeminiCLI
+    - CodeAgentRuntimeCodexCLI
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -3371,6 +3394,16 @@ definitions:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
         type: string
+      base_branch:
+        description: 'For new mode: branch to create from (defaults to repo default)'
+        type: string
+      branch_mode:
+        allOf:
+        - $ref: '#/definitions/types.BranchMode'
+        description: Branch configuration
+      branch_prefix:
+        description: 'For new mode: user-specified prefix (task# appended)'
+        type: string
       just_do_it_mode:
         description: 'Optional: Skip spec planning, go straight to implementation'
         type: boolean
@@ -3386,6 +3419,9 @@ definitions:
         description: 'Optional: Use host Docker socket (requires privileged sandbox)'
         type: boolean
       user_id:
+        type: string
+      working_branch:
+        description: 'For existing mode: branch to continue working on'
         type: string
     type: object
   types.CreateTeamRequest:
@@ -3582,30 +3618,25 @@ definitions:
     type: object
   types.ExternalAgentConfig:
     properties:
-      auto_connect_rdp:
-        description: Whether to auto-connect RDP viewer
-        type: boolean
+      desktop_type:
+        description: Desktop environment
+        type: string
       display_height:
-        description: 'Streaming resolution height (default: 1600)'
+        description: 'Explicit height (default: 1080)'
         type: integer
       display_refresh_rate:
-        description: 'Streaming refresh rate (default: 60)'
+        description: 'Refresh rate (default: 60)'
         type: integer
       display_width:
-        description: Video settings for streaming (Phase 3.5) - matches PDE display
-          settings
+        description: 'Explicit width (default: 1920)'
         type: integer
-      env_vars:
-        description: Environment variables in KEY=VALUE format
-        items:
-          type: string
-        type: array
-      project_path:
-        description: Relative path for the project directory
+      resolution:
+        description: Display resolution - either use Resolution preset or explicit
+          dimensions
         type: string
-      workspace_dir:
-        description: Custom working directory
-        type: string
+      zoom_level:
+        description: GNOME zoom percentage (100 default, 200 for 4k/5k)
+        type: integer
     type: object
   types.ExternalAgentConnection:
     properties:
@@ -4075,6 +4106,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing (pointer to distinguish
+          unset from false)
+        type: boolean
       metadata:
         additionalProperties: true
         type: object
@@ -4163,6 +4198,9 @@ definitions:
         type: string
       updated_by_name:
         description: User display name (not persisted, populated at query time)
+        type: string
+      user_id:
+        description: Set for user-level (personal workspace) guidelines
         type: string
       version:
         type: integer
@@ -4269,6 +4307,12 @@ definitions:
           it is used to keep a timeline when querying the database for messages or viewing previous generations
         type: integer
       id:
+        type: string
+      last_zed_message_id:
+        description: |-
+          LastZedMessageID tracks the last Zed message ID received for this interaction.
+          Used to detect multi-message responses: same ID = streaming update (overwrite),
+          different ID = new distinct message (append). Persisted in DB for restart resilience.
         type: string
       mode:
         $ref: '#/definitions/types.SessionMode'
@@ -4674,6 +4718,8 @@ definitions:
         items:
           type: integer
         type: array
+      project_id:
+        type: string
       prompt_cost:
         type: number
       prompt_tokens:
@@ -4689,6 +4735,8 @@ definitions:
           type: integer
         type: array
       session_id:
+        type: string
+      spec_task_id:
         type: string
       step:
         $ref: '#/definitions/types.LLMCallStep'
@@ -6374,6 +6422,11 @@ definitions:
         type: string
       avatar:
         type: string
+      code_agent_runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: Which code agent runtime is used (zed_agent, qwen_code, claude_code,
+          etc.)
       document_group_id:
         type: string
       document_ids:
@@ -6691,8 +6744,18 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
+      base_branch:
+        description: The base branch this was created from
+        type: string
+      branch_mode:
+        allOf:
+        - $ref: '#/definitions/types.BranchMode'
+        description: '"new" or "existing"'
       branch_name:
         description: Git tracking
+        type: string
+      branch_prefix:
+        description: User-specified prefix for new branches (task# appended)
         type: string
       clone_group_id:
         description: Groups tasks from same clone operation
@@ -6938,6 +7001,12 @@ definitions:
       line_number:
         description: Optional line number
         type: integer
+      queued_at:
+        description: |-
+          Database-backed queue for agent processing (restart-resilient)
+          QueuedAt is set when comment is submitted for agent processing.
+          Processing order: QueuedAt ASC. Cleared when agent response is received.
+        type: string
       quoted_text:
         description: For inline comments - store the context around the comment
         type: string
@@ -7093,27 +7162,6 @@ definitions:
         type: object
     required:
     - spec_task_id
-    type: object
-  types.SpecTaskImplementationStartResponse:
-    properties:
-      agent_instructions:
-        type: string
-      base_branch:
-        type: string
-      branch_name:
-        type: string
-      created_at:
-        type: string
-      local_path:
-        type: string
-      pr_template_url:
-        type: string
-      repository_id:
-        type: string
-      repository_name:
-        type: string
-      status:
-        type: string
     type: object
   types.SpecTaskImplementationStatus:
     enum:
@@ -7567,6 +7615,11 @@ definitions:
     properties:
       huggingface_token:
         type: string
+      kodit_enrichment_model:
+        type: string
+      kodit_enrichment_provider:
+        description: Kodit enrichment model configuration
+        type: string
     type: object
   types.SystemSettingsResponse:
     properties:
@@ -7579,6 +7632,15 @@ definitions:
         description: '"database", "environment", or "none"'
         type: string
       id:
+        type: string
+      kodit_enrichment_model:
+        type: string
+      kodit_enrichment_model_set:
+        description: true if both provider and model are configured
+        type: boolean
+      kodit_enrichment_provider:
+        description: Kodit enrichment model configuration (not sensitive, returned
+          as-is)
         type: string
       updated:
         type: string
@@ -8076,6 +8138,11 @@ definitions:
       name:
         type: string
     type: object
+  types.UpdateUserGuidelinesRequest:
+    properties:
+      guidelines:
+        type: string
+    type: object
   types.Usage:
     properties:
       completion_tokens:
@@ -8118,8 +8185,14 @@ definitions:
         items:
           type: integer
         type: array
+      project_id:
+        description: When running in Helix Code sandbox
+        type: string
       sb:
         type: boolean
+      spec_task_id:
+        description: When running in Helix Code sandbox
+        type: string
       token:
         description: the actual token used and its type
         type: string
@@ -8147,6 +8220,17 @@ definitions:
         type: boolean
       is_admin:
         type: boolean
+    type: object
+  types.UserGuidelinesResponse:
+    properties:
+      guidelines:
+        type: string
+      guidelines_updated_at:
+        type: string
+      guidelines_updated_by:
+        type: string
+      guidelines_version:
+        type: integer
     type: object
   types.UserResponse:
     properties:
@@ -8269,6 +8353,14 @@ definitions:
         items:
           $ref: '#/definitions/types.ContainerDiskUsage'
         type: array
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: |-
+          Desktop image versions (content-addressable Docker image hashes)
+          Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+          Value: image hash (e.g., "a1b2c3d4e5f6...")
+        type: object
       disk_usage:
         description: disk usage metrics for monitored partitions
         items:
@@ -8282,9 +8374,6 @@ definitions:
         type: boolean
       render_node:
         description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
-        type: string
-      sway_version:
-        description: helix-sway image version (commit hash)
         type: string
     type: object
   types.WolfInstanceRequest:
@@ -8306,6 +8395,11 @@ definitions:
         type: integer
       created_at:
         type: string
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: map of desktop name -> image hash
+        type: object
       disk_alert_level:
         type: string
       disk_usage:
@@ -8333,6 +8427,7 @@ definitions:
       status:
         type: string
       sway_version:
+        description: legacy, use DesktopVersions
         type: string
       updated_at:
         type: string
@@ -9724,6 +9819,33 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/bandwidth-probe:
+    get:
+      description: |-
+        Returns random uncompressible data for measuring available bandwidth before session creation.
+        Used by adaptive bitrate to determine optimal initial bitrate before connecting.
+        Only requires authentication, not session ownership.
+      parameters:
+      - description: Size of data to return in bytes (default 524288 = 512KB)
+        in: query
+        name: size
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Initial bandwidth probe (no session required)
+      tags:
+      - ExternalAgents
   /api/v1/clone-groups/{groupId}/progress:
     get:
       description: Get status breakdown and progress of all cloned tasks
@@ -9850,6 +9972,42 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Auto-join Wolf lobby after connection
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/bandwidth-probe:
+    get:
+      description: |-
+        Returns random uncompressible data for measuring available bandwidth.
+        This endpoint starts sending bytes immediately, unlike screenshot which
+        has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Size of data to return in bytes (default 524288 = 512KB)
+        in: query
+        name: size
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Bandwidth probe for adaptive bitrate
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/clipboard:
@@ -15176,40 +15334,6 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
-  /api/v1/spec-tasks/{taskId}/start-implementation:
-    post:
-      description: Transition an approved spec task to implementation, creating a
-        feature branch
-      parameters:
-      - description: Task ID
-        in: path
-        name: taskId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SpecTaskImplementationStartResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - ApiKeyAuth: []
-      summary: Start implementation phase
-      tags:
-      - SpecTasks
   /api/v1/spec-tasks/{taskId}/start-planning:
     post:
       consumes:
@@ -15929,6 +16053,14 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Project ID
+        in: query
+        name: project_id
+        type: string
+      - description: Spec Task ID
+        in: query
+        name: spec_task_id
+        type: string
       produces:
       - application/json
       responses:
@@ -16046,6 +16178,78 @@ paths:
       summary: Get user details
       tags:
       - users
+  /api/v1/users/me/guidelines:
+    get:
+      description: Get the current user's personal workspace guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update the current user's personal workspace guidelines
+      parameters:
+      - description: Guidelines update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserGuidelinesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserGuidelinesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update user guidelines
+      tags:
+      - Users
+  /api/v1/users/me/guidelines-history:
+    get:
+      description: Get the version history of the current user's personal workspace
+        guidelines
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GuidelinesHistory'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get user guidelines history
+      tags:
+      - Users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

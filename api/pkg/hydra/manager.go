@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -523,6 +524,9 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// --bridge specifies the bridge interface to use instead of docker0
 	// Note: We don't use --bip because the bridge already has its IP assigned
 	// via createBridge(). Using both --bridge and --bip is mutually exclusive.
+	// --ip sets the default IP for container port bindings. By binding to the
+	// gateway IP (10.200.N.1) instead of 0.0.0.0, each session's ports are isolated
+	// and won't conflict with other sessions using the same port numbers.
 	cmd := exec.Command("dockerd",
 		"--host=unix://"+socketPath,
 		"--data-root="+dataRoot,
@@ -530,6 +534,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		"--pidfile="+pidFile,
 		"--config-file="+configFile,
 		"--bridge="+bridgeName,
+		"--ip="+gatewayIP,
 	)
 
 	// Redirect output to log with prefix
@@ -700,12 +705,16 @@ func (m *Manager) cleanupRuntimeFiles(inst *DockerInstance) {
 	os.Remove(instanceDir) // Remove dir if empty
 }
 
-// cleanupLoop periodically checks for orphaned dockerd processes
+// cleanupLoop periodically checks for orphaned dockerd processes and updates port forwarding
 func (m *Manager) cleanupLoop(ctx context.Context) {
 	defer m.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+
+	// Port forwarding update ticker - more frequent to detect new Docker containers
+	portTicker := time.NewTicker(10 * time.Second)
+	defer portTicker.Stop()
 
 	for {
 		select {
@@ -713,8 +722,40 @@ func (m *Manager) cleanupLoop(ctx context.Context) {
 			return
 		case <-m.stopChan:
 			return
-		case <-ticker.C:
+		case <-cleanupTicker.C:
 			m.cleanupOrphans()
+		case <-portTicker.C:
+			m.updateAllPortForwarding()
+		}
+	}
+}
+
+// updateAllPortForwarding updates localhost port forwarding for all bridged desktops.
+// Called periodically to detect new Docker containers with exposed ports.
+func (m *Manager) updateAllPortForwarding() {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	for _, inst := range m.instances {
+		if !inst.DesktopBridged || inst.DesktopPID == 0 {
+			continue
+		}
+
+		// Check if desktop container is still running
+		process, err := os.FindProcess(inst.DesktopPID)
+		if err != nil {
+			continue
+		}
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			// Process died, skip (will be cleaned up by self-healing)
+			continue
+		}
+
+		gateway := fmt.Sprintf("10.200.%d.1", inst.BridgeIndex)
+		if err := m.configureLocalhostForwarding(inst.DesktopPID, gateway, inst); err != nil {
+			log.Debug().Err(err).
+				Str("scope_id", inst.ScopeID).
+				Msg("Failed to update port forwarding")
 		}
 	}
 }
@@ -999,10 +1040,10 @@ func (m *Manager) BridgeDesktop(ctx context.Context, req *BridgeDesktopRequest) 
 		log.Warn().Err(err).Msg("Failed to configure DNS (non-fatal)")
 	}
 
-	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
-	// When user accesses localhost:8080 in desktop, forward to gateway:8080
-	// where Docker actually binds the port
-	if err := m.configureLocalhostForwarding(containerPID, gateway); err != nil {
+	// 10. Configure localhost forwarding for Docker-exposed ports only
+	// This forwards specific ports (from `docker run -p`) while leaving local services alone.
+	// See configureLocalhostForwarding() for details.
+	if err := m.configureLocalhostForwarding(containerPID, gateway, inst); err != nil {
 		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
 	}
 
@@ -1143,11 +1184,10 @@ func (m *Manager) BridgeDesktopPrivileged(ctx context.Context, req *BridgeDeskto
 		log.Warn().Err(err).Msg("Failed to configure DNS for privileged mode (non-fatal)")
 	}
 
-	// 10. Configure localhost forwarding so `docker run -p 8080:8080` works
-	// Forward localhost:PORT to hostGateway:PORT (where Docker binds ports)
-	if err := m.configureLocalhostForwarding(containerPID, hostGateway); err != nil {
-		log.Warn().Err(err).Msg("Failed to configure localhost forwarding (non-fatal)")
-	}
+	// 10. Localhost forwarding not implemented for privileged mode
+	// In privileged mode, there's no Hydra dockerd instance to query for exposed ports.
+	// Users in privileged mode access Docker containers directly via host networking.
+	// TODO: Could query host Docker socket for exposed ports if needed.
 
 	log.Info().
 		Str("session_id", req.SessionID).
@@ -1315,6 +1355,79 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// queryExposedPorts queries a Hydra instance's dockerd for all containers
+// with exposed ports (-p flag) and returns a list of host ports to forward.
+// These are ports that Docker binds on the gateway, which users expect to
+// access via localhost in their desktop container.
+func (m *Manager) queryExposedPorts(inst *DockerInstance) ([]uint16, error) {
+	// Query all running containers with their port mappings
+	// Format: "0.0.0.0:8080->8080/tcp, :::3000->3000/tcp"
+	cmd := exec.Command("docker", "-H", "unix://"+inst.SocketPath,
+		"ps", "--format", "{{.Ports}}")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query docker ports: %w", err)
+	}
+
+	// Parse port mappings from output
+	// Each line is one container's ports, comma-separated
+	// Format: "0.0.0.0:8080->8080/tcp" or ":::8080->8080/tcp" (IPv6)
+	var ports []uint16
+	seen := make(map[uint16]bool)
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Split by comma for multiple port mappings on same container
+		mappings := strings.Split(line, ", ")
+		for _, mapping := range mappings {
+			mapping = strings.TrimSpace(mapping)
+			if mapping == "" {
+				continue
+			}
+
+			// Extract host port from format "0.0.0.0:8080->8080/tcp"
+			// We want the port BEFORE the "->" (the host port)
+			if idx := strings.Index(mapping, "->"); idx > 0 {
+				hostPart := mapping[:idx]
+				// hostPart is "0.0.0.0:8080" or ":::8080"
+				if colonIdx := strings.LastIndex(hostPart, ":"); colonIdx >= 0 {
+					portStr := hostPart[colonIdx+1:]
+					var port uint64
+					port, err = strconv.ParseUint(portStr, 10, 16)
+					if err == nil && port > 0 && port <= 65535 {
+						p := uint16(port)
+						if !seen[p] {
+							seen[p] = true
+							ports = append(ports, p)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return ports, nil
+}
+
+// clearLocalhostForwarding removes all existing DNAT rules for localhost forwarding.
+// This is called before adding new rules to ensure idempotency.
+func (m *Manager) clearLocalhostForwarding(containerPID int, inst *DockerInstance) {
+	// Remove rules for previously forwarded ports
+	for _, port := range inst.ForwardedPorts {
+		gateway := fmt.Sprintf("10.200.%d.1", inst.BridgeIndex)
+		// Ignore errors - rule may not exist
+		m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
+			"-d", "127.0.0.1", "-p", "tcp", "--dport", fmt.Sprintf("%d", port),
+			"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", gateway, port))
+	}
+}
+
 // configureLocalhostForwarding sets up iptables DNAT rules so that connections
 // to localhost:PORT in the desktop container are forwarded to gateway:PORT
 // where Docker actually binds ports from `docker run -p PORT:PORT`.
@@ -1324,54 +1437,64 @@ func (w *prefixWriter) Write(p []byte) (n int, err error) {
 //	docker run -p 8080:8080 nginx
 //	curl localhost:8080  # Works!
 //
-// The implementation requires:
-// 1. route_localnet=1 to allow 127.x.x.x addresses on non-loopback routes
-// 2. DNAT rule to rewrite destination from 127.0.0.1 to gateway
-// 3. MASQUERADE rule to fix source address for return traffic
-func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string) error {
-	// Enable route_localnet - required to allow packets with 127.x.x.x source/dest
-	// on non-loopback interfaces. Without this, the kernel drops DNAT'd packets.
-	// We use sh -c with redirect because sysctl -w doesn't work on read-only /proc mounts
-	m.runNsenterSh(containerPID, "echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet")
-	m.runNsenterSh(containerPID, "echo 1 > /proc/sys/net/ipv4/conf/eth1/route_localnet")
-
-	// Delete any existing rules (idempotent - allows re-bridging without duplicate rules)
-	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "OUTPUT",
-		"-d", "127.0.0.1", "-p", "tcp",
-		"-j", "DNAT", "--to-destination", gateway)
-
-	// Extract network from gateway IP (e.g., 10.200.1.1 -> 10.200.1.0/24)
-	gatewayParts := strings.Split(gateway, ".")
-	if len(gatewayParts) == 4 {
-		network := fmt.Sprintf("%s.%s.%s.0/24", gatewayParts[0], gatewayParts[1], gatewayParts[2])
-		m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "POSTROUTING",
-			"-d", network, "-j", "MASQUERADE")
+// IMPORTANT: Only forwards ports that Docker containers have exposed via -p flag.
+// Local services (like Vite on localhost:3000) are NOT affected and work normally.
+//
+// Technical details:
+// - Requires route_localnet=1 sysctl to allow routing 127.0.0.0/8 to non-local addresses
+// - Requires MASQUERADE for return traffic (source 127.x.x.x must be SNATed to eth1 IP)
+func (m *Manager) configureLocalhostForwarding(containerPID int, gateway string, inst *DockerInstance) error {
+	// 1. Query exposed ports from Hydra's dockerd
+	ports, err := m.queryExposedPorts(inst)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to query exposed ports, skipping localhost forwarding")
+		return nil // Non-fatal - desktop still works, just no port forwarding
 	}
 
-	// Add DNAT rule to rewrite localhost -> gateway
-	// Note: We don't use -o lo because we want to match before routing decision
-	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
-		"-d", "127.0.0.1", "-p", "tcp",
-		"-j", "DNAT", "--to-destination", gateway); err != nil {
-		return fmt.Errorf("failed to add localhost DNAT rule: %w", err)
-	}
-
-	// Add MASQUERADE rule to fix source address
-	// After DNAT, packets have src=127.0.0.1, dst=gateway. MASQUERADE changes
-	// src to the outgoing interface's IP (eth1's 10.200.1.254), allowing
-	// proper return routing.
-	if len(gatewayParts) == 4 {
-		network := fmt.Sprintf("%s.%s.%s.0/24", gatewayParts[0], gatewayParts[1], gatewayParts[2])
-		if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "POSTROUTING",
-			"-d", network, "-j", "MASQUERADE"); err != nil {
-			return fmt.Errorf("failed to add MASQUERADE rule: %w", err)
+	// 2. Enable route_localnet sysctl (required for DNAT from 127.0.0.1 to work)
+	// This allows routing packets with 127.0.0.0/8 source/dest to non-loopback interfaces
+	// Without this, the kernel drops DNATed packets before they're routed out eth1
+	for _, iface := range []string{"all", "lo", "eth1"} {
+		if err := m.runNsenter(containerPID, "sysctl", "-w",
+			fmt.Sprintf("net.ipv4.conf.%s.route_localnet=1", iface)); err != nil {
+			log.Warn().Err(err).Str("interface", iface).Msg("Failed to set route_localnet (non-fatal)")
 		}
 	}
 
-	log.Info().
-		Str("gateway", gateway).
-		Int("container_pid", containerPID).
-		Msg("Configured localhost forwarding (localhost:PORT → gateway:PORT)")
+	// 3. Add MASQUERADE rule for return traffic (idempotent: delete first, then add)
+	// When we DNAT localhost:PORT → gateway:PORT, the source IP stays as 127.0.0.1
+	// Without MASQUERADE, the gateway sends responses to its own localhost, not back to desktop
+	// This SNATs the source to the desktop's eth1 IP so responses come back correctly
+	m.runNsenter(containerPID, "iptables", "-t", "nat", "-D", "POSTROUTING",
+		"-o", "eth1", "-s", "127.0.0.0/8", "-j", "MASQUERADE") // Ignore error - may not exist
+	if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "POSTROUTING",
+		"-o", "eth1", "-s", "127.0.0.0/8", "-j", "MASQUERADE"); err != nil {
+		log.Warn().Err(err).Msg("Failed to add MASQUERADE rule for localhost forwarding")
+	}
+
+	// 4. Clear any existing DNAT rules (idempotent)
+	m.clearLocalhostForwarding(containerPID, inst)
+
+	// 5. Add port-specific DNAT rules
+	for _, port := range ports {
+		if err := m.runNsenter(containerPID, "iptables", "-t", "nat", "-A", "OUTPUT",
+			"-d", "127.0.0.1", "-p", "tcp", "--dport", fmt.Sprintf("%d", port),
+			"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", gateway, port)); err != nil {
+			log.Warn().Err(err).Uint16("port", port).Msg("Failed to add DNAT rule for port")
+			// Continue with other ports
+		}
+	}
+
+	// 6. Store ports for later cleanup/update
+	inst.ForwardedPorts = ports
+
+	if len(ports) > 0 {
+		log.Info().
+			Str("gateway", gateway).
+			Int("container_pid", containerPID).
+			Uints16("ports", ports).
+			Msg("Configured localhost forwarding for Docker-exposed ports")
+	}
 
 	return nil
 }

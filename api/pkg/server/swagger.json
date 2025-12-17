@@ -1856,6 +1856,45 @@
                 }
             }
         },
+        "/api/v1/bandwidth-probe": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns random uncompressible data for measuring available bandwidth before session creation.\nUsed by adaptive bitrate to determine optimal initial bitrate before connecting.\nOnly requires authentication, not session ownership.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Initial bandwidth probe (no session required)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/clone-groups/{groupId}/progress": {
             "get": {
                 "security": [
@@ -2050,6 +2089,58 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/bandwidth-probe": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns random uncompressible data for measuring available bandwidth.\nThis endpoint starts sending bytes immediately, unlike screenshot which\nhas capture latency. Used by adaptive bitrate algorithm to probe throughput.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Bandwidth probe for adaptive bitrate",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Size of data to return in bytes (default 524288 = 512KB)",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -10576,58 +10667,6 @@
                 }
             }
         },
-        "/api/v1/spec-tasks/{taskId}/start-implementation": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Transition an approved spec task to implementation, creating a feature branch",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SpecTasks"
-                ],
-                "summary": "Start implementation phase",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Task ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskImplementationStartResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{taskId}/start-planning": {
             "post": {
                 "security": [
@@ -11587,6 +11626,18 @@
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -11724,6 +11775,120 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/guidelines": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current user's personal workspace guidelines",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user guidelines",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserGuidelinesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the current user's personal workspace guidelines",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user guidelines",
+                "parameters": [
+                    {
+                        "description": "Guidelines update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateUserGuidelinesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserGuidelinesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/guidelines-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the version history of the current user's personal workspace guidelines",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user guidelines history",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GuidelinesHistory"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -16755,6 +16920,14 @@
                 "owner_type": {
                     "$ref": "#/definitions/types.OwnerType"
                 },
+                "project_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "Used for isolation and metrics tracking",
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
                 }
@@ -17347,6 +17520,21 @@
                 }
             }
         },
+        "types.BranchMode": {
+            "type": "string",
+            "enum": [
+                "new",
+                "existing"
+            ],
+            "x-enum-comments": {
+                "BranchModeExisting": "Continue work on existing branch",
+                "BranchModeNew": "Create new branch from base"
+            },
+            "x-enum-varnames": [
+                "BranchModeNew",
+                "BranchModeExisting"
+            ]
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -17717,11 +17905,17 @@
             "type": "string",
             "enum": [
                 "zed_agent",
-                "qwen_code"
+                "qwen_code",
+                "claude_code",
+                "gemini_cli",
+                "codex_cli"
             ],
             "x-enum-varnames": [
                 "CodeAgentRuntimeZedAgent",
-                "CodeAgentRuntimeQwenCode"
+                "CodeAgentRuntimeQwenCode",
+                "CodeAgentRuntimeClaudeCode",
+                "CodeAgentRuntimeGeminiCLI",
+                "CodeAgentRuntimeCodexCLI"
             ]
         },
         "types.CommentQueueStatusResponse": {
@@ -17962,6 +18156,22 @@
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
+                "base_branch": {
+                    "description": "For new mode: branch to create from (defaults to repo default)",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "Branch configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
+                "branch_prefix": {
+                    "description": "For new mode: user-specified prefix (task# appended)",
+                    "type": "string"
+                },
                 "just_do_it_mode": {
                     "description": "Optional: Skip spec planning, go straight to implementation",
                     "type": "boolean"
@@ -17983,6 +18193,10 @@
                     "type": "boolean"
                 },
                 "user_id": {
+                    "type": "string"
+                },
+                "working_branch": {
+                    "description": "For existing mode: branch to continue working on",
                     "type": "string"
                 }
             }
@@ -18279,36 +18493,29 @@
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
-                "auto_connect_rdp": {
-                    "description": "Whether to auto-connect RDP viewer",
-                    "type": "boolean"
+                "desktop_type": {
+                    "description": "Desktop environment",
+                    "type": "string"
                 },
                 "display_height": {
-                    "description": "Streaming resolution height (default: 1600)",
+                    "description": "Explicit height (default: 1080)",
                     "type": "integer"
                 },
                 "display_refresh_rate": {
-                    "description": "Streaming refresh rate (default: 60)",
+                    "description": "Refresh rate (default: 60)",
                     "type": "integer"
                 },
                 "display_width": {
-                    "description": "Video settings for streaming (Phase 3.5) - matches PDE display settings",
+                    "description": "Explicit width (default: 1920)",
                     "type": "integer"
                 },
-                "env_vars": {
-                    "description": "Environment variables in KEY=VALUE format",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "project_path": {
-                    "description": "Relative path for the project directory",
+                "resolution": {
+                    "description": "Display resolution - either use Resolution preset or explicit dimensions",
                     "type": "string"
                 },
-                "workspace_dir": {
-                    "description": "Custom working directory",
-                    "type": "string"
+                "zoom_level": {
+                    "description": "GNOME zoom percentage (100 default, 200 for 4k/5k)",
+                    "type": "integer"
                 }
             }
         },
@@ -19003,6 +19210,10 @@
                 "external_url": {
                     "type": "string"
                 },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing (pointer to distinguish unset from false)",
+                    "type": "boolean"
+                },
                 "metadata": {
                     "type": "object",
                     "additionalProperties": true
@@ -19129,6 +19340,10 @@
                 },
                 "updated_by_name": {
                     "description": "User display name (not persisted, populated at query time)",
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "Set for user-level (personal workspace) guidelines",
                     "type": "string"
                 },
                 "version": {
@@ -19275,6 +19490,10 @@
                     "type": "integer"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "last_zed_message_id": {
+                    "description": "LastZedMessageID tracks the last Zed message ID received for this interaction.\nUsed to detect multi-message responses: same ID = streaming update (overwrite),\ndifferent ID = new distinct message (append). Persisted in DB for restart resilience.",
                     "type": "string"
                 },
                 "mode": {
@@ -19846,6 +20065,9 @@
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "prompt_cost": {
                     "type": "number"
                 },
@@ -19868,6 +20090,9 @@
                     }
                 },
                 "session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
                     "type": "string"
                 },
                 "step": {
@@ -22266,6 +22491,14 @@
                 "avatar": {
                     "type": "string"
                 },
+                "code_agent_runtime": {
+                    "description": "Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                },
                 "document_group_id": {
                     "type": "string"
                 },
@@ -22707,8 +22940,24 @@
                     "description": "Archive to hide from main view",
                     "type": "boolean"
                 },
+                "base_branch": {
+                    "description": "The base branch this was created from",
+                    "type": "string"
+                },
+                "branch_mode": {
+                    "description": "\"new\" or \"existing\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.BranchMode"
+                        }
+                    ]
+                },
                 "branch_name": {
                     "description": "Git tracking",
+                    "type": "string"
+                },
+                "branch_prefix": {
+                    "description": "User-specified prefix for new branches (task# appended)",
                     "type": "string"
                 },
                 "clone_group_id": {
@@ -23049,6 +23298,10 @@
                     "description": "Optional line number",
                     "type": "integer"
                 },
+                "queued_at": {
+                    "description": "Database-backed queue for agent processing (restart-resilient)\nQueuedAt is set when comment is submitted for agent processing.\nProcessing order: QueuedAt ASC. Cleared when agent response is received.",
+                    "type": "string"
+                },
                 "quoted_text": {
                     "description": "For inline comments - store the context around the comment",
                     "type": "string"
@@ -23264,38 +23517,6 @@
                 "workspace_config": {
                     "type": "object",
                     "additionalProperties": true
-                }
-            }
-        },
-        "types.SpecTaskImplementationStartResponse": {
-            "type": "object",
-            "properties": {
-                "agent_instructions": {
-                    "type": "string"
-                },
-                "base_branch": {
-                    "type": "string"
-                },
-                "branch_name": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "local_path": {
-                    "type": "string"
-                },
-                "pr_template_url": {
-                    "type": "string"
-                },
-                "repository_id": {
-                    "type": "string"
-                },
-                "repository_name": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
                 }
             }
         },
@@ -23942,6 +24163,13 @@
             "properties": {
                 "huggingface_token": {
                     "type": "string"
+                },
+                "kodit_enrichment_model": {
+                    "type": "string"
+                },
+                "kodit_enrichment_provider": {
+                    "description": "Kodit enrichment model configuration",
+                    "type": "string"
                 }
             }
         },
@@ -23960,6 +24188,17 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "kodit_enrichment_model": {
+                    "type": "string"
+                },
+                "kodit_enrichment_model_set": {
+                    "description": "true if both provider and model are configured",
+                    "type": "boolean"
+                },
+                "kodit_enrichment_provider": {
+                    "description": "Kodit enrichment model configuration (not sensitive, returned as-is)",
                     "type": "string"
                 },
                 "updated": {
@@ -24670,6 +24909,14 @@
                 }
             }
         },
+        "types.UpdateUserGuidelinesRequest": {
+            "type": "object",
+            "properties": {
+                "guidelines": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Usage": {
             "type": "object",
             "properties": {
@@ -24731,8 +24978,16 @@
                         "type": "integer"
                     }
                 },
+                "project_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
+                },
+                "spec_task_id": {
+                    "description": "When running in Helix Code sandbox",
+                    "type": "string"
                 },
                 "token": {
                     "description": "the actual token used and its type",
@@ -24773,6 +25028,23 @@
                 },
                 "is_admin": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.UserGuidelinesResponse": {
+            "type": "object",
+            "properties": {
+                "guidelines": {
+                    "type": "string"
+                },
+                "guidelines_updated_at": {
+                    "type": "string"
+                },
+                "guidelines_updated_by": {
+                    "type": "string"
+                },
+                "guidelines_version": {
+                    "type": "integer"
                 }
             }
         },
@@ -24959,6 +25231,13 @@
                         "$ref": "#/definitions/types.ContainerDiskUsage"
                     }
                 },
+                "desktop_versions": {
+                    "description": "Desktop image versions (content-addressable Docker image hashes)\nKey: desktop name (e.g., \"sway\", \"zorin\", \"ubuntu\")\nValue: image hash (e.g., \"a1b2c3d4e5f6...\")",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "disk_usage": {
                     "description": "disk usage metrics for monitored partitions",
                     "type": "array",
@@ -24976,10 +25255,6 @@
                 },
                 "render_node": {
                     "description": "/dev/dri/renderD128 or SOFTWARE (from sandbox env)",
-                    "type": "string"
-                },
-                "sway_version": {
-                    "description": "helix-sway image version (commit hash)",
                     "type": "string"
                 }
             }
@@ -25012,6 +25287,13 @@
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "desktop_versions": {
+                    "description": "map of desktop name -\u003e image hash",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "disk_alert_level": {
                     "type": "string"
@@ -25052,6 +25334,7 @@
                     "type": "string"
                 },
                 "sway_version": {
+                    "description": "legacy, use DesktopVersions",
                     "type": "string"
                 },
                 "updated_at": {

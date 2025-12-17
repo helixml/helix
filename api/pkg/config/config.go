@@ -182,8 +182,11 @@ type Keycloak struct {
 }
 
 type OIDC struct {
-	Enabled       bool   `envconfig:"OIDC_ENABLED" default:"false"`
-	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"true"`
+	Enabled bool `envconfig:"OIDC_ENABLED" default:"false"`
+	// SecureCookies forces the Secure flag on auth cookies when set to true.
+	// When false (default), secure cookies are auto-detected from SERVER_URL protocol.
+	// Set to true to force secure cookies even when SERVER_URL is HTTP (e.g., behind HTTPS proxy).
+	SecureCookies bool   `envconfig:"OIDC_SECURE_COOKIES" default:"false"`
 	URL           string `envconfig:"OIDC_URL" default:"http://localhost:8080/auth/realms/helix"`
 	ClientID      string `envconfig:"OIDC_CLIENT_ID" default:"api"`
 	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`

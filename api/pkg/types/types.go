@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -69,6 +68,11 @@ type Interaction struct {
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// LastZedMessageID tracks the last Zed message ID received for this interaction.
+	// Used to detect multi-message responses: same ID = streaming update (overwrite),
+	// different ID = new distinct message (append). Persisted in DB for restart resilience.
+	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
 
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
@@ -439,104 +443,69 @@ type SessionChatRequest struct {
 	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
 }
 
-// ExternalAgentConfig holds configuration for external agents like Zed
+// ExternalAgentConfig holds display configuration for external agent sessions
+// (Desktop, Spec Task, or Exploratory sessions)
 type ExternalAgentConfig struct {
-	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
-	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
-	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
-	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
-	// Video settings for streaming (Phase 3.5) - matches PDE display settings
-	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
-	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	// Display resolution - either use Resolution preset or explicit dimensions
+	Resolution         string `json:"resolution,omitempty"`           // Preset: "1080p" (default), "4k", or "5k"
+	DisplayWidth       int    `json:"display_width,omitempty"`        // Explicit width (default: 1920)
+	DisplayHeight      int    `json:"display_height,omitempty"`       // Explicit height (default: 1080)
+	DisplayRefreshRate int    `json:"display_refresh_rate,omitempty"` // Refresh rate (default: 60)
+
+	// Desktop environment
+	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 }
 
-// Validate checks if the external agent configuration is secure and valid
+// Validate checks if the external agent configuration is valid
 func (c *ExternalAgentConfig) Validate() error {
-	// Validate workspace directory
-	if c.WorkspaceDir != "" {
-		if err := validateWorkspacePath(c.WorkspaceDir); err != nil {
-			return fmt.Errorf("invalid workspace directory: %w", err)
-		}
-	}
-
-	// Validate project path
-	if c.ProjectPath != "" {
-		if err := validateProjectPath(c.ProjectPath); err != nil {
-			return fmt.Errorf("invalid project path: %w", err)
-		}
-	}
-
-	// Validate environment variables
-	if len(c.EnvVars) > 0 {
-		if err := validateEnvironmentVariables(c.EnvVars); err != nil {
-			return fmt.Errorf("invalid environment variables: %w", err)
-		}
-	}
-
+	// No validation needed - all fields have sensible defaults
 	return nil
 }
 
-// validateWorkspacePath ensures workspace directory is safe
-func validateWorkspacePath(workspaceDir string) error {
-	if len(workspaceDir) > 255 {
-		return errors.New("workspace directory path too long")
+// GetEffectiveResolution returns the display dimensions based on Resolution preset
+// Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
+func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
+	// If Resolution preset is set, use it
+	switch c.Resolution {
+	case "5k":
+		return 5120, 2880
+	case "4k":
+		return 3840, 2160
+	case "1080p":
+		return 1920, 1080
 	}
 
-	// Clean the path and check for traversal attempts
-	cleanPath := filepath.Clean(workspaceDir)
-
-	// Disallow absolute paths
-	if filepath.IsAbs(cleanPath) {
-		return errors.New("workspace directory must be relative")
+	// Fall back to explicit dimensions if set
+	if c.DisplayWidth > 0 && c.DisplayHeight > 0 {
+		return c.DisplayWidth, c.DisplayHeight
 	}
 
-	// Check for path traversal attempts
-	if strings.Contains(cleanPath, "..") {
-		return errors.New("workspace directory cannot contain '..' path components")
-	}
-
-	return nil
+	// Default to 1080p
+	return 1920, 1080
 }
 
-// validateProjectPath ensures project path is safe
-func validateProjectPath(projectPath string) error {
-	return validateWorkspacePath(projectPath) // Same validation rules
+// GetEffectiveDesktopType returns the desktop type with default
+func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
+	if c.DesktopType != "" {
+		return c.DesktopType
+	}
+	return "ubuntu" // Default to Ubuntu
 }
 
-// validateEnvironmentVariables ensures env vars are safe
-func validateEnvironmentVariables(envVars []string) error {
-	if len(envVars) > 50 {
-		return errors.New("too many environment variables (max 50)")
+// GetEffectiveZoomLevel returns the zoom level with auto-detection for high-res displays
+func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
+	if c.ZoomLevel > 0 {
+		return c.ZoomLevel
 	}
-
-	allowedEnvVars := map[string]bool{
-		"NODE_ENV":    true,
-		"ENVIRONMENT": true,
-		"DEBUG":       true,
-		"RUST_LOG":    true,
-		"EDITOR":      true,
-		"TERM":        true,
+	// Auto-set 200% zoom only when user explicitly selects "4k" or "5k" preset
+	// (these presets imply 2x scaling for readable UI)
+	switch c.Resolution {
+	case "5k", "4k":
+		return 200
+	default:
+		return 100
 	}
-
-	for _, envVar := range envVars {
-		if len(envVar) > 1024 {
-			return errors.New("environment variable too long")
-		}
-
-		// Check format
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid environment variable format: %s", envVar)
-		}
-
-		key := strings.ToUpper(parts[0])
-		if !allowedEnvVars[key] {
-			return fmt.Errorf("environment variable not allowed: %s", key)
-		}
-	}
-
-	return nil
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -819,13 +788,15 @@ type InferenceRequestFilter struct {
 }
 
 type ApiKey struct { //nolint:revive
-	Created   time.Time       `json:"created"`
-	Owner     string          `json:"owner"`
-	OwnerType OwnerType       `json:"owner_type"`
-	Key       string          `json:"key" gorm:"primaryKey"`
-	Name      string          `json:"name"`
-	Type      APIKeyType      `json:"type" gorm:"default:api"`
-	AppID     *sql.NullString `json:"app_id"`
+	Created    time.Time       `json:"created"`
+	Owner      string          `json:"owner"`
+	OwnerType  OwnerType       `json:"owner_type"`
+	Key        string          `json:"key" gorm:"primaryKey"`
+	Name       string          `json:"name"`
+	Type       APIKeyType      `json:"type" gorm:"default:api"`
+	AppID      *sql.NullString `json:"app_id"`
+	ProjectID  string          `json:"project_id"`   // Used for isolation and metrics tracking
+	SpecTaskID string          `json:"spec_task_id"` // Used for isolation and metrics tracking
 }
 
 type OwnerContext struct {
@@ -1737,8 +1708,8 @@ type SlackTrigger struct {
 // Register a bot at https://dev.botframework.com/ or Azure Portal
 type TeamsTrigger struct {
 	Enabled     bool   `json:"enabled,omitempty"`
-	AppID       string `json:"app_id" yaml:"app_id"`             // Microsoft App ID
-	AppPassword string `json:"app_password" yaml:"app_password"` // Microsoft App Password
+	AppID       string `json:"app_id" yaml:"app_id"`                           // Microsoft App ID
+	AppPassword string `json:"app_password" yaml:"app_password"`               // Microsoft App Password
 	TenantID    string `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"` // Optional: restrict to specific tenant
 }
 
@@ -1872,10 +1843,16 @@ type ZedAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
-	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
-	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	// Video settings for streaming (Phase 3.5) - defaults to 1080p
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+
+	// Resolution and desktop configuration
+	Resolution  string `json:"resolution,omitempty"`   // Resolution preset: "1080p" (default), "4k", or "5k"
+	DesktopType string `json:"desktop_type,omitempty"` // Desktop environment: "ubuntu" (default) or "sway"
+	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
+
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
 	UseHostDocker bool `json:"use_host_docker,omitempty"`
@@ -2234,7 +2211,7 @@ type ZedConfigResponse struct {
 	ExternalSync    map[string]interface{} `json:"external_sync,omitempty"`
 	Agent           map[string]interface{} `json:"agent,omitempty"`
 	Theme           string                 `json:"theme,omitempty"`
-	Version         int64                  `json:"version"`                      // Unix timestamp of app config update
+	Version         int64                  `json:"version"`                     // Unix timestamp of app config update
 	CodeAgentConfig *CodeAgentConfig       `json:"code_agent_config,omitempty"` // Code agent configuration for Zed agentic coding
 }
 
@@ -2320,6 +2297,8 @@ type LLMCall struct {
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
 	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	ProjectID        string         `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID       string         `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`
@@ -2525,6 +2504,8 @@ type UsageMetric struct {
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
 	OrganizationID    string    `json:"organization_id"`
 	InteractionID     string    `json:"interaction_id"`
+	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
 	UserID            string    `json:"user_id"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`

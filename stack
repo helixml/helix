@@ -3,6 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export PROJECTS_ROOT="$(dirname "$DIR")"
 export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
@@ -11,6 +12,14 @@ export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
 export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
+export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
+
+# Desktop categories for build-sandbox
+# Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
+# Note: Using arrays because IFS is set to '\n\t' (no space splitting)
+PRODUCTION_DESKTOPS=(sway ubuntu)
+AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce)
+# EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
 # Configure host networking for Docker-in-Docker support
 function setup_dev_networking() {
@@ -108,10 +117,10 @@ function get_sandbox_names() {
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
-  # Check if COMPOSE_PROFILES was set in environment BEFORE sourcing .env (even if empty)
-  # ${var+x} expands to "x" if var is set, nothing if unset
+  # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
+  # (empty string triggers auto-detection, non-empty respects user's choice)
   local env_was_set=""
-  if [[ -n "${COMPOSE_PROFILES+x}" ]]; then
+  if [[ -n "${COMPOSE_PROFILES:-}" ]]; then
     env_was_set="true"
   fi
 
@@ -206,8 +215,8 @@ function build() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     # Check for Zed dependency and build if needed
-    if [ ! -d "../zed" ]; then
-      echo "❌ ERROR: Zed source code not found at ../zed/"
+    if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+      echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
       echo ""
       echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
       echo ""
@@ -285,9 +294,16 @@ function build-runner-image() {
 }
 
 function build-zed() {
-  echo "🔨 Building Zed with External WebSocket Thread Sync..."
+  # ====================================================================
+  # Build Zed inside Ubuntu 22.04 container for glibc 2.35 compatibility
+  # ====================================================================
+  # This produces a binary that works on Ubuntu 22.04+ (including 25.04)
+  # Building in Docker ensures consistent, portable binaries regardless
+  # of the host OS version.
+  # ====================================================================
+  echo "🔨 Building Zed with External WebSocket Thread Sync (Docker build)..."
 
-  local ZED_SOURCE_DIR="../zed"
+  local ZED_SOURCE_DIR="$PROJECTS_ROOT/zed"
   local ZED_OUTPUT_DIR="./zed-build"
   local BUILD_TYPE="${1:-dev}"
 
@@ -298,7 +314,7 @@ function build-zed() {
     echo ""
     echo "Build types:"
     echo "  dev     - Fast incremental builds with debug symbols (default)"
-    echo "  release - Optimized production builds (slower, ~3-5 minutes)"
+    echo "  release - Optimized production builds (slower)"
     return 1
   fi
 
@@ -318,82 +334,95 @@ function build-zed() {
     return 1
   fi
 
-  # Source cargo environment if it exists (rustup installation)
-  if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
-  fi
-
-  # Check if Rust is installed
-  if ! command -v cargo &> /dev/null; then
-    echo "❌ Rust/Cargo not found. Please install Rust first."
-    echo "Install Rust: https://rustup.rs/"
-    return 1
-  fi
-
   # Create output directory and ensure we own it
   # (Docker bind mounts may have created it as root on fresh installs)
   mkdir -p "$ZED_OUTPUT_DIR"
   if [ ! -w "$ZED_OUTPUT_DIR" ]; then
-    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable (likely created by Docker as root)"
+    echo "⚠️  $ZED_OUTPUT_DIR exists but is not writable"
     echo "   Fixing permissions..."
     sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
   fi
 
-  # Change to Zed source directory
-  cd "$ZED_SOURCE_DIR"
+  echo "🐳 Building Zed inside Ubuntu 22.04 container..."
+  echo "   Source: $ZED_SOURCE_DIR"
+  echo "   Output: $ZED_OUTPUT_DIR"
+  echo "   Mode: $BUILD_TYPE"
 
-  echo "🔨 Building Zed with External WebSocket Thread Sync..."
-  echo "Source directory: $(pwd)"
-  echo "Build type: $BUILD_TYPE"
-
-  # Build Zed based on build type
-  if [ "$BUILD_TYPE" = "release" ]; then
-    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
-    # Use RUSTFLAGS to enable stripping during build (better than post-build strip)
-    if RUSTFLAGS="-C link-arg=-s" RUST_LOG=info cargo build --release --features external_websocket_sync; then
-      BINARY_PATH="target/release/zed"
-    else
-      echo "❌ Zed release build failed"
-      cd - > /dev/null
-      return 1
-    fi
-  else
-    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
-    if RUST_LOG=info cargo build --features external_websocket_sync; then
-      BINARY_PATH="target/debug/zed"
-    else
-      echo "❌ Zed dev build failed"
-      cd - > /dev/null
+  # Build the builder image if needed
+  if ! docker image inspect zed-builder:ubuntu22 &> /dev/null; then
+    echo "📦 Building zed-builder:ubuntu22 image (first time only, ~2-3 min)..."
+    docker build -t zed-builder:ubuntu22 -f Dockerfile.zed-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build zed-builder:ubuntu22 image"
       return 1
     fi
   fi
 
-  # Check if build was successful
-  if [ ! -f "$BINARY_PATH" ]; then
-    echo "❌ Build failed: Binary not found at $BINARY_PATH"
-    cd - > /dev/null
+  # Setup cargo cache for faster rebuilds
+  # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
+  local CARGO_CACHE="$HOME/.cargo-docker-cache"
+  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git"
+
+  # Build command based on type
+  # Use a separate target directory to avoid conflicts with host-compiled build scripts
+  # (host build scripts link against glibc 2.39+ which doesn't exist in Ubuntu 22.04)
+  local BUILD_CMD
+  local BINARY_PATH
+  local TARGET_DIR="target-ubuntu22"
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/release/zed"
+  else
+    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
+    BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR cargo build --features external_websocket_sync"
+    BINARY_PATH="$TARGET_DIR/debug/zed"
+  fi
+
+  # Get absolute path to Zed source
+  local ZED_ABS_PATH
+  ZED_ABS_PATH=$(cd "$ZED_SOURCE_DIR" && pwd)
+
+  # Get absolute path to output directory
+  local OUTPUT_ABS_PATH
+  OUTPUT_ABS_PATH=$(cd "$ZED_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build (this may take a while on first run)..."
+
+  # Run build inside container
+  # Mount:
+  #   - Zed source at /zed
+  #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
+  #   - Cargo git cache at /root/.cargo/git (git dependencies)
+  #   - Output directory at /output
+  # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
+  docker run --rm \
+    -v "$ZED_ABS_PATH:/zed" \
+    -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
+    -v "$CARGO_CACHE/git:/root/.cargo/git" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /zed \
+    zed-builder:ubuntu22 \
+    bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
     return 1
   fi
 
-  echo "✅ Zed compilation completed successfully"
-
-  # Copy binary to output directory (atomic rename to avoid "text file busy")
-  cd - > /dev/null
-  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed.new"
-  chmod +x "$ZED_OUTPUT_DIR/zed.new"
-
-  # Atomic rename (works even if old binary is in use by running containers)
+  # Atomic rename (works even if old binary is in use)
   if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
     mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
   fi
   mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
   rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
 
-  # Get binary info
+  # Verify the binary
   local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
 
-  echo "✅ Zed binary copied to: $ZED_OUTPUT_DIR/zed"
+  echo "✅ Zed binary built successfully"
   echo "📦 Binary size: $BINARY_SIZE"
+  echo "🎯 Compatible with: Ubuntu 22.04+ (glibc 2.35+)"
 
   # Verify external WebSocket sync is included
   if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
@@ -428,6 +457,16 @@ function build-zed() {
 EOF
 
   echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+
+  # Copy Zed app icon for GNOME desktop integration
+  local ICON_SOURCE="$ZED_SOURCE_DIR/crates/zed/resources/app-icon-dev.png"
+  if [ -f "$ICON_SOURCE" ]; then
+    cp "$ICON_SOURCE" "$ZED_OUTPUT_DIR/app-icon.png"
+    echo "✅ Copied Zed app icon to $ZED_OUTPUT_DIR/app-icon.png"
+  else
+    echo "⚠️  Zed app icon not found at $ICON_SOURCE"
+  fi
+
   echo "🎉 Zed build completed successfully!"
   echo ""
   echo "Next steps:"
@@ -445,13 +484,13 @@ function start() {
   fi
 
   # Check for Zed dependency and build if needed
-  if [ ! -d "../zed" ]; then
-    echo "❌ ERROR: Zed source code not found at ../zed/"
+  if [ ! -d "$PROJECTS_ROOT/zed" ]; then
+    echo "❌ ERROR: Zed source code not found at $PROJECTS_ROOT/zed/"
     echo ""
     echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/helixml/zed.git"
     echo "  cd helix"
     echo "  ./stack start"
@@ -592,8 +631,14 @@ function start() {
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
-    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t 4 -T "Kodit Logs"
+      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
 
     # GPU runner logs with air hot reloading
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
@@ -603,8 +648,14 @@ function start() {
     tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml logs -f $SANDBOX_SERVICE" C-m
 
-    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    # Pane 4: Kodit logs if kodit profile enabled, otherwise hacking terminal
+    if [[ "${COMPOSE_PROFILES:-}" == *"kodit"* ]]; then
+      tmux select-pane -t 4 -T "Kodit Logs"
+      tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f kodit' C-m
+    else
+      tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
 
     # Middle right pane (5) - contextual based on demos
     if [[ -n "$WITH_DEMOS" ]]; then
@@ -740,12 +791,10 @@ function stop() {
 
 function up() {
   # Check if Wolf source code exists, if not clone it
-  if [ ! -d "../wolf" ]; then
-    echo "🐺 Wolf source code not found at ../wolf/"
+  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
+    echo "🐺 Wolf source code not found at $PROJECTS_ROOT/wolf/"
     echo "📥 Cloning Wolf repository..."
-    cd ..
-    git clone https://github.com/games-on-whales/wolf.git
-    cd helix
+    git clone https://github.com/games-on-whales/wolf.git "$PROJECTS_ROOT/wolf"
     echo "✅ Wolf repository cloned successfully"
   fi
 
@@ -869,13 +918,13 @@ function build-wolf() {
   echo "🐺 Building Wolf container with latest source code..."
 
   # Check if Wolf source directory exists
-  if [ ! -d "../wolf" ]; then
-    echo "❌ ERROR: Wolf source code not found at ../wolf/"
+  if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
+    echo "❌ ERROR: Wolf source code not found at $PROJECTS_ROOT/wolf/"
     echo ""
     echo "The Wolf integration requires the Wolf source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
     echo "  ./stack build-wolf"
@@ -887,7 +936,7 @@ function build-wolf() {
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
   echo "🔨 Building Wolf container from source..."
-  cd ../wolf
+  cd "$PROJECTS_ROOT/wolf"
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
@@ -917,6 +966,127 @@ function build-wolf() {
   # Wolf runs inside the sandbox container now, not as a standalone service
 }
 
+function build-qwen-code() {
+  # ====================================================================
+  # Build Qwen Code inside container for consistent, reproducible builds
+  # ====================================================================
+  # This avoids issues with host npm/node versions and husky prepare scripts.
+  # The build produces a pre-bundled qwen-code that can be installed globally
+  # in the sway container without triggering prepare hooks.
+  # ====================================================================
+  echo "📦 Building Qwen Code (containerized build)..."
+
+  local QWEN_SOURCE_DIR="$PROJECTS_ROOT/qwen-code"
+  local QWEN_OUTPUT_DIR="./qwen-code-build"
+
+  # Check if qwen-code source directory exists
+  if [ ! -d "$QWEN_SOURCE_DIR" ]; then
+    echo "❌ qwen-code source directory not found at: $QWEN_SOURCE_DIR"
+    echo "Clone it next to helix with: cd $PROJECTS_ROOT && git clone git@github.com:helixml/qwen-code.git"
+    return 1
+  fi
+
+  # Get current qwen-code git commit hash
+  local QWEN_CODE_HASH=$(cd "$QWEN_SOURCE_DIR" && git rev-parse HEAD)
+  local SAVED_HASH=""
+  if [ -f "$QWEN_OUTPUT_DIR/.git-commit-hash" ]; then
+    SAVED_HASH=$(cat "$QWEN_OUTPUT_DIR/.git-commit-hash")
+  fi
+
+  # Check if we need to rebuild
+  local NEEDS_REBUILD=false
+  if [ ! -d "$QWEN_OUTPUT_DIR" ] || [ ! -f "$QWEN_OUTPUT_DIR/package.json" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code-build directory missing or incomplete"
+  elif [ ! -d "$QWEN_OUTPUT_DIR/dist" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code dist directory missing (bundle not built)"
+  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
+    NEEDS_REBUILD=true
+    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
+  fi
+
+  if [ "$NEEDS_REBUILD" != "true" ]; then
+    echo "✅ Using existing qwen-code build at $QWEN_OUTPUT_DIR (${SAVED_HASH:0:8})"
+    return 0
+  fi
+
+  echo "🐳 Building qwen-code inside Node.js 20 container..."
+  echo "   Source: $QWEN_SOURCE_DIR"
+  echo "   Output: $QWEN_OUTPUT_DIR"
+
+  # Build the builder image if needed
+  if ! docker image inspect qwen-code-builder:node20 &> /dev/null; then
+    echo "📦 Building qwen-code-builder:node20 image (first time only)..."
+    docker build -t qwen-code-builder:node20 -f Dockerfile.qwen-code-build .
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to build qwen-code-builder:node20 image"
+      return 1
+    fi
+  fi
+
+  # Setup npm cache for faster rebuilds
+  local NPM_CACHE="$HOME/.npm-docker-cache"
+  mkdir -p "$NPM_CACHE"
+
+  # Create output directory
+  mkdir -p "$QWEN_OUTPUT_DIR"
+  if [ ! -w "$QWEN_OUTPUT_DIR" ]; then
+    echo "⚠️  $QWEN_OUTPUT_DIR exists but is not writable"
+    echo "   Fixing permissions..."
+    sudo chown -R "$USER:$USER" "$QWEN_OUTPUT_DIR"
+  fi
+
+  # Get absolute paths
+  local QWEN_ABS_PATH=$(cd "$QWEN_SOURCE_DIR" && pwd)
+  local OUTPUT_ABS_PATH=$(cd "$QWEN_OUTPUT_DIR" && pwd)
+
+  echo "🚀 Starting Docker build..."
+
+  # Run build inside container
+  # 1. npm ci --ignore-scripts: Install deps without running prepare hook
+  # 2. npm run bundle: Build the dist/ directory manually
+  # Then copy the required files to output
+  docker run --rm \
+    -v "$QWEN_ABS_PATH:/qwen-code:ro" \
+    -v "$NPM_CACHE:/root/.npm" \
+    -v "$OUTPUT_ABS_PATH:/output" \
+    -w /build \
+    qwen-code-builder:node20 \
+    bash -c '
+      set -e
+      echo "📋 Copying source to build directory..."
+      cp -r /qwen-code/. /build/
+
+      echo "📦 Installing dependencies (skipping prepare scripts)..."
+      npm ci --ignore-scripts
+
+      echo "🔨 Building bundle..."
+      npm run bundle
+
+      echo "📤 Copying build artifacts to output..."
+      # Copy everything needed for npm install -g
+      cp -r package.json package-lock.json dist/ /output/
+      # Copy packages directory (workspaces)
+      cp -r packages/ /output/ 2>/dev/null || true
+      # Copy node_modules (required for workspaces to work)
+      cp -r node_modules/ /output/
+
+      echo "✅ Build complete!"
+    '
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Docker build failed"
+    return 1
+  fi
+
+  # Save the git commit hash for future change detection
+  echo "$QWEN_CODE_HASH" > "$QWEN_OUTPUT_DIR/.git-commit-hash"
+
+  echo "✅ qwen-code built successfully (${QWEN_CODE_HASH:0:8})"
+  echo "📦 Output: $QWEN_OUTPUT_DIR"
+}
+
 function build-xfce() {
   echo "🖥️  Building custom XFCE container with passwordless sudo..."
 
@@ -935,8 +1105,27 @@ function build-xfce() {
   fi
 }
 
-function build-sway() {
-  echo "🪟  Building custom Sway container for Personal Dev Environments..."
+# Generic desktop build function - builds any desktop (sway, zorin, ubuntu)
+# Uses Docker image hashes for content-addressable versioning
+function build-desktop() {
+  local DESKTOP_NAME="$1"
+
+  if [ -z "$DESKTOP_NAME" ]; then
+    echo "Usage: ./stack build-desktop <name>"
+    echo "Available: sway, zorin, ubuntu, xfce"
+    exit 1
+  fi
+
+  local DOCKERFILE="Dockerfile.${DESKTOP_NAME}-helix"
+  local IMAGE_NAME="helix-${DESKTOP_NAME}"
+
+  # Validate Dockerfile exists
+  if [ ! -f "$DOCKERFILE" ]; then
+    echo "❌ Dockerfile not found: $DOCKERFILE"
+    exit 1
+  fi
+
+  echo "🖥️  Building ${DESKTOP_NAME} desktop container..."
 
   # Production mode: Always rebuild Zed from latest source in release mode
   if [ -n "${SKIP_DEV_RESTART:-}" ]; then
@@ -956,181 +1145,123 @@ function build-sway() {
     echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
-  # Prepare qwen-code build directory from local fork
-  echo "🔨 Preparing qwen-code build from local repository..."
-
-  if [ ! -d "$HOME/pm/qwen-code" ]; then
-    echo "❌ qwen-code not found at $HOME/pm/qwen-code"
-    echo "   Clone it with: cd ~/pm && git clone git@github.com:helixml/qwen-code.git"
+  # Build qwen-code using containerized build (avoids husky/prepare script issues)
+  # This is used by ALL desktop images (sway, zorin, ubuntu, xfce)
+  if ! build-qwen-code; then
+    echo "❌ Failed to build qwen-code"
     exit 1
   fi
 
-  echo "✅ Found qwen-code at $HOME/pm/qwen-code"
-
-  # Get current qwen-code git commit hash
-  local QWEN_CODE_HASH=$(cd "$HOME/pm/qwen-code" && git rev-parse HEAD)
-  local SAVED_HASH=""
-  if [ -f "./qwen-code-build/.git-commit-hash" ]; then
-    SAVED_HASH=$(cat "./qwen-code-build/.git-commit-hash")
-  fi
-
-  # Check if we need to rebuild - compare git hashes to detect ANY changes
-  local NEEDS_REBUILD=false
-  if [ ! -d "./qwen-code-build" ] || [ ! -f "./qwen-code-build/package.json" ]; then
-    NEEDS_REBUILD=true
-    echo "📦 qwen-code-build directory missing or incomplete"
-  elif [ "$QWEN_CODE_HASH" != "$SAVED_HASH" ]; then
-    NEEDS_REBUILD=true
-    echo "📦 qwen-code changed: ${SAVED_HASH:0:8} -> ${QWEN_CODE_HASH:0:8}"
-  fi
-
-  if [ "$NEEDS_REBUILD" = "true" ]; then
-    echo "🔨 Building qwen-code from source..."
-    rm -rf ./qwen-code-build
-    (
-      cd "$HOME/pm/qwen-code"
-      npm install
-      npm run build
-    )
-    cp -r "$HOME/pm/qwen-code" ./qwen-code-build
-    # Save the git commit hash for future change detection
-    echo "$QWEN_CODE_HASH" > ./qwen-code-build/.git-commit-hash
-    echo "✅ qwen-code built and copied to ./qwen-code-build (${QWEN_CODE_HASH:0:8})"
-  else
-    echo "✅ Using existing qwen-code build at ./qwen-code-build"
-  fi
-
-  # Log qwen-code commit for Docker cache busting (hash already computed above)
+  # Get qwen-code hash for Docker cache busting
+  local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
-  # Build the custom Sway image with image tags
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-
   # Capture image hash BEFORE build to detect if it actually changed
-  local IMAGE_HASH_BEFORE=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
+  local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git tag --points-at HEAD 2>/dev/null | head -1)
 
-  echo "🔨 Building helix-sway:latest container with Zed..."
-
+  # Build the desktop image
   # Use --provenance=false to get stable image IDs when layers are cached
   # (BuildKit attestation manifests change each build, causing ID changes)
   # Pass QWEN_CODE_HASH as build arg to bust cache when qwen-code changes
-  local BUILD_SUCCESS=0
-  if [ -n "$GIT_TAG" ]; then
+  echo "🔨 Building ${IMAGE_NAME}:latest..."
+
+  # Registry tagging only for sway (primary production image)
+  if [ "$DESKTOP_NAME" = "sway" ] && [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build --provenance=false -f Dockerfile.sway-helix \
+    docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-      -t helix-sway:latest \
-      -t "helix-sway:${COMMIT_HASH}" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
-      . || BUILD_SUCCESS=1
-  else
-    docker build --provenance=false -f Dockerfile.sway-helix \
+      .
+  elif [ "$DESKTOP_NAME" = "sway" ]; then
+    docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
-      -t helix-sway:latest \
-      -t "helix-sway:${COMMIT_HASH}" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      . || BUILD_SUCCESS=1
+      .
+  else
+    # Non-sway desktops: just latest and commit hash tags (also with qwen-code)
+    docker build --provenance=false -f "$DOCKERFILE" \
+      --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      -t "${IMAGE_NAME}:latest" \
+      -t "${IMAGE_NAME}:${COMMIT_HASH}" \
+      .
   fi
 
-  if [ $BUILD_SUCCESS -ne 0 ]; then
-    echo "❌ Failed to build Sway container"
-    exit 1
-  fi
-
-  # Verify image was actually created
-  if ! docker image inspect helix-sway:latest &>/dev/null; then
-    echo "❌ helix-sway:latest not found after build - something went wrong"
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to build ${DESKTOP_NAME} container"
     exit 1
   fi
 
   # Capture image hash AFTER build
-  local IMAGE_HASH_AFTER=$(docker images helix-sway:latest --format '{{.ID}}')
+  local IMAGE_HASH_AFTER=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}')
 
-  echo "✅ Sway container built successfully"
-  echo "🪟  Custom Sway image ready: helix-sway:latest"
-  echo ""
-  echo "Features added:"
-  echo "  - Sway tiling window manager with waybar"
-  echo "  - Zed editor with External WebSocket Thread Sync"
-  echo "  - Firefox, Ghostty terminal, OnlyOffice"
-  echo "  - Screenshot server (grim-based) for Moonlight streaming"
-  echo "  - Passwordless sudo for development"
-  echo "  - Docker CLI for container-in-container workflows"
+  # Get Docker image hash (content-addressable, survives save/load)
+  local IMAGE_HASH_FULL=$(echo "$IMAGE_HASH_AFTER" | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
 
-  echo "✅ Sway container build completed"
-  echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
-
-  # Export tarball and version files (for bind-mounted dev workflow)
-  # These are bind-mounted into sandbox in docker-compose.dev.yaml
-  # Pass before/after hashes to detect if image actually changed
-  export-sway-tarball "$IMAGE_HASH_BEFORE" "$IMAGE_HASH_AFTER"
-}
-
-# Export helix-sway tarball only if needed (image changed or tarball missing)
-# Args: $1 = image hash before build, $2 = image hash after build
-function export-sway-tarball() {
-  local IMAGE_HASH_BEFORE="${1:-}"
-  local IMAGE_HASH_AFTER="${2:-}"
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  echo "✅ ${DESKTOP_NAME} container built successfully"
+  echo "📦 Image hash: ${IMAGE_HASH_FULL} (tag: ${IMAGE_TAG})"
 
   # Log image hash comparison for debugging cache behavior
   echo "🔍 Image cache check:"
   echo "   Before: ${IMAGE_HASH_BEFORE:-<not captured>}"
   echo "   After:  ${IMAGE_HASH_AFTER:-<not captured>}"
-  if [ -f helix-sway.tar ]; then
-    echo "   Tarball: exists ($(du -h helix-sway.tar | cut -f1))"
+  if [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
+    echo "   Tarball: exists ($(du -h sandbox-images/${IMAGE_NAME}.tar | cut -f1))"
   else
     echo "   Tarball: missing"
   fi
 
   # Skip export if: image unchanged AND tarball exists
-  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f helix-sway.tar ]; then
-    TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-    echo "✅ Image unchanged, tarball up-to-date: helix-sway.tar ($TARBALL_SIZE) - skipping export"
+  if [ -n "$IMAGE_HASH_BEFORE" ] && [ "$IMAGE_HASH_BEFORE" = "$IMAGE_HASH_AFTER" ] && [ -f "sandbox-images/${IMAGE_NAME}.tar" ]; then
+    local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
+    echo "✅ Image unchanged, tarball up-to-date: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) - skipping export"
+    # Still transfer to sandbox if running (in case sandbox was restarted)
+    if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+      transfer-desktop-to-sandbox "$DESKTOP_NAME"
+    fi
     return 0
   fi
 
-  echo "📦 Exporting helix-sway tarball for bind-mount..."
+  # Export tarball for embedding in sandbox
+  # Include both :latest and :${IMAGE_TAG} tags so docker ps shows proper image names
+  echo "📦 Exporting ${DESKTOP_NAME} tarball..."
+  mkdir -p sandbox-images
 
-  # Verify image exists before attempting to save
-  if ! docker image inspect helix-sway:latest &>/dev/null; then
-    echo "❌ helix-sway:latest image not found - build-sway must have failed"
-    return 1
-  fi
+  # Tag with IMAGE_TAG before saving (Wolf uses helix-${desktop}:${tag} to run containers)
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG}..."
+  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
-  docker tag helix-sway:latest helix-sway:${COMMIT_HASH}
-  if ! docker save helix-sway:latest helix-sway:${COMMIT_HASH} > helix-sway.tar; then
-    echo "❌ docker save failed"
-    rm -f helix-sway.tar
-    return 1
-  fi
+  # Save tarball with BOTH tags - this ensures docker ps shows the named image
+  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"
+  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
 
-  # Validate tarball is non-empty (docker save can create empty files on failure)
-  TARBALL_SIZE_BYTES=$(stat -c%s helix-sway.tar 2>/dev/null || echo "0")
-  if [ "$TARBALL_SIZE_BYTES" -lt 1000000 ]; then
-    echo "❌ Tarball is suspiciously small (${TARBALL_SIZE_BYTES} bytes) - likely corrupted"
-    rm -f helix-sway.tar
-    return 1
-  fi
+  local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
+  echo "✅ Tarball created: sandbox-images/${IMAGE_NAME}.tar ($TARBALL_SIZE) tag=${IMAGE_TAG}"
 
-  echo "$IMAGE_HASH_AFTER" > helix-sway.tar.hash
-  echo "${COMMIT_HASH}" > helix-sway.version
-  TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-  echo "✅ Tarball created: helix-sway.tar ($TARBALL_SIZE) version=${COMMIT_HASH}"
-
-  # Transfer helix-sway image to sandbox's dockerd (Wolf runs inside sandbox container)
-  # Only transfer if sandbox is already running (hot reload during development)
-  # Skip if called from build-sandbox (which restarts sandbox with embedded tarball)
-  if [ -z "${SKIP_SWAY_TRANSFER:-}" ]; then
-    transfer-sway-to-sandbox
+  # Transfer to running sandbox (hot-reload in development)
+  # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
+  if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
+    transfer-desktop-to-sandbox "$DESKTOP_NAME"
   fi
 }
 
-function transfer-sway-to-sandbox() {
-  # Transfer helix-sway image from host to sandbox's isolated dockerd
-  # This is required because sandbox runs its own dockerd (DinD) and doesn't have access to host images
+# Generic transfer function - transfers any desktop image to sandbox's dockerd
+function transfer-desktop-to-sandbox() {
+  local DESKTOP_NAME="$1"
+  local IMAGE_NAME="helix-${DESKTOP_NAME}"
+
+  if [ -z "$DESKTOP_NAME" ]; then
+    echo "Usage: transfer-desktop-to-sandbox <name>"
+    return 1
+  fi
 
   # Determine correct sandbox service/container based on GPU profile
   if [[ -f "$DIR/.env" ]]; then
@@ -1144,66 +1275,113 @@ function transfer-sway-to-sandbox() {
     return 0
   fi
 
-  # Check if helix-sway image exists on host
-  if ! docker images helix-sway:latest -q | grep -q .; then
-    echo "⚠️  helix-sway:latest not found on host, skipping transfer"
+  # Check if image exists on host
+  if ! docker images "${IMAGE_NAME}:latest" -q | grep -q .; then
+    echo "⚠️  ${IMAGE_NAME}:latest not found on host, skipping transfer"
     return 0
   fi
 
-  # Get commit hash BEFORE transfer (needed for tagging)
+  # Get image hash and commit hash for versioned tags
+  local IMAGE_HASH_FULL=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' | sed 's/sha256://')
+  # Use first 6 chars as tag - avoids Docker showing just hash when tag matches image ID
+  local IMAGE_TAG="${IMAGE_HASH_FULL:0:6}"
   local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local IMAGE_HASH=$(docker images helix-sway:latest --format '{{.ID}}')
 
-  # Check if versioned tag exists on host
+  # CRITICAL: Create image tag on host - Wolf executor requests images by tag
+  # The heartbeat reports the tag from the version file, and Wolf uses
+  # helix-${desktop}:${tag} when creating containers. Without this tag, the
+  # sandbox won't find the image and the container will fail to start.
+  echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${IMAGE_TAG} (for Wolf executor)..."
+  docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
+
+  # Check if versioned tag exists locally
   local HAS_VERSIONED_TAG=""
-  if docker images "helix-sway:${COMMIT_HASH}" -q | grep -q .; then
+  if docker images "${IMAGE_NAME}:${COMMIT_HASH}" -q | grep -q .; then
     HAS_VERSIONED_TAG="true"
   fi
 
   # Transfer image(s) to sandbox's dockerd
+  # Always include the IMAGE_TAG since Wolf uses it to run containers
   local TRANSFER_SUCCESS=""
   if [ -n "$HAS_VERSIONED_TAG" ]; then
-    # Transfer BOTH tags: latest and versioned (Wolf uses helix-sway:${version})
-    echo "📦 Transferring helix-sway:latest and helix-sway:${COMMIT_HASH} to sandbox's dockerd..."
-    if docker save helix-sway:latest "helix-sway:${COMMIT_HASH}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+    # Transfer all tags: latest, commit hash, and image tag (Wolf uses helix-${desktop}:${tag})
+    echo "📦 Transferring ${IMAGE_NAME}:latest, ${IMAGE_NAME}:${COMMIT_HASH}, and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
       TRANSFER_SUCCESS="true"
-      echo "✅ helix-sway images transferred to sandbox's dockerd"
+      echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
+      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
     fi
   else
-    # Only :latest exists - transfer and tag inside sandbox
-    echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
-    if docker save helix-sway:latest | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
-      echo "✅ helix-sway:latest transferred to sandbox's dockerd"
-      # Tag it with the version inside sandbox
-      echo "🏷️  Tagging helix-sway:latest as helix-sway:${COMMIT_HASH} inside sandbox..."
-      docker exec "$SANDBOX_CONTAINER" docker tag helix-sway:latest "helix-sway:${COMMIT_HASH}"
+    # Only :latest exists - transfer with image tag
+    echo "📦 Transferring ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${IMAGE_TAG} to sandbox's dockerd..."
+    if docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" | docker exec -i "$SANDBOX_CONTAINER" docker load 2>/dev/null; then
+      echo "✅ ${IMAGE_NAME} images transferred to sandbox's dockerd"
+      # Tag it with the commit hash inside sandbox for consistency
+      echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${COMMIT_HASH} inside sandbox..."
+      docker exec "$SANDBOX_CONTAINER" docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${COMMIT_HASH}"
       TRANSFER_SUCCESS="true"
+      echo "📦 Image tag: ${IMAGE_NAME}:${IMAGE_TAG}"
     fi
   fi
 
   if [ -n "$TRANSFER_SUCCESS" ]; then
-    # Version files are bind-mounted from host (updated by build-sway)
-    # Just restart heartbeat to pick up the new version
+    # Version files are bind-mounted from host (updated by build-desktop)
+    if [ -f "sandbox-images/${IMAGE_NAME}.version" ]; then
+      echo "✅ Version file sandbox-images/${IMAGE_NAME}.version contains: $(cat sandbox-images/${IMAGE_NAME}.version)"
+    fi
+    # Restart heartbeat to pick up the new version immediately
     echo "🔄 Restarting heartbeat daemon to report new version..."
     docker exec "$SANDBOX_CONTAINER" pkill -f sandbox-heartbeat 2>/dev/null || true
     echo "✅ Image transferred and heartbeat restarted"
   else
     echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
-    echo "   Image will be loaded from embedded tarball when sandbox is ready"
   fi
+}
+
+# Backward compatibility wrappers
+function build-sway() {
+  build-desktop sway
+}
+
+function transfer-sway-to-sandbox() {
+  transfer-desktop-to-sandbox sway
+}
+
+function build-zorin() {
+  build-desktop zorin
+}
+
+function transfer-zorin-to-sandbox() {
+  transfer-desktop-to-sandbox zorin
+}
+
+function build-ubuntu() {
+  build-desktop ubuntu
+}
+
+function transfer-ubuntu-to-sandbox() {
+  transfer-desktop-to-sandbox ubuntu
+}
+
+function build-xfce() {
+  build-desktop xfce
+}
+
+function transfer-xfce-to-sandbox() {
+  transfer-desktop-to-sandbox xfce
 }
 
 function build-moonlight-web() {
   echo "🌙 Building Moonlight Web container..."
 
   # Check if moonlight-web source directory exists
-  if [ ! -d "../moonlight-web-stream" ]; then
-    echo "❌ ERROR: Moonlight Web source code not found at ../moonlight-web-stream/"
+  if [ ! -d "$PROJECTS_ROOT/moonlight-web-stream" ]; then
+    echo "❌ ERROR: Moonlight Web source code not found at $PROJECTS_ROOT/moonlight-web-stream/"
     echo ""
     echo "The Moonlight Web integration requires the source code to be checked out alongside Helix."
     echo ""
     echo "Please run:"
-    echo "  cd .."
+    echo "  cd $PROJECTS_ROOT"
     echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
     echo "  cd helix"
     echo "  ./stack build-moonlight-web"
@@ -1222,7 +1400,7 @@ function build-moonlight-web() {
   else
     echo "🔨 Building Moonlight Web container from source (DEBUG MODE)..."
   fi
-  cd ../moonlight-web-stream
+  cd "$PROJECTS_ROOT/moonlight-web-stream"
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
@@ -1254,6 +1432,17 @@ function build-moonlight-web() {
   # Moonlight Web runs inside the sandbox container now, not as a standalone service
 }
 
+# Helper function to verify tarball exists after desktop build
+function verify_tarball() {
+  local desktop="$1"
+  if [ ! -f "sandbox-images/helix-${desktop}.tar" ]; then
+    echo "❌ sandbox-images/helix-${desktop}.tar not found after build"
+    rm -f sandbox-images/helix-*.tar
+    exit 1
+  fi
+  echo "✅ helix-${desktop}.tar ($(du -h sandbox-images/helix-${desktop}.tar | cut -f1)) version=$(cat sandbox-images/helix-${desktop}.version)"
+}
+
 function build-sandbox() {
   echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
   echo ""
@@ -1262,8 +1451,24 @@ function build-sandbox() {
   echo "  • Moonlight Web (from ~/pm/moonlight-web-stream)"
   echo "  • RevDial client (built from source)"
   echo "  • Docker-in-Docker with NVIDIA runtime"
-  echo "  • helix-sway image (pre-loaded into Wolf's dockerd)"
+  echo "  • Desktop images (pre-loaded into Wolf's dockerd)"
   echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
+  echo ""
+  # Convert EXPERIMENTAL_DESKTOPS from space-separated string to array
+  # This allows: EXPERIMENTAL_DESKTOPS="zorin xfce" ./stack build-sandbox
+  local EXPERIMENTAL_DESKTOPS_ARR=()
+  if [ -n "${EXPERIMENTAL_DESKTOPS:-}" ]; then
+    # Use read with default IFS to split on spaces
+    IFS=' ' read -ra EXPERIMENTAL_DESKTOPS_ARR <<< "$EXPERIMENTAL_DESKTOPS"
+  fi
+
+  echo "📋 Build configuration:"
+  echo "   Production desktops: ${PRODUCTION_DESKTOPS[*]}"
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    echo "   Experimental desktops: ${EXPERIMENTAL_DESKTOPS_ARR[*]}"
+  else
+    echo "   Experimental desktops: (none - set EXPERIMENTAL_DESKTOPS to enable)"
+  fi
   echo ""
 
   local COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -1272,7 +1477,7 @@ function build-sandbox() {
 
   # Step 0: Build Wolf and Moonlight Web (fast if unchanged due to Docker cache)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [0/4] Building Wolf and Moonlight Web dependencies..."
+  echo "📝 [0/6] Building Wolf and Moonlight Web dependencies..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Build Wolf (skip container restart - we'll restart sandbox instead)
@@ -1290,9 +1495,9 @@ function build-sandbox() {
   fi
   echo ""
 
-  # Step 1: Build Zed if needed (required for helix-sway)
+  # Step 1: Build Zed if needed (required for helix-sway and helix-zorin)
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [1/4] Checking Zed binary..."
+  echo "📝 [1/6] Checking Zed binary..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
     echo "Building Zed in release mode..."
@@ -1305,34 +1510,46 @@ function build-sandbox() {
   fi
   echo ""
 
-  # Step 2: Build helix-sway and export as tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [2/4] Building helix-sway and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  # Step 2: Build desktop images
+  # Build production desktops (always)
+  local STEP_NUM=2
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📦 Building production desktop: helix-${desktop}..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+      echo "❌ Failed to build helix-${desktop}"
+      return 1
+    fi
+    verify_tarball "$desktop"
+    # Remove old compressed tarball if it exists (migrating to uncompressed)
+    [ -f "sandbox-images/helix-${desktop}.tar.gz" ] && rm -f "sandbox-images/helix-${desktop}.tar.gz" "sandbox-images/helix-${desktop}.tar.gz.hash"
+    echo ""
+    STEP_NUM=$((STEP_NUM + 1))
+  done
 
-  # Build helix-sway image and export tarball (build-sway now handles tarball export)
-  # Skip image transfer since we'll restart sandbox with new embedded tarball
-  if ! SKIP_SWAY_TRANSFER=1 build-sway; then
-    echo "❌ Failed to build helix-sway"
-    return 1
+  # Build experimental desktops (only if requested)
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🧪 Building experimental desktop: helix-${desktop}..."
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      if ! SKIP_DESKTOP_TRANSFER=1 build-desktop "$desktop"; then
+        echo "❌ Failed to build helix-${desktop}"
+        return 1
+      fi
+      verify_tarball "$desktop"
+      echo ""
+      STEP_NUM=$((STEP_NUM + 1))
+    done
+  else
+    echo "ℹ️  Experimental desktops skipped (set EXPERIMENTAL_DESKTOPS=\"zorin xfce\" to build)"
+    echo ""
   fi
 
-  # Verify tarball was created (build-sway exports it)
-  if [ ! -f helix-sway.tar ]; then
-    echo "❌ helix-sway.tar not found after build-sway - this shouldn't happen"
-    return 1
-  fi
-
-  # Remove old compressed tarball if it exists (migrating to uncompressed)
-  [ -f helix-sway.tar.gz ] && rm -f helix-sway.tar.gz helix-sway.tar.gz.hash
-
-  TARBALL_SIZE=$(du -h helix-sway.tar | cut -f1)
-  echo "✅ Using helix-sway.tar ($TARBALL_SIZE) version=$(cat helix-sway.version)"
-  echo ""
-
-  # Step 3: Build unified sandbox container with embedded tarball
+  # Build unified sandbox container with embedded tarballs
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [3/4] Building helix-sandbox container..."
+  echo "📦 Building helix-sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Get image IDs to bust Docker cache when upstream images change
@@ -1363,18 +1580,18 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f helix-sway.tar
+    rm -f sandbox-images/helix-*.tar
     return 1
   fi
 
-  # Keep tarball for future builds (enables fast rebuilds when helix-sway is cached)
+  # Keep tarballs for future builds (enables fast rebuilds when desktop images are cached)
   # Only cleanup on failure or when explicitly requested
-  echo "✅ helix-sandbox container built successfully (kept helix-sway.tar for next build)"
+  echo "✅ helix-sandbox container built successfully (kept tarballs for next build)"
   echo ""
 
-  # Step 4: Restart sandbox and transfer fresh image
+  # Step 6: Restart sandbox and transfer fresh image
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [4/4] Restarting sandbox container..."
+  echo "📝 [6/6] Restarting sandbox container..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # Restart to pick up new image (handled by existing code below)
@@ -1383,7 +1600,7 @@ function build-sandbox() {
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing sandbox image to registry..."
 
-    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway tarball)
+    # Push helix-sandbox (contains Wolf + Moonlight Web + desktop tarballs)
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1392,7 +1609,7 @@ function build-sandbox() {
       return 1
     fi
 
-    echo "📦 Registry images pushed (helix-sway is embedded, not pushed separately)"
+    echo "📦 Registry images pushed (desktop images are embedded, not pushed separately)"
   fi
 
   # Restart sandbox in dev mode
@@ -1417,10 +1634,24 @@ function build-sandbox() {
   echo "  • Moonlight Web (WebRTC browser streaming)"
   echo "  • RevDial client (control plane connection)"
   echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
-  echo "  • helix-sway image (pre-loaded tarball: $TARBALL_SIZE)"
+  echo "  • Desktop images:"
+  for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
+    if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
+      local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
+      echo "    - helix-${desktop} (production, $size)"
+    fi
+  done
+  if [ ${#EXPERIMENTAL_DESKTOPS_ARR[@]} -gt 0 ]; then
+    for desktop in "${EXPERIMENTAL_DESKTOPS_ARR[@]}"; do
+      if [ -f "sandbox-images/helix-${desktop}.tar" ]; then
+        local size=$(du -h "sandbox-images/helix-${desktop}.tar" | cut -f1)
+        echo "    - helix-${desktop} (experimental, $size)"
+      fi
+    done
+  fi
   echo ""
   echo "Services managed by GOW's init system:"
-  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads helix-sway"
+  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads desktop images"
   echo "  • 05-init-wolf-config.sh - initializes Wolf config"
   echo "  • 06-init-moonlight-config.sh - initializes Moonlight Web"
   echo "  • 07-start-moonlight-web.sh - starts Moonlight Web daemon"
@@ -1434,7 +1665,7 @@ function build-sandbox() {
 # - wolf: wolf-ui-working (adds client_unique_id for secure auto-join)
 # - moonlight-web-stream: feature/kickoff (threads Wolf client_id through stack)
 # - zed: feature/external-thread-sync (external agent WebSocket sync support)
-# Verify branches before running: cd ../wolf && git branch --show-current
+# Verify branches before running: cd $PROJECTS_ROOT/wolf && git branch --show-current
 function build-and-push-helix-code() {
   # Optional: pass a tag override as first argument to force tagging even if commit doesn't match
   local TAG_OVERRIDE="${1:-}"
@@ -1704,7 +1935,7 @@ function test-integration() {
 # Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
 
 function ollama-sync() {
-  local OLLAMA_PATH="../ollama"
+  local OLLAMA_PATH="$PROJECTS_ROOT/ollama"
   local TARGET_DIR="api/pkg/ollamav11"
 
   # Check if we're in the right directory (should have api/ subdirectory)
@@ -1935,12 +2166,15 @@ function help() {
   echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
   echo "  build-wolf         - Build Wolf container with latest source code"
-  echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
-  echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
+  echo "  build-desktop <name> - Build desktop container (sway, zorin, ubuntu, xfce)"
+  echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
+  echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
+  echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
+  echo "  build-xfce         - Build XFCE+Zed container (alias for build-desktop xfce)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
-  echo "  build-zed [dev|release] - Build Zed binary (stripped in release mode)"
+  echo "  build-zed [dev|release] - Build Zed binary in Docker (glibc 2.35 compatible)"
   echo "  build-zed-agent    - Build Zed agent Docker image"
   echo "  zed-agent-up       - Start Zed agent services"
   echo "  zed-agent-down     - Stop Zed agent services"
@@ -1973,6 +2207,7 @@ function help() {
   echo "  STOP_KEYCLOAK=1    - Stop Keycloak when stopping"
   echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
+  echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"
 }
 
 # Show help if no arguments provided

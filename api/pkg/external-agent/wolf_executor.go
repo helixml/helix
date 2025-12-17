@@ -24,6 +24,68 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// DesktopType represents the type of desktop environment to use
+type DesktopType string
+
+const (
+	DesktopSway   DesktopType = "sway"
+	DesktopZorin  DesktopType = "zorin"
+	DesktopUbuntu DesktopType = "ubuntu"
+	DesktopXFCE   DesktopType = "xfce"
+)
+
+// parseDesktopType converts a string to DesktopType, defaulting to Sway
+func parseDesktopType(s string) DesktopType {
+	switch strings.ToLower(s) {
+	case "zorin":
+		return DesktopZorin
+	case "ubuntu":
+		return DesktopUbuntu
+	case "xfce":
+		return DesktopXFCE
+	default:
+		return DesktopSway
+	}
+}
+
+// getDesktopTypeFromEnv reads the HELIX_DESKTOP environment variable
+func getDesktopTypeFromEnv() DesktopType {
+	return parseDesktopType(os.Getenv("HELIX_DESKTOP"))
+}
+
+// getDesktopEnvVars returns desktop-specific environment variables
+// Each desktop type may require different env vars for the GOW base image
+func getDesktopEnvVars(desktop DesktopType) []string {
+	switch desktop {
+	case DesktopSway:
+		// Sway needs RUN_SWAY=1 for GOW launcher to start Sway compositor
+		return []string{"RUN_SWAY=1"}
+	case DesktopZorin, DesktopUbuntu, DesktopXFCE:
+		// GNOME (Zorin) and XFCE (Ubuntu/XFCE) don't need special flags
+		// GOW base images detect the desktop environment automatically
+		return []string{}
+	default:
+		return []string{}
+	}
+}
+
+// getDesktopMountPath returns the correct startup script mount path for the desktop type
+// Different GOW base images have different startup architectures:
+// - Sway base: Has both startup.sh → startup-app.sh (two-stage)
+// - Zorin/Ubuntu bases: Only have startup.sh (single-stage, no startup-app.sh)
+func getDesktopMountPath(desktop DesktopType) string {
+	switch desktop {
+	case DesktopSway:
+		// Sway base: startup.sh calls startup-app.sh
+		return "/opt/gow/startup-app.sh"
+	case DesktopZorin, DesktopUbuntu, DesktopXFCE:
+		// Zorin/Ubuntu/XFCE base: startup.sh IS the main script (no startup-app.sh)
+		return "/opt/gow/startup.sh"
+	default:
+		return "/opt/gow/startup-app.sh"
+	}
+}
+
 // extractHostPortAndTLS parses a URL and returns host:port and whether TLS is needed
 // Used to configure Zed's WebSocket connection to the API
 func extractHostPortAndTLS(rawURL string) (hostPort string, useTLS bool) {
@@ -178,8 +240,8 @@ func generateLobbyPIN() ([]int16, string) {
 	return pin, pinString
 }
 
-// SwayWolfAppConfig contains configuration for creating a Sway-based Wolf app
-type SwayWolfAppConfig struct {
+// DesktopWolfAppConfig configures a Wolf app with a desktop environment (Sway or Zorin)
+type DesktopWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
@@ -187,8 +249,9 @@ type SwayWolfAppConfig struct {
 	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
-	ExtraMounts       []string // Additional directory mounts
-	ZedImage          string   // Override for helix-sway image (uses instance's SwayVersion)
+	ExtraMounts       []string    // Additional directory mounts (e.g., internal project repo)
+	ZedImage          string      // Override for desktop image (uses instance's desktop version)
+	DesktopType       DesktopType // Type of desktop environment (sway or zorin)
 	// NOTE: Startup script lives in primary code repo at .helix/startup.sh
 	DisplayWidth  int
 	DisplayHeight int
@@ -197,19 +260,40 @@ type SwayWolfAppConfig struct {
 	DockerSocket string // Path to Docker socket to mount (defaults to /var/run/docker.sock if empty)
 }
 
-// computeZedImageFromVersion converts a SwayVersion (commit hash) from Wolf instance
-// into a full Docker image tag. Returns empty string if no version is set (falls back to default).
-func (w *WolfExecutor) computeZedImageFromVersion(swayVersion string) string {
-	if swayVersion == "" {
-		return "" // Fall back to default w.zedImage in createSwayWolfApp
+// computeZedImageFromVersion returns the Docker image reference for the given desktop type.
+// With content-addressable hashes, the version IS the image hash and can be used directly.
+// Returns empty string if no version is set (falls back to default w.zedImage).
+func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, wolfInstance *types.WolfInstance) string {
+	if wolfInstance == nil {
+		return "" // Fall back to default w.zedImage
 	}
-	// SwayVersion is a commit hash (e.g., "abc123def")
-	// Convert to full image tag: helix-sway:abc123def
-	return fmt.Sprintf("helix-sway:%s", swayVersion)
+
+	// Get version (image hash) for this desktop type
+	version := wolfInstance.GetDesktopVersion(string(desktopType))
+	if version == "" {
+		return "" // Fall back to default w.zedImage
+	}
+
+	// Select image prefix based on desktop type
+	prefix := "helix-sway"
+	switch desktopType {
+	case DesktopZorin:
+		prefix = "helix-zorin"
+	case DesktopUbuntu:
+		prefix = "helix-ubuntu"
+	case DesktopXFCE:
+		prefix = "helix-xfce"
+	}
+
+	// Version is a Docker image hash (e.g., "sha256:abc123def...")
+	// Create full image reference: helix-sway:abc123def or use hash directly
+	// For short hashes (commit hashes for backward compat), use as tag
+	// For full sha256 hashes, can use directly
+	return fmt.Sprintf("%s:%s", prefix, version)
 }
 
-// createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
-func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
+// createDesktopWolfApp creates a Wolf app with a desktop environment (Sway or Zorin)
+func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.App {
 	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
 	// We include all possible GPU devices - the glob won't match non-existent devices.
 	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
@@ -225,10 +309,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Extract USER_API_TOKEN from extra env vars (for LLM proxy authentication)
 	userAPIToken := extractEnvVar(config.ExtraEnv, "USER_API_TOKEN")
 
-	// Build base environment variables (common to all Sway apps)
+	// Build base environment variables (common to all desktop types)
 	env := []string{
 		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
-		"RUN_SWAY=1",
 		// LLM proxy configuration: Zed's built-in agent uses these for Anthropic
 		// All LLM traffic goes through Helix's proxy (uses user's token for auth, Helix has provider credentials)
 		// Note: Zed reads api_url from settings.json, not env vars. These are for CLI tools.
@@ -258,12 +341,17 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"SETTINGS_SYNC_PORT=9877",
 		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
 		fmt.Sprintf("WORKSPACE_DIR=%s", config.WorkspaceDir),
+		// ZED_WORK_DIR: Consistent cwd for ACP session storage (ensures sessions restore on Zed restart)
+		fmt.Sprintf("ZED_WORK_DIR=%s", config.WorkspaceDir),
 	}
 
 	// Startup script lives in primary code repo at .helix/startup.sh
 	// start-zed-helix.sh will execute it from disk if present
 
-	// Add any extra environment variables
+	// Add desktop-specific environment variables (e.g., RUN_SWAY=1 for Sway)
+	env = append(env, getDesktopEnvVars(config.DesktopType)...)
+
+	// Add any extra environment variables from config
 	env = append(env, config.ExtraEnv...)
 
 	// Determine Docker socket to mount (Hydra isolation or default)
@@ -287,19 +375,42 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Development mode: mount files for hot-reloading
 	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
 	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
-	// Production mode: use files baked into helix-sway image
+	// Production mode: use files baked into desktop image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
+		log.Info().
+			Str("desktop_type", string(config.DesktopType)).
+			Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
+
+		// Select config directory based on desktop type
+		configDir := "sway-config"
+		if config.DesktopType == DesktopZorin {
+			configDir = "zorin-config"
+		} else if config.DesktopType == DesktopUbuntu {
+			configDir = "ubuntu-config"
+		} else if config.DesktopType == DesktopXFCE {
+			configDir = "xfce-config"
+		}
 
 		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
+		// Mount startup script to the correct path for this desktop type
+		startupMountPath := getDesktopMountPath(config.DesktopType)
 		mounts = append(mounts,
 			"/helix-dev/zed-build:/zed-build:ro",
-			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
-			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
-			"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
+			// Note: startup script mounted rw because GOW entrypoint does chmod +x on it
+			fmt.Sprintf("/helix-dev/%s/startup-app.sh:%s", configDir, startupMountPath),
+			fmt.Sprintf("/helix-dev/%s/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", configDir),
 		)
+
+		// Sway-specific scripts (not needed for Zorin)
+		if config.DesktopType == DesktopSway {
+			mounts = append(mounts,
+				"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
+			)
+		}
 	} else {
-		log.Debug().Msg("Production mode - using files baked into helix-sway image")
+		log.Debug().
+			Str("desktop_type", string(config.DesktopType)).
+			Msg("Production mode - using files baked into desktop image")
 	}
 
 	// Add SSH keys mount if user has SSH keys
@@ -347,14 +458,15 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
   }
 }`, config.ContainerHostname)
 
-	// Determine which image to use (prefer config override from Wolf instance's SwayVersion)
+	// Determine which image to use (prefer config override from Wolf instance's desktop version)
 	zedImage := w.zedImage
 	if config.ZedImage != "" {
 		zedImage = config.ZedImage
 		log.Info().
-			Str("zed_image", zedImage).
+			Str("image", zedImage).
+			Str("desktop_type", string(config.DesktopType)).
 			Str("session_id", config.SessionID).
-			Msg("Using versioned helix-sway image from Wolf instance")
+			Msg("Using versioned desktop image from Wolf instance")
 	}
 
 	// Create Wolf app
@@ -456,8 +568,8 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	return executor
 }
 
-// StartZedAgent implements the Executor interface for external agent sessions
-func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+// StartDesktop implements the Executor interface for desktop sessions (Wolf lobbies)
+func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// Get or create a per-session lock to prevent concurrent lobby creation for the same session
 	w.creationLocksMutex.Lock()
 	sessionLock, exists := w.creationLocks[agent.SessionID]
@@ -567,10 +679,16 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir", workspaceDir).
 		Msg("Created Sway compositor configuration for external agent")
 
+	// Determine desktop type from agent config or environment
+	desktopType := getDesktopTypeFromEnv() // Default from env
+	if agent.DesktopType != "" {
+		desktopType = parseDesktopType(agent.DesktopType)
+	}
+
 	// Define container hostname for external agent
 	// Use session ID (without ses_ prefix) so we can construct hostname from session ID
 	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
-	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+	containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 	// Build agent instance ID for this session-scoped agent
 	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
@@ -582,6 +700,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	helixSessionID := agent.SessionID
 	if agent.HelixSessionID != "" {
 		helixSessionID = agent.HelixSessionID
+	}
+
+	// Look up user to get git user name and email
+	var gitUserName, gitUserEmail string
+	if agent.UserID != "" {
+		user, err := w.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+		} else if user != nil {
+			gitUserName = user.FullName
+			gitUserEmail = user.Email
+			// Fall back to username if full name is empty
+			if gitUserName == "" {
+				gitUserName = user.Username
+			}
+		}
 	}
 
 	extraEnv := []string{
@@ -624,23 +758,65 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Pass API base URL for git cloning
 	extraEnv = append(extraEnv, fmt.Sprintf("HELIX_API_BASE_URL=%s", w.helixAPIURL))
 
+	// Pass git user configuration for commits to use user's identity
+	if gitUserName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_NAME=%s", gitUserName))
+	}
+	if gitUserEmail != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
+
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
-	// Extract video settings from agent config (Phase 3.5) with defaults
-	// Use 1080p as default - AMD GPUs only support up to 1080p hardware encoding
-	displayWidth := agent.DisplayWidth
-	if displayWidth == 0 {
-		displayWidth = 1920 // 1080p default (AMD GPU hardware encoder limit)
+	// Extract video settings from agent config with defaults
+	// Resolution preset takes precedence over explicit width/height
+	var displayWidth, displayHeight int
+	switch agent.Resolution {
+	case "5k":
+		displayWidth = 5120
+		displayHeight = 2880
+	case "4k":
+		displayWidth = 3840
+		displayHeight = 2160
+	case "1080p":
+		displayWidth = 1920
+		displayHeight = 1080
+	default:
+		// Fall back to explicit dimensions or 1080p default
+		displayWidth = agent.DisplayWidth
+		if displayWidth == 0 {
+			displayWidth = 1920 // 1080p default
+		}
+		displayHeight = agent.DisplayHeight
+		if displayHeight == 0 {
+			displayHeight = 1080 // 1080p default
+		}
 	}
-	displayHeight := agent.DisplayHeight
-	if displayHeight == 0 {
-		displayHeight = 1080 // 1080p default (AMD GPU hardware encoder limit)
-	}
+
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
 		displayRefreshRate = 60
 	}
+
+	// Calculate zoom level (auto 200% for 4k/5k, 100% otherwise)
+	zoomLevel := agent.ZoomLevel
+	if zoomLevel == 0 {
+		switch agent.Resolution {
+		case "5k", "4k":
+			zoomLevel = 200
+		default:
+			zoomLevel = 100
+		}
+	}
+
+	// Add display configuration to environment for startup script
+	extraEnv = append(extraEnv,
+		fmt.Sprintf("GAMESCOPE_WIDTH=%d", displayWidth),
+		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", displayHeight),
+		fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel),
+		fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", string(desktopType)), // For container hostname reconstruction
+	)
 
 	// Extra mounts for additional directories
 	extraMounts := []string{}
@@ -916,7 +1092,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			ChannelCount: 2,
 		},
 		RunnerStateFolder: filepath.Join("/wolf-state", "agent-"+agent.SessionID),
-		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
+		Runner: w.createDesktopWolfApp(DesktopWolfAppConfig{
 			WolfAppID:         wolfAppID, // Still used for app config, but not for Wolf API
 			Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
 			ContainerHostname: containerHostname,
@@ -928,8 +1104,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
-			ZedImage:          w.computeZedImageFromVersion(wolfInstance.SwayVersion), // Use version from sandbox heartbeat
-			DockerSocket:      dockerSocket,                                           // Hydra-managed socket (empty = default)
+			DesktopType:       desktopType,
+			ZedImage:          w.computeZedImageFromVersion(desktopType, wolfInstance), // Use version from sandbox heartbeat
+			DockerSocket:      dockerSocket,                                                        // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
 
@@ -1158,8 +1335,8 @@ func joinEnvVars(envVars []string) string {
 	return result
 }
 
-// StopZedAgent implements the Executor interface
-func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error {
+// StopDesktop implements the Executor interface
+func (w *WolfExecutor) StopDesktop(ctx context.Context, sessionID string) error {
 	log.Info().Str("session_id", sessionID).Msg("Stopping Zed agent via Wolf")
 
 	// CRITICAL: Only hold mutex when accessing in-memory map
@@ -1366,7 +1543,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		} else {
 			scopeType = hydra.ScopeTypeSession
 		}
-		// Always use session ID as the scope ID (matches StartZedAgent)
+		// Always use session ID as the scope ID (matches StartDesktop)
 		scopeID := sessionID
 
 		log.Info().
@@ -1495,7 +1672,7 @@ func (w *WolfExecutor) CleanupExpiredSessions(ctx context.Context, timeout time.
 			Dur("timeout", timeout).
 			Msg("Cleaning up expired Zed session")
 
-		err := w.StopZedAgent(ctx, sessionID)
+		err := w.StopDesktop(ctx, sessionID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -1523,7 +1700,7 @@ func (w *WolfExecutor) ListSessions() []*ZedSession {
 // StartZedInstance implements the Executor interface
 func (w *WolfExecutor) StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	// For now, delegate to single-session method
-	return w.StartZedAgent(ctx, agent)
+	return w.StartDesktop(ctx, agent)
 }
 
 // CreateZedThread implements the Executor interface
@@ -1535,7 +1712,7 @@ func (w *WolfExecutor) CreateZedThread(ctx context.Context, instanceID, threadID
 // StopZedInstance implements the Executor interface
 func (w *WolfExecutor) StopZedInstance(ctx context.Context, instanceID string) error {
 	// For now, delegate to single-session method
-	return w.StopZedAgent(ctx, instanceID)
+	return w.StopDesktop(ctx, instanceID)
 }
 
 // GetInstanceStatus implements the Executor interface
@@ -1682,151 +1859,6 @@ input * {
 	return nil
 }
 
-// reconcileWolfApps ensures Wolf has lobbies for all running personal dev environments
-// and removes orphaned Wolf lobbies that no longer have corresponding Helix instances
-func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance *ZedInstanceInfo) error {
-	// Use consistent ID generation
-	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
-
-	// Get workspace directory (should already exist)
-	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
-
-	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
-	// We include all possible GPU devices - the glob won't match non-existent devices.
-	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
-	// - /dev/input/*: Input devices (event*, mice, mouse*)
-	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
-	// - /dev/nvidia*: NVIDIA GPU devices
-	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
-	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
-
-	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
-	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)
-
-	env := []string{
-		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
-		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
-		// Pass through API keys for Zed AI functionality
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
-		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
-		fmt.Sprintf("TOGETHER_API_KEY=%s", os.Getenv("TOGETHER_API_KEY")),
-		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
-		// Zed external websocket sync configuration
-		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
-		"ZED_ALLOW_EMULATED_GPU=1",       // Allow software rendering with llvmpipe
-		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
-		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
-		// Enable user startup script execution
-		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
-		// Workspace directory - passed for logging/debugging, actual mount is via double bind mount
-		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
-		// Show ACP debug logs in Kitty window (for debugging agent issues)
-		"SHOW_ACP_DEBUG_LOGS=true",
-	}
-
-	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility:
-	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
-	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
-	// This eliminates symlink confusion where tools resolve the symlink and get confused.
-	// See: design/2025-12-01-hydra-bind-mount-symlink.md
-	mounts := []string{
-		fmt.Sprintf("%s:%s", workspaceDir, workspaceDir),   // Mount persistent workspace at same path
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),   // Mount at user-friendly path too
-		"/var/run/docker.sock:/var/run/docker.sock:rw",     // Mount Wolf's docker socket for devcontainer support
-	}
-
-	// Development mode: mount files for hot-reloading
-	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
-	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
-	// Production mode: use files baked into helix-sway image
-	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
-
-		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
-		mounts = append(mounts,
-			"/helix-dev/zed-build:/zed-build:ro",
-			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
-			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
-			"/helix-dev/sway-config/helix-specs-create.sh:/usr/local/bin/helix-specs-create.sh:ro",
-		)
-	}
-
-	// Use Wolf app ID as both container name and hostname for predictable DNS
-	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
-
-	baseCreateJSON := fmt.Sprintf(`{
-  "Hostname": "%s",
-  "HostConfig": {
-    "IpcMode": "host",
-    "NetworkMode": "helix_default",
-    "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
-    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
-    "Ulimits": [
-      {
-        "Name": "nofile",
-        "Soft": 65536,
-        "Hard": 65536
-      }
-    ]
-  }
-}`, containerHostname)
-
-	// Use Wolf app ID as container name - matches the app ID for consistency
-	containerName := containerHostname
-
-	// Use minimal app creation that exactly matches the working XFCE configuration
-	app := wolf.NewMinimalDockerApp(
-		wolfAppID, // ID
-		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		containerName,       // URL-friendly name with hyphens
-		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
-		env,
-		mounts,
-		baseCreateJSON,
-		instance.DisplayWidth,  // Use stored display configuration
-		instance.DisplayHeight, // Use stored display configuration
-		instance.DisplayFPS,    // Use stored display configuration
-	)
-
-	// Try to remove any existing app first to avoid conflicts
-	err := w.getWolfClient("").RemoveApp(ctx, wolfAppID)
-	if err != nil {
-		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
-	}
-
-	// Add the app to Wolf
-	err = w.getWolfClient("").AddApp(ctx, app)
-	if err != nil {
-		return fmt.Errorf("failed to recreate Wolf app: %w", err)
-	}
-
-	log.Info().
-		Str("instance_id", instance.InstanceID).
-		Str("wolf_app_id", wolfAppID).
-		Msg("Successfully recreated Wolf app for personal dev environment")
-
-	return nil
-}
-
-// checkWolfAppExists checks if a Wolf app with the given ID already exists
-func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
-	apps, err := w.getWolfClient("").ListApps(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to list Wolf apps: %w", err)
-	}
-
-	for _, app := range apps {
-		if app.ID == appID {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
 // GetWolfClient returns the Wolf client for access to Wolf API via RevDial
 // DEPRECATED: This method should not be used - use GetWolfClientForSession instead
 // Callers must always provide a Wolf instance ID by looking it up from the session
@@ -1909,9 +1941,19 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
 						if envStr == expectedEnv {
 							// Found lobby - extract container hostname
-							// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+							// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
+							// Extract desktop type from HELIX_DESKTOP_TYPE env var (or default to env)
+							desktopType := getDesktopTypeFromEnv() // Default
+							for _, dt := range envList {
+								if dtStr, ok := dt.(string); ok {
+									if strings.HasPrefix(dtStr, "HELIX_DESKTOP_TYPE=") {
+										desktopType = parseDesktopType(strings.TrimPrefix(dtStr, "HELIX_DESKTOP_TYPE="))
+										break
+									}
+								}
+							}
 							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
-							containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+							containerHostname := fmt.Sprintf("%s-external-%s", desktopType, sessionIDPart)
 
 							log.Trace().
 								Str("helix_session_id", helixSessionID).
@@ -2006,10 +2048,10 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			}
 		}
 
-		// Try to stop via StopZedAgent first (uses session database record including soft-deleted)
+		// Try to stop via StopDesktop first (uses session database record including soft-deleted)
 		var stopError error
 		if sessionIDToStop != "" {
-			stopError = w.StopZedAgent(ctx, sessionIDToStop)
+			stopError = w.StopDesktop(ctx, sessionIDToStop)
 		}
 
 		// If session not found (even in soft-deleted), use lobby ID/PIN from activity record
@@ -2254,7 +2296,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
 // FindExistingLobbyForSession checks if a lobby already exists for this Helix session
 // Returns lobby ID if found, empty string if not found
 // This prevents creating duplicate lobbies when resume endpoint is called multiple times
-// PUBLIC: Used by both StartZedAgent and getSessionWolfAppState
+// PUBLIC: Used by both StartDesktop and getSessionWolfAppState
 func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error) {
 	// Check cache first (prevents Wolf API spam from dashboard polling)
 	w.lobbyCacheMutex.RLock()
@@ -2374,7 +2416,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessionsForInstance(ctx context.Cont
 		// This is insufficient for exact matching, so we need a better approach
 
 		// Instead: Check if lobby's container is running by using lobby ID
-		// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+		// Container name format: {desktop_type}-external-{session_id_without_ses_}_{lobby_id}
 		// We can't reverse-engineer session ID from this easily
 
 		// BETTER: Extract HELIX_SESSION_ID from lobby's runner env vars if available

@@ -33,6 +33,7 @@ interface CreateProviderEndpointDialogProps {
   open: boolean;
   onClose: () => void;
   existingEndpoints: IProviderEndpoint[];
+  providersManagementEnabled?: boolean; // When false, hide "User" option (only admins can create global)
 }
 
 type AuthType = 'api_key' | 'api_key_file' | 'none';
@@ -41,16 +42,19 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
   open,
   onClose,
   existingEndpoints,
+  providersManagementEnabled = true,
 }) => {
   const { mutate: createProviderEndpoint } = useCreateProviderEndpoint();
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  // When providers management is disabled, default to global (only admins can use this dialog)
+  const defaultEndpointType = providersManagementEnabled ? 'user' : 'global';
   const [formData, setFormData] = useState({
     name: '',
     base_url: '',
     api_key: '',
     api_key_file: '',
-    endpoint_type: 'user' as const,
+    endpoint_type: defaultEndpointType as 'user' | 'global',
     description: '',
     auth_type: 'none' as AuthType,
     billing_enabled: false,
@@ -213,8 +217,8 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             fullWidth
             required
             autoComplete="off"
-            placeholder="https://api.example.com"
-            helperText="Enter a valid HTTP or HTTPS URL"
+            placeholder="https://api.openai.com/v1"
+            helperText="OpenAI-compatible (https://api.openai.com/v1), Anthropic (https://api.anthropic.com/v1), or Google (https://generativelanguage.googleapis.com/v1beta/openai)"
           />
 
           <FormControl component="fieldset">
@@ -261,7 +265,12 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
               onChange={(e) => handleInputChange(e as React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>)}
               label="Type"
             >
-              <MenuItem value="user">User (available to you only)</MenuItem>
+              {/* Only show User option when providers management is enabled -
+                  when disabled, only admins can create endpoints and "user" type
+                  would only be visible to that specific admin, not useful */}
+              {providersManagementEnabled && (
+                <MenuItem value="user">User (available to you only)</MenuItem>
+              )}
               <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
@@ -276,9 +285,11 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
             }
             label="Billing Enabled"
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Users will be using their wallet balance for inference
-          </Typography>
+          {formData.billing_enabled && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Users will be charged from their wallet balance for inference
+            </Typography>
+          )}
 
           <Divider sx={{ my: 2 }} />
 

@@ -123,6 +123,7 @@ controlplane:
   logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
 
   # Runner token for authentication (should be a secure random string)
+  # Also set this token in the kodit configuration below.
   runnerToken: "your-secure-runner-token-here"
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
@@ -146,20 +147,6 @@ controlplane:
     #   kubectl create secret generic huggingface-token --from-literal=token="hf_your_actual_token_here"
     # existingSecret: "huggingface-token"
     # existingSecretTokenKey: "token"  # defaults to "token" if not specified
-
-  # Keycloak configuration
-  keycloak:
-    # Internal Keycloak service URL
-    url: "http://keycloak:80/auth"
-    # frontendUrl defaults to global.serverUrl + "/auth" if not specified
-    # frontendUrl: "https://helix.mydomain.com/auth"
-    user: "admin"
-    password: "your-secure-keycloak-admin-password"
-
-    # Option: Use existing secret for Keycloak credentials
-    # existingSecret: "keycloak-auth-secret"
-    # existingSecretUserKey: "user"      # defaults to "user" if not specified
-    # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
 
   # Admin configuration
   admin:
@@ -452,7 +439,7 @@ typesense:
     #   matchLabels:
     #     app: typesense
 
-## Qdrant configuration (vector database RAG provider)
+## Qdrant configuration (RAG provider)
 qdrant:
   # Enable Qdrant for vector-based RAG
   enabled: false
@@ -473,3 +460,23 @@ qdrant:
     # selector:
     #   matchLabels:
     #     app: qdrant
+
+# Kodit configuration
+# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml
+# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+#
+# Kodit is automatically configured to use Helix as its LLM proxy for code enrichments.
+# By default, it uses the runner token secret "helix-runner-secrets" with key "api-token".
+# If your runner token is in a different secret, override it like this:
+kodit:
+  enabled: true
+  # controllers:
+  #   kodit:
+  #     containers:
+  #       kodit:
+  #         env:
+  #           ENRICHMENT_ENDPOINT_API_KEY:
+  #             valueFrom:
+  #               secretKeyRef:
+  #                 name: "my-custom-secret"    # Your secret name
+  #                 key: "my-api-key"           # Key within the secret

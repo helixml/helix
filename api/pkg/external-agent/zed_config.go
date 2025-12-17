@@ -54,9 +54,15 @@ type ModelConfig struct {
 }
 
 type ContextServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
+	// Stdio-based MCP server (command execution)
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+
+	// HTTP-based MCP server (direct connection)
+	// Zed expects "url" field for HTTP context_servers (untagged union)
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // GenerateZedMCPConfig creates Zed MCP configuration from Helix app config
@@ -66,6 +72,7 @@ func GenerateZedMCPConfig(
 	sessionID string,
 	helixAPIURL string,
 	helixToken string,
+	koditEnabled bool,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -165,7 +172,18 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// 2. Pass-through external MCP servers
+	// 2. Add Kodit MCP server for code intelligence (via Helix API proxy)
+	// Only add if Kodit is enabled - otherwise Zed will get 501 errors
+	if koditEnabled {
+		// The Helix proxy at /api/v1/kodit/mcp authenticates users and forwards to Kodit
+		// Note: Authorization header is injected by settings-sync-daemon with user's API key
+		koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
+		config.ContextServers["kodit"] = ContextServerConfig{
+			URL: koditMCPURL,
+		}
+	}
+
+	// 3. Pass-through external MCP servers
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
@@ -199,15 +217,10 @@ func hasNativeTools(assistant types.AssistantConfig) bool {
 func mcpToContextServer(mcp types.AssistantMCP) ContextServerConfig {
 	// Parse MCP URL to determine connection type
 	if strings.HasPrefix(mcp.URL, "http://") || strings.HasPrefix(mcp.URL, "https://") {
-		// HTTP/SSE transport - use helix-cli as proxy
+		// HTTP/SSE transport - direct HTTP connection
 		return ContextServerConfig{
-			Command: "helix-cli",
-			Args: []string{
-				"mcp", "proxy",
-				"--url", mcp.URL,
-				"--name", mcp.Name,
-			},
-			Env: buildMCPEnv(mcp),
+			URL:     mcp.URL,
+			Headers: mcp.Headers,
 		}
 	}
 
@@ -390,7 +403,10 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 		log.Warn().Msg("RUNNER_TOKEN not set, Zed MCP tools may not work")
 	}
 
-	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+	// Check if Kodit is enabled (defaults to true)
+	koditEnabled := os.Getenv("KODIT_ENABLED") != "false"
+
+	config, err := GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}

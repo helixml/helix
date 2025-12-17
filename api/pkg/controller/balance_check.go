@@ -8,6 +8,12 @@ import (
 )
 
 func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, orgID string, clientBillingEnabled bool) (bool, error) {
+	// Skip balance check for runner tokens (system-level access)
+	// Runner tokens are used by internal services like Kodit for enrichments
+	if user.TokenType == types.TokenTypeRunner {
+		return true, nil
+	}
+
 	if !c.Options.Config.Stripe.BillingEnabled {
 		// Billing not enabled
 		return true, nil

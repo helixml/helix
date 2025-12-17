@@ -1,0 +1,350 @@
+# ====================================================================
+# Go build stage for settings-sync-daemon, screenshot-server, revdial-client
+# ====================================================================
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+WORKDIR /app/api
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+
+# ====================================================================
+# Pure Ubuntu 22.04 GNOME Personal Dev Environment
+# ====================================================================
+# GNOME 42 on Ubuntu 22.04 LTS - proven stable with Xwayland/Gamescope
+# No MIT-SHM crashes (those were GNOME 48 specific)
+# Enterprise-grade LTS with 5-10 year support
+FROM ubuntu:22.04
+
+# GOW environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV UNAME=retro
+ENV UGROUP=retro
+ENV HOME=/home/retro
+ENV UID=1000
+ENV GID=1000
+ENV PUID=1000
+ENV PGID=1000
+ENV UMASK=000
+ENV XDG_RUNTIME_DIR=/run/user/1000
+ENV DISPLAY=:9
+
+# ====================================================================
+# Install base system dependencies
+# ====================================================================
+RUN apt-get update && apt-get install -y \
+    # GOW infrastructure
+    gosu sudo dbus dbus-x11 \
+    # Xwayland and X11 utilities
+    xwayland x11-xserver-utils xdotool x11-utils \
+    # Mesa and graphics libraries
+    mesa-utils libgl1-mesa-dri libgl1-mesa-glx libegl1 libgles2 \
+    # PulseAudio for sound
+    pulseaudio libpulse0 \
+    # Basic utilities
+    curl wget ca-certificates gnupg locales \
+    # ImageMagick for icon resizing
+    imagemagick \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up locales
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+# ====================================================================
+# Install GNOME 42 Desktop (Ubuntu minimal)
+# ====================================================================
+RUN apt-get update && apt-get install -y \
+    # Core GNOME components
+    ubuntu-desktop-minimal \
+    gnome-shell \
+    gnome-session \
+    mutter \
+    gnome-settings-daemon \
+    # File manager and terminal
+    nautilus \
+    gnome-terminal \
+    # System utilities
+    gnome-control-center \
+    gnome-tweaks \
+    # Keyring for Chrome password storage (auto-unlock with empty password)
+    gnome-keyring libsecret-tools \
+    # Ubuntu theming
+    yaru-theme-gtk \
+    yaru-theme-icon \
+    yaru-theme-sound \
+    ubuntu-wallpapers \
+    fonts-ubuntu \
+    # GNOME extensions for Ubuntu experience
+    gnome-shell-extension-ubuntu-dock \
+    gnome-shell-extension-appindicator \
+    gnome-shell-extensions \
+    # dconf for settings management
+    dconf-cli dconf-editor \
+    # XDG utilities
+    xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Disable Ubuntu upgrade notifications (we're pinned to 22.04 LTS)
+RUN sed -i 's/Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades || true
+
+# ====================================================================
+# Create GOW user and directory structure
+# ====================================================================
+RUN groupadd -g ${GID} ${UGROUP} && \
+    useradd -m -d ${HOME} -u ${UID} -g ${GID} -s /bin/bash ${UNAME} && \
+    echo "${UNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup XDG runtime directory
+RUN mkdir -p /run/user/1000 && \
+    chmod 700 /run/user/1000 && \
+    chown ${UID}:${GID} /run/user/1000
+
+# ====================================================================
+# CRITICAL: Disable systemd-logind (not available in containers)
+# ====================================================================
+# GNOME session manager tries to connect to systemd-logind for session management
+RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
+    mv -v "$file" "$file.back" 2>/dev/null || true; \
+    done
+
+# Enable bubblewrap (bwrap) for application sandboxing - needed by GNOME
+RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
+
+# ====================================================================
+# Install Google Chrome (stable) - default browser
+# ====================================================================
+RUN apt-get update && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -q https://dl.google.com/linux/linux_signing_key.pub -O /etc/apt/keyrings/google-chrome.asc && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y google-chrome-stable && \
+    rm -rf /var/lib/apt/lists/* && \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json && \
+    # Create master preferences to skip first run and welcome page
+    mkdir -p /opt/google/chrome && \
+    echo '{ \
+      "distribution": { \
+        "skip_first_run_ui": true, \
+        "suppress_first_run_default_browser_prompt": true, \
+        "do_not_create_desktop_shortcut": true, \
+        "do_not_create_quick_launch_shortcut": true, \
+        "do_not_create_taskbar_shortcut": true, \
+        "do_not_launch_chrome": true, \
+        "do_not_register_for_update_launch": true, \
+        "make_chrome_default": false, \
+        "make_chrome_default_for_user": false, \
+        "suppress_first_run_bubble": true, \
+        "import_bookmarks": false, \
+        "import_history": false, \
+        "import_home_page": false, \
+        "import_search_engine": false \
+      }, \
+      "browser": { \
+        "check_default_browser": false, \
+        "show_home_button": false \
+      }, \
+      "sync_promo": { \
+        "show_on_first_run_allowed": false \
+      }, \
+      "first_run_tabs": ["about:blank"] \
+    }' > /opt/google/chrome/master_preferences
+
+# ====================================================================
+# Install Docker CLI (daemon on host via socket mount)
+# ====================================================================
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
+COPY wolf/ubuntu-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
+COPY wolf/ubuntu-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
+RUN mv /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/local/bin/docker-wrapper.sh /usr/bin/docker \
+    && chmod 755 /usr/bin/docker /usr/bin/docker.real \
+    && mv /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real \
+    && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
+    && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
+
+# ====================================================================
+# Install development tools
+# ====================================================================
+RUN apt-get update && apt-get install -y \
+    # Screenshot tools
+    scrot \
+    # Clipboard tools for X11
+    xclip xsel \
+    # Git for repository cloning
+    git openssh-client \
+    # Window management tools
+    wmctrl devilspie2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Install Node.js for qwen-code
+# ====================================================================
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Install qwen-code (Helix's Qwen Code agent CLI)
+# ====================================================================
+# SECURITY: We build from our fork of qwen-code (github.com/helixml/qwen-code)
+# with audited commits and critical bug fixes.
+#
+# BUILD APPROACH: Copy pre-built qwen-code from local directory
+# This is faster during development and ensures we're using our fixes.
+# The qwen-code-build directory must be prepared by ./stack build-ubuntu
+#
+# CACHE BUSTING: QWEN_CODE_HASH build arg changes when qwen-code source changes,
+# ensuring Docker rebuilds this layer with the latest code.
+ARG QWEN_CODE_HASH=unknown
+WORKDIR /opt/qwen-code
+COPY qwen-code-build/ ./
+# Create global qwen command by symlinking pre-built dist/cli.js
+# We don't use 'npm install -g .' because it tries to run prepare scripts
+RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
+    echo "Fixes: [object Object] error display + shell security disabled" && \
+    chmod +x dist/cli.js && \
+    ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+WORKDIR /
+
+# ====================================================================
+# Copy GOW infrastructure scripts
+# ====================================================================
+# Utils library
+COPY wolf/ubuntu-config/gow/bash-lib/utils.sh /opt/gow/bash-lib/utils.sh
+
+# Main scripts
+COPY wolf/ubuntu-config/gow/xorg.sh /opt/gow/xorg.sh
+COPY wolf/ubuntu-config/gow/dbus.sh /opt/gow/dbus.sh
+COPY wolf/ubuntu-config/gow/desktop.sh /opt/gow/desktop.sh
+COPY wolf/ubuntu-config/gow/ensure-groups /opt/gow/ensure-groups
+
+# Entrypoint
+COPY wolf/ubuntu-config/entrypoint.sh /entrypoint.sh
+
+# Init scripts
+COPY wolf/ubuntu-config/cont-init.d/10-setup_user.sh /etc/cont-init.d/10-setup_user.sh
+COPY wolf/ubuntu-config/cont-init.d/15-setup_devices.sh /etc/cont-init.d/15-setup_devices.sh
+COPY wolf/ubuntu-config/cont-init.d/30-nvidia.sh /etc/cont-init.d/30-nvidia.sh
+
+# Set permissions
+RUN chmod +x /entrypoint.sh \
+    /opt/gow/xorg.sh \
+    /opt/gow/dbus.sh \
+    /opt/gow/desktop.sh \
+    /opt/gow/ensure-groups \
+    /opt/gow/bash-lib/utils.sh \
+    /etc/cont-init.d/*.sh
+
+# ====================================================================
+# Copy Helix-specific binaries and scripts
+# ====================================================================
+# Copy Go binaries from build stage
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
+
+# Install Zed desktop file and icon for GNOME integration
+# The icon is from the Zed source (crates/zed/resources/app-icon-dev.png)
+# Generate all standard icon sizes to match Chrome/GNOME expectations
+# IMPORTANT: Use dev.zed.Zed-Dev to match the WM_CLASS from dev builds
+COPY wolf/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
+RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
+RUN for size in 16 24 32 48 64 128 256; do \
+        mkdir -p /usr/share/icons/hicolor/${size}x${size}/apps && \
+        convert /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png \
+            -resize ${size}x${size} \
+            /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
+    done && \
+    gtk-update-icon-cache -f /usr/share/icons/hicolor && \
+    update-desktop-database /usr/share/applications
+
+# Copy Zed startup script and helper scripts
+ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+
+# Copy GOW startup script (creates autostart entries and state symlinks)
+ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh
+RUN chmod +x /opt/gow/startup.sh
+
+# Copy GNOME dconf settings for Ubuntu appearance (Yaru theme, wallpaper, etc.)
+COPY wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
+# Add Docker group init script (must run AFTER 15-setup_devices.sh which replaces groups)
+ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
+RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
+
+# Copy devilspie2 window positioning config
+RUN mkdir -p /etc/skel/.config/devilspie2
+COPY wolf/ubuntu-config/devilspie2/helix-tiling.lua /etc/skel/.config/devilspie2/helix-tiling.lua
+RUN chmod 644 /etc/skel/.config/devilspie2/helix-tiling.lua
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+# Chrome checks for this file to determine if it's the first launch
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    # Also create Default profile directory with minimal preferences
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
+
+# Install Chrome wrapper with container-optimized startup flags
+# Disables: component updates, sync, background networking, translation
+# This significantly reduces Chrome startup time in containers
+COPY wolf/ubuntu-config/google-chrome-wrapper.sh /usr/local/bin/google-chrome-wrapper.sh
+RUN chmod 755 /usr/local/bin/google-chrome-wrapper.sh && \
+    # Update Chrome desktop file to use wrapper
+    sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome-wrapper.sh|g' \
+        /usr/share/applications/google-chrome.desktop && \
+    # Pre-build fontconfig cache (major speedup for first launch)
+    fc-cache -f -v
+
+# ====================================================================
+# Final setup
+# ====================================================================
+# Create required directories
+RUN mkdir -p /home/retro/work && \
+    chown -R ${UID}:${GID} /home/retro
+
+ENTRYPOINT ["/entrypoint.sh"]

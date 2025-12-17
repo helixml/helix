@@ -96,6 +96,7 @@ interface TaskCardProps {
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
   focusStartPlanning?: boolean // When true, focus the Start Planning button
+  isArchiving?: boolean // When true, show spinner on archive button (parent is archiving this task)
 }
 
 // Interface for checklist items from API
@@ -396,6 +397,7 @@ export default function TaskCard({
   onReviewDocs,
   projectId,
   focusStartPlanning = false,
+  isArchiving = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -572,9 +574,11 @@ export default function TaskCard({
             <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
               <IconButton
                 size="small"
+                disabled={isArchiving}
                 onClick={(e) => {
                   e.stopPropagation()
                   if (onArchiveTask) {
+                    // Parent handles the async operation and manages isArchiving state
                     onArchiveTask(task, !task.archived)
                   }
                 }}
@@ -588,7 +592,13 @@ export default function TaskCard({
                   },
                 }}
               >
-                {task.archived ? <RestoreIcon sx={{ fontSize: 16 }} /> : <CloseIcon sx={{ fontSize: 16 }} />}
+                {isArchiving ? (
+                  <CircularProgress size={14} sx={{ color: 'text.secondary' }} />
+                ) : task.archived ? (
+                  <RestoreIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                )}
               </IconButton>
             </Tooltip>
           </Box>
@@ -725,23 +735,25 @@ export default function TaskCard({
                 size="small"
                 variant="outlined"
                 color="error"
-                startIcon={<CloseIcon />}
+                disabled={isArchiving}
+                startIcon={isArchiving ? <CircularProgress size={14} color="inherit" /> : <CloseIcon />}
                 onClick={(e) => {
                   e.stopPropagation()
                   if (onArchiveTask) {
+                    // Parent handles the async operation and manages isArchiving state
                     onArchiveTask(task, true)
                   }
                 }}
                 sx={{ flex: 1 }}
               >
-                Reject
+                {isArchiving ? 'Rejecting...' : 'Reject'}
               </Button>
 
               <Button
                 size="small"
                 variant="contained"
                 color="success"
-                startIcon={<ApproveIcon />}
+                startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
                 onClick={(e) => {
                   e.stopPropagation()
                   approveImplementationMutation.mutate()
@@ -749,7 +761,7 @@ export default function TaskCard({
                 disabled={approveImplementationMutation.isPending}
                 sx={{ flex: 1 }}
               >
-                Accept
+                {approveImplementationMutation.isPending ? 'Accepting...' : 'Accept'}
               </Button>
             </Box>
           </Box>
@@ -775,7 +787,7 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="success"
-              startIcon={<ApproveIcon />}
+              startIcon={approveImplementationMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
               onClick={(e) => {
                 e.stopPropagation()
                 approveImplementationMutation.mutate()
@@ -783,13 +795,13 @@ export default function TaskCard({
               disabled={approveImplementationMutation.isPending}
               fullWidth
             >
-              Approve Implementation
+              {approveImplementationMutation.isPending ? 'Approving...' : 'Approve Implementation'}
             </Button>
             <Button
               size="small"
               variant="outlined"
               color="error"
-              startIcon={<StopIcon />}
+              startIcon={stopAgentMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <StopIcon />}
               onClick={(e) => {
                 e.stopPropagation()
                 stopAgentMutation.mutate()
@@ -797,7 +809,7 @@ export default function TaskCard({
               disabled={stopAgentMutation.isPending}
               fullWidth
             >
-              Stop Agent
+              {stopAgentMutation.isPending ? 'Stopping...' : 'Stop Agent'}
             </Button>
           </Box>
         )}

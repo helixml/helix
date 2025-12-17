@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useContext, useMemo } from 'react'
+import React, { FC, useState, useEffect, useContext, useMemo, useCallback } from 'react'
 import {
   Dialog,
   DialogTitle,
@@ -408,8 +408,17 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     !externalUrl.trim() || (externalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!externalOrgUrl.trim() || !externalToken.trim()))
   )
 
+  // Handle Cmd/Ctrl+Enter to submit
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const isMod = e.metaKey || e.ctrlKey
+    if (isMod && e.key === 'Enter' && !isSubmitDisabled) {
+      e.preventDefault()
+      handleSubmit()
+    }
+  }, [isSubmitDisabled, handleSubmit])
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={handleKeyDown}>
       <DialogTitle>Create New Project</DialogTitle>
       <DialogContent>
         <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -665,6 +674,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           onClick={handleSubmit}
           disabled={isSubmitDisabled}
           sx={{ mr: 1, mb: 1 }}
+          endIcon={
+            !createProjectMutation.isPending && !creatingRepo && !creatingAgent ? (
+              <Box component="span" sx={{ opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+              </Box>
+            ) : null
+          }
         >
           {createProjectMutation.isPending || creatingRepo || creatingAgent ? (
             <>

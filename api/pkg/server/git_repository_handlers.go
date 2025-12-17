@@ -164,7 +164,25 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	repository, err := s.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request)
+	// Get API key for Kodit to clone local repos (non-external repos)
+	// Only needed when enabling KoditIndexing for a local repository
+	var koditAPIKey string
+	if request.KoditIndexing != nil && *request.KoditIndexing && !existing.KoditIndexing && !existing.IsExternal {
+		if user.TokenType == types.TokenTypeAPIKey {
+			// User authenticated with API key - use it directly
+			koditAPIKey = user.Token
+		} else {
+			// User authenticated via session - look up or create an API key
+			apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to get/create API key for Kodit indexing")
+			} else {
+				koditAPIKey = apiKey
+			}
+		}
+	}
+
+	repository, err := s.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request, koditAPIKey)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to update git repository")
 		http.Error(w, fmt.Sprintf("Failed to update repository: %s", err.Error()), http.StatusInternalServerError)

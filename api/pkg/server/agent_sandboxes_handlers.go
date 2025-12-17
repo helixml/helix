@@ -354,6 +354,7 @@ func fetchWolfMemoryData(ctx context.Context, wolfClient external_agent.WolfClie
 	// Convert GPU stats if available
 	if memResp.GPUStats != nil {
 		result.GPUStats = &GPUStats{
+			Available:             memResp.GPUStats.Available,
 			GPUName:               memResp.GPUStats.GPUName,
 			EncoderSessionCount:   memResp.GPUStats.EncoderSessionCount,
 			EncoderAverageFps:     memResp.GPUStats.EncoderAverageFPS,
@@ -364,6 +365,8 @@ func fetchWolfMemoryData(ctx context.Context, wolfClient external_agent.WolfClie
 			MemoryUsedMB:          memResp.GPUStats.MemoryUsedMB,
 			MemoryTotalMB:         memResp.GPUStats.MemoryTotalMB,
 			TemperatureC:          memResp.GPUStats.TemperatureCelsius,
+			QueryDurationMS:       memResp.GPUStats.QueryDurationMs,
+			Error:                 memResp.GPUStats.Error,
 		}
 	}
 

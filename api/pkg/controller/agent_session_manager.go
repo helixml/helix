@@ -223,47 +223,19 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("Launching Zed agent for multi-session SpecTask")
 
 	} else {
-		// Single session configuration (existing behavior)
-		var externalConfig *types.ExternalAgentConfig
+		// Single session configuration (Desktop or Exploratory session)
 		if session.Metadata.ExternalAgentConfig != nil {
-			externalConfig = session.Metadata.ExternalAgentConfig
+			externalConfig := session.Metadata.ExternalAgentConfig
 
-			// Basic validation
-			if err := externalConfig.Validate(); err != nil {
-				log.Error().Err(err).
-					Str("session_id", sessionID).
-					Str("user_id", session.Owner).
-					Msg("Invalid external agent configuration")
-				return fmt.Errorf("invalid external agent configuration: %w", err)
+			// Apply display settings from external agent configuration
+			if externalConfig.DisplayWidth > 0 {
+				zedAgent.DisplayWidth = externalConfig.DisplayWidth
 			}
-
-			// Apply external agent configuration
-			if externalConfig.ProjectPath != "" {
-				zedAgent.ProjectPath = externalConfig.ProjectPath
+			if externalConfig.DisplayHeight > 0 {
+				zedAgent.DisplayHeight = externalConfig.DisplayHeight
 			}
-			if externalConfig.WorkspaceDir != "" {
-				zedAgent.WorkDir = externalConfig.WorkspaceDir
-			}
-			if len(externalConfig.EnvVars) > 0 {
-				zedAgent.Env = append(zedAgent.Env, externalConfig.EnvVars...)
-			}
-
-			// Add git repository information for single sessions
-			if externalConfig.ProjectPath != "" {
-				// For external agent config, ProjectPath might contain repository information
-				helixAPIServer := os.Getenv("HELIX_API_SERVER")
-				if helixAPIServer == "" {
-					helixAPIServer = "http://api:8080" // Default internal Docker/K8s address
-				}
-
-				zedAgent.Env = append(zedAgent.Env,
-					"HELIX_API_SERVER="+helixAPIServer,
-				)
-
-				// Add API key for git authentication if available
-				if apiKey := c.getAPIKeyForUser(session.Owner); apiKey != "" {
-					zedAgent.Env = append(zedAgent.Env, "HELIX_API_KEY="+apiKey)
-				}
+			if externalConfig.DisplayRefreshRate > 0 {
+				zedAgent.DisplayRefreshRate = externalConfig.DisplayRefreshRate
 			}
 		}
 
@@ -271,13 +243,6 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Str("session_id", sessionID).
 			Msg("Launching Zed agent for single session")
 	}
-
-	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "dispatch_to_pool").
-		Str("session_id", sessionID).
-		Str("user_id", session.Owner).
-		Interface("zed_agent", zedAgent).
-		Msg("📡 EXTERNAL_AGENT_DEBUG: About to dispatch to Zed runner pool")
 
 	// Wolf executor will handle authentication via its own mechanisms
 	log.Info().
@@ -293,11 +258,6 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to marshal Zed agent request")
 		return fmt.Errorf("failed to marshal Zed agent request: %w", err)
 	}
-
-	log.Debug().
-		Str("EXTERNAL_AGENT_DEBUG", "marshaled_request").
-		Str("data_length", fmt.Sprintf("%d", len(data))).
-		Msg("📦 EXTERNAL_AGENT_DEBUG: Marshaled Zed agent request")
 
 	header := map[string]string{
 		"kind": "zed_agent",

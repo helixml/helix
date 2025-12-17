@@ -45,14 +45,14 @@ func New(cfg *config.ServerConfig, store store.Store, modelInfoProvider model.Mo
 		wg:                    sync.WaitGroup{},
 	}
 
-	if cfg.Stripe.BillingEnabled {
-		billingLogger, err := logger.NewBillingLogger(store, cfg.Stripe.BillingEnabled)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to initialize billing logger")
-		} else {
-			p.billingLogger = billingLogger
-		}
+	// if cfg.Stripe.BillingEnabled {
+	billingLogger, err := logger.NewBillingLogger(store, cfg.Stripe.BillingEnabled)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to initialize billing logger")
+	} else {
+		p.billingLogger = billingLogger
 	}
+	// }
 
 	// Configure TLS skip verify if enabled
 	if cfg.Tools.TLSSkipVerify {
@@ -316,6 +316,8 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
 		OrganizationID:   orgID,
+		ProjectID:        vals.ProjectID,
+		SpecTaskID:       vals.SpecTaskID,
 		Model:            string(respMessage.Model),
 		OriginalRequest:  vals.OriginalRequest,
 		Request:          vals.OriginalRequest,

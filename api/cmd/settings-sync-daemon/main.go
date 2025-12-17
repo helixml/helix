@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -80,9 +82,13 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	switch d.codeAgentConfig.Runtime {
 	case "qwen_code":
 		// Qwen Code: Uses the qwen command as a custom agent_server
+		// Rewrite localhost URLs for container networking (dev mode fix)
+		baseURL := d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
 		env := map[string]interface{}{
 			"GEMINI_TELEMETRY_ENABLED": "false",
-			"OPENAI_BASE_URL":          d.codeAgentConfig.BaseURL,
+			"OPENAI_BASE_URL":          baseURL,
+			// Store sessions in persistent workspace directory (survives container restarts)
+			"QWEN_DATA_DIR": "/home/retro/work/.qwen-state",
 		}
 
 		if d.userAPIKey != "" {
@@ -93,10 +99,11 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 		log.Printf("Using qwen_code runtime: base_url=%s, model=%s",
-			d.codeAgentConfig.BaseURL, d.codeAgentConfig.Model)
+			baseURL, d.codeAgentConfig.Model)
 
 		return map[string]interface{}{
 			"qwen": map[string]interface{}{
+				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
 					"--experimental-acp",
@@ -113,6 +120,83 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
 	}
+}
+
+// rewriteLocalhostURL replaces localhost in a URL with our known-working API host.
+// This fixes the issue where the API server returns its SERVER_URL (localhost:8080 in dev),
+// which is unreachable from inside containers. We use HELIX_API_URL's host instead,
+// which we know works because the daemon connected with it.
+// Only rewrites if URL contains "localhost" - production URLs pass through unchanged.
+func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
+	if !strings.Contains(originalURL, "localhost") {
+		return originalURL // Production URL, leave unchanged
+	}
+
+	// Parse our known-working API URL to get the host
+	apiParsed, err := url.Parse(d.apiURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		return originalURL
+	}
+
+	// Parse the original URL
+	origParsed, err := url.Parse(originalURL)
+	if err != nil {
+		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		return originalURL
+	}
+
+	// Replace the host with our working API host
+	origParsed.Host = apiParsed.Host
+
+	rewritten := origParsed.String()
+	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
+	return rewritten
+}
+
+// rewriteLocalhostURLsInExternalSync rewrites any localhost URLs in the external_sync config
+func (d *SettingsDaemon) rewriteLocalhostURLsInExternalSync(externalSync map[string]interface{}) {
+	if wsSync, ok := externalSync["websocket_sync"].(map[string]interface{}); ok {
+		if extURL, ok := wsSync["external_url"].(string); ok {
+			wsSync["external_url"] = d.rewriteLocalhostURL(extURL)
+		}
+	}
+}
+
+// injectKoditAuth adds the user's API key to the Kodit context_server's Authorization header.
+// The Kodit MCP server URL is provided by Helix API, but the auth header must use the user's
+// API key (not the runner token) so that the request is authenticated as the user.
+func (d *SettingsDaemon) injectKoditAuth() {
+	if d.userAPIKey == "" {
+		log.Printf("Warning: USER_API_TOKEN not set, Kodit MCP may not authenticate correctly")
+		return
+	}
+
+	contextServers, ok := d.helixSettings["context_servers"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	koditServer, ok := contextServers["kodit"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Add or update the Authorization header with user's API key
+	headers, ok := koditServer["headers"].(map[string]interface{})
+	if !ok {
+		headers = make(map[string]interface{})
+		koditServer["headers"] = headers
+	}
+	headers["Authorization"] = "Bearer " + d.userAPIKey
+
+	// Also rewrite localhost URLs for container networking
+	// Zed expects "url" field for HTTP context_servers
+	if serverURL, ok := koditServer["url"].(string); ok {
+		koditServer["url"] = d.rewriteLocalhostURL(serverURL)
+	}
+
+	log.Printf("Injected user API key into Kodit context_server Authorization header")
 }
 
 func main() {
@@ -214,6 +298,10 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
 	}
+
+	// Inject user API key into Kodit context_server's Authorization header
+	d.injectKoditAuth()
+
 	if config.LanguageModels != nil {
 		d.helixSettings["language_models"] = config.LanguageModels
 	}
@@ -525,6 +613,9 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 		log.Println("Detected Helix config change, updating settings.json")
 		d.helixSettings = newHelixSettings
 		d.codeAgentConfig = config.CodeAgentConfig
+
+		// Inject user API key into Kodit context_server
+		d.injectKoditAuth()
 
 		// Merge with user overrides and write
 		merged := d.mergeSettings(d.helixSettings, d.userOverrides)

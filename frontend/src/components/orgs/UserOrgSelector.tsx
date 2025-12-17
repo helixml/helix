@@ -59,22 +59,11 @@ const pulse = keyframes`
   50% {
     transform: scale(1.02);
   }
-  100% {
-    transform: scale(1);
-  }
 `
 
 const ShimmerButton = styled(Button)(({ theme }) => ({
-  background: `linear-gradient(
-    90deg,
-    ${theme.palette.secondary.dark} 0%,
-    ${theme.palette.secondary.main} 20%,
-    ${theme.palette.secondary.light} 50%,
-    ${theme.palette.secondary.main} 80%,
-    ${theme.palette.secondary.dark} 100%
-  )`,
+  background: `linear-gradient(90deg, ${theme.palette.secondary.dark} 0%, ${theme.palette.secondary.main} 20%, ${theme.palette.secondary.light} 50%, ${theme.palette.secondary.main} 80%, ${theme.palette.secondary.dark} 100%)`,
   backgroundSize: '200% auto',
-  // Disabled animations in dev to allow reliable clicking - use animation-play-state: paused
   animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
   animationPlayState: 'paused',
   transition: 'all 0.3s ease-in-out',
@@ -411,16 +400,19 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       //   onClick: () => orgNavigateTo('files'),
       //   label: "Files",
       // },
-      {
+    ]
+
+    // Only show Providers menu item if providers management is enabled
+    // Admins manage inference providers via the admin panel, not here
+    if (account.serverConfig.providers_management_enabled) {
+      baseButtons.push({
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
         isActive: isActive('providers'),
         onClick: () => orgNavigateTo('providers'),
         label: "Providers",
-      },
-    ]
-
-
+      })
+    }
 
     // Add org-specific buttons if we're in an org context
     if (currentOrgSlug !== 'default') {
@@ -436,7 +428,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug])
+  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
@@ -729,7 +721,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       <Box
         data-compact-user-menu
         sx={{
-          position: 'fixed',
+          position: 'absolute',
           left: 0,
           bottom: 0,
           width: menuWidth,

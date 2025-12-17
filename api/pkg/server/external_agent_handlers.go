@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -26,57 +27,18 @@ import (
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
-	userAPIKeys, err := s.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
-		Owner:     userID,
-		OwnerType: types.OwnerTypeUser,
+func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
+		UserID:     userID,
+		ProjectID:  agent.ProjectPath,
+		SpecTaskID: agent.SpecTaskID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to list user API keys: %w", err)
-	}
-
-	// Filter out app-scoped API keys - we need a personal API key for full access
-	// App-scoped keys have restricted path access and can't be used for RevDial
-	var personalAPIKeys []*types.ApiKey
-	for _, key := range userAPIKeys {
-		if key.AppID == nil || !key.AppID.Valid || key.AppID.String == "" {
-			personalAPIKeys = append(personalAPIKeys, key)
-		}
-	}
-
-	// If no personal API keys exist, create one automatically
-	if len(personalAPIKeys) == 0 {
-		log.Info().Str("user_id", userID).Msg("No personal API keys found, creating one for agent access")
-
-		newKey, err := system.GenerateAPIKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate API key: %w", err)
-		}
-
-		apiKey := &types.ApiKey{
-			Owner:     userID,
-			OwnerType: types.OwnerTypeUser,
-			Key:       newKey,
-			Name:      "Auto-generated for agent access",
-			Type:      types.APIkeytypeAPI,
-			// AppID is nil - this is a personal key
-		}
-
-		createdKey, err := s.Store.CreateAPIKey(ctx, apiKey)
-		if err != nil {
-			return fmt.Errorf("failed to create API key: %w", err)
-		}
-
-		log.Info().
-			Str("user_id", userID).
-			Str("key_name", createdKey.Name).
-			Msg("✅ Created personal API key for agent access")
-
-		personalAPIKeys = append(personalAPIKeys, createdKey)
+		return fmt.Errorf("failed to get user API key for external agent: %w", err)
 	}
 
 	// Add USER_API_TOKEN to agent environment using personal API key
-	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", personalAPIKeys[0].Key))
+	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey))
 
 	log.Debug().
 		Str("user_id", userID).
@@ -260,7 +222,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	}
 
 	// Start the external agent
-	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)
+	response, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), &agent)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to start external agent")
 		http.Error(res, fmt.Sprintf("failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
@@ -397,7 +359,7 @@ func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	err := apiServer.externalAgentExecutor.StopZedAgent(req.Context(), sessionID)
+	err := apiServer.externalAgentExecutor.StopDesktop(req.Context(), sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent")
 		http.Error(res, fmt.Sprintf("failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
@@ -820,6 +782,113 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
+}
+
+// @Summary Bandwidth probe for adaptive bitrate
+// @Description Returns random uncompressible data for measuring available bandwidth.
+// @Description This endpoint starts sending bytes immediately, unlike screenshot which
+// @Description has capture latency. Used by adaptive bitrate algorithm to probe throughput.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param sessionID path string true "Session ID"
+// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/bandwidth-probe [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getBandwidthProbe(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Verify session ownership (lightweight check - just verify session exists and user owns it)
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	if session.Owner != user.ID {
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Parse size parameter (default 512KB)
+	size := 524288 // 512KB default
+	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
+		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 10*1024*1024 {
+			size = parsedSize // Max 10MB to prevent abuse
+		}
+	}
+
+	// Generate random data - crypto/rand produces incompressible data
+	// This ensures we're measuring actual bandwidth, not compression efficiency
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		log.Error().Err(err).Msg("Failed to generate random data for bandwidth probe")
+		http.Error(res, "Failed to generate probe data", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers to prevent caching and compression
+	res.Header().Set("Content-Type", "application/octet-stream")
+	res.Header().Set("Content-Length", strconv.Itoa(size))
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.Header().Set("Content-Encoding", "identity") // Explicitly disable compression
+	res.WriteHeader(http.StatusOK)
+
+	// Write data directly - starts sending immediately
+	res.Write(data)
+}
+
+// @Summary Initial bandwidth probe (no session required)
+// @Description Returns random uncompressible data for measuring available bandwidth before session creation.
+// @Description Used by adaptive bitrate to determine optimal initial bitrate before connecting.
+// @Description Only requires authentication, not session ownership.
+// @Tags ExternalAgents
+// @Produce application/octet-stream
+// @Param size query int false "Size of data to return in bytes (default 524288 = 512KB)"
+// @Success 200 {file} binary
+// @Failure 401 {object} system.HTTPError
+// @Router /api/v1/bandwidth-probe [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getInitialBandwidthProbe(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse size parameter (default 512KB, max 2MB for initial probe to limit abuse)
+	size := 524288 // 512KB default
+	if sizeStr := req.URL.Query().Get("size"); sizeStr != "" {
+		if parsedSize, err := strconv.Atoi(sizeStr); err == nil && parsedSize > 0 && parsedSize <= 2*1024*1024 {
+			size = parsedSize // Max 2MB for initial probe (smaller than session probe)
+		}
+	}
+
+	// Generate random data - crypto/rand produces incompressible data
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		log.Error().Err(err).Msg("Failed to generate random data for initial bandwidth probe")
+		http.Error(res, "Failed to generate probe data", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers to prevent caching and compression
+	res.Header().Set("Content-Type", "application/octet-stream")
+	res.Header().Set("Content-Length", strconv.Itoa(size))
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.Header().Set("Content-Encoding", "identity")
+	res.WriteHeader(http.StatusOK)
+
+	res.Write(data)
 }
 
 // @Summary Get session clipboard content

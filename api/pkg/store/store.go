@@ -131,6 +131,8 @@ type SearchUsersQuery struct {
 type GetAggregatedUsageMetricsQuery struct {
 	UserID         string
 	OrganizationID string
+	ProjectID      string
+	SpecTaskID     string
 	From           time.Time
 	To             time.Time
 }
@@ -155,7 +157,7 @@ type Store interface {
 
 	// Guidelines history
 	CreateGuidelinesHistory(ctx context.Context, history *types.GuidelinesHistory) error
-	ListGuidelinesHistory(ctx context.Context, organizationID, projectID string) ([]*types.GuidelinesHistory, error)
+	ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error)
 
 	CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error)
 	GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error)
@@ -235,7 +237,7 @@ type Store interface {
 
 	// api keys
 	CreateAPIKey(ctx context.Context, apiKey *types.ApiKey) (*types.ApiKey, error)
-	GetAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	GetAPIKey(ctx context.Context, q *types.ApiKey) (*types.ApiKey, error)
 	ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey string) error
 
@@ -437,6 +439,11 @@ type Store interface {
 	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
 	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
+	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
+	IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error)
+	GetSessionsWithPendingComments(ctx context.Context) ([]string, error)
+	ResetStuckComments(ctx context.Context) (int64, error)
 
 	// design review comment replies
 	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error

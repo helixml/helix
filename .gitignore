@@ -59,18 +59,13 @@ screencopy-frames/
 
 wolf-debug-dumps/
 
-# Build artifacts (cached tarballs for fast rebuilds)
-helix-sway.tar.gz
-helix-sway.tar.gz.hash
-
 # Wolf certificates
 wolf/cert.pem
 wolf/key.pem
 
 # Helix sway build artifacts
-helix-sway.tar
-helix-sway.tar.hash
-helix-sway.version
 sandbox-heartbeat
+sandbox-images
+
 hydra
 qwen-code-build/

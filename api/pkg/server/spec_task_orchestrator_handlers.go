@@ -329,7 +329,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		Msg("Manually stopping SpecTask external agent")
 
 	// Stop Wolf app
-	err = apiServer.externalAgentExecutor.StopZedAgent(req.Context(), externalAgent.ID)
+	err = apiServer.externalAgentExecutor.StopDesktop(req.Context(), externalAgent.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to stop external agent")
 		http.Error(res, fmt.Sprintf("Failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
@@ -472,6 +472,29 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
+	// Get display settings from app's ExternalAgentConfig (or use defaults)
+	displayWidth := 1920
+	displayHeight := 1080
+	displayRefreshRate := 60
+	resolution := ""
+	zoomLevel := 0
+	desktopType := ""
+	if task.HelixAppID != "" {
+		app, err := apiServer.Store.GetApp(req.Context(), task.HelixAppID)
+		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
+			width, height := app.Config.Helix.ExternalAgentConfig.GetEffectiveResolution()
+			displayWidth = width
+			displayHeight = height
+			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
+				displayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
+			}
+			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
+			resolution = app.Config.Helix.ExternalAgentConfig.Resolution
+			zoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
+			desktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
+		}
+	}
+
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           externalAgent.ID,
@@ -483,9 +506,12 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		PrimaryRepositoryID: primaryRepoID,      // Needed for design docs path
 		SpecTaskID:          task.ID,            // CRITICAL: Must pass SpecTaskID for correct workspace path computation
 		UseHostDocker:       task.UseHostDocker, // Use host Docker socket if requested
-		DisplayWidth:        2560,
-		DisplayHeight:       1600,
-		DisplayRefreshRate:  60,
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          resolution,
+		ZoomLevel:           zoomLevel,
+		DesktopType:         desktopType,
 	}
 
 	// Add user's API token for git operations
@@ -495,7 +521,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		return
 	}
 
-	agentResp, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), agentReq)
+	agentResp, err := apiServer.externalAgentExecutor.StartDesktop(req.Context(), agentReq)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to start external agent")
 		http.Error(res, fmt.Sprintf("Failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
