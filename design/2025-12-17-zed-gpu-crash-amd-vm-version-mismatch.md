@@ -831,15 +831,62 @@ that persists until reboot.
 | 2025-12-17 ~03:38 UTC | 7.1.1 | Click "follow agent" | GPU crash | reset(4) | First observed crash |
 | 2025-12-17 ~05:04 UTC | 7.1.1 (AMD repos) | Click "follow agent" | GPU crash | Illegal opcode | MES failures appeared |
 | 2025-12-17 ~06:00 UTC | 7.1.1 | Fresh session | VA-API fail + crashes | reset(7-10) | GPU in bad state |
-| 2025-12-17 ~06:30 UTC | 7.0.1 | Pre-reboot test | TODO | TODO | Testing if driver change alone helps |
-| 2025-12-17 ~XX:XX UTC | 7.0.1 | Post-reboot test | TODO | TODO | Testing with clean GPU state |
+| 2025-12-17 ~06:30 UTC | 7.0.1 | Pre-reboot test | **CRASHED** | reset(11-13) | Same errors as 7.1.1: MES failures, NULL page faults |
+| 2025-12-17 ~06:45 UTC | 7.0.1 | Post-reboot test | **CRASHED** | reset(1) | Crashed 2min after boot - RADV is the problem |
+
+**7.0.1 Pre-Reboot Crash Details (captured before VM went down):**
+```
+[1895721.227015] amdgpu: ring gfx_0.0.0 timeout... Process Xwayland pid 2960107
+[1895729.782658] amdgpu: GPU reset(11) succeeded!
+[1895736.988430] amdgpu: [gfxhub] page fault from zed pid 2965424 at address 0x0000000000000000
+[1895745.544556] amdgpu: GPU reset(12) succeeded!
+[1895764.876947] amdgpu: ring gfx_0.0.0 timeout... Process wolf pid 2972954
+[1895773.414605] amdgpu: GPU reset(13) succeeded!
+[1895773.415030] amdgpu: [drm] *ERROR* Failed to initialize parser -125!
+```
+
+**Conclusion:** 7.0.1 (Azure-recommended) with RADV crashes identically to 7.1.1.
+Both use the same open-source RADV driver with ACO shader compiler.
+This confirms the issue is RADV generating incompatible opcodes for MxGPU.
+
+**7.0.1 Post-Reboot Crash Details (crashed 2 minutes after fresh boot):**
+```
+[  135.794048] amdgpu: [gfxhub] page fault from zed pid 7587 at address 0x0000800100361000
+[  135.957526] amdgpu: [gfxhub] page fault from zed pid 7587 at address 0x0000000000000000
+[  135.957541] amdgpu: [gfxhub] page fault from zed pid 7587 at address 0x0000000000001000
+[  146.437245] amdgpu: ring gfx_0.0.0 timeout... Process Xwayland pid 6518
+[  146.437258] amdgpu: GPU reset begin!. Source:  1
+[  146.667459] amdgpu: GPU reset(1) succeeded!
+```
+
+**DEFINITIVE CONCLUSION:** RADV is incompatible with V710 MxGPU, even with clean GPU state.
+The crash happens within 2 minutes of a fresh boot. This is NOT GPU state corruption.
+
+**Remaining options:**
+
+1. **Proprietary vulkan-amdgpu-pro driver (version 6.4.4)** - Already prepared in Dockerfile
+   - Uses different shader compiler than RADV's ACO
+   - May avoid emitting illegal opcodes for MxGPU
+   - Downside: Deprecated by AMD, no future updates
+
+2. **Modify Zed to avoid problematic GPU operations** - We have a fork!
+   - Zed uses blade-graphics for Vulkan rendering
+   - Could investigate which Vulkan operations trigger the crash
+   - Potential fixes:
+     - Disable specific shader features that use restricted opcodes
+     - Use software rendering fallback for problematic operations
+     - Add MxGPU detection and use safer code paths
+   - Location: `~/pm/zed/crates/gpui/src/platform/blade/` (Vulkan backend)
+   - Upside: Fix at the source, works with any driver version
+   - Downside: Requires understanding which GPU features are restricted on MxGPU
 
 **Current test plan:**
-1. Deploy 7.0.1 (building now)
-2. Test BEFORE reboot → isolates driver version vs GPU state
-3. Reboot VM
-4. Test AFTER reboot → confirms with clean GPU state
-5. If both fail: try 6.4.4 with vulkan-amdgpu-pro
+1. ~~Deploy 7.0.1 (building now)~~
+2. ~~Test BEFORE reboot → isolates driver version vs GPU state~~ **CRASHED**
+3. ~~Reboot VM~~ **DONE**
+4. ~~Test AFTER reboot → confirms with clean GPU state~~ **CRASHED after 2min - RADV is broken**
+5. **NEXT: Build and deploy 6.4.4 with vulkan-amdgpu-pro** (prepared in Dockerfile)
+6. **FALLBACK: Investigate Zed's Vulkan usage** if PRO driver also fails
 
 ## References
 
