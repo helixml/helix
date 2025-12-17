@@ -72,6 +72,7 @@ ENV LC_ALL=en_US.UTF-8
 ARG LIBDRM_VERSION=2.4.124
 ARG MESA_VERSION=25.0.7
 ARG SPIRV_LLVM_TRANSLATOR_VERSION=18.1.3
+ARG SPIRV_TOOLS_VERSION=v2024.3
 
 # Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x requires 18)
 RUN apt-get update && apt-get install -y wget gnupg software-properties-common && \
@@ -95,7 +96,7 @@ RUN apt-get update && apt-get install -y \
     libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
     # LLVM 18 from apt.llvm.org
     llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
-    libvulkan-dev glslang-dev glslang-tools spirv-tools \
+    libvulkan-dev glslang-dev glslang-tools \
     libva-dev libvdpau-dev libglvnd-dev \
     # Runtime dependencies
     libvulkan1 vulkan-tools mesa-utils \
@@ -137,6 +138,23 @@ RUN cd /tmp && \
     ninja install && \
     ldconfig && \
     cd / && rm -rf /tmp/SPIRV-LLVM-Translator* /tmp/spirv-llvm-translator.tar.gz
+
+# Build SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
+# This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
+# NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
+RUN cd /tmp && \
+    git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
+    cd SPIRV-Tools && \
+    git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSPIRV_SKIP_TESTS=ON \
+          -G Ninja .. && \
+    ninja -j$(nproc) && \
+    ninja install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/SPIRV-Tools
 
 # Build libdrm 2.4.124 (required for Mesa 25.x with RDNA 3)
 # Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
