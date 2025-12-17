@@ -142,10 +142,12 @@ RUN cd /tmp && \
 # Build SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
 # This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
 # NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
+# Note: SPIRV-Tools v2024.3 requires specific SPIRV-Headers revision 2acb319
 RUN cd /tmp && \
     git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
     cd SPIRV-Tools && \
-    git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
+    git clone https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
+    cd external/spirv-headers && git checkout 2acb319af38d43be3ea76bfabf3998e5281d8d12 && cd ../.. && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=/usr \
           -DCMAKE_BUILD_TYPE=Release \
