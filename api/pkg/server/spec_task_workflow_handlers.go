@@ -86,15 +86,28 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// If repo is external, push the branch and create a pull request
+	// If repo is external, update task and return with PR URL
 	switch {
 	case repo.AzureDevOps != nil:
-		// Pull request should have been created on pushes, nothing to do here
+		// Pull request should have been created on pushes
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-		writeResponse(w, specTask, http.StatusOK)
+
+		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
+		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		// Construct PR URL for ADO repos
+		if updatedTask.PullRequestID != "" {
+			updatedTask.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, updatedTask.PullRequestID)
+		}
+
+		writeResponse(w, updatedTask, http.StatusOK)
 		return
 	default:
 		// Proceed with merging into the default branch

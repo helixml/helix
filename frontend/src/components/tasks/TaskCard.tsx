@@ -30,6 +30,7 @@ import {
   RadioButtonUnchecked as UncheckedIcon,
   ContentCopy as CopyIcon,
   AccountTree as BatchIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
@@ -78,6 +79,8 @@ interface SpecTaskWithExtras {
   design_docs_pushed_at?: string
   clone_group_id?: string
   cloned_from_id?: string
+  pull_request_id?: string
+  pull_request_url?: string
 }
 
 interface KanbanColumn {
@@ -814,8 +817,8 @@ export default function TaskCard({
           </Box>
         )}
 
-        {/* Completed tasks */}
-        {task.status === 'done' && task.merged_to_main && (
+        {/* Completed tasks - merged to main */}
+        {task.status === 'done' && task.merged_to_main && !task.pull_request_url && (
           <Box sx={{ mt: 1.5 }}>
             <Alert severity="success" sx={{ py: 0.5 }}>
               <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
@@ -834,6 +837,34 @@ export default function TaskCard({
                 fullWidth
               >
                 Start Exploratory Session
+              </Button>
+            </Alert>
+          </Box>
+        )}
+
+        {/* Pull Request link - for external repos (ADO, etc.) */}
+        {task.pull_request_url && (
+          <Box sx={{ mt: 1.5 }}>
+            <Alert
+              severity={task.status === 'done' ? 'success' : 'info'}
+              sx={{ py: 0.5 }}
+              icon={<OpenInNewIcon fontSize="small" />}
+            >
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                {task.status === 'done' ? 'Task complete! Review the PR:' : 'Pull Request:'}
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                color={task.status === 'done' ? 'success' : 'info'}
+                startIcon={<OpenInNewIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  window.open(task.pull_request_url, '_blank')
+                }}
+                fullWidth
+              >
+                View Pull Request #{task.pull_request_id}
               </Button>
             </Alert>
           </Box>
