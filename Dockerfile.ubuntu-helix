@@ -72,7 +72,6 @@ ENV LC_ALL=en_US.UTF-8
 # https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide
 #
 # NOTE: This installs ONLY userspace (--no-dkms). Kernel driver is on the host.
-# The --vulkan=pro flag uses AMD's tested Vulkan driver for enterprise GPUs.
 ARG AMDGPU_VERSION=7.0.1
 
 RUN apt-get update && apt-get install -y \
@@ -90,26 +89,31 @@ RUN apt-get update && apt-get install -y \
     python3 python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and install amdgpu-install package
-# This adds AMD's apt repository and provides the amdgpu-install command
-RUN wget -q https://repo.radeon.com/amdgpu-install/${AMDGPU_VERSION}/ubuntu/jammy/amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
-    && apt-get update \
-    && apt-get install -y ./amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
-    && rm amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
-    && rm -rf /var/lib/apt/lists/*
+# Add AMD GPG key and repositories manually (not using amdgpu-install)
+# This avoids conffile conflicts and gives us proper signed-by configuration
+# Based on: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/native-install/ubuntu.html
+RUN mkdir -p /etc/apt/keyrings \
+    && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
+    && chmod 644 /etc/apt/keyrings/rocm.gpg
 
-# Install AMD graphics userspace with PRO Vulkan driver
-# --usecase=graphics: Mesa 3D + OpenGL/Vulkan drivers (open source)
-# --vulkan=pro: Use AMD's PRO Vulkan driver (designed for enterprise/vGPU)
-# --no-dkms: Don't install kernel driver (it's on the host)
-# --no-32: Skip 32-bit libraries (not needed in container)
-# --accept-eula: Non-interactive installation
-RUN amdgpu-install -y \
-    --usecase=graphics \
-    --vulkan=pro \
-    --no-dkms \
-    --no-32 \
-    --accept-eula \
+# Add AMD repositories with proper GPG signing
+# Using version 7.1.1 which has both ROCm and graphics packages for jammy
+RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1.1 jammy main" > /etc/apt/sources.list.d/rocm.list \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/graphics/7.1.1/ubuntu jammy main" >> /etc/apt/sources.list.d/rocm.list \
+    && echo "Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600" > /etc/apt/preferences.d/rocm-pin-600
+
+# Install AMD graphics stack (Mesa + RADV Vulkan driver from AMD's repos)
+# This should include AMD's enterprise patches for MxGPU
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       mesa-vulkan-drivers \
+       mesa-vdpau-drivers \
+       libgl1-mesa-dri \
+       libglx-mesa0 \
+       libegl-mesa0 \
+       libgbm1 \
+       libdrm-amdgpu1 \
+       libdrm2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify installation
