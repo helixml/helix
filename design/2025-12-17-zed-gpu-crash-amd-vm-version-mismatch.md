@@ -1069,29 +1069,87 @@ User has been testing and the system is stable.
 | SPIRV-Tools | Ubuntu 22.04 default | vulkan-sdk-1.4.304.0 (for Intel) |
 | SPIRV-LLVM-Translator | N/A | 18.1.3 (for Intel) |
 
-### Root Cause: UNKNOWN
+### Root Cause: Likely RADV_DEBUG=hang (syncshaders)
 
-**We don't know what fixed it.**
+**Primary Hypothesis: RADV_DEBUG=hang enables syncshaders, which adds GPU synchronization barriers**
 
-The SPIRV-Tools and SPIRV-LLVM-Translator changes are for Intel support only. RADV (AMD's
-Vulkan driver) uses the ACO shader compiler, which compiles SPIR-V → NIR → AMD ISA directly
-without using SPIRV-Tools or LLVM.
+According to [Mesa documentation](https://docs.mesa3d.org/drivers/amd/hang-debugging.html):
+- `RADV_DEBUG=hang` enables `syncshaders` internally
+- `syncshaders` "synchronizes shaders after all draws/dispatches"
+- This adds barriers so only one GPU command executes at a time
+- This is known to fix synchronization bugs at a "massive performance cost"
 
-**Possible causes (speculative):**
+From [GPU hang debugging discussions](https://gitlab.freedesktop.org/mesa/mesa/-/issues/6455):
+> "Setting `RADV_DEBUG=syncshaders` appears to result in it running fine (discovered when
+> trying to get a hang report and saw that it didn't result in a GPU hang)."
 
-1. **RADV_DEBUG=hang** - Adds synchronization and command stream recording. Could mask a
-   race condition or timing issue in the driver.
+**Why this would fix our issue:**
 
-2. **libdrm source build** - We build 2.4.124 from source. AMD repos may have patches or
-   different build flags that cause issues on MxGPU.
+AMD MxGPU (SR-IOV) adds timing differences compared to bare-metal GPUs:
+- Virtual function scheduling introduces latency variability
+- GPU world-switching between VFs affects command timing
+- The GIM driver has configurable `hang_detect_timeout` and `sched_interval` parameters
 
-3. **Mesa build configuration** - Our meson options may produce different code paths than
-   AMD's packaged build.
+A race condition in Zed's Vulkan usage (or Xwayland's buffer handling) that works fine
+on bare-metal may fail on MxGPU due to different timing. The `syncshaders` option forces
+serialization, eliminating the race.
 
-4. **LLVM 18** - Mesa links against LLVM for various utilities. Different version could
-   affect something indirectly.
+**Why helix-sway works without syncshaders:**
 
-5. **Something else entirely** - We changed multiple variables at once and can't isolate.
+helix-sway uses native Wayland (Sway compositor) while helix-ubuntu uses Xwayland + GNOME.
+The Xwayland layer adds:
+- Additional buffer synchronization complexity
+- DRI3 buffer sharing between compositor and clients
+- More concurrent GPU operations
+
+Per [GamingOnLinux](https://www.gamingonlinux.com/2024/04/explicit-gpu-synchronization-for-xwayland-now-merged/):
+Xwayland historically had issues with implicit synchronization, where "presentation was
+delayed by the kernel, and you'd see a frame be dropped entirely" due to race conditions.
+Explicit sync support was merged in April 2024 but may not be in our Ubuntu 22.04 Xwayland.
+
+### Testable Hypotheses
+
+**Hypothesis 1: RADV_DEBUG=hang (via syncshaders) is the fix**
+
+Test:
+```bash
+# In Dockerfile.ubuntu-helix, remove RADV_DEBUG=hang
+# ENV RADV_DEBUG=hang  <- comment out
+# Rebuild and test - if crashes return, this confirms the hypothesis
+```
+
+Expected: Crashes return without RADV_DEBUG=hang
+
+**Hypothesis 2: syncshaders alone is sufficient**
+
+Test:
+```bash
+# Replace RADV_DEBUG=hang with just syncshaders
+ENV RADV_DEBUG=syncshaders
+# This adds the same synchronization but without hang detection overhead
+```
+
+Expected: Works without crashes, possibly better performance than hang
+
+**Hypothesis 3: Source build matters (independent of RADV_DEBUG)**
+
+Test:
+```bash
+# Use source build but remove RADV_DEBUG entirely
+# If it still works, the source build has different behavior than packages
+```
+
+Expected: If crashes return, source build alone isn't the fix
+
+**Hypothesis 4: Xwayland explicit sync would fix it**
+
+Test:
+```bash
+# Upgrade Xwayland to 24.1+ with explicit sync support
+# Remove RADV_DEBUG=hang and test
+```
+
+Expected: Modern Xwayland with explicit sync may not need syncshaders
 
 ### What We Know For Sure
 
@@ -1099,15 +1157,29 @@ without using SPIRV-Tools or LLVM.
 2. Mesa 25.0.7 source build with RADV_DEBUG=hang works
 3. helix-sway (native Wayland) never had this problem on the same GPU
 4. The crash only happened with Xwayland + GNOME on AMD MxGPU
+5. RADV_DEBUG=hang enables syncshaders which serializes GPU commands
+6. syncshaders is documented to fix synchronization bugs
 
 ### What We Don't Know
 
-1. Which specific change fixed it
-2. Whether RADV_DEBUG=hang is required or just the source build
-3. Whether this will stay fixed or crash again later
+1. Whether RADV_DEBUG=hang is required or just the source build (testable)
+2. Whether syncshaders alone is sufficient (testable)
+3. The specific race condition being avoided
+4. Whether Xwayland explicit sync would be a proper fix
+5. Performance impact of syncshaders in our workload
 
-**We're keeping RADV_DEBUG=hang enabled** because we don't trust it to stay working,
-and having crash dumps ready is better than being blind if it breaks again.
+### Recommended Next Steps
+
+1. **Test hypothesis 1** - Remove RADV_DEBUG=hang and see if crashes return
+2. **If crashes return** - We've confirmed syncshaders is the fix
+3. **Investigate performance** - Measure frame rate / latency with syncshaders
+4. **Consider Xwayland upgrade** - Ubuntu 22.04's Xwayland may be too old
+5. **File Mesa bug** - If we confirm a syncshaders-dependent issue, report upstream
+
+**We're keeping RADV_DEBUG=hang enabled** because:
+- It's the only configuration proven to work
+- It provides crash dumps if issues recur
+- The performance cost may be acceptable for our use case
 
 ### Final Working Dockerfile Configuration
 
