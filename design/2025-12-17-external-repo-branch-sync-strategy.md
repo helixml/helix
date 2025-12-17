@@ -107,26 +107,57 @@ Provide UI options:
 
 ## Implementation Plan
 
-### Phase 1: Base Branch Sync on Task Start (This PR)
+### Phase 1: Base Branch Sync on Task Start ✅ IMPLEMENTED
 
-1. Add `SyncBaseBranch(ctx, repoID, branchName)` method:
-   - Fetches only the specified branch
-   - Detects divergence
-   - Returns error if diverged
+1. ✅ Added `SyncBaseBranch(ctx, repoID, branchName)` method:
+   - Fetches only the specified branch to remote-tracking ref
+   - Detects divergence using merge-base algorithm
+   - Returns `BranchDivergenceError` if diverged
 
-2. Call `SyncBaseBranch` at start of `StartSpecGeneration`:
+2. ✅ Called `SyncBaseBranch` at start of `StartSpecGeneration` and `StartJustDoItMode`:
    - Before creating feature branch
-   - If diverged, set task to error state with message
+   - If diverged, sets task to error state with user-friendly message
 
-3. Add divergence detection helper:
-   - Compare local HEAD vs remote HEAD
-   - Count commits ahead/behind
+3. ✅ Added divergence detection:
+   - `countCommitsDiff()` counts commits ahead/behind
+   - `FormatDivergenceErrorForUser()` creates clear error message
 
-### Phase 2: UI Improvements (Future)
+### Phase 2: Divergence Resolution Options (Future)
+
+**Current state:** Divergence is detected and user gets error message, but no automated resolution.
+
+**Future resolution options to implement:**
+
+1. **Force Sync from Upstream** (Destructive)
+   - API: `POST /api/v1/git-repositories/{id}/force-sync`
+   - Uses `PullFromRemote(ctx, repoID, branchName, force=true)`
+   - Overwrites local with upstream (loses local-only commits)
+   - Requires confirmation dialog: "This will discard X local commits"
+   - Use case: "I don't care about local changes, just give me upstream"
+
+2. **Push Local to Upstream First** (Preservative)
+   - API: `POST /api/v1/git-repositories/{id}/push-branch`
+   - Push local changes to upstream before syncing
+   - May fail if upstream has conflicting changes
+   - Use case: "I have work in Helix that wasn't pushed yet"
+
+3. **Show Commits and Let User Decide** (Informative)
+   - List the specific commits that exist locally but not upstream
+   - List the specific commits that exist upstream but not locally
+   - User chooses: force sync, push first, or manual reconciliation
+   - Best UX but most complex to implement
+
+**Recommended implementation order:**
+1. Force Sync (simplest, covers most recovery cases)
+2. Show Commits (helps user understand the situation)
+3. Push Local (less common need)
+
+### Phase 3: UI Improvements (Future)
 
 1. Show sync status on repository page
-2. Add manual sync buttons
-3. Show divergence warnings
+2. Add "Force Sync" button with confirmation
+3. Show divergence warnings on task creation
+4. Show commit diff when divergence detected
 
 ## Code Locations
 
