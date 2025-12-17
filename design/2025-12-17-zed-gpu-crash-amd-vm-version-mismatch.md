@@ -831,12 +831,15 @@ that persists until reboot.
 | 2025-12-17 ~03:38 UTC | 7.1.1 | Click "follow agent" | GPU crash | reset(4) | First observed crash |
 | 2025-12-17 ~05:04 UTC | 7.1.1 (AMD repos) | Click "follow agent" | GPU crash | Illegal opcode | MES failures appeared |
 | 2025-12-17 ~06:00 UTC | 7.1.1 | Fresh session | VA-API fail + crashes | reset(7-10) | GPU in bad state |
+| 2025-12-17 ~06:30 UTC | 7.0.1 | Pre-reboot test | TODO | TODO | Testing if driver change alone helps |
+| 2025-12-17 ~XX:XX UTC | 7.0.1 | Post-reboot test | TODO | TODO | Testing with clean GPU state |
 
-**Next steps:**
-1. Reboot VM
-2. Test with currently deployed 7.1.1 (don't change anything)
-3. If crashes, reboot and test 7.0.1
-4. Document each test properly
+**Current test plan:**
+1. Deploy 7.0.1 (building now)
+2. Test BEFORE reboot → isolates driver version vs GPU state
+3. Reboot VM
+4. Test AFTER reboot → confirms with clean GPU state
+5. If both fail: try 6.4.4 with vulkan-amdgpu-pro
 
 ## References
 
