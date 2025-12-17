@@ -60,10 +60,10 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
           label="Repository Type"
           onChange={(e) => onTypeChange(e.target.value as TypesExternalRepositoryType)}
         >
-          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub</MenuItem>
-          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab</MenuItem>
           <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeADO}>Azure DevOps</MenuItem>
-          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket}>Bitbucket</MenuItem>
+          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub (coming soon)</MenuItem>
+          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab (coming soon)</MenuItem>
+          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket}>Bitbucket (coming soon)</MenuItem>
         </Select>
       </FormControl>
 
