@@ -63,13 +63,6 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Update task - move straight to done when implementation is approved
-	now := time.Now()
-	specTask.ImplementationApprovedBy = user.ID
-	specTask.ImplementationApprovedAt = &now
-	specTask.Status = types.TaskStatusDone
-	specTask.CompletedAt = &now
-
 	if project.DefaultRepoID == "" {
 		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
 		return
@@ -86,18 +79,40 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// If repo is external, push the branch and create a pull request
+	now := time.Now()
+	specTask.ImplementationApprovedBy = user.ID
+	specTask.ImplementationApprovedAt = &now
+
+	// If repo is external, move to pull_request status (awaiting merge in external system)
+	// For internal repos, move to done and instruct agent to merge
 	switch {
 	case repo.AzureDevOps != nil:
-		// Pull request should have been created on pushes, nothing to do here
+		// External repo: move to pull_request status, await merge via polling
+		specTask.Status = types.TaskStatusPullRequest
+
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-		writeResponse(w, specTask, http.StatusOK)
+
+		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
+		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		// Construct PR URL for ADO repos
+		if updatedTask.PullRequestID != "" {
+			updatedTask.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, updatedTask.PullRequestID)
+		}
+
+		writeResponse(w, updatedTask, http.StatusOK)
 		return
 	default:
-		// Proceed with merging into the default branch
+		// Internal repo: move straight to done
+		specTask.Status = types.TaskStatusDone
+		specTask.CompletedAt = &now
 	}
 
 	// Updating spec task
