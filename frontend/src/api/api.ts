@@ -2357,6 +2357,11 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
+  /**
+   * Deprecated: ProjectID is maintained for backward compatibility only.
+   * Use the project_repositories junction table for many-to-many project-repo relationships.
+   * This column is kept in the database for rollback compatibility but reads should use the junction table.
+   */
   project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
@@ -4031,6 +4036,8 @@ export interface TypesSpecTask {
   project_id?: string;
   project_path?: string;
   pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -4295,6 +4302,7 @@ export enum TypesSpecTaskStatus {
   TaskStatusImplementationQueued = "implementation_queued",
   TaskStatusImplementation = "implementation",
   TaskStatusImplementationReview = "implementation_review",
+  TaskStatusPullRequest = "pull_request",
   TaskStatusDone = "done",
   TaskStatusSpecFailed = "spec_failed",
   TaskStatusImplementationFailed = "implementation_failed",
