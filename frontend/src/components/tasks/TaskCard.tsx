@@ -361,8 +361,8 @@ const LiveAgentScreenshot: React.FC<{
           },
         }}
       >
-        <Box sx={{ position: 'relative', height: 180 }}>
-          <ExternalAgentDesktopViewer sessionId={sessionId} height={180} mode="screenshot" />
+        <Box sx={{ position: 'relative', height: 152 }}>
+          <ExternalAgentDesktopViewer sessionId={sessionId} height={152} mode="screenshot" />
         </Box>
         <Box
           sx={{
