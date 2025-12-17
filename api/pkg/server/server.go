@@ -131,6 +131,7 @@ type HelixAPIServer struct {
 	externalAgentPool          *services.ExternalAgentPool
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
+	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
 	wg                         sync.WaitGroup // Control for goroutines to enable tests
 }
@@ -308,6 +309,7 @@ func NewServer(
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
+		auditLogService:          services.NewAuditLogService(store),
 	}
 
 	// Initialize Moonlight proxy and server
@@ -985,6 +987,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
+
+	// Project audit log routes
+	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
 
 	// Sample project routes (simple in-memory)
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)

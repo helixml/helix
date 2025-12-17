@@ -6124,6 +6124,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/audit-logs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get paginated audit logs for a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "List project audit logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event type",
+                        "name": "event_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by spec task ID",
+                        "name": "spec_task_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by start date (RFC3339)",
+                        "name": "start_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by end date (RFC3339)",
+                        "name": "end_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search prompt text",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pagination offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectAuditLogResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/exploratory-session": {
             "get": {
                 "security": [
@@ -17602,6 +17705,128 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AuditEventType": {
+            "type": "string",
+            "enum": [
+                "task_created",
+                "task_cloned",
+                "task_approved",
+                "task_completed",
+                "task_archived",
+                "agent_prompt",
+                "user_message",
+                "agent_started",
+                "spec_generated",
+                "spec_updated",
+                "review_comment",
+                "review_comment_reply",
+                "pr_created",
+                "pr_merged",
+                "git_push"
+            ],
+            "x-enum-comments": {
+                "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
+                "AuditEventAgentStarted": "Agent session started",
+                "AuditEventGitPush": "Git push detected",
+                "AuditEventPRCreated": "Pull request created",
+                "AuditEventPRMerged": "Pull request merged",
+                "AuditEventReviewComment": "Comment added to design review",
+                "AuditEventReviewCommentReply": "Reply to a comment",
+                "AuditEventSpecGenerated": "Spec was generated",
+                "AuditEventSpecUpdated": "Spec was modified",
+                "AuditEventTaskCloned": "Task cloned from another task",
+                "AuditEventUserMessage": "Message sent by user inside agent (via WebSocket)"
+            },
+            "x-enum-varnames": [
+                "AuditEventTaskCreated",
+                "AuditEventTaskCloned",
+                "AuditEventTaskApproved",
+                "AuditEventTaskCompleted",
+                "AuditEventTaskArchived",
+                "AuditEventAgentPrompt",
+                "AuditEventUserMessage",
+                "AuditEventAgentStarted",
+                "AuditEventSpecGenerated",
+                "AuditEventSpecUpdated",
+                "AuditEventReviewComment",
+                "AuditEventReviewCommentReply",
+                "AuditEventPRCreated",
+                "AuditEventPRMerged",
+                "AuditEventGitPush"
+            ]
+        },
+        "types.AuditMetadata": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "type": "string"
+                },
+                "clone_group_id": {
+                    "description": "Group ID linking related cloned tasks",
+                    "type": "string"
+                },
+                "cloned_from_id": {
+                    "description": "Clone tracking (matches SpecTask fields)",
+                    "type": "string"
+                },
+                "cloned_from_project_id": {
+                    "description": "Source project ID if cloned from another project",
+                    "type": "string"
+                },
+                "comment_id": {
+                    "type": "string"
+                },
+                "design_review_id": {
+                    "description": "Design review tracking",
+                    "type": "string"
+                },
+                "external_task_id": {
+                    "description": "External system tracking (e.g., Azure DevOps)",
+                    "type": "string"
+                },
+                "external_task_url": {
+                    "type": "string"
+                },
+                "implementation_plan_hash": {
+                    "description": "Hash of implementation plan content",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "For scrolling to specific interaction in session view",
+                    "type": "string"
+                },
+                "pull_request_id": {
+                    "description": "Pull request information",
+                    "type": "string"
+                },
+                "pull_request_url": {
+                    "type": "string"
+                },
+                "requirements_spec_hash": {
+                    "description": "Hash of requirements spec content",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Helix session/interaction linking",
+                    "type": "string"
+                },
+                "spec_version": {
+                    "description": "Spec versioning - capture spec state at time of event",
+                    "type": "integer"
+                },
+                "task_name": {
+                    "type": "string"
+                },
+                "task_number": {
+                    "description": "Task information",
+                    "type": "integer"
+                },
+                "technical_design_hash": {
+                    "description": "Hash of technical design content",
+                    "type": "string"
+                }
+            }
+        },
         "types.AuthProvider": {
             "type": "string",
             "enum": [
@@ -21272,6 +21497,58 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ProjectAuditLog": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/types.AuditEventType"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/types.AuditMetadata"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "prompt_text": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectAuditLogResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "logs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProjectAuditLog"
+                    }
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -24964,20 +25241,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

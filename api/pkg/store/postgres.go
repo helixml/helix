@@ -148,6 +148,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Transaction{},
 		&types.TopUp{},
 		&types.Project{},
+		&types.ProjectAuditLog{}, // Audit trail for project activity
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -563,20 +564,21 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 	return nil
 }
 
-// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the current value
 // Uses raw SQL with RETURNING for database-level atomicity - no race conditions
+// Returns the value BEFORE incrementing (so first task gets 1, second gets 2, etc.)
 func (s *PostgresStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
-	var newNumber int
+	var currentNumber int
 	err := s.gdb.WithContext(ctx).Raw(`
 		UPDATE projects
 		SET next_task_number = next_task_number + 1
 		WHERE id = ?
-		RETURNING next_task_number
-	`, projectID).Scan(&newNumber).Error
+		RETURNING next_task_number - 1
+	`, projectID).Scan(&currentNumber).Error
 	if err != nil {
 		return 0, fmt.Errorf("error incrementing project task number: %w", err)
 	}
-	return newNumber, nil
+	return currentNumber, nil
 }
 
 // ListProjects lists all projects for a given user

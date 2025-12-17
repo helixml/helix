@@ -45,8 +45,9 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Set user ID from context
+	// Set user ID and email from context
 	req.UserID = user.ID
+	req.UserEmail = user.Email
 
 	// Validate request
 	if req.Prompt == "" {

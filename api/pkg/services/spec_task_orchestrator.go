@@ -305,12 +305,10 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
-	if task.PullRequestID != "" {
-		err := o.processExternalPullRequestStatus(ctx, task)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to process external pull request status")
-		}
-	}
+	// NOTE: PR status polling removed from here to avoid hammering ADO API every
+	// 10 seconds. Now handled by dedicated prPollLoop which runs every 1 minute.
+	// Tasks move to pull_request status when user approves implementation, then
+	// prPollLoop polls ADO for merge status. See conversation with Karolis.
 
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
