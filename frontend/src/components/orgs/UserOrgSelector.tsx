@@ -4,6 +4,7 @@ import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import Popover from '@mui/material/Popover'
+import Portal from '@mui/material/Portal'
 import DialogContent from '@mui/material/DialogContent'
 import Button from '@mui/material/Button'
 
@@ -1053,16 +1054,38 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     // Show floating menu: always when sidebar open, or when toggled in compact mode
     const showFloatingMenu = !isCompact || compactExpanded
 
+    // In compact mode, we need to use a Portal to escape the overflow-hidden drawer
+    // This is necessary because:
+    // 1. MUI Drawer uses CSS transforms (breaks position: fixed in Safari)
+    // 2. The drawer has overflowX: hidden which clips position: absolute elements
+    // 3. Portal renders the menu at document.body level, escaping both constraints
+    const floatingMenuContent = (
+      <Box sx={{
+        opacity: showFloatingMenu ? 1 : 0,
+        pointerEvents: showFloatingMenu ? 'auto' : 'none',
+        // In compact mode with Portal, use fixed positioning since we're outside the drawer
+        ...(isCompact && {
+          position: 'fixed',
+          left: 0,
+          bottom: 0,
+          zIndex: 9999,
+        }),
+      }}>
+        {renderFloatingMenu()}
+      </Box>
+    )
+
     return (
       <>
         {renderAvatar()}
-        {/* Always render the floating menu but hide with opacity and pointer-events to prevent image reloading */}
-        <Box sx={{
-          opacity: showFloatingMenu ? 1 : 0,
-          pointerEvents: showFloatingMenu ? 'auto' : 'none',
-        }}>
-          {renderFloatingMenu()}
-        </Box>
+        {/* In compact mode, use Portal to escape overflow-hidden drawer container */}
+        {isCompact ? (
+          <Portal>
+            {floatingMenuContent}
+          </Portal>
+        ) : (
+          floatingMenuContent
+        )}
       </>
     )
   }

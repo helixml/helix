@@ -31,6 +31,9 @@ type GitRepository struct {
 	Description    string                 `json:"description"`
 	OwnerID        string                 `gorm:"index" json:"owner_id"`
 	OrganizationID string                 `gorm:"index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
+	// Deprecated: ProjectID is maintained for backward compatibility only.
+	// Use the project_repositories junction table for many-to-many project-repo relationships.
+	// This column is kept in the database for rollback compatibility but reads should use the junction table.
 	ProjectID      string                 `gorm:"index" json:"project_id"`
 	RepoType       GitRepositoryType      `gorm:"index" json:"repo_type"`
 	Status         GitRepositoryStatus    `json:"status"`

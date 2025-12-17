@@ -2248,6 +2248,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/upload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Upload file to sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "File to upload",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SandboxFileUploadResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/filestore/config": {
             "get": {
                 "security": [
@@ -22005,6 +22079,23 @@ const docTemplate = `{
                 },
                 "public_key": {
                     "type": "string"
+                }
+            }
+        },
+        "types.SandboxFileUploadResponse": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "description": "Original filename",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "Full path: /home/retro/work/incoming/filename",
+                    "type": "string"
+                },
+                "size": {
+                    "description": "File size in bytes",
+                    "type": "integer"
                 }
             }
         },
