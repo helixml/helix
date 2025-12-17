@@ -72,7 +72,7 @@ ENV LC_ALL=en_US.UTF-8
 ARG LIBDRM_VERSION=2.4.124
 ARG MESA_VERSION=25.0.7
 ARG SPIRV_LLVM_TRANSLATOR_VERSION=18.1.3
-ARG SPIRV_TOOLS_VERSION=v2024.3
+ARG SPIRV_TOOLS_VERSION=vulkan-sdk-1.4.304.0
 
 # Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x requires 18)
 RUN apt-get update && apt-get install -y wget gnupg software-properties-common && \
@@ -142,13 +142,13 @@ RUN cd /tmp && \
 # Build SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
 # This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
 # NO FALLBACKS - required for Mesa CLC compiler, fail if this doesn't build
-# Note: SPIRV-Tools v2024.3 requires specific SPIRV-Headers revision 2acb319
+# Note: vulkan-sdk-1.4.304.0 requires specific SPIRV-Headers revision 3f17b2a
 # Must install to x86_64-linux-gnu libdir for pkg-config to find it
 RUN cd /tmp && \
     git clone --depth 1 --branch ${SPIRV_TOOLS_VERSION} https://github.com/KhronosGroup/SPIRV-Tools.git && \
     cd SPIRV-Tools && \
     git clone https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers && \
-    cd external/spirv-headers && git checkout 2acb319af38d43be3ea76bfabf3998e5281d8d12 && cd ../.. && \
+    cd external/spirv-headers && git checkout 3f17b2af6784bfa2c5aa5dbb8e0e74a607dd8b3b && cd ../.. && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=/usr \
           -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
