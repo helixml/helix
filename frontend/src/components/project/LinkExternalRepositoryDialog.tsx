@@ -32,7 +32,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
 }) => {
   const [url, setUrl] = useState('')
   const [name, setName] = useState('')
-  const [type, setType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+  const [type, setType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
   const [koditIndexing, setKoditIndexing] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -44,7 +44,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
     if (!open) {
       setUrl('')
       setName('')
-      setType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+      setType(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
       setKoditIndexing(true)
       setUsername('')
       setPassword('')
