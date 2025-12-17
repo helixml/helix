@@ -1067,17 +1067,33 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 		}
 	}
 
-	// List all branches
+	// List all branches (both local refs/heads/* and remote-tracking refs/remotes/origin/*)
+	// This handles both mirrored repos (all branches as local refs) and non-mirrored repos
 	refs, err := repo.References()
 	if err == nil {
-		branches := []string{}
+		branchSet := make(map[string]bool)
 		refs.ForEach(func(ref *plumbing.Reference) error {
-			if ref.Name().IsBranch() {
-				branchName := ref.Name().Short()
-				branches = append(branches, branchName)
+			refName := ref.Name()
+			// Local branches: refs/heads/*
+			if refName.IsBranch() {
+				branchSet[refName.Short()] = true
+			}
+			// Remote-tracking branches: refs/remotes/origin/* (for non-mirrored repos)
+			if refName.IsRemote() {
+				// Extract branch name from refs/remotes/origin/branch-name
+				refStr := refName.String()
+				if strings.HasPrefix(refStr, "refs/remotes/origin/") {
+					branchName := strings.TrimPrefix(refStr, "refs/remotes/origin/")
+					branchSet[branchName] = true
+				}
 			}
 			return nil
 		})
+
+		branches := make([]string, 0, len(branchSet))
+		for branch := range branchSet {
+			branches = append(branches, branch)
+		}
 		gitRepo.Branches = branches
 
 		log.Debug().
