@@ -56,23 +56,21 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # ====================================================================
-# Install AMD GPU Drivers (version 7.0.1 - Azure recommended)
+# Install AMD GPU Drivers (version 6.4.4 with proprietary Vulkan)
 # ====================================================================
-# Version 7.0.1 is recommended by Azure documentation for NVv5 VMs with V710:
-# https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide
+# TESTING: Proprietary vulkan-amdgpu-pro driver from version 6.4.4
 #
-# KNOWN ISSUE: RADV (Mesa's open-source Vulkan driver) generates illegal opcodes
-# on AMD Radeon Pro V710 MxGPU (Azure NVv5-series vGPU).
+# Version 6.4.4 is the LAST version with the proprietary Vulkan driver.
+# From 7.x onward, AMD only ships open-source RADV.
 #
-# The V710 is a virtualized GPU (SR-IOV) with restricted instruction set.
-# Errors seen:
-#   [drm:gfx_v11_0_bad_op_irq [amdgpu]] *ERROR* Illegal opcode in command stream
-#   [drm:gfx_v11_0_priv_reg_irq [amdgpu]] *ERROR* Illegal register access in command stream
+# The proprietary driver uses a DIFFERENT shader compiler that may not
+# emit the illegal opcodes that crash the V710 MxGPU.
 #
-# ALTERNATIVE: Version 6.4.4 has the proprietary vulkan-amdgpu-pro driver
-# with a different shader compiler. If 7.0.1 crashes, try switching to 6.4.4.
-# See build-arg AMDGPU_VERSION below.
-ARG AMDGPU_VERSION=7.0.1
+# See: https://aur.archlinux.org/packages/vulkan-amdgpu-pro
+#
+# If this works, it confirms the issue is RADV's shader compiler (ACO)
+# generating instructions the vGPU doesn't support.
+ARG AMDGPU_VERSION=6.4.4
 
 RUN apt-get update && apt-get install -y \
     wget gnupg software-properties-common \
@@ -94,17 +92,18 @@ RUN mkdir -p /etc/apt/keyrings \
     && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
     && chmod 644 /etc/apt/keyrings/rocm.gpg
 
-# Add AMD repository (version from AMDGPU_VERSION build arg)
-# Note: 7.0.1 only has 'main', 6.4.4 also has 'proprietary' for vulkan-amdgpu-pro
-RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/amdgpu/${AMDGPU_VERSION}/ubuntu jammy main" > /etc/apt/sources.list.d/amdgpu.list \
+# Add AMD 6.4.4 repository with BOTH main and proprietary components
+# - main: Mesa, libdrm, etc.
+# - proprietary: vulkan-amdgpu-pro (proprietary Vulkan driver)
+RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/amdgpu/${AMDGPU_VERSION}/ubuntu jammy proprietary main" > /etc/apt/sources.list.d/amdgpu.list \
     && echo "Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600" > /etc/apt/preferences.d/amdgpu-pin-600
 
-# Install AMD graphics stack from AMD repos
-# mesa-vulkan-drivers: RADV Vulkan driver from AMD's build
+# Install AMD PRO Vulkan driver (proprietary) + Mesa for OpenGL
+# vulkan-amdgpu-pro: Proprietary Vulkan driver with different shader compiler
 # libgl1-mesa-dri: OpenGL driver (RadeonSI) for desktop compositing
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       mesa-vulkan-drivers \
+       vulkan-amdgpu-pro \
        libgl1-mesa-dri \
        libglx-mesa0 \
        libegl-mesa0 \
@@ -113,11 +112,14 @@ RUN apt-get update \
        libdrm2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Force use of PRO Vulkan driver (in case both RADV and PRO are installed)
+ENV AMD_VULKAN_ICD=PRO
+
 # Verify installation
 RUN ldconfig && \
-    echo "AMD GPU Drivers installed (version ${AMDGPU_VERSION}):" && \
+    echo "AMD PRO Vulkan Driver installed (version ${AMDGPU_VERSION}):" && \
     ls -la /etc/vulkan/icd.d/ 2>/dev/null || true && \
-    dpkg -l | grep -E 'amdgpu|vulkan|mesa' | head -20 || true
+    dpkg -l | grep -E 'amdgpu|vulkan' | head -20 || true
 
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
