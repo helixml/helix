@@ -1,0 +1,516 @@
+# Zed GPU Crash on AMD VM - Version Mismatch Analysis
+
+**Date:** 2025-12-17
+**Status:** Investigation in progress
+**Severity:** Critical - Crashes GPU, requires GPU reset
+
+## Summary
+
+Zed is crashing the GPU when clicking the "follow agent" button in the Zed UI. The crash causes AMD GPU ring timeouts, page faults at NULL addresses, and forces GPU reset. This only occurs on the production AMD VM (Azure NV-series with AMD Radeon Pro V710 MxGPU), not on the local development machine.
+
+## Crash Details
+
+### Symptoms
+
+1. User clicks "follow agent" button in Zed
+2. GPU page faults occur at address `0x0000000000000000` (NULL)
+3. GPU command ring times out after 10 seconds
+4. GPU reset triggered
+5. Xwayland and Zed crash
+
+### dmesg Output (from 2025-12-17 03:38:34 UTC)
+
+```
+amdgpu 0002:00:00.0: amdgpu: [gfxhub] page fault (src_id:0 ring:40 vmid:7 pasid:32819)
+amdgpu 0002:00:00.0: amdgpu:  Process zed pid 2923856 thread zed pid 2923856
+amdgpu 0002:00:00.0: amdgpu:   in page starting at address 0x0000000000000000 from client 10
+amdgpu 0002:00:00.0: amdgpu: ring gfx_0.0.0 timeout, signaled seq=571734509, emitted seq=571734511
+amdgpu 0002:00:00.0: amdgpu: GPU reset begin!. Source:  1
+amdgpu 0002:00:00.0: amdgpu: GPU reset(4) succeeded!
+amdgpu 0002:00:00.0: [drm] *ERROR* Failed to initialize parser -125!
+```
+
+### Crash Location
+
+The crash occurs in Zed's Vulkan GPU layer:
+- `blade-graphics-0.7.0/src/vulkan/command.rs:441:21`
+- During GPU command submission via RADV (Mesa Vulkan driver)
+
+## Architecture
+
+There are THREE layers where GPU drivers/libraries are involved:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Host (RHEL 9.4 on Azure NV-series)                              │
+│  ├── Kernel: 5.14.0-427.61.1.el9_4.x86_64                      │
+│  ├── AMDGPU Driver: 6.16.6 (AMD PRO)                           │
+│  ├── libdrm-amdgpu: 2.4.125.70100 (AMD PRO)                    │
+│  └── ROCm: 7.1.0                                               │
+├─────────────────────────────────────────────────────────────────┤
+│ helix-sandbox Container (Ubuntu 25.04)                          │
+│  ├── Wolf (streaming server)                                    │
+│  ├── Docker-in-Docker                                           │
+│  ├── libdrm: 2.4.124-2 (upstream)                              │
+│  ├── Mesa: 25.0.7-0ubuntu0.25.04.2                             │
+│  ├── Vulkan: 1.4.304.0-1                                       │
+│  └── ROCm SMI: 6.2 (MISMATCH with host 7.1.0)                  │
+├─────────────────────────────────────────────────────────────────┤
+│ helix-sway Inner Container (WORKS - mostly)                     │
+│  ├── Base: Ubuntu 25.04 (ghcr.io/games-on-whales/gstreamer)    │
+│  ├── Compositor: Sway (wlroots-based, lightweight)             │
+│  ├── Zed (uses blade-graphics for Vulkan)                      │
+│  ├── libdrm: 2.4.124-2 (from base image)                       │
+│  ├── Mesa: 25.0.7 (from base image)                            │
+│  └── RADV (Mesa Vulkan driver for AMD)                         │
+├─────────────────────────────────────────────────────────────────┤
+│ helix-ubuntu Inner Container (DOES NOT WORK - crashes GPU)      │
+│  ├── Base: Ubuntu 22.04                                         │
+│  ├── Compositor: Mutter/GNOME (heavy effects, Xwayland)        │
+│  ├── Zed (uses blade-graphics for Vulkan)                      │
+│  ├── libdrm: 2.4.124 (BUILT FROM SOURCE)                       │
+│  ├── Mesa: 24.3.4 (BUILT FROM SOURCE with meson)               │
+│  ├── LLVM: 15 (from Ubuntu 22.04 repos)                        │
+│  ├── RADV (Mesa Vulkan driver, built from source)              │
+│  └── Vulkan drivers: amd, intel, intel_hasvk                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Focus**: helix-ubuntu crashes more frequently than helix-sway. The source build
+of Mesa 24.3.4 in helix-ubuntu was intended to fix crashes, but may be causing them.
+
+## Version Comparison
+
+| Component | Host (RHEL 9.4) | helix-sandbox | helix-sway | helix-ubuntu | Local Dev |
+|-----------|-----------------|---------------|------------|--------------|-----------|
+| Base OS | RHEL 9.4 | Ubuntu 25.04 | Ubuntu 25.04 | Ubuntu 22.04 | Ubuntu 24.04 |
+| Kernel | 5.14.0 | N/A (host) | N/A (host) | N/A (host) | 6.8.0 |
+| AMDGPU driver | PRO 6.16.6 | N/A (host) | N/A (host) | N/A (host) | Upstream |
+| libdrm | 2.4.125.70100 (PRO) | 2.4.124-2 | 2.4.124-2 | **2.4.124 (source)** | 2.4.122-1 |
+| Mesa | N/A | 25.0.7 | 25.0.7 | **24.3.4 (source)** | 25.0.7 |
+| LLVM (for Mesa) | N/A | N/A | N/A | **15** | N/A |
+| Vulkan driver | N/A | RADV | RADV | **RADV (built)** | RADV |
+| Compositor | N/A | N/A | Sway (wlroots) | **Mutter (GNOME)** | N/A |
+| ROCm | 7.1.0 | 6.2 (SMI) | N/A | N/A | N/A (NVIDIA) |
+
+## Root Cause Analysis
+
+### Identified Mismatches
+
+1. **libdrm Version Mismatch**
+   - Host has AMD PRO libdrm 2.4.125.70100
+   - Containers have upstream libdrm 2.4.124-2
+   - AMD PRO libdrm may have different ABI/behavior than upstream
+   - Minor version difference (125 vs 124) may still cause issues with kernel driver
+
+2. **AMD PRO vs Upstream Driver Stack**
+   - Host uses AMD PRO driver stack (enterprise/proprietary userspace)
+   - Containers use upstream Mesa RADV (open source)
+   - AMD PRO has patches and optimizations not in upstream Mesa
+   - Mixing AMD PRO kernel modules with upstream userspace is not a tested configuration
+
+3. **ROCm Version Mismatch**
+   - Host has ROCm 7.1.0 installed
+   - Container has ROCm SMI 6.2 (different version)
+   - While primarily a compute issue, version mismatches can cause subtle incompatibilities
+
+### Kernel Compatibility (NOT the issue)
+
+According to [Mesa RADV documentation](https://docs.mesa3d.org/drivers/radv.html):
+- RADV requires kernel 5.0 or later
+- RHEL 9.4's kernel 5.14 is well above this requirement
+- RHEL backports security and driver fixes to maintain compatibility
+- **Kernel version is unlikely to be the root cause**
+
+### Why It Works Locally
+
+Local development machine:
+- Fully upstream driver stack (no AMD PRO)
+- NVIDIA GPU uses proprietary drivers with container toolkit
+- Container toolkit automatically matches driver versions
+- No mixing of enterprise/upstream driver components
+
+## GPU Page Fault Analysis
+
+The crash pattern shows:
+```
+address 0x0000000000000000  <- NULL pointer
+address 0x0000000000001000  <- NULL + 4KB offset
+```
+
+This indicates RADV is submitting GPU commands with invalid buffer addresses. Possible causes:
+
+1. **Buffer allocation failure** - RADV trying to use kernel API not in 5.14.0
+2. **Memory mapping failure** - libdrm ABI mismatch causing incorrect GPU VA mapping
+3. **Implicit synchronization mismatch** - Newer RADV expects kernel sync primitives not in 5.14.0
+
+## Potential Solutions
+
+### Option 1: Install AMD PRO Userspace in Containers (Recommended)
+
+Install AMD PRO Mesa/Vulkan inside containers to match host driver:
+
+```dockerfile
+# In container Dockerfile
+RUN apt-get remove -y mesa-vulkan-drivers && \
+    # Install AMD PRO ROCm/amdgpu-pro userspace matching host
+    wget https://repo.radeon.com/amdgpu-install/... && \
+    amdgpu-install --usecase=graphics --vulkan=pro --no-dkms
+```
+
+Pros:
+- Matches host driver stack exactly
+- AMD PRO is designed for enterprise/vGPU scenarios
+- No kernel upgrade required
+
+Cons:
+- Need to track AMD PRO versions
+- May need to update containers when host driver updates
+
+### Option 2: Upgrade Host Kernel
+
+Upgrade RHEL 9.4 to use a newer kernel compatible with Mesa 25.x:
+
+```bash
+# Enable ELRepo for newer kernels
+dnf install elrepo-release
+dnf --enablerepo=elrepo-kernel install kernel-ml
+```
+
+Pros:
+- Proper long-term fix
+- Better upstream compatibility
+
+Cons:
+- May break AMD PRO driver compatibility
+- Requires host reboot
+- May affect Azure support
+
+### Option 3: Downgrade Container Mesa
+
+Use older Mesa version compatible with kernel 5.14.0:
+
+```dockerfile
+# Pin to Mesa 23.x or earlier
+RUN apt-get install mesa-vulkan-drivers=23.3.x
+```
+
+Pros:
+- No host changes required
+
+Cons:
+- May lose performance/features
+- Harder to maintain pinned versions
+- Ubuntu 25.04 may not have old Mesa in repos
+
+### Option 4: Use AMD PRO ROCm Container Images
+
+AMD provides container images with their driver stack pre-installed:
+
+```yaml
+image: rocm/rocm-terminal:latest
+```
+
+Pros:
+- Pre-tested AMD configuration
+- Designed for containerized workloads
+
+Cons:
+- May need significant container restructuring
+- Different base image
+
+## Additional Issue: Missing AMD SMI
+
+The sandbox container has no `rocm-smi` or `amd-smi` binary, so GPU stats cannot be reported. The Wolf API's `queryAMDStats()` function in `api/endpoints.cpp` attempts to call `rocm-smi` but it's not installed.
+
+## AMD Container Toolkit
+
+AMD has an equivalent to NVIDIA's container toolkit: [ROCm Container Toolkit](https://github.com/ROCm/container-toolkit)
+
+Key points from [ROCm Docker documentation](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html):
+
+1. **Kernel driver is on host** - The `amdgpu-dkms` kernel module runs on host
+2. **Userspace in container** - HIP runtime, Mesa, libdrm, rocm-smi can be in container
+3. **Version matching** - Container userspace should match host kernel driver version
+
+### Device Access
+
+Containers need access to:
+- `/dev/kfd` - Main compute interface
+- `/dev/dri/renderD*` - Direct rendering interface
+
+### Recommended Container Image
+
+For host with ROCm 7.1 / AMDGPU 30.20, use matching ROCm container:
+
+```bash
+docker run -it --device=/dev/kfd --device=/dev/dri \
+  --group-add video \
+  rocm/dev-ubuntu-22.04:7.1
+```
+
+## Recommended Next Steps
+
+1. **Install ROCm Container Toolkit** on AMD VM host
+   ```bash
+   # On host (RHEL 9.4)
+   sudo dnf install rocm-container-toolkit
+   ```
+
+2. **Use AMD's container runtime** in Docker daemon config
+   ```json
+   {
+     "runtimes": {
+       "amd": {
+         "path": "/usr/bin/amd-container-runtime"
+       }
+     }
+   }
+   ```
+
+3. **Install ROCm userspace in containers** (matching host version 7.1)
+   - Add to helix-sandbox Dockerfile:
+   ```dockerfile
+   # Install AMD ROCm 7.1 userspace to match host driver
+   RUN wget https://repo.radeon.com/amdgpu-install/7.1/ubuntu/jammy/amdgpu-install_7.1.70100-1_all.deb && \
+       apt-get install -y ./amdgpu-install_7.1.70100-1_all.deb && \
+       amdgpu-install --usecase=graphics --vulkan=rocm --no-dkms -y
+   ```
+
+4. **Add AMD SMI** for GPU monitoring
+   ```dockerfile
+   RUN apt-get install -y rocm-smi-lib amd-smi-lib
+   ```
+
+5. **Test Zed "follow agent" button** after driver alignment
+
+6. **Verify GPU stats** work via Wolf API
+
+## Critical Finding: Mesa Build Difference Between Desktop Images
+
+### helix-sway (Zed) - WORKS (mostly)
+`Dockerfile.sway-helix` uses Mesa from the base image:
+- Base: `ghcr.io/games-on-whales/gstreamer:1.26.7` (Ubuntu 25.04)
+- Mesa: 25.0.7 (pre-installed from Ubuntu 25.04 repos)
+- libdrm: 2.4.124-2 (pre-installed)
+- Compositor: Sway (wlroots-based, lightweight)
+- **Status**: Generally works, occasional crashes (e.g., "follow agent" button)
+
+### helix-ubuntu (GNOME) - DOES NOT WORK
+`Dockerfile.ubuntu-helix` (lines 59-148) builds libdrm and Mesa from source:
+
+**Base Image:** `ubuntu:22.04`
+
+**Source Build Configuration:**
+```dockerfile
+ARG LIBDRM_VERSION=2.4.124
+ARG MESA_VERSION=24.3.4
+
+# libdrm build with AMD/Intel enabled
+meson setup build \
+    --prefix=/usr \
+    -Damdgpu=enabled \
+    -Dradeon=enabled \
+    -Dintel=enabled
+
+# Mesa build with RADV Vulkan driver
+meson setup build \
+    --prefix=/usr \
+    -Dplatforms=x11,wayland \
+    -Dgallium-drivers=radeonsi,iris,crocus,llvmpipe,softpipe,zink \
+    -Dvulkan-drivers=amd,intel,intel_hasvk \
+    -Dllvm=enabled
+```
+
+**Reason for Source Build (from Dockerfile comment):**
+> Ubuntu 22.04's default Mesa 23.2 + libdrm 2.4.113 causes GPU crashes on AMD Radeon Pro V710 MxGPU (gfx1101/RDNA 3) with ROCm 6.16+ kernel driver.
+
+**Installed Components:**
+- Mesa: 24.3.4 (built from source with meson)
+- libdrm: 2.4.124 (built from source)
+- Vulkan: RADV (Mesa's AMD Vulkan driver)
+- LLVM: 15 (from Ubuntu 22.04 repos, used by Mesa)
+- Compositor: Mutter (GNOME's compositor, uses advanced effects)
+- X11 Layer: Xwayland for X11 apps
+
+**Status**: Crashes more frequently on AMD Azure VMs than helix-sway
+
+### Analysis
+
+The Mesa 24.3.4 source build in helix-ubuntu was intended to fix AMD compatibility, but it may actually be making things worse. Possible reasons:
+
+1. **GNOME compositor effects** - Mutter uses more advanced GPU features than Sway
+2. **Xwayland layer** - GNOME runs X11 apps through Xwayland, adding another abstraction
+3. **Mesa 24.3.4 may have RADV bugs** - Newer Mesa 25.0.7 may have fixes
+4. **LLVM version mismatch** - Mesa 24.3.4 built against LLVM 15 (Ubuntu 22.04), while kernel has AMD PRO drivers
+5. **Missing AMD-specific optimizations** - Source build may lack AMD PRO-specific patches
+
+### AMD-Provided Mesa Option
+
+AMD provides pre-built Mesa packages via `amdgpu-install` with the `--usecase=graphics` option:
+
+```bash
+# Download amdgpu-install for Ubuntu 22.04 (jammy)
+wget https://repo.radeon.com/amdgpu-install/7.1.1/ubuntu/jammy/amdgpu-install_7.1.1.70101-1_all.deb
+apt install ./amdgpu-install_7.1.1.70101-1_all.deb
+
+# Install graphics stack (Mesa + libdrm from AMD repos)
+amdgpu-install --usecase=graphics --no-dkms
+```
+
+**What `--usecase=graphics` installs:**
+- Open source Mesa 3D graphics and multimedia libraries (AMD-built)
+- AMD-built libdrm
+- Vulkan drivers (RADV, optimized for AMD hardware)
+
+**Source:** [AMD Linux Drivers](https://www.amd.com/en/support/download/linux-drivers.html)
+
+### Potential Fix Options
+
+**Option 1: Upgrade Mesa Source Build to 25.0.7 ✅ IMPLEMENTED**
+
+Match helix-sway's Mesa version, which works on AMD:
+
+Changes made to `Dockerfile.ubuntu-helix`:
+- Mesa: 24.3.4 → 25.0.7
+- LLVM: 15 (Ubuntu default) → 18 (from apt.llvm.org)
+
+Pros:
+- Matches helix-sway (which works on AMD)
+- Maintains Intel + AMD + software rendering support
+- No vendor-specific packages
+
+Cons:
+- Still source build (slow, ~10-15 min)
+
+**Option 2: Use AMD-Provided Mesa (AMD-ONLY deployments)**
+
+Replace the source build with AMD's pre-built packages:
+
+```dockerfile
+# In Dockerfile.ubuntu-helix, replace Mesa source build with:
+RUN wget https://repo.radeon.com/amdgpu-install/7.1.1/ubuntu/jammy/amdgpu-install_7.1.1.70101-1_all.deb && \
+    apt install -y ./amdgpu-install_7.1.1.70101-1_all.deb && \
+    amdgpu-install --usecase=graphics --no-dkms -y && \
+    rm amdgpu-install_7.1.1.70101-1_all.deb
+```
+
+Pros:
+- AMD tests these packages against their drivers
+- Version 7.1.1 matches host ROCm 7.1.0
+- No manual Mesa build maintenance
+
+Cons:
+- **BREAKS Intel GPU support** - AMD packages only include AMD drivers
+- **BREAKS software rendering fallback** - May not include llvmpipe
+- Only viable for AMD-only deployments
+- Would need separate Dockerfile for Intel deployments
+
+**Option 3: Switch to Ubuntu 25.04 base image**
+
+Use the same base as helix-sway to get Mesa 25.0.7 pre-built:
+
+Pros:
+- Same Mesa/libdrm as helix-sway (which works)
+- No source build needed
+- Maintains all GPU vendor support
+
+Cons:
+- Ubuntu 25.04 is not LTS (shorter support cycle)
+- May need to update GNOME packages
+
+**Option 4: Disable GNOME compositor effects**
+
+Reduce GPU load from Mutter:
+- Use "GNOME on Xorg" session instead of Wayland
+- Or disable animations/effects in GNOME settings
+- Set `MUTTER_DEBUG_DISABLE_HW_CURSORS=1`
+
+Pros:
+- Quick to test
+- No rebuild required
+
+Cons:
+- Doesn't fix root cause
+- Degrades user experience
+
+### Additional: Fix ROCm SMI Version ✅ IMPLEMENTED
+
+Updated in `Dockerfile.sandbox`:
+- ROCm SMI version: 6.2 → 7.1 (matches host)
+- Added `amd-smi-lib` for modern AMD SMI command
+
+## Current Dockerfile Analysis (Dockerfile.sandbox)
+
+### Existing ROCm SMI Installation (Line 132-142)
+```dockerfile
+# ROCm SMI for AMD GPU monitoring (used by Wolf's GPU stats endpoint)
+RUN wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/6.2 noble main" > /etc/apt/sources.list.d/rocm.list \
+    && apt-get install -y --no-install-recommends rocm-smi-lib
+```
+
+**Problem**: Uses ROCm 6.2, but host has ROCm **7.1.0**
+
+### Base Image
+- `ghcr.io/games-on-whales/gstreamer:1.26.7`
+- Contains: Mesa 25.0.7, libdrm 2.4.124-2 (Ubuntu 25.04)
+- **Problem**: Mesa is newer than what host kernel supports
+
+### NVIDIA vs AMD Container Toolkit
+- **NVIDIA Container Toolkit**: Installed (lines 172-181)
+  - Automatically injects matching driver libraries into container
+  - Handles version matching seamlessly
+- **AMD Container Toolkit**: Not installed
+  - No automatic driver injection
+  - Must manually manage Mesa/libdrm versions
+
+## Version Mismatch Summary
+
+| Component | Host (RHEL 9.4) | helix-sandbox | helix-sway (inner) | Match? |
+|-----------|-----------------|---------------|-------------------|--------|
+| Kernel | 5.14.0 | N/A | N/A | - |
+| AMDGPU driver | PRO 6.16.6 | N/A | N/A | - |
+| libdrm | 2.4.125.70100 (PRO) | 2.4.124-2 | 2.4.124-2 | **NO** |
+| Mesa | N/A | 25.0.7 | 25.0.7 | - |
+| ROCm | 7.1.0 | 6.2 | N/A | **NO** |
+| Vulkan API | - | 1.4.304.0 | 1.4.304.0 | - |
+
+## Complexity: Three-Layer Architecture
+
+```
+Host (RHEL 9.4) ─┬─ Kernel 5.14.0 + AMDGPU PRO 6.16.6
+                 │
+                 └─► helix-sandbox (Ubuntu 25.04) ─┬─ Wolf + DinD
+                                                    │  Mesa 25.0.7 (MISMATCH)
+                                                    │  ROCm SMI 6.2 (MISMATCH)
+                                                    │
+                                                    └─► helix-sway (inner container)
+                                                        Zed + Sway
+                                                        Mesa 25.0.7 (MISMATCH)
+                                                        RADV Vulkan driver
+```
+
+The Zed crash occurs in the innermost container (helix-sway), but the driver mismatch
+exists at all container levels.
+
+## Environment Details
+
+### Azure VM
+- Instance: NVv4-series (Azure with AMD Radeon Pro V710 MxGPU)
+- OS: RHEL 9.4
+- GPU: AMD Radeon Pro V710 MxGPU (vGPU, device ID 0x1002:0x7461)
+- Kernel: 5.14.0-427.61.1.el9_4.x86_64
+- ROCm: 7.1.0
+
+### Container Images
+- helix-sandbox: `registry.helixml.tech/helix/helix-sandbox:2.5.37-rc6`
+- helix-sway: `helix-sway:73fd7b`
+- Base image: `ghcr.io/games-on-whales/gstreamer:1.26.7`
+
+## References
+
+- [Mesa RADV driver](https://docs.mesa3d.org/drivers/radv.html)
+- [AMD PRO drivers for Linux](https://www.amd.com/en/support/linux-drivers)
+- [Zed Linux GPU troubleshooting](https://zed.dev/docs/linux#graphics-issues)
+- [Azure NV-series VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/nv-series)

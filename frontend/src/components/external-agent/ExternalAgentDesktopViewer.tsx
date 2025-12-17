@@ -4,6 +4,7 @@ import PlayArrow from '@mui/icons-material/PlayArrow';
 
 import MoonlightStreamViewer from './MoonlightStreamViewer';
 import ScreenshotViewer from './ScreenshotViewer';
+import SandboxDropZone from './SandboxDropZone';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 
@@ -311,63 +312,65 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
   return (
-    <Box sx={{
-      flex: 1,
-      minHeight: 0,
-      width: '100%',
-      overflow: 'hidden',
-      position: 'relative',
-    }}>
-      <MoonlightStreamViewer
-        sessionId={sessionId}
-        wolfLobbyId={wolfLobbyId}
-        width={displayWidth}
-        height={displayHeight}
-        fps={displayFps}
-        onError={(error) => {
-          console.error('Stream viewer error:', error);
-        }}
-        onClientIdCalculated={onClientIdCalculated}
-      />
-
-      {/* Reconnecting overlay - shown when state changes but stream stays mounted */}
-      {showReconnectingOverlay && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 2,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            zIndex: 100,
+    <SandboxDropZone sessionId={sessionId} disabled={!isRunning}>
+      <Box sx={{
+        flex: 1,
+        minHeight: 0,
+        width: '100%',
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
+        <MoonlightStreamViewer
+          sessionId={sessionId}
+          wolfLobbyId={wolfLobbyId}
+          width={displayWidth}
+          height={displayHeight}
+          fps={displayFps}
+          onError={(error) => {
+            console.error('Stream viewer error:', error);
           }}
-        >
-          <CircularProgress size={40} sx={{ color: 'warning.main' }} />
-          <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
-            {isPaused ? 'Desktop Paused' : 'Reconnecting...'}
-          </Typography>
-          {isPaused && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
-              onClick={handleResume}
-              disabled={isResuming}
-              sx={{ mt: 1 }}
-            >
-              {isResuming ? 'Starting...' : 'Restart Desktop'}
-            </Button>
-          )}
-        </Box>
-      )}
-    </Box>
+          onClientIdCalculated={onClientIdCalculated}
+        />
+
+        {/* Reconnecting overlay - shown when state changes but stream stays mounted */}
+        {showReconnectingOverlay && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 2,
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              zIndex: 100,
+            }}
+          >
+            <CircularProgress size={40} sx={{ color: 'warning.main' }} />
+            <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+              {isPaused ? 'Desktop Paused' : 'Reconnecting...'}
+            </Typography>
+            {isPaused && (
+              <Button
+                variant="contained"
+                color="primary"
+                size="large"
+                startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+                onClick={handleResume}
+                disabled={isResuming}
+                sx={{ mt: 1 }}
+              >
+                {isResuming ? 'Starting...' : 'Restart Desktop'}
+              </Button>
+            )}
+          </Box>
+        )}
+      </Box>
+    </SandboxDropZone>
   );
 };
 

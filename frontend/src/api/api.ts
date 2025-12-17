@@ -3566,6 +3566,15 @@ export interface TypesSSHKeyResponse {
   public_key?: string;
 }
 
+export interface TypesSandboxFileUploadResponse {
+  /** Original filename */
+  filename?: string;
+  /** Full path: /home/retro/work/incoming/filename */
+  path?: string;
+  /** File size in bytes */
+  size?: number;
+}
+
 export interface TypesSchedulingDecision {
   available_runners?: string[];
   created?: string;
@@ -6445,6 +6454,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: clipboard,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsUploadCreate
+     * @summary Upload file to sandbox
+     * @request POST:/api/v1/external-agents/{sessionID}/upload
+     * @secure
+     */
+    v1ExternalAgentsUploadCreate: (
+      sessionId: string,
+      data: {
+        /** File to upload */
+        file: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/upload`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
         ...params,
       }),
 

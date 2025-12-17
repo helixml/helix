@@ -65,7 +65,13 @@ ENV LC_ALL=en_US.UTF-8
 # This adds ~10-15 min to build time but ensures compatibility with modern
 # AMD datacenter GPUs that have newer kernel drivers than Mesa 23.2 expects.
 ARG LIBDRM_VERSION=2.4.124
-ARG MESA_VERSION=24.3.4
+ARG MESA_VERSION=25.0.7
+
+# Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x needs newer LLVM)
+RUN apt-get update && apt-get install -y wget gnupg software-properties-common \
+    && wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
+    && add-apt-repository -y "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -81,10 +87,10 @@ RUN apt-get update && apt-get install -y \
     libxfixes-dev libxxf86vm-dev libxrandr-dev \
     libwayland-dev libwayland-egl-backend-dev wayland-protocols \
     libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
-    llvm-15-dev libclang-15-dev libclang-cpp15-dev clang-15 \
+    # LLVM 18 from apt.llvm.org (Mesa 25.x requires newer LLVM than Ubuntu 22.04's LLVM 15)
+    llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
     libvulkan-dev glslang-dev glslang-tools spirv-tools \
-    libva-dev libvdpau-dev libglvnd-dev libclc-15-dev libclc-15 \
-    llvm-spirv-15 libllvmspirvlib-15-dev \
+    libva-dev libvdpau-dev libglvnd-dev \
     # Runtime dependencies
     libvulkan1 vulkan-tools mesa-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -113,11 +119,11 @@ RUN cd /tmp && \
     ldconfig && \
     cd / && rm -rf /tmp/libdrm*
 
-# Build Mesa 24.3.4 with drivers for AMD, Intel, and software rendering
+# Build Mesa 25.0.7 with drivers for AMD and software rendering
 # - AMD: radeonsi (OpenGL), amd/RADV (Vulkan)
-# - Intel: iris (OpenGL Gen8+), crocus (OpenGL Gen4-7), intel/ANV (Vulkan), intel_hasvk (Vulkan Haswell)
 # - Software: llvmpipe, softpipe (fallback)
-# - Zink: OpenGL-on-Vulkan layer
+# NOTE: Intel drivers (iris, crocus, ANV) require spirv-llvm-translator-18 which
+# is not available in apt.llvm.org for Ubuntu 22.04. Use Ubuntu 25.04 base for Intel.
 # NVIDIA uses proprietary drivers mounted at runtime, not Mesa
 RUN cd /tmp && \
     curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
@@ -128,8 +134,8 @@ RUN cd /tmp && \
         --libdir=/usr/lib/x86_64-linux-gnu \
         --buildtype=release \
         -Dplatforms=x11,wayland \
-        -Dgallium-drivers=radeonsi,iris,crocus,llvmpipe,softpipe,zink \
-        -Dvulkan-drivers=amd,intel,intel_hasvk \
+        -Dgallium-drivers=radeonsi,llvmpipe,softpipe \
+        -Dvulkan-drivers=amd \
         -Dglx=dri \
         -Degl=enabled \
         -Dgbm=enabled \
