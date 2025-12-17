@@ -182,3 +182,29 @@ export function useAdminResetPassword() {
         },
     });
 }
+
+/**
+ * Hook to delete a user (Admin only)
+ * @returns React Query mutation for deleting a user
+ *
+ * @example
+ * const deleteUser = useAdminDeleteUser();
+ *
+ * deleteUser.mutate('user-123');
+ */
+export function useAdminDeleteUser() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (userId: string) => {
+            const response = await apiClient.v1AdminUsersDelete(userId);
+            return response.data;
+        },
+        onSuccess: () => {
+            // Invalidate users list to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
