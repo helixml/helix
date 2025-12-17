@@ -125,12 +125,7 @@ const GitRepoDetail: FC = () => {
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
   // List branches for branch switcher
-  // Only fetch after repository is loaded to prevent race condition where
-  // concurrent requests both try to clone external repo at the same time
-  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(
-    repoId || '',
-    { enabled: !isLoading && !!repository }
-  )
+  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(repoId || '')
 
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId && !!currentOrg)
