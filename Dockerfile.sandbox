@@ -129,16 +129,18 @@ RUN apt-get update -y && \
     binutils \
     && rm -rf /var/lib/apt/lists/*
 
-# ROCm SMI for AMD GPU monitoring (used by Wolf's GPU stats endpoint)
-# Install from ROCm repo for AMD GPU support
+# ROCm SMI + AMD SMI for AMD GPU monitoring (used by Wolf's GPU stats endpoint)
+# Install from ROCm 7.1 repo to match host driver version (was 6.2, host has 7.1.0)
+# - rocm-smi-lib: Legacy ROCm SMI library (rocm-smi command)
+# - amd-smi-lib: Modern AMD SMI library (amd-smi command, more features)
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     wget gnupg \
     && mkdir -p /etc/apt/keyrings \
     && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/6.2 noble main" > /etc/apt/sources.list.d/rocm.list \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 noble main" > /etc/apt/sources.list.d/rocm.list \
     && apt-get update -y \
-    && apt-get install -y --no-install-recommends rocm-smi-lib \
+    && apt-get install -y --no-install-recommends rocm-smi-lib amd-smi-lib \
     && rm -rf /var/lib/apt/lists/*
 
 # gst-plugin-wayland runtime dependencies (from wolf.Dockerfile lines 147-151)

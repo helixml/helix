@@ -49,3 +49,10 @@ type AgentRunnersResponse struct {
 	Page     int            `json:"page"`
 	PageSize int            `json:"page_size"`
 }
+
+// SandboxFileUploadResponse is returned when a file is uploaded to a sandbox
+type SandboxFileUploadResponse struct {
+	Path     string `json:"path"`     // Full path: /home/retro/work/incoming/filename
+	Size     int64  `json:"size"`     // File size in bytes
+	Filename string `json:"filename"` // Original filename
+}
