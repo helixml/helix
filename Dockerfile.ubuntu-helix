@@ -217,7 +217,8 @@ RUN cd /tmp && \
 # Set RADV debug options for crash analysis
 # hang: Dump command stream and shaders on GPU hang/timeout
 # This is CRITICAL for debugging the illegal opcode crashes
-ENV RADV_DEBUG=hang
+# TEST: Disabled to test if restoring wait_for_gpu() in Zed fixes crashes without syncshaders
+# ENV RADV_DEBUG=hang
 
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
