@@ -1,118 +1,105 @@
-# Helix Sway Desktop User Guide
+# Helix Sway Desktop - Quick Start
 
-This guide explains how to use the Sway tiling window manager in Helix Desktop sessions.
+This desktop uses Sway, a tiling window manager. All keyboard shortcuts
+use the Alt key as the modifier (not Super/Cmd, which browsers capture).
 
-## Keyboard Modifier Key: Alt
 
-Helix configures Sway to use **Alt** as the modifier key (not Super/Cmd).
+## COMMON TASKS
 
-This is because Super/Cmd is captured by your OS:
-- macOS: Cmd+Shift+2/3 = screenshots
-- Windows: Win key opens Start menu
-- Browsers: Often capture these keys for their own shortcuts
+### Switch to a different workspace
 
-**Alt passes through browser streaming reliably.**
+  Keyboard:  Alt + 2        (or Alt + 1, Alt + 3, Alt + 4)
+  Mouse:     Click the workspace number in the top bar
 
-## Using the Waybar (Top Panel)
 
-The waybar at the top provides clickable controls:
+### Move the current window to another workspace
 
-**Left side:**
-- **Workspace numbers** - Click to switch between workspaces (1, 2, 3...)
-- **🦊** - Launch Firefox
-- **🐱** - Launch Kitty terminal
-- **🇺🇸 🇬🇧 🇫🇷** - Switch keyboard layout
+  Keyboard:  Alt + Shift + 2   (moves window to workspace 2)
+  Mouse:     Not available - use keyboard
 
-**Right side:**
-- System stats (CPU, memory, etc.)
-- Clock
 
-### Using Workspaces
+### Open a terminal
 
-Workspaces let you organize windows. By default, Zed opens on workspace 1.
+  Keyboard:  Alt + Enter
+  Mouse:     Click the cat icon in the top bar
 
-**To create and switch workspaces:**
 
-1. Open a terminal by clicking 🐱 in waybar
-2. Use these commands:
+### Close a window
 
-```bash
-# Switch to workspace 2
-swaymsg workspace 2
+  Keyboard:  Alt + Shift + q
 
-# Move the focused window to workspace 2
-swaymsg move container to workspace 2
 
-# Switch back to workspace 1
-swaymsg workspace 1
-```
+### Toggle fullscreen
 
-**Workflow example - Zed on workspace 1, terminals on workspace 2:**
+  Keyboard:  Alt + f
 
-```bash
-# 1. Open terminal (click 🐱)
-# 2. Move this terminal to workspace 2:
-swaymsg move container to workspace 2
 
-# 3. The terminal is now on workspace 2
-# 4. Click "1" in waybar to go back to Zed
-# 5. Click "2" in waybar when you need your terminal
-```
+### Move focus between windows
 
-### Opening Applications
+  Keyboard:  Alt + Arrow keys
+             Alt + h/j/k/l (vim-style)
 
-Click the icons in waybar, or from a terminal:
 
-```bash
-kitty          # Terminal
-firefox        # Browser
-zed            # Already running
-```
+### Move/resize windows
 
-### Window Layout Commands
+  Keyboard:  Alt + Shift + Arrow keys (move window)
+  Mouse:     Hold Alt + drag with left mouse (move)
+             Hold Alt + drag with right mouse (resize)
 
-Sway is a tiling window manager - windows automatically tile to fill the screen.
 
-```bash
-# Split next window horizontally (side by side)
-swaymsg splith
+## THE TOP BAR (WAYBAR)
 
-# Split next window vertically (stacked)
-swaymsg splitv
+Left side:
+  - Workspace numbers (1, 2, 3, 4) - click to switch
+  - Fox icon - launch Firefox
+  - Cat icon - launch terminal
+  - Flag icons - switch keyboard layout (US/UK/French)
 
-# Toggle fullscreen for focused window
-swaymsg fullscreen toggle
+Right side:
+  - System stats and clock
 
-# Close focused window
-swaymsg kill
-```
 
-## Keyboard Shortcuts
+## TYPICAL WORKFLOW
 
-All shortcuts use **Alt** as the modifier key.
+1. Zed opens on workspace 1
 
-| Shortcut | Action |
-|----------|--------|
-| `Alt + 1/2/3...` | Switch to workspace |
-| `Alt + Shift + 1/2/3...` | Move window to workspace |
-| `Alt + Enter` | Open terminal |
-| `Alt + d` | App launcher (dmenu) |
-| `Alt + Shift + q` | Close window |
-| `Alt + f` | Toggle fullscreen |
-| `Alt + Arrow keys` | Move focus between windows |
-| `Alt + Shift + Arrow keys` | Move window |
-| `Alt + h/j/k/l` | Move focus (vim-style) |
-| `Alt + Shift + h/j/k/l` | Move window (vim-style) |
+2. To put terminals on workspace 2:
+   - Press Alt + Enter to open a terminal
+   - Press Alt + Shift + 2 to move it to workspace 2
+   - Press Alt + 1 to go back to Zed
 
-## Quick Reference Card
+3. Switch between workspaces:
+   - Alt + 1 for Zed
+   - Alt + 2 for terminals
+   - Or click the numbers in the top bar
 
-| Task | Keyboard | Mouse/Terminal |
-|------|----------|----------------|
-| Open terminal | `Alt + Enter` | Click 🐱 in waybar |
-| Switch to workspace 2 | `Alt + 2` | Click "2" in waybar |
-| Move window to workspace 2 | `Alt + Shift + 2` | `swaymsg move container to workspace 2` |
-| Close window | `Alt + Shift + q` | `swaymsg kill` |
-| Fullscreen | `Alt + f` | `swaymsg fullscreen toggle` |
-| Open Firefox | `Alt + Shift + f` | Click 🦊 in waybar |
-| Change keyboard layout | - | Click flag icon (🇺🇸 🇬🇧 🇫🇷) |
-| App launcher | `Alt + d` | - |
+
+## ALL KEYBOARD SHORTCUTS
+
+Workspaces:
+  Alt + 1/2/3/4         Switch to workspace
+  Alt + Shift + 1/2/3/4 Move window to workspace
+
+Windows:
+  Alt + Enter           Open terminal
+  Alt + Shift + q       Close window
+  Alt + f               Toggle fullscreen
+  Alt + Arrow keys      Move focus
+  Alt + Shift + Arrows  Move window
+  Alt + h/j/k/l         Move focus (vim-style)
+  Alt + Shift + h/j/k/l Move window (vim-style)
+
+Apps:
+  Alt + d               App launcher
+  Alt + Shift + f       Open Firefox
+  Alt + Shift + Return  Open terminal (alternative)
+
+
+## WHY ALT INSTEAD OF SUPER/CMD?
+
+When streaming through a browser, Super/Cmd keys are captured by your OS:
+  - macOS: Cmd+Shift+3 takes a screenshot
+  - Windows: Win key opens Start menu
+  - Browsers: Have their own shortcuts
+
+Alt passes through reliably to the remote desktop.
