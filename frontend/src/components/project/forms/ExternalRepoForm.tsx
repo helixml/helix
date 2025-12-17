@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useCallback } from 'react'
 import {
   TextField,
   Stack,
@@ -31,6 +31,34 @@ interface ExternalRepoFormProps {
 }
 
 /**
+ * Parse an Azure DevOps URL to extract organization URL and repository name.
+ * Supports formats:
+ * - https://dev.azure.com/{org}/{project}/_git/{repo}
+ * - https://{org}.visualstudio.com/{project}/_git/{repo}
+ */
+function parseAdoUrl(url: string): { orgUrl: string; repoName: string } | null {
+  // Try dev.azure.com format: https://dev.azure.com/{org}/{project}/_git/{repo}
+  const devAzureMatch = url.match(/^(https:\/\/dev\.azure\.com\/[^/]+)\/[^/]+\/_git\/([^/]+)/i)
+  if (devAzureMatch) {
+    return {
+      orgUrl: devAzureMatch[1],
+      repoName: devAzureMatch[2],
+    }
+  }
+
+  // Try visualstudio.com format: https://{org}.visualstudio.com/{project}/_git/{repo}
+  const vsMatch = url.match(/^(https:\/\/[^.]+\.visualstudio\.com)\/[^/]+\/_git\/([^/]+)/i)
+  if (vsMatch) {
+    return {
+      orgUrl: vsMatch[1],
+      repoName: vsMatch[2],
+    }
+  }
+
+  return null
+}
+
+/**
  * Reusable form fields for linking an external repository.
  * Used by both LinkExternalRepositoryDialog and CreateProjectDialog.
  */
@@ -51,6 +79,25 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
   onTokenChange,
   size = 'small',
 }) => {
+  // Handle URL change with auto-fill for ADO repos
+  const handleUrlChange = useCallback((newUrl: string) => {
+    onUrlChange(newUrl)
+
+    // Auto-fill org URL and display name for ADO repos
+    if (type === TypesExternalRepositoryType.ExternalRepositoryTypeADO) {
+      const parsed = parseAdoUrl(newUrl)
+      if (parsed) {
+        // Only auto-fill if the fields are empty (don't overwrite user input)
+        if (!organizationUrl && onOrganizationUrlChange) {
+          onOrganizationUrlChange(parsed.orgUrl)
+        }
+        if (!name) {
+          onNameChange(parsed.repoName)
+        }
+      }
+    }
+  }, [type, organizationUrl, name, onUrlChange, onOrganizationUrlChange, onNameChange])
+
   return (
     <Stack spacing={2}>
       <FormControl fullWidth size={size}>
@@ -72,7 +119,7 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
         fullWidth
         size={size}
         value={url}
-        onChange={(e) => onUrlChange(e.target.value)}
+        onChange={(e) => handleUrlChange(e.target.value)}
         placeholder={
           type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
             ? "https://dev.azure.com/organization/project/_git/repository"
@@ -80,7 +127,7 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
         }
         helperText={
           type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
-            ? "Full URL to your Azure DevOps repository"
+            ? "Paste the full URL - organization and name will be auto-filled"
             : undefined
         }
         required
