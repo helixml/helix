@@ -1,7 +1,7 @@
 # Zed GPU Crash on AMD VM - Version Mismatch Analysis
 
 **Date:** 2025-12-17
-**Status:** Investigation in progress
+**Status:** Fix implemented - Mesa 25.0.7 build with AMD-only drivers
 **Severity:** Critical - Crashes GPU, requires GPU reset
 
 ## Summary
@@ -367,21 +367,34 @@ amdgpu-install --usecase=graphics --no-dkms
 
 ### Potential Fix Options
 
-**Option 1: Upgrade Mesa Source Build to 25.0.7 ✅ IMPLEMENTED**
+**Option 1: Upgrade Mesa Source Build to 25.0.7 (AMD-Only) ✅ IMPLEMENTED**
 
-Match helix-sway's Mesa version, which works on AMD:
+Build Mesa 25.0.7 from source with AMD + software rendering drivers.
 
 Changes made to `Dockerfile.ubuntu-helix`:
 - Mesa: 24.3.4 → 25.0.7
 - LLVM: 15 (Ubuntu default) → 18 (from apt.llvm.org)
+- Gallium drivers: `radeonsi,llvmpipe,softpipe` (AMD + software rendering)
+- Vulkan drivers: `amd` only
+
+**Why Intel was removed:**
+Intel OpenGL (iris, crocus) and Vulkan (ANV) drivers in Mesa 25.x require
+`spirv-llvm-translator-18` which provides `LLVMSPIRVLib`. This package is NOT
+available in apt.llvm.org for Ubuntu 22.04 - only in a third-party PPA or Ubuntu 24.04+.
+
+Changes made to `Dockerfile.sandbox`:
+- ROCm SMI: 6.2 → 7.1 (matches host ROCm 7.1.0)
+- Added `amd-smi-lib` package for modern AMD SMI command
 
 Pros:
-- Matches helix-sway (which works on AMD)
-- Maintains Intel + AMD + software rendering support
-- No vendor-specific packages
+- Matches helix-sway Mesa version (which works on AMD)
+- Software rendering (llvmpipe) still works as fallback
+- ROCm version matches host
 
 Cons:
-- Still source build (slow, ~10-15 min)
+- **No Intel GPU support** - requires Ubuntu 24.04+ or third-party PPA
+- Source build (slow, ~10 min)
+- NVIDIA uses proprietary drivers anyway (mounted at runtime)
 
 **Option 2: Use AMD-Provided Mesa (AMD-ONLY deployments)**
 
