@@ -937,7 +937,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 
 	// Log audit event for spec generated
 	if s.auditLogService != nil {
-		s.auditLogService.LogSpecGenerated(ctx, task, task.PlanningSessionID, task.CreatedBy, "")
+		s.auditLogService.LogSpecGenerated(ctx, task, task.CreatedBy, "")
 	}
 
 	// Send notification to user for spec review
@@ -1156,6 +1156,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			log.Warn().
 				Str("task_id", task.ID).
 				Msg("No message sender configured - agent will not receive revision instruction")
+		}
+
+		// Log audit event for review comment (revision request)
+		if s.auditLogService != nil && req.Comments != "" {
+			// reviewID=planningSessionID, commentID=empty (revision not a specific comment), commentText, userID, userEmail
+			s.auditLogService.LogReviewComment(ctx, task, task.PlanningSessionID, "", req.Comments, req.ApprovedBy, "")
 		}
 	}
 

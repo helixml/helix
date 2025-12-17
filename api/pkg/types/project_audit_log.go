@@ -30,10 +30,19 @@ const (
 	AuditEventPRCreated AuditEventType = "pr_created" // Pull request created
 	AuditEventPRMerged  AuditEventType = "pr_merged"  // Pull request merged
 	AuditEventGitPush   AuditEventType = "git_push"   // Git push detected
+
+	// Project lifecycle events
+	AuditEventProjectCreated           AuditEventType = "project_created"            // Project was created
+	AuditEventProjectDeleted           AuditEventType = "project_deleted"            // Project was deleted
+	AuditEventProjectSettingsUpdated   AuditEventType = "project_settings_updated"   // Project settings were modified
+	AuditEventProjectGuidelinesUpdated AuditEventType = "project_guidelines_updated" // Project guidelines were modified
 )
 
 // AuditMetadata contains additional context for audit log entries
 type AuditMetadata struct {
+	// Project information
+	ProjectName string `json:"project_name,omitempty"`
+
 	// Task information
 	TaskNumber int    `json:"task_number,omitempty"`
 	TaskName   string `json:"task_name,omitempty"`

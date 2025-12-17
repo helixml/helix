@@ -271,6 +271,11 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		Str("project_name", created.Name).
 		Msg("project created successfully")
 
+	// Log audit event for project creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogProjectCreated(r.Context(), created, user.ID, user.Email)
+	}
+
 	return created, nil
 }
 
@@ -409,6 +414,52 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		Str("project_id", projectID).
 		Msg("project updated successfully")
 
+	// Log audit events for project updates
+	if s.auditLogService != nil {
+		// Track which fields were changed for audit log
+		var changedFields []string
+		if req.Name != nil {
+			changedFields = append(changedFields, "name")
+		}
+		if req.Description != nil {
+			changedFields = append(changedFields, "description")
+		}
+		if req.GitHubRepoURL != nil {
+			changedFields = append(changedFields, "github_repo_url")
+		}
+		if req.DefaultBranch != nil {
+			changedFields = append(changedFields, "default_branch")
+		}
+		if req.Technologies != nil {
+			changedFields = append(changedFields, "technologies")
+		}
+		if req.Status != nil {
+			changedFields = append(changedFields, "status")
+		}
+		if req.DefaultRepoID != nil {
+			changedFields = append(changedFields, "default_repo_id")
+		}
+		if req.AutoStartBacklogTasks != nil {
+			changedFields = append(changedFields, "auto_start_backlog_tasks")
+		}
+		if req.DefaultHelixAppID != nil {
+			changedFields = append(changedFields, "default_helix_app_id")
+		}
+		if req.Metadata != nil {
+			changedFields = append(changedFields, "metadata")
+		}
+
+		// Log guidelines update separately (it's versioned and more significant)
+		if req.Guidelines != nil {
+			s.auditLogService.LogProjectGuidelinesUpdated(r.Context(), project, user.ID, user.Email)
+		}
+
+		// Log general settings update if any non-guidelines fields changed
+		if len(changedFields) > 0 {
+			s.auditLogService.LogProjectSettingsUpdated(r.Context(), project, changedFields, user.ID, user.Email)
+		}
+	}
+
 	return project, nil
 }
 
@@ -498,6 +549,11 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
 		Msg("project archived successfully with all sessions stopped")
+
+	// Log audit event for project deletion
+	if s.auditLogService != nil {
+		s.auditLogService.LogProjectDeleted(r.Context(), project, user.ID, user.Email)
+	}
 
 	return map[string]string{"message": "project deleted successfully"}, nil
 }
