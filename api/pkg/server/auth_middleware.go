@@ -31,9 +31,9 @@ var (
 )
 
 type authMiddlewareConfig struct {
-	adminUserIDs []string
-	adminUserSrc config.AdminSrcType
-	runnerToken  string
+	// adminUsers can be "all" for dev mode (everyone is admin), otherwise empty
+	adminUsers  string
+	runnerToken string
 }
 
 type authMiddleware struct {
@@ -82,50 +82,29 @@ func (a *account) Type() accountType {
 	return accountTypeInvalid
 }
 
-func (auth *authMiddleware) isAdmin(acct account) bool {
-	if acct.Type() == accountTypeInvalid {
-		return false
-	}
-
-	switch auth.cfg.adminUserSrc {
-	case config.AdminSrcTypeEnv:
-		if acct.Type() == accountTypeUser {
-			return auth.isUserAdmin(acct.userID)
-		}
-		return auth.isUserAdmin(acct.token.userID)
-	case config.AdminSrcTypeJWT:
-		if acct.Type() != accountTypeToken {
-			return false
-		}
-		return auth.isTokenAdmin(acct.token.jwt)
-	}
-	return false
-}
-
-func (auth *authMiddleware) isUserAdmin(userID string) bool {
+// isAdminWithContext checks admin status.
+// If ADMIN_USERS=all, everyone is admin (dev mode).
+// Otherwise, fetches the admin status from the database user record.
+func (auth *authMiddleware) isAdminWithContext(ctx context.Context, userID string) bool {
 	if userID == "" {
 		return false
 	}
 
-	for _, adminID := range auth.cfg.adminUserIDs {
-		// development mode everyone is an admin
-		if adminID == types.AdminAllUsers {
-			return true
-		}
-		if adminID == userID {
-			return true
-		}
+	// Dev mode: everyone is admin
+	if auth.cfg.adminUsers == config.AdminAllUsers {
+		return true
 	}
-	return false
-}
 
-func (auth *authMiddleware) isTokenAdmin(token *jwt.Token) bool {
-	if token == nil {
+	// Production: fetch admin status from database
+	dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("failed to get user from db for admin check")
 		return false
 	}
-	mc := token.Claims.(jwt.MapClaims)
-	isAdmin := mc["admin"].(bool)
-	return isAdmin
+	if dbUser == nil {
+		return false
+	}
+	return dbUser.Admin
 }
 
 func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) (*types.User, error) {
@@ -167,7 +146,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.TokenType = types.TokenTypeAPIKey
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
-		user.Admin = auth.isAdmin(account{userID: user.ID})
+		user.Admin = auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}

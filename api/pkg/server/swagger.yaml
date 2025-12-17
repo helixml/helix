@@ -8066,20 +8066,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -8712,6 +8712,42 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/users/{id}:
+    delete:
+      description: Permanently delete a user and all associated data. Only admins
+        can use this endpoint.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Not authorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a user (Admin only)
+      tags:
+      - users
   /api/v1/admin/users/{id}/password:
     put:
       consumes:

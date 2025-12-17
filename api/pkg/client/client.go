@@ -96,6 +96,7 @@ type Client interface {
 	GetCurrentUser(ctx context.Context) (*types.User, error)
 	UpdateOwnPassword(ctx context.Context, newPassword string) error
 	AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error)
+	AdminDeleteUser(ctx context.Context, userID string) error
 }
 
 type SessionFilter struct {
@@ -289,14 +290,36 @@ func (c *HelixClient) ListUsers(ctx context.Context, f *UserFilter) (*types.Pagi
 	return &response, nil
 }
 
-// GetCurrentUser returns the currently authenticated user
-func (c *HelixClient) GetCurrentUser(ctx context.Context) (*types.User, error) {
-	var response types.User
+// GetCurrentUserStatus returns the status of the currently authenticated user
+// Note: This returns limited info (user ID, admin flag, slug). Use GetCurrentUser for full details.
+func (c *HelixClient) GetCurrentUserStatus(ctx context.Context) (*types.UserStatus, error) {
+	var response types.UserStatus
 	err := c.makeRequest(ctx, http.MethodGet, "/status", nil, &response)
 	if err != nil {
 		return nil, err
 	}
 	return &response, nil
+}
+
+// GetUser returns full user details by ID
+func (c *HelixClient) GetUser(ctx context.Context, userID string) (*types.User, error) {
+	var response types.User
+	err := c.makeRequest(ctx, http.MethodGet, "/users/"+userID, nil, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetCurrentUser returns the full details of the currently authenticated user
+func (c *HelixClient) GetCurrentUser(ctx context.Context) (*types.User, error) {
+	// First get the user ID from status
+	status, err := c.GetCurrentUserStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Then fetch full user details
+	return c.GetUser(ctx, status.User)
 }
 
 // UpdateOwnPassword updates the password for the currently authenticated user
@@ -324,4 +347,9 @@ func (c *HelixClient) AdminResetPassword(ctx context.Context, userID string, new
 		return nil, err
 	}
 	return &response, nil
+}
+
+// AdminDeleteUser deletes a user by ID (admin only)
+func (c *HelixClient) AdminDeleteUser(ctx context.Context, userID string) error {
+	return c.makeRequest(ctx, http.MethodDelete, "/admin/users/"+userID, nil, nil)
 }
