@@ -1023,25 +1023,18 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         onClick={() => onTaskClick?.(task)}
       >
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              {/* Task header */}
+              {/* Task header - show description (name is derived from it) */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                  {task.name}
+                  {(task.description || task.name || '').length > 100
+                    ? `${(task.description || task.name || '').substring(0, 100)}...`
+                    : (task.description || task.name || 'Unnamed task')
+                  }
                 </Typography>
                 <IconButton size="small" onClick={(e) => e.stopPropagation()}>
                   <MoreIcon fontSize="small" />
                 </IconButton>
               </Box>
-
-              {/* Task description (hide if same as name) */}
-              {task.description && task.description !== task.name && (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  {task.description.length > 100
-                    ? `${task.description.substring(0, 100)}...`
-                    : task.description
-                  }
-                </Typography>
-              )}
 
               {/* Status chips */}
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>

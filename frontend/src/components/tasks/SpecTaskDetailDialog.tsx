@@ -755,8 +755,8 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle1">
-                {displayTask.name}
+              <Typography variant="subtitle1" noWrap sx={{ maxWidth: 400 }}>
+                {displayTask.description || displayTask.name || 'Unnamed task'}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
                 <Chip
@@ -988,48 +988,26 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               <Divider sx={{ mb: 3 }} />
 
-              {/* Task Name - Editable */}
+              {/* Description - always show (name is derived from description) */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Name
+                  Description
                 </Typography>
                 {isEditMode ? (
                   <TextField
                     fullWidth
-                    size="small"
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Task name"
+                    multiline
+                    rows={4}
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Task description"
                   />
                 ) : (
-                  <Typography variant="body1">
-                    {displayTask.name || 'Unnamed task'}
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {displayTask.description || displayTask.original_prompt || 'No description provided'}
                   </Typography>
                 )}
               </Box>
-
-              {/* Full Description/Prompt - Editable (hide if same as name) */}
-              {(isEditMode || (displayTask.description && displayTask.description !== displayTask.name)) && (
-                <Box sx={{ mb: 3 }}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Description
-                  </Typography>
-                  {isEditMode ? (
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={4}
-                      value={editFormData.description}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="Task description"
-                    />
-                  ) : (
-                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {displayTask.description || displayTask.original_prompt || 'No description provided'}
-                    </Typography>
-                  )}
-                </Box>
-              )}
 
               {/* Context (from metadata) */}
               {displayTask.metadata?.context && (
