@@ -765,22 +765,55 @@ AMD deprecated the proprietary Vulkan driver starting with version 7.x:
 - From 7.x onward, only open-source RADV is available
 - Source: [AUR maintainer notes](https://aur.archlinux.org/packages/vulkan-amdgpu-pro)
 
-### Test Plan
+### Scientific Test Methodology
 
-1. **First: Try 7.0.1** (Azure-recommended)
-   - Uses RADV from AMD repos
-   - Matches Azure's official recommendation
-   - May have MxGPU-specific patches
+**CRITICAL: Avoid confounding variables**
 
-2. **If 7.0.1 crashes: Try 6.4.4 with vulkan-amdgpu-pro**
-   - Uses proprietary Vulkan driver
-   - Different shader compiler (not ACO)
-   - Designed for workstation/enterprise GPUs
+We observed GPU crashes and VA-API streaming failures, but we made multiple changes
+without isolating variables. After 10+ GPU resets, the GPU may be in a bad state
+that persists until reboot.
+
+**Confounding factors we must account for:**
+
+1. **GPU state**: After multiple resets, the GPU may be wedged/unstable
+2. **Driver version**: We changed from 7.1.1 → 7.0.1 without testing 7.1.1 post-reboot
+3. **Multiple layers**: Sandbox (Wolf/VA-API) vs Desktop (Vulkan) use different drivers
+
+**If a reboot fixes streaming, we DON'T know:**
+- Whether 7.1.1 would have worked after reboot (never tested)
+- Whether 7.0.1 is actually better, or just benefited from clean GPU state
+- Whether the crashes were driver bugs or transient GPU corruption
+
+### Test Matrix
+
+| Test | Driver Version | GPU State | Expected Outcome | Actual Outcome |
+|------|---------------|-----------|------------------|----------------|
+| 1 | 7.1.1 (current deployed) | After reboot | Baseline | TODO |
+| 2 | 7.0.1 (Azure recommended) | After reboot | Compare to baseline | TODO |
+| 3 | 6.4.4 + vulkan-amdgpu-pro | After reboot | Compare to baseline | TODO |
+
+**Proper test procedure:**
+
+1. **Reboot VM** to clear GPU state
+2. **Test current deployed version** (7.1.1) - establish baseline
+3. **If crashes**: Note exactly what action triggered it (e.g., "follow agent" button)
+4. **Reboot again** before testing next driver version
+5. **Deploy 7.0.1** and repeat same test actions
+6. **Document results** with timestamps and dmesg excerpts
+
+**What to record for each test:**
+- Driver version in helix-ubuntu container
+- Time of test start
+- Exact actions performed
+- Whether streaming worked
+- Whether Zed rendered correctly
+- Any dmesg errors (with timestamps)
+- Number of GPU resets before crash (if any)
 
 ### Build Commands
 
 ```bash
-# Option 1: Azure-recommended 7.0.1 (default)
+# Option 1: Azure-recommended 7.0.1 (default in current branch)
 ./stack build-ubuntu
 
 # Option 2: Proprietary driver 6.4.4
@@ -790,6 +823,20 @@ AMD deprecated the proprietary Vulkan driver starting with version 7.x:
 # - Install vulkan-amdgpu-pro instead of mesa-vulkan-drivers
 ./stack build-ubuntu
 ```
+
+### Observations Log
+
+| Timestamp | Driver | Action | Result | GPU Resets | Notes |
+|-----------|--------|--------|--------|------------|-------|
+| 2025-12-17 ~03:38 UTC | 7.1.1 | Click "follow agent" | GPU crash | reset(4) | First observed crash |
+| 2025-12-17 ~05:04 UTC | 7.1.1 (AMD repos) | Click "follow agent" | GPU crash | Illegal opcode | MES failures appeared |
+| 2025-12-17 ~06:00 UTC | 7.1.1 | Fresh session | VA-API fail + crashes | reset(7-10) | GPU in bad state |
+
+**Next steps:**
+1. Reboot VM
+2. Test with currently deployed 7.1.1 (don't change anything)
+3. If crashes, reboot and test 7.0.1
+4. Document each test properly
 
 ## References
 
