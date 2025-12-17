@@ -417,6 +417,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		projectRepos = nil
 	}
 
+	// Sync base branch from upstream for external repos BEFORE starting work
+	// This ensures we have the latest code from the external repository
+	if err := s.gitRepositoryService.SyncBaseBranchForTask(ctx, task, projectRepos); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to sync base branch from upstream")
+		s.markTaskFailed(ctx, task, err.Error())
+		return
+	}
+
 	// Build list of all repository IDs to clone from project
 	repositoryIDs := []string{}
 	for _, repo := range projectRepos {
@@ -739,6 +747,14 @@ Follow these guidelines when making changes:
 		projectRepos = nil
 	}
 
+	// Sync base branch from upstream for external repos BEFORE starting work
+	// This ensures we have the latest code from the external repository
+	if err := s.gitRepositoryService.SyncBaseBranchForTask(ctx, task, projectRepos); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to sync base branch from upstream")
+		s.markTaskFailed(ctx, task, err.Error())
+		return
+	}
+
 	// Determine primary repository from project configuration
 	primaryRepoID := project.DefaultRepoID
 	if primaryRepoID == "" && len(projectRepos) > 0 {
@@ -1026,12 +1042,17 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		if repo.ExternalURL != "" {
-			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("ApproveSpecs: pulling from remote")
+			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("ApproveSpecs: syncing base branch from remote")
 
-			err = s.gitRepositoryService.PullFromRemote(ctx, repo.ID, repo.DefaultBranch, false)
+			// Use SyncBaseBranch which handles divergence detection
+			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, repo.DefaultBranch)
 			if err != nil {
-				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("Failed to pull from remote")
-				return fmt.Errorf("failed to update base branch from external repository '%s', error: %w", repo.ExternalURL, err)
+				// Check for divergence error and format a user-friendly message
+				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
+					return fmt.Errorf(FormatDivergenceErrorForUser(divergeErr, repo.Name))
+				}
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
 			}
 		}
 
