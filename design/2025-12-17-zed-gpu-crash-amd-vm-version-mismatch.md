@@ -710,15 +710,86 @@ Pipeline failed to reach PLAYING state
 - Context creation fails when GStreamer tries to connect to compositor's video output
 - This may be a separate issue from Zed GPU crashes
 
-### New dmesg Errors
+### dmesg Errors (Latest)
 
-User reported additional dmesg errors appearing. Investigation ongoing.
+Full crash log from AMD VM shows multiple processes crashing:
 
-**TODO:**
-- Capture full dmesg output from AMD VM
-- Check if VA-API works inside desktop container
-- Verify DRI device permissions and access
-- Check if interpipesrc/interpipesink connection is the issue
+```
+amdgpu 0002:00:00.0: [gfxhub] page fault from gnome-shell pid 2961969 at address 0x0000000000000000
+amdgpu 0002:00:00.0: GPU reset(7) succeeded!
+
+amdgpu 0002:00:00.0: ring gfx_0.0.0 timeout from Xwayland pid 2960107
+amdgpu 0002:00:00.0: MES failed to respond to msg=MISC (WRITE_REG)
+amdgpu 0002:00:00.0: failed to write reg (0xe17)
+amdgpu 0002:00:00.0: GPU reset(8) succeeded!
+
+amdgpu 0002:00:00.0: [gfxhub] page fault from zed pid 2965424 at address 0x0000000000000000
+amdgpu 0002:00:00.0: [gfxhub] page fault from zed at address 0x0000800100301000
+amdgpu 0002:00:00.0: GPU reset(9) succeeded!
+amdgpu 0002:00:00.0: GPU reset(10) succeeded!
+```
+
+**Key findings:**
+1. **gnome-shell, Xwayland, AND Zed** are all crashing the GPU
+2. **4 GPU resets** in one log snippet
+3. **MES (Micro Engine Scheduler) failures** - new error pattern
+4. **NULL pointer page faults** (address 0x0) continue
+
+The MES failures ("MES failed to respond to msg=MISC (WRITE_REG)") are related to
+AMD's GPU scheduler for GFX11/RDNA3 architecture. This affects the entire GPU,
+not just a single application.
+
+## Update: Azure-Recommended Driver Version (2025-12-17)
+
+### Azure Documentation Findings
+
+According to [Microsoft Azure documentation](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide):
+
+- **Recommended version: 7.0.1** for NVv5 VMs with Radeon Pro V710
+- **Alternative version: 6.1.4** also documented
+- **Critical**: "The default driver isn't certified for use with the AMD Radeon PRO V710 GPU"
+
+### AMD Repository Version Analysis
+
+| Version | RADV (Mesa) | vulkan-amdgpu-pro | Notes |
+|---------|-------------|-------------------|-------|
+| 7.1.1 | Yes | No | Latest, crashes on MxGPU |
+| 7.0.1 | Yes | No | Azure recommended |
+| 6.4.4 | Yes | **Yes** | LAST with PRO driver |
+| 6.3.x | Yes | Yes | Older, may lack GFX11 support |
+
+### vulkan-amdgpu-pro Deprecation
+
+AMD deprecated the proprietary Vulkan driver starting with version 7.x:
+- Version 6.4.4 is the **last version** with `vulkan-amdgpu-pro`
+- From 7.x onward, only open-source RADV is available
+- Source: [AUR maintainer notes](https://aur.archlinux.org/packages/vulkan-amdgpu-pro)
+
+### Test Plan
+
+1. **First: Try 7.0.1** (Azure-recommended)
+   - Uses RADV from AMD repos
+   - Matches Azure's official recommendation
+   - May have MxGPU-specific patches
+
+2. **If 7.0.1 crashes: Try 6.4.4 with vulkan-amdgpu-pro**
+   - Uses proprietary Vulkan driver
+   - Different shader compiler (not ACO)
+   - Designed for workstation/enterprise GPUs
+
+### Build Commands
+
+```bash
+# Option 1: Azure-recommended 7.0.1 (default)
+./stack build-ubuntu
+
+# Option 2: Proprietary driver 6.4.4
+# Modify Dockerfile.ubuntu-helix:
+# - Change ARG AMDGPU_VERSION=7.0.1 to ARG AMDGPU_VERSION=6.4.4
+# - Add 'proprietary' to repo line
+# - Install vulkan-amdgpu-pro instead of mesa-vulkan-drivers
+./stack build-ubuntu
+```
 
 ## References
 
