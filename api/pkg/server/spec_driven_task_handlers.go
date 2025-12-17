@@ -708,6 +708,15 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	}
 	log.Info().Str("task_id", taskID).Bool("archived", req.Archived).Msgf("SpecTask %s", action)
 
+	// Log audit event for archive/unarchive
+	if s.auditLogService != nil {
+		if req.Archived {
+			s.auditLogService.LogTaskArchived(r.Context(), task, user.ID, user.Email)
+		} else {
+			s.auditLogService.LogTaskUnarchived(r.Context(), task, user.ID, user.Email)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }

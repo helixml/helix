@@ -94,6 +94,40 @@ func (s *AuditLogService) LogTaskCloned(ctx context.Context, newTask *types.Spec
 	})
 }
 
+// LogTaskArchived logs a task archive event
+func (s *AuditLogService) LogTaskArchived(ctx context.Context, task *types.SpecTask, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID:  task.ProjectID,
+		SpecTaskID: task.ID,
+		UserID:     userID,
+		UserEmail:  userEmail,
+		EventType:  types.AuditEventTaskArchived,
+		PromptText: "Archived task: " + task.Name,
+		Metadata: types.AuditMetadata{
+			TaskNumber: task.TaskNumber,
+			TaskName:   task.Name,
+			BranchName: task.BranchName,
+		},
+	})
+}
+
+// LogTaskUnarchived logs a task unarchive event
+func (s *AuditLogService) LogTaskUnarchived(ctx context.Context, task *types.SpecTask, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID:  task.ProjectID,
+		SpecTaskID: task.ID,
+		UserID:     userID,
+		UserEmail:  userEmail,
+		EventType:  types.AuditEventTaskUnarchived,
+		PromptText: "Unarchived task: " + task.Name,
+		Metadata: types.AuditMetadata{
+			TaskNumber: task.TaskNumber,
+			TaskName:   task.Name,
+			BranchName: task.BranchName,
+		},
+	})
+}
+
 // LogAgentPrompt logs a prompt sent from Helix UI to the agent
 func (s *AuditLogService) LogAgentPrompt(ctx context.Context, task *types.SpecTask, prompt, sessionID, interactionID, userID, userEmail string) {
 	metadata := s.buildTaskMetadata(task)
