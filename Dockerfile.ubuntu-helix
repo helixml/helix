@@ -83,13 +83,15 @@ RUN apt-get update && apt-get install -y \
     libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
     llvm-15-dev libclang-15-dev libclang-cpp15-dev clang-15 \
     libvulkan-dev glslang-dev glslang-tools spirv-tools \
-    libva-dev libvdpau-dev \
+    libva-dev libvdpau-dev libglvnd-dev libclc-15-dev libclc-15 \
+    llvm-spirv-15 libllvmspirvlib-15-dev \
     # Runtime dependencies
     libvulkan1 vulkan-tools mesa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install newer meson via pip (Mesa 24.x requires meson >= 1.1.0, Ubuntu 22.04 has 0.61)
-RUN pip3 install meson>=1.1.0
+# Also install ply for Intel Vulkan GRL kernels
+RUN pip3 install "meson>=1.1.0" ply
 
 # Build libdrm 2.4.124 (required for Mesa 24.x with RDNA 3)
 # Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
@@ -137,7 +139,9 @@ RUN cd /tmp && \
         -Dvalgrind=disabled \
         -Dlibunwind=disabled \
         -Dllvm=enabled \
-        -Dshared-llvm=enabled && \
+        -Dshared-llvm=enabled \
+        -Dgallium-opencl=disabled \
+        -Dgallium-rusticl=false && \
     ninja -C build -j$(nproc) && \
     ninja -C build install && \
     ldconfig && \
