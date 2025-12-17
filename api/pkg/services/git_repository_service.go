@@ -245,18 +245,17 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	// Register with Kodit if kodit_indexing is enabled
 	if s.koditService != nil && request.KoditIndexing {
 		// Determine the clone URL for Kodit
-		// For external repos: use ExternalURL
-		// For local repos: use CloneURL with embedded API key auth
-		koditCloneURL := gitRepo.ExternalURL
-		if !isExternal {
-			if request.KoditAPIKey == "" {
-				log.Warn().
-					Str("repo_id", repoID).
-					Msg("Cannot register local repository with Kodit without API key - user must authenticate with API key")
-			} else {
-				// Build authenticated URL: http://api:APIKEY@host/git/repo_id
-				koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
-			}
+		// ALL repos (both external and local) should use Helix's git server URL with API key auth
+		// External repos are mirrored to Helix, and Kodit can't authenticate to ADO/GitHub/etc
+		var koditCloneURL string
+		if request.KoditAPIKey == "" {
+			log.Warn().
+				Str("repo_id", repoID).
+				Bool("is_external", isExternal).
+				Msg("Cannot register repository with Kodit without API key - user must authenticate with API key")
+		} else {
+			// Build authenticated URL: http://api:APIKEY@host/git/repo_id
+			koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, request.KoditAPIKey)
 		}
 
 		// Only register if we have a valid URL
@@ -565,15 +564,12 @@ func (s *GitRepositoryService) UpdateRepository(
 	// Register with Kodit if indexing was just enabled
 	if shouldRegisterKodit {
 		// Determine the clone URL for Kodit
-		// For external repos: use ExternalURL
-		// For local repos: use CloneURL with embedded API key auth
-		koditCloneURL := existing.ExternalURL
-		if !existing.IsExternal {
-			if koditAPIKey == "" {
-				return nil, fmt.Errorf("cannot register local repository with Kodit without API key")
-			}
-			koditCloneURL = s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
+		// ALL repos (both external and local) should use Helix's git server URL with API key auth
+		// External repos are mirrored to Helix, and Kodit can't authenticate to ADO/GitHub/etc
+		if koditAPIKey == "" {
+			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
 		}
+		koditCloneURL := s.BuildAuthenticatedCloneURL(repoID, koditAPIKey)
 
 		koditResp, err := s.koditService.RegisterRepository(ctx, koditCloneURL)
 		if err != nil {

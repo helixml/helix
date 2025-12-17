@@ -34,14 +34,18 @@ interface ExternalRepoFormProps {
  * Parse an Azure DevOps URL to extract organization URL and repository name.
  * Supports formats:
  * - https://dev.azure.com/{org}/{project}/_git/{repo}
+ * - https://{username}@dev.azure.com/{org}/{project}/_git/{repo}
  * - https://{org}.visualstudio.com/{project}/_git/{repo}
  */
 function parseAdoUrl(url: string): { orgUrl: string; repoName: string } | null {
-  // Try dev.azure.com format: https://dev.azure.com/{org}/{project}/_git/{repo}
-  const devAzureMatch = url.match(/^(https:\/\/dev\.azure\.com\/[^/]+)\/[^/]+\/_git\/([^/]+)/i)
+  // Try dev.azure.com format with optional username@ prefix:
+  // https://dev.azure.com/{org}/{project}/_git/{repo}
+  // https://{username}@dev.azure.com/{org}/{project}/_git/{repo}
+  const devAzureMatch = url.match(/^https:\/\/(?:[^@]+@)?dev\.azure\.com\/([^/]+)\/[^/]+\/_git\/([^/]+)/i)
   if (devAzureMatch) {
     return {
-      orgUrl: devAzureMatch[1],
+      // Build org URL without username prefix
+      orgUrl: `https://dev.azure.com/${devAzureMatch[1]}`,
       repoName: devAzureMatch[2],
     }
   }

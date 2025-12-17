@@ -93,15 +93,17 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
     return ''
   }
 
+  // Priority 1: Use repo's configured default branch
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  // Priority 2: Common defaults if no configured default
   if (branches.includes('main')) {
     return 'main'
   }
   if (branches.includes('master')) {
     return 'master'
-  }
-
-  if (defaultBranch && branches.includes(defaultBranch)) {
-    return defaultBranch
   }
 
   return branches[0] || ''
@@ -123,7 +125,12 @@ const GitRepoDetail: FC = () => {
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
   // List branches for branch switcher
-  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(repoId || '')
+  // Only fetch after repository is loaded to prevent race condition where
+  // concurrent requests both try to clone external repo at the same time
+  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(
+    repoId || '',
+    { enabled: !isLoading && !!repository }
+  )
 
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId && !!currentOrg)
