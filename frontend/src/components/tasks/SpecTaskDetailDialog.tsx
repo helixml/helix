@@ -42,6 +42,7 @@ import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import useApps from '../../hooks/useApps'
 import { useStreaming } from '../../contexts/streaming'
 import { useQueryClient } from '@tanstack/react-query'
@@ -373,7 +374,28 @@ I'll give you feedback and we can iterate on any changes needed.`
     if (!task.id) return
 
     try {
-      await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id)
+      // Include keyboard layout from browser locale detection (or ?keyboard= override)
+      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const queryParams = new URLSearchParams();
+      if (keyboardLayout) queryParams.set('keyboard', keyboardLayout);
+      if (timezone) queryParams.set('timezone', timezone);
+      const queryString = queryParams.toString();
+      const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ''}`;
+
+      // Log keyboard layout being sent to API
+      console.log(`%c[Start Planning] Keyboard: ${keyboardLayout}${isOverridden ? ' (from URL override)' : ' (from browser)'}`, 'color: #2196F3; font-weight: bold;');
+      console.log(`[Start Planning] API URL: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `Failed to start planning: ${response.statusText}`);
+      }
+
       snackbar.success('Planning started! Agent session will begin shortly.')
       // Switch to Active Session tab once it starts
       setCurrentTab(0)

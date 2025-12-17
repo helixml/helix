@@ -161,10 +161,11 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 			bgCtx := context.Background()
 
 			// Start spec generation using the spec-driven task service
+			// Auto-start from clone doesn't have browser context, so pass empty options
 			if newTask.JustDoItMode {
-				s.specDrivenTaskService.StartJustDoItMode(bgCtx, newTask)
+				s.specDrivenTaskService.StartJustDoItMode(bgCtx, newTask, types.StartPlanningOptions{})
 			} else {
-				s.specDrivenTaskService.StartSpecGeneration(bgCtx, newTask)
+				s.specDrivenTaskService.StartSpecGeneration(bgCtx, newTask, types.StartPlanningOptions{})
 			}
 
 			log.Info().Str("task_id", newTask.ID).Msg("Auto-started cloned task")
