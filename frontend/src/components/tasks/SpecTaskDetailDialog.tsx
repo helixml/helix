@@ -36,6 +36,7 @@ import Send from '@mui/icons-material/Send'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import LaunchIcon from '@mui/icons-material/Launch'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -982,6 +983,16 @@ I'll give you feedback and we can iterate on any changes needed.`
                     }}
                   >
                     Review Spec
+                  </Button>
+                )}
+                {displayTask.pull_request_url && (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<LaunchIcon />}
+                    onClick={() => window.open(displayTask.pull_request_url, '_blank')}
+                  >
+                    View Pull Request
                   </Button>
                 )}
               </Box>
