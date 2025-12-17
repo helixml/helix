@@ -35,11 +35,14 @@ import {
   Explore as ExploreIcon,
   Stop as StopIcon,
   SmartToy as SmartToyIcon,
+  ViewKanban as KanbanIcon,
+  History as AuditIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
+import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../types';
@@ -131,6 +134,7 @@ const SpecTasksPage: FC = () => {
   }, [projectId, router.params.new, account]);
 
   // State for view management
+  const [viewMode, setViewMode] = useState<'kanban' | 'audit'>('kanban');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -622,6 +626,36 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
+          {/* View mode toggle: Kanban vs Audit Trail */}
+          <Stack direction="row" spacing={0.5} sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}>
+            <Tooltip title="Kanban View">
+              <IconButton
+                size="small"
+                onClick={() => setViewMode('kanban')}
+                sx={{
+                  bgcolor: viewMode === 'kanban' ? 'background.paper' : 'transparent',
+                  boxShadow: viewMode === 'kanban' ? 1 : 0,
+                  '&:hover': { bgcolor: viewMode === 'kanban' ? 'background.paper' : 'action.selected' },
+                }}
+              >
+                <KanbanIcon fontSize="small" color={viewMode === 'kanban' ? 'primary' : 'inherit'} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Audit Trail">
+              <IconButton
+                size="small"
+                onClick={() => setViewMode('audit')}
+                sx={{
+                  bgcolor: viewMode === 'audit' ? 'background.paper' : 'transparent',
+                  boxShadow: viewMode === 'audit' ? 1 : 0,
+                  '&:hover': { bgcolor: viewMode === 'audit' ? 'background.paper' : 'action.selected' },
+                }}
+              >
+                <AuditIcon fontSize="small" color={viewMode === 'audit' ? 'primary' : 'inherit'} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+
           {/* Project's default agent lozenge */}
           {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
             <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
@@ -754,29 +788,45 @@ const SpecTasksPage: FC = () => {
             </Alert>
           )}
 
-          {/* Kanban Board */}
+          {/* Main Content: Kanban Board or Audit Trail */}
           <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-            <SpecTaskKanbanBoard
-              userId={account.user?.id}
-              projectId={projectId}
-              onCreateTask={() => setCreateDialogOpen(true)}
-              onTaskClick={(task) => {
-                // Add to array of open windows if not already open
-                setOpenTaskWindows(prev => {
-                  const alreadyOpen = prev.some(t => t.id === task.id);
-                  if (alreadyOpen) return prev;
-                  return [...prev, task];
-                });
-              }}
-              onRefresh={() => {
-                setRefreshing(true);
-                setTimeout(() => setRefreshing(false), 2000);
-              }}
-              refreshing={refreshing}
-              refreshTrigger={refreshTrigger}
-              focusTaskId={focusTaskId}
-              hasExternalRepo={hasExternalRepo}
-            />
+            {viewMode === 'kanban' ? (
+              <SpecTaskKanbanBoard
+                userId={account.user?.id}
+                projectId={projectId}
+                onCreateTask={() => setCreateDialogOpen(true)}
+                onTaskClick={(task) => {
+                  // Add to array of open windows if not already open
+                  setOpenTaskWindows(prev => {
+                    const alreadyOpen = prev.some(t => t.id === task.id);
+                    if (alreadyOpen) return prev;
+                    return [...prev, task];
+                  });
+                }}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  setTimeout(() => setRefreshing(false), 2000);
+                }}
+                refreshing={refreshing}
+                refreshTrigger={refreshTrigger}
+                focusTaskId={focusTaskId}
+                hasExternalRepo={hasExternalRepo}
+              />
+            ) : (
+              <ProjectAuditTrail
+                projectId={projectId || ''}
+                onTaskClick={(taskId) => {
+                  // Fetch task and open in dialog
+                  // For now, we just need the ID to add a placeholder
+                  setOpenTaskWindows(prev => {
+                    const alreadyOpen = prev.some(t => t.id === taskId);
+                    if (alreadyOpen) return prev;
+                    // Create minimal task object for dialog
+                    return [...prev, { id: taskId } as TypesSpecTask];
+                  });
+                }}
+              />
+            )}
           </Box>
         </Box>
 

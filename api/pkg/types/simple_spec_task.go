@@ -30,9 +30,10 @@ type CreateTaskRequest struct {
 	Type          string           `json:"type"`
 	Priority      SpecTaskPriority `json:"priority"`
 	UserID        string           `json:"user_id"`
-	AppID         string           `json:"app_id"`          // Optional: Helix agent to use for spec generation
-	JustDoItMode  bool             `json:"just_do_it_mode"` // Optional: Skip spec planning, go straight to implementation
-	UseHostDocker bool             `json:"use_host_docker"` // Optional: Use host Docker socket (requires privileged sandbox)
+	UserEmail     string           `json:"user_email,omitempty"` // Optional: User email for audit trail
+	AppID         string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
+	JustDoItMode  bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
+	UseHostDocker bool             `json:"use_host_docker"`      // Optional: Use host Docker socket (requires privileged sandbox)
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
@@ -185,6 +186,7 @@ type SpecTaskFilters struct {
 	IncludeArchived bool           `json:"include_archived,omitempty"` // If true, include both archived and non-archived
 	ArchivedOnly    bool           `json:"archived_only,omitempty"`    // If true, show only archived tasks
 	DesignDocPath   string         `json:"design_doc_path,omitempty"`  // Filter by exact DesignDocPath (for git push detection)
+	BranchName      string         `json:"branch_name,omitempty"`      // Filter by exact BranchName (for uniqueness check)
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask

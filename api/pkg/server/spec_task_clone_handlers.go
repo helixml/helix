@@ -74,7 +74,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 
 	// Clone to existing projects
 	for _, projectID := range req.TargetProjectIDs {
-		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: projectID,
@@ -101,7 +101,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Clone to the new project
-		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: project.ID,
@@ -120,7 +120,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // cloneTaskToProject creates a copy of a task in the target project
-func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID string, autoStart bool) (*types.CloneTaskResult, error) {
+func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart bool) (*types.CloneTaskResult, error) {
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                 system.GenerateSpecTaskID(),
@@ -146,6 +146,11 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 
 	if err := s.Store.CreateSpecTask(ctx, newTask); err != nil {
 		return nil, fmt.Errorf("failed to create cloned task: %w", err)
+	}
+
+	// Log audit event for task cloning
+	if s.auditLogService != nil {
+		s.auditLogService.LogTaskCloned(ctx, newTask, userID, userEmail)
 	}
 
 	result := &types.CloneTaskResult{

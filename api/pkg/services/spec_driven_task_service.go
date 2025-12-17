@@ -47,6 +47,7 @@ type SpecDrivenTaskService struct {
 	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService       // Service for inter-session coordination
+	auditLogService          *AuditLogService             // Service for audit logging
 	wg                       sync.WaitGroup
 }
 
@@ -70,6 +71,7 @@ func NewSpecDrivenTaskService(
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
 		testMode:               false,
+		auditLogService:        NewAuditLogService(store),
 	}
 
 	// Initialize Zed integration service
@@ -191,6 +193,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
+	// Log audit event for task creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
+	}
+
 	// DO NOT auto-start spec generation
 	// Tasks should start in backlog and wait for explicit user action to start planning
 	// This allows WIP limits to be enforced on the planning column
@@ -272,7 +279,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
-		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		// Generate unique design doc path (checks for collisions across all projects)
+		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
+			designDocPath = GenerateDesignDocPath(task, taskNumber)
+		}
+		task.DesignDocPath = designDocPath
 		log.Info().
 			Str("task_id", task.ID).
 			Int("task_number", taskNumber).
@@ -580,7 +593,13 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
-		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		// Generate unique design doc path (checks for collisions across all projects)
+		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
+			designDocPath = GenerateDesignDocPath(task, taskNumber)
+		}
+		task.DesignDocPath = designDocPath
 		log.Info().
 			Str("task_id", task.ID).
 			Int("task_number", taskNumber).
@@ -604,8 +623,13 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 			Str("branch_name", branchName).
 			Msg("Continuing work on existing branch")
 	} else {
-		// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
-		branchName = GenerateFeatureBranchName(task)
+		// New mode: generate unique feature branch name (checks for collisions across all projects)
+		var err error
+		branchName, err = GenerateUniqueBranchName(ctx, s.store, task)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique branch name, using fallback")
+			branchName = GenerateFeatureBranchName(task)
+		}
 
 		// Set base branch if not already set (defaults to repo default, handled in agent prompt)
 		if task.BaseBranch == "" && project != nil && project.DefaultRepoID != "" {
@@ -992,8 +1016,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 				Str("branch_name", branchName).
 				Msg("[ApproveSpecs] Continuing work on existing branch")
 		} else {
-			// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
-			branchName = GenerateFeatureBranchName(task)
+			// New mode: generate unique feature branch name (checks for collisions across all projects)
+			var err error
+			branchName, err = GenerateUniqueBranchName(ctx, s.store, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique branch name, using fallback")
+				branchName = GenerateFeatureBranchName(task)
+			}
 
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
