@@ -56,102 +56,66 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # ====================================================================
-# Build libdrm + Mesa from source for AMD RDNA 3 (gfx1101) support
+# Install AMD PRO Graphics Userspace (amdgpu-install)
 # ====================================================================
-# Ubuntu 22.04's default Mesa 23.2 + libdrm 2.4.113 causes GPU crashes on
-# AMD Radeon Pro V710 MxGPU (gfx1101/RDNA 3) with ROCm 6.16+ kernel driver.
-# The Mesa PPAs have dropped 22.04 support, so we build from source.
+# CRITICAL: Upstream Mesa RADV generates illegal opcodes on AMD Radeon Pro V710 MxGPU
+# (Azure NVv5-series vGPU). The V710 is a virtualized GPU with restricted instruction set.
+# RADV doesn't know about MxGPU restrictions and emits unsupported GFX11 instructions.
 #
-# This adds ~10-15 min to build time but ensures compatibility with modern
-# AMD datacenter GPUs that have newer kernel drivers than Mesa 23.2 expects.
-ARG LIBDRM_VERSION=2.4.124
-ARG MESA_VERSION=25.0.7
+# Error: [drm:gfx_v11_0_bad_op_irq [amdgpu]] *ERROR* Illegal opcode in command stream
+#        [drm:gfx_v11_0_priv_reg_irq [amdgpu]] *ERROR* Illegal register access in command stream
+#
+# AMD's PRO userspace is designed for enterprise vGPU products (MxGPU/SR-IOV) and
+# knows which instructions/registers are available on virtualized GPUs.
+#
+# Version 7.0.1 is recommended by Azure documentation for V710:
+# https://learn.microsoft.com/en-us/azure/virtual-machines/linux/azure-n-series-amd-gpu-driver-linux-installation-guide
+#
+# NOTE: This installs ONLY userspace (--no-dkms). Kernel driver is on the host.
+# The --vulkan=pro flag uses AMD's tested Vulkan driver for enterprise GPUs.
+ARG AMDGPU_VERSION=7.0.1
 
-# Add LLVM 18 repository (Ubuntu 22.04 only has LLVM 15, Mesa 25.x needs newer LLVM)
-RUN apt-get update && apt-get install -y wget gnupg software-properties-common \
-    && wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
-    && add-apt-repository -y "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install build dependencies
 RUN apt-get update && apt-get install -y \
-    # Build tools (meson from apt is too old, will install via pip)
-    ninja-build cmake pkg-config python3 python3-pip python3-setuptools \
-    python3-mako flex bison \
-    # libdrm build dependencies
-    libpciaccess-dev \
-    # Mesa dependencies
-    libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
-    libxcb-sync-dev libxcb-xfixes0-dev libxcb-shm0-dev libxcb-randr0-dev \
-    libxcb-glx0-dev libxshmfence-dev libx11-xcb-dev libx11-dev libxext-dev \
-    libxfixes-dev libxxf86vm-dev libxrandr-dev \
-    libwayland-dev libwayland-egl-backend-dev wayland-protocols \
-    libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
-    # LLVM 18 from apt.llvm.org (Mesa 25.x requires newer LLVM than Ubuntu 22.04's LLVM 15)
-    llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
-    libvulkan-dev glslang-dev glslang-tools spirv-tools \
-    libva-dev libvdpau-dev libglvnd-dev \
-    # Runtime dependencies
+    wget gnupg software-properties-common \
+    # Runtime dependencies for graphics
     libvulkan1 vulkan-tools mesa-utils \
+    libxcb1 libxcb-dri2-0 libxcb-dri3-0 libxcb-present0 \
+    libxcb-sync1 libxcb-xfixes0 libxcb-shm0 libxcb-randr0 \
+    libxcb-glx0 libxshmfence1 libx11-xcb1 libx11-6 libxext6 \
+    libxfixes3 libxxf86vm1 libxrandr2 \
+    libwayland-client0 libwayland-egl1 \
+    libelf1 zlib1g libzstd1 libexpat1 \
+    libva2 libvdpau1 libglvnd0 libgl1 libegl1 libgles2 \
+    # Required for amdgpu-install
+    python3 python3-setuptools \
     && rm -rf /var/lib/apt/lists/*
 
-# Install newer meson via pip (Mesa 24.x requires meson >= 1.1.0, Ubuntu 22.04 has 0.61)
-# Also install ply for Intel Vulkan GRL kernels
-RUN pip3 install "meson>=1.1.0" ply
+# Download and install amdgpu-install package
+# This adds AMD's apt repository and provides the amdgpu-install command
+RUN wget -q https://repo.radeon.com/amdgpu-install/${AMDGPU_VERSION}/ubuntu/jammy/amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
+    && apt-get update \
+    && apt-get install -y ./amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
+    && rm amdgpu-install_${AMDGPU_VERSION}.70001-1_all.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Build libdrm 2.4.124 (required for Mesa 24.x with RDNA 3)
-# Enable AMD and Intel, disable nouveau (NVIDIA uses proprietary driver)
-RUN cd /tmp && \
-    curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
-    tar xf libdrm.tar.xz && \
-    cd libdrm-${LIBDRM_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Damdgpu=enabled \
-        -Dradeon=enabled \
-        -Dintel=enabled \
-        -Dnouveau=disabled \
-        -Dvmwgfx=disabled && \
-    ninja -C build -j$(nproc) && \
-    ninja -C build install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/libdrm*
+# Install AMD graphics userspace with PRO Vulkan driver
+# --usecase=graphics: Mesa 3D + OpenGL/Vulkan drivers (open source)
+# --vulkan=pro: Use AMD's PRO Vulkan driver (designed for enterprise/vGPU)
+# --no-dkms: Don't install kernel driver (it's on the host)
+# --no-32: Skip 32-bit libraries (not needed in container)
+# --accept-eula: Non-interactive installation
+RUN amdgpu-install -y \
+    --usecase=graphics \
+    --vulkan=pro \
+    --no-dkms \
+    --no-32 \
+    --accept-eula \
+    && rm -rf /var/lib/apt/lists/*
 
-# Build Mesa 25.0.7 with drivers for AMD and software rendering
-# - AMD: radeonsi (OpenGL), amd/RADV (Vulkan)
-# - Software: llvmpipe, softpipe (fallback)
-# NOTE: Intel drivers (iris, crocus, ANV) require spirv-llvm-translator-18 which
-# is not available in apt.llvm.org for Ubuntu 22.04. Use Ubuntu 25.04 base for Intel.
-# NVIDIA uses proprietary drivers mounted at runtime, not Mesa
-RUN cd /tmp && \
-    curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
-    tar xf mesa.tar.xz && \
-    cd mesa-${MESA_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Dplatforms=x11,wayland \
-        -Dgallium-drivers=radeonsi,llvmpipe,softpipe \
-        -Dvulkan-drivers=amd \
-        -Dglx=dri \
-        -Degl=enabled \
-        -Dgbm=enabled \
-        -Dglvnd=enabled \
-        -Dgles1=disabled \
-        -Dgles2=enabled \
-        -Dvalgrind=disabled \
-        -Dlibunwind=disabled \
-        -Dllvm=enabled \
-        -Dshared-llvm=enabled \
-        -Dgallium-opencl=disabled \
-        -Dgallium-rusticl=false && \
-    ninja -C build -j$(nproc) && \
-    ninja -C build install && \
-    ldconfig && \
-    cd / && rm -rf /tmp/mesa*
+# Verify installation
+RUN ldconfig && \
+    echo "AMD PRO Graphics Userspace installed:" && \
+    dpkg -l | grep -E 'amdgpu|vulkan|mesa' | head -20 || true
 
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
