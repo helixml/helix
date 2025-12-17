@@ -17,6 +17,14 @@ const TOUCH_AS_CLICK_MAX_TIME_MS = 300
 // How much to move to open up the screen keyboard when having three touches at the same time
 const TOUCHES_AS_KEYBOARD_DISTANCE = 100
 
+// Scroll axis snapping configuration
+// Minimum movement to establish axis lock (prevents accidental diagonal scrolling)
+const SCROLL_AXIS_LOCK_THRESHOLD = 3
+// Ratio of primary to secondary axis to maintain lock (e.g., 2.5:1 means primary must be 2.5x secondary)
+const SCROLL_AXIS_LOCK_RATIO = 2.5
+// Time in ms before axis lock resets (when user stops scrolling)
+const SCROLL_AXIS_LOCK_TIMEOUT_MS = 150
+
 const CONTROLLER_RUMBLE_INTERVAL_MS = 60
 
 function trySendChannel(channel: RTCDataChannel | null, buffer: ByteBuffer) {
@@ -79,6 +87,10 @@ export class StreamInput {
     private controllerInputs: Array<RTCDataChannel | null> = []
 
     private touchSupported: boolean | null = null
+
+    // Scroll axis snapping state
+    private scrollAxisLock: 'x' | 'y' | null = null
+    private scrollAxisLockTimeout: ReturnType<typeof setTimeout> | null = null
 
     constructor(config?: StreamInputConfig, peer?: RTCPeerConnection,) {
         if (peer) {
@@ -235,11 +247,55 @@ export class StreamInput {
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
 
+        // Reset axis lock timeout on each scroll event
+        if (this.scrollAxisLockTimeout) {
+            clearTimeout(this.scrollAxisLockTimeout);
+        }
+        this.scrollAxisLockTimeout = setTimeout(() => {
+            // Reset axis lock when user stops scrolling
+            this.scrollAxisLock = null;
+        }, SCROLL_AXIS_LOCK_TIMEOUT_MS);
+
+        // Apply axis snapping for trackpad (small, continuous movements)
+        // Mouse wheel events are typically large and discrete, so skip snapping for those
+        const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+        const isTrackpad = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && magnitude <= 30;
+
+        if (isTrackpad) {
+            const absX = Math.abs(deltaX);
+            const absY = Math.abs(deltaY);
+
+            // Establish axis lock if not already locked and movement is significant
+            if (this.scrollAxisLock === null && (absX > SCROLL_AXIS_LOCK_THRESHOLD || absY > SCROLL_AXIS_LOCK_THRESHOLD)) {
+                // Lock to whichever axis has more movement
+                this.scrollAxisLock = absY >= absX ? 'y' : 'x';
+            }
+
+            // Apply axis lock - zero out the non-dominant axis
+            // But allow switching if the other axis becomes strongly dominant
+            if (this.scrollAxisLock === 'y') {
+                if (absX > absY * SCROLL_AXIS_LOCK_RATIO && absX > SCROLL_AXIS_LOCK_THRESHOLD) {
+                    // User is now scrolling strongly horizontal - switch lock
+                    this.scrollAxisLock = 'x';
+                    deltaY = 0;
+                } else {
+                    deltaX = 0;
+                }
+            } else if (this.scrollAxisLock === 'x') {
+                if (absY > absX * SCROLL_AXIS_LOCK_RATIO && absY > SCROLL_AXIS_LOCK_THRESHOLD) {
+                    // User is now scrolling strongly vertical - switch lock
+                    this.scrollAxisLock = 'y';
+                    deltaX = 0;
+                } else {
+                    deltaY = 0;
+                }
+            }
+        }
+
         if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
             // Pixel mode - use adaptive scaling based on magnitude
             // Large values (>30) are likely mouse wheel notches - scale down aggressively
             // Small values are likely touchpad - minimal scaling to preserve sensitivity
-            const magnitude = Math.max(Math.abs(deltaX), Math.abs(deltaY));
             if (magnitude > 30) {
                 // Mouse wheel: scale down to prevent oversensitivity
                 // 100-150 → 10-15 for high-res mode
