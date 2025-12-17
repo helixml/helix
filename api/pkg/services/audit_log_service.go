@@ -30,7 +30,8 @@ func NewAuditLogService(store AuditLogStore) *AuditLogService {
 // LogEvent creates a new audit log entry
 // This method is fire-and-forget - errors are logged but not returned to avoid blocking main operations
 func (s *AuditLogService) LogEvent(ctx context.Context, entry *types.ProjectAuditLog) {
-	go s.logEventAsync(ctx, entry)
+	// Use background context since the HTTP request context may be canceled before the goroutine runs
+	go s.logEventAsync(context.Background(), entry)
 }
 
 // logEventAsync performs the actual logging asynchronously
@@ -231,6 +232,73 @@ func hashContent(content string) string {
 	}
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:8]) // First 8 bytes (16 hex chars) is enough for identification
+}
+
+// LogProjectCreated logs a project creation event
+func (s *AuditLogService) LogProjectCreated(ctx context.Context, project *types.Project, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID:  project.ID,
+		UserID:     userID,
+		UserEmail:  userEmail,
+		EventType:  types.AuditEventProjectCreated,
+		PromptText: "Created project: " + project.Name,
+		Metadata: types.AuditMetadata{
+			ProjectName: project.Name,
+		},
+	})
+}
+
+// LogProjectDeleted logs a project deletion event
+func (s *AuditLogService) LogProjectDeleted(ctx context.Context, project *types.Project, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID:  project.ID,
+		UserID:     userID,
+		UserEmail:  userEmail,
+		EventType:  types.AuditEventProjectDeleted,
+		PromptText: "Deleted project: " + project.Name,
+		Metadata: types.AuditMetadata{
+			ProjectName: project.Name,
+		},
+	})
+}
+
+// LogProjectSettingsUpdated logs a project settings update event
+func (s *AuditLogService) LogProjectSettingsUpdated(ctx context.Context, project *types.Project, changedFields []string, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID:  project.ID,
+		UserID:     userID,
+		UserEmail:  userEmail,
+		EventType:  types.AuditEventProjectSettingsUpdated,
+		PromptText: "Updated settings: " + joinStrings(changedFields),
+		Metadata: types.AuditMetadata{
+			ProjectName: project.Name,
+		},
+	})
+}
+
+// LogProjectGuidelinesUpdated logs a project guidelines update event
+func (s *AuditLogService) LogProjectGuidelinesUpdated(ctx context.Context, project *types.Project, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID: project.ID,
+		UserID:    userID,
+		UserEmail: userEmail,
+		EventType: types.AuditEventProjectGuidelinesUpdated,
+		Metadata: types.AuditMetadata{
+			ProjectName: project.Name,
+		},
+	})
+}
+
+// joinStrings joins strings with comma separator
+func joinStrings(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += ", " + strs[i]
+	}
+	return result
 }
 
 // ListAuditLogs retrieves audit logs with filtering
