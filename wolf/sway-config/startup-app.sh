@@ -148,6 +148,92 @@ custom_launcher() {
     mkdir -p $HOME/.config/waybar
     cp -u /cfg/waybar/* $HOME/.config/waybar/
 
+    # Create custom waybar CSS for better workspace visibility
+    cat > $HOME/.config/waybar/style.css << 'WAYBAR_CSS'
+/* Helix custom waybar styling */
+* {
+    font-family: "Ubuntu", "Font Awesome 6 Free", sans-serif;
+    font-size: 14px;
+}
+
+window#waybar {
+    background-color: rgba(30, 30, 40, 0.95);
+    color: #ffffff;
+}
+
+/* Workspace buttons - always visible, clickable */
+#workspaces button {
+    padding: 0 8px;
+    margin: 2px 2px;
+    background-color: #404050;
+    color: #888888;
+    border-radius: 4px;
+    border: 1px solid #555555;
+    min-width: 30px;
+}
+
+#workspaces button:hover {
+    background-color: #505060;
+    color: #ffffff;
+}
+
+#workspaces button.focused {
+    background-color: #7c3aed;
+    color: #ffffff;
+    border: 1px solid #a855f7;
+}
+
+#workspaces button.urgent {
+    background-color: #dc2626;
+    color: #ffffff;
+}
+
+/* Has windows indicator */
+#workspaces button.visible {
+    background-color: #505060;
+    color: #cccccc;
+}
+
+/* Separator between sections */
+#custom-separator, #custom-separator2 {
+    color: #555555;
+    padding: 0 4px;
+}
+
+/* App launcher icons */
+#custom-firefox, #custom-kitty, #custom-onlyoffice {
+    padding: 0 8px;
+    font-size: 16px;
+}
+
+#custom-firefox:hover, #custom-kitty:hover, #custom-onlyoffice:hover {
+    background-color: #404050;
+    border-radius: 4px;
+}
+
+/* Keyboard layout flags */
+#custom-keyboard-us, #custom-keyboard-gb, #custom-keyboard-fr {
+    padding: 0 6px;
+    font-size: 14px;
+}
+
+#custom-keyboard-us:hover, #custom-keyboard-gb:hover, #custom-keyboard-fr:hover {
+    background-color: #404050;
+    border-radius: 4px;
+}
+
+/* System info */
+#cpu, #memory, #temperature, #pulseaudio, #network {
+    padding: 0 8px;
+    color: #aaaaaa;
+}
+
+#custom-clock {
+    padding: 0 10px;
+    color: #ffffff;
+}
+WAYBAR_CSS
+
     # Configure GTK applications: dark mode + grayscale antialiasing
     # (RGB subpixel rendering looks bad when desktop is scaled via streaming)
     mkdir -p $HOME/.config/gtk-3.0
@@ -172,13 +258,31 @@ GTK_EOF
     "sway/workspaces",
     "sway/mode",
     "sway/scratchpad",
+    "custom/separator",
     "custom/firefox",
     "custom/kitty",
     "custom/onlyoffice",
+    "custom/separator2",
     "custom/keyboard-us",
     "custom/keyboard-gb",
     "custom/keyboard-fr"
   ],
+  "sway/workspaces": {
+    "disable-scroll": true,
+    "all-outputs": true,
+    "format": " {name} ",
+    "persistent-workspaces": {
+      "*": [1, 2, 3, 4]
+    }
+  },
+  "custom/separator": {
+    "format": "|",
+    "tooltip": false
+  },
+  "custom/separator2": {
+    "format": "|",
+    "tooltip": false
+  },
   "modules-center": [
     "sway/window"
   ],
