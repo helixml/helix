@@ -831,7 +831,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -862,7 +862,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
 ---
 kind: pipeline
@@ -875,7 +875,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -907,7 +907,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
 ---
 kind: pipeline
@@ -920,7 +920,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -955,7 +955,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
 ---
 kind: pipeline
@@ -968,7 +968,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -1005,7 +1005,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1045,7 +1045,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -1082,7 +1082,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1122,7 +1122,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -1151,7 +1151,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
 ---
 kind: pipeline
@@ -1164,7 +1164,7 @@ trigger:
     - push
   branch:
     - main
-    - fix/add-wolf-healthcheck
+    - fix/ubuntu-amd-gpu-mesa-crash
 
 volumes:
   - name: dockersocket
@@ -1193,7 +1193,7 @@ steps:
         - push
       branch:
         - main
-        - fix/add-wolf-healthcheck
+        - fix/ubuntu-amd-gpu-mesa-crash
 
 ---
 # See integration-test/smoke/README.md

@@ -3566,6 +3566,15 @@ export interface TypesSSHKeyResponse {
   public_key?: string;
 }
 
+export interface TypesSandboxFileUploadResponse {
+  /** Original filename */
+  filename?: string;
+  /** Full path: /home/retro/work/incoming/filename */
+  path?: string;
+  /** File size in bytes */
+  size?: number;
+}
+
 export interface TypesSchedulingDecision {
   available_runners?: string[];
   created?: string;
@@ -4710,12 +4719,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -5233,6 +5242,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Permanently delete a user and all associated data. Only admins can use this endpoint.
+     *
+     * @tags users
+     * @name V1AdminUsersDelete
+     * @summary Delete a user (Admin only)
+     * @request DELETE:/api/v1/admin/users/{id}
+     * @secure
+     */
+    v1AdminUsersDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/admin/users/${id}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -6445,6 +6472,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: clipboard,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsUploadCreate
+     * @summary Upload file to sandbox
+     * @request POST:/api/v1/external-agents/{sessionID}/upload
+     * @secure
+     */
+    v1ExternalAgentsUploadCreate: (
+      sessionId: string,
+      data: {
+        /** File to upload */
+        file: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSandboxFileUploadResponse, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/upload`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
         ...params,
       }),
 

@@ -26,10 +26,12 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import AddIcon from "@mui/icons-material/Add";
 import LockResetIcon from "@mui/icons-material/LockReset";
+import DeleteIcon from "@mui/icons-material/Delete";
 import { TypesUser, TypesPaginatedUsersList } from "../../api/api";
 import { useListUsers, UserListQuery } from "../../services/dashboardService";
 import CreateUserDialog from "./CreateUserDialog";
 import ResetPasswordDialog from "./ResetPasswordDialog";
+import DeleteUserDialog from "./DeleteUserDialog";
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -97,6 +99,7 @@ const UsersTable: FC = () => {
     const [searchType, setSearchType] = useState<"username" | "email">("username");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<TypesUser | null>(null);
 
     const handleResetPassword = (user: TypesUser) => {
@@ -106,6 +109,16 @@ const UsersTable: FC = () => {
 
     const handleCloseResetPasswordDialog = () => {
         setResetPasswordDialogOpen(false);
+        setSelectedUser(null);
+    };
+
+    const handleDeleteUser = (user: TypesUser) => {
+        setSelectedUser(user);
+        setDeleteDialogOpen(true);
+    };
+
+    const handleCloseDeleteDialog = () => {
+        setDeleteDialogOpen(false);
         setSelectedUser(null);
     };
 
@@ -322,6 +335,15 @@ const UsersTable: FC = () => {
                                                 <LockResetIcon fontSize="small" />
                                             </IconButton>
                                         </Tooltip>
+                                        <Tooltip title="Delete User">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleDeleteUser(user)}
+                                                sx={{ color: 'error.main' }}
+                                            >
+                                                <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
                                     </TableCell>
                                 </TableRow>
                             ))
@@ -353,6 +375,11 @@ const UsersTable: FC = () => {
         <ResetPasswordDialog
             open={resetPasswordDialogOpen}
             onClose={handleCloseResetPasswordDialog}
+            user={selectedUser}
+        />
+        <DeleteUserDialog
+            open={deleteDialogOpen}
+            onClose={handleCloseDeleteDialog}
             user={selectedUser}
         />
         </>

@@ -158,7 +158,7 @@ services:
       - "host.docker.internal:host-gateway"
   kodit:
     profiles: [kodit]
-    image: registry.helixml.tech/helix/kodit:latest
+    image: registry.helixml.tech/helix/kodit:0.5.16
     # ports:
     #   - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
