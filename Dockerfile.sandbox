@@ -188,8 +188,8 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
 # IMPORTANT: Each desktop in its own COPY = separate Docker layer
 # This enables parallel push/pull of large tarballs (~3GB each)
 RUN mkdir -p /opt/images
-COPY sandbox-images/helix-sway*.tar /opt/images/
-COPY sandbox-images/helix-ubuntu*.tar /opt/images/
+COPY sandbox-images/helix-sway.tar sandbox-images/helix-sway.version /opt/images/
+COPY sandbox-images/helix-ubuntu.tar sandbox-images/helix-ubuntu.version /opt/images/
 
 # ====================================================================
 # Copy Wolf binaries and setup
