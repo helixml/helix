@@ -164,10 +164,10 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get API key for Kodit to clone local repos (non-external repos)
-	// Only needed when enabling KoditIndexing for a local repository
+	// Get API key for Kodit to clone repos via Helix's git server
+	// Needed when enabling KoditIndexing for ANY repository (external repos are mirrored to Helix)
 	var koditAPIKey string
-	if request.KoditIndexing != nil && *request.KoditIndexing && !existing.KoditIndexing && !existing.IsExternal {
+	if request.KoditIndexing != nil && *request.KoditIndexing && !existing.KoditIndexing {
 		if user.TokenType == types.TokenTypeAPIKey {
 			// User authenticated with API key - use it directly
 			koditAPIKey = user.Token

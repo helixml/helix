@@ -18,9 +18,10 @@ type DesignDocStore interface {
 // sanitizeForBranchName converts a task name into a valid git branch-style name
 // Splits on words and limits to 25 characters without cutting mid-word
 // Examples:
-//   "Add user authentication" → "add-user-authentication"
-//   "Fix: API timeout issue" → "fix-api-timeout-issue"
-//   "Install cowsay and make it work" → "install-cowsay-and-make"
+//
+//	"Add user authentication" → "add-user-authentication"
+//	"Fix: API timeout issue" → "fix-api-timeout-issue"
+//	"Install cowsay and make it work" → "install-cowsay-and-make"
 func sanitizeForBranchName(taskName string) string {
 	// Convert to lowercase
 	name := strings.ToLower(taskName)
@@ -63,7 +64,7 @@ func sanitizeForBranchName(taskName string) string {
 func GenerateDesignDocPath(task *types.SpecTask, taskNumber int) string {
 	dateStr := time.Now().Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.Name) // Already limited to 25 chars
-	return fmt.Sprintf("%05d_%s_%s", taskNumber, dateStr, sanitizedName)
+	return fmt.Sprintf("%04d_%s_%s", taskNumber, dateStr, sanitizedName)
 }
 
 // GenerateFeatureBranchName creates a human-readable feature branch name
@@ -79,7 +80,7 @@ func GenerateFeatureBranchName(task *types.SpecTask) string {
 		baseName := sanitizeBranchPrefix(task.BranchPrefix)
 		// Use TaskNumber if available (new format), otherwise use ID suffix (backwards compat)
 		if task.TaskNumber > 0 {
-			return fmt.Sprintf("%s-%05d", baseName, task.TaskNumber)
+			return fmt.Sprintf("%s-%04d", baseName, task.TaskNumber)
 		}
 		// Fallback for old tasks without TaskNumber
 		taskIDSuffix := task.ID
@@ -89,9 +90,9 @@ func GenerateFeatureBranchName(task *types.SpecTask) string {
 		return fmt.Sprintf("%s-%s", baseName, taskIDSuffix)
 	}
 
-	// Auto-generate: feature/NNNNN-shortname
+	// Auto-generate: feature/NNNN-shortname
 	if task.TaskNumber > 0 {
-		return fmt.Sprintf("feature/%05d-%s", task.TaskNumber, sanitizedName)
+		return fmt.Sprintf("feature/%04d-%s", task.TaskNumber, sanitizedName)
 	}
 
 	// Fallback for old tasks without TaskNumber
