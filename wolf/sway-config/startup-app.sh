@@ -94,6 +94,12 @@ rm -rf ~/.qwen
 ln -sf $QWEN_DATA_DIR ~/.qwen
 echo "✅ Qwen data directory set to persistent storage: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
+# Copy Sway user guide to workspace (if not already present)
+if [ -f /cfg/sway/SWAY-USER-GUIDE.md ] && [ ! -f $WORK_DIR/SWAY-USER-GUIDE.md ]; then
+    cp /cfg/sway/SWAY-USER-GUIDE.md $WORK_DIR/SWAY-USER-GUIDE.md
+    echo "✅ Sway user guide copied to workspace (see SWAY-USER-GUIDE.md for keyboard shortcuts)"
+fi
+
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
 # Uses user's API token for authentication (session-scoped, user-owned)
