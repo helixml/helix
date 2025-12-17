@@ -777,6 +777,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 
 		case types.TaskStatusImplementation:
 			// Push during implementation - agent is updating tasks.md with progress
+			// NOTE: PR is NOT created here - only when task moves to pull_request status
 			log.Info().
 				Str("task_id", task.ID).
 				Msg("Processing SpecTask for design doc update during implementation")
@@ -788,7 +789,36 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 				s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
 			}()
 
-			// if repository is external, push to external repository and create a pull request (if PR doesn't exist yet)
+			// Push to external repo to keep branch in sync, but don't create PR yet
+			if repo.ExternalURL != "" {
+				s.wg.Add(1)
+				go func() {
+					defer s.wg.Done()
+					log.Info().
+						Str("spec_task_id", task.ID).
+						Str("branch", pushedBranch).
+						Msg("Pushing branch to external repository (no PR yet)")
+					err := s.gitRepoService.PushBranchToRemote(context.Background(), repo.ID, task.BranchName, false)
+					if err != nil {
+						log.Error().Err(err).Str("spec_task_id", task.ID).Msg("Failed to push branch to external repository")
+					}
+				}()
+			}
+
+		case types.TaskStatusPullRequest:
+			// Push during pull_request status - ensure PR exists and push updates
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("Processing SpecTask push during pull_request status")
+
+			// Update the existing design review with new content
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
+			}()
+
+			// Ensure PR exists (creates if needed) and push updates
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
