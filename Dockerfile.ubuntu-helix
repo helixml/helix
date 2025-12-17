@@ -289,13 +289,23 @@ RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
 RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
 
 # ====================================================================
-# Install Firefox - default browser (Chrome has GPU issues on AMD MxGPU)
+# Install Firefox from Mozilla APT repo (Chrome has GPU issues on AMD MxGPU)
+# Ubuntu 22.04's default firefox package is a snap transitional package
+# which doesn't work in Docker containers. Use Mozilla's official repo.
 # ====================================================================
 RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    # Add Mozilla APT repository
+    mkdir -p /etc/apt/keyrings && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
+    # Prefer Mozilla's Firefox over Ubuntu's snap transitional package
+    echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
+    apt-get update && \
     apt-get install -y firefox && \
     rm -rf /var/lib/apt/lists/* && \
     # Configure Firefox policies to suppress first-run dialogs and sidebar
-    mkdir -p /etc/firefox/policies && \
+    mkdir -p /usr/lib/firefox/distribution && \
     echo '{ \
       "policies": { \
         "DisableFirstRunPage": true, \
@@ -319,7 +329,7 @@ RUN apt-get update && \
           } \
         } \
       } \
-    }' > /etc/firefox/policies/policies.json
+    }' > /usr/lib/firefox/distribution/policies.json
 
 # ====================================================================
 # Install Docker CLI (daemon on host via socket mount)
