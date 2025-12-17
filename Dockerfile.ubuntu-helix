@@ -222,6 +222,12 @@ RUN cd /tmp && \
 # TODO: Test if Zed's restored wait_for_gpu() alone fixes crashes (see design doc)
 ENV RADV_DEBUG=hang
 
+# RadeonSI (OpenGL) debug options for Chrome and other GL apps
+# sync_compile: Always compile shaders synchronously (prevents race conditions)
+# check_vm: Check VM faults and dump debug info
+# Note: RadeonSI doesn't have a syncshaders equivalent like RADV
+ENV AMD_DEBUG=sync_compile,check_vm
+
 # ====================================================================
 # Install GNOME 42 Desktop (Ubuntu minimal)
 # ====================================================================

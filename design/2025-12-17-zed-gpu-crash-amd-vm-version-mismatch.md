@@ -1260,6 +1260,58 @@ Shipping with both safeguards:
 
 This may have performance impact on scrolling, but stability is priority.
 
+## Chrome Crashes on AMD MxGPU (2025-12-17)
+
+### Issue
+
+Chrome crashes with SIGILL (illegal instruction) during GPU-heavy operations:
+- Scrolling on content-heavy pages (Guardian, etc.)
+- Video playback (YouTube)
+- GPU compositing in general
+
+Symptoms in dmesg:
+```
+traps: Compositor[251751] trap invalid opcode ip:563624863723 in chrome
+```
+
+Chrome errors:
+```
+SharedImageManager::ProduceSkia: Trying to Produce a Skia representation from a non-existent mailbox
+Buffer Handle is null. Not creating a mailbox from it.
+```
+
+### Root Cause
+
+Two issues compound:
+
+1. **Sandbox namespace issue**: Chrome needs `--no-sandbox` in Docker containers
+   because it can't create user namespaces for its internal sandbox.
+
+2. **RadeonSI (OpenGL) driver issues**: Chrome uses OpenGL (not Vulkan), so our
+   `RADV_DEBUG=hang` fix doesn't help. RadeonSI doesn't have a `syncshaders`
+   equivalent.
+
+### Workarounds Applied
+
+1. Added `AMD_DEBUG=sync_compile,check_vm` for radeonsi:
+   - `sync_compile`: Always compile shaders synchronously
+   - `check_vm`: Check VM faults and dump debug info
+
+2. Chrome must be run with `--no-sandbox`:
+   ```bash
+   google-chrome --no-sandbox
+   ```
+
+### Limitations
+
+RadeonSI (OpenGL driver) doesn't have a `syncshaders` equivalent like RADV.
+The `sync_compile` option only affects shader compilation, not draw calls.
+
+Chrome may still have GPU issues on AMD MxGPU. Alternative options:
+- Use Firefox (may have different GPU backend behavior)
+- Force software rendering: `LIBGL_ALWAYS_SOFTWARE=1 google-chrome --no-sandbox`
+- Disable GPU: `google-chrome --no-sandbox --disable-gpu`
+
 ### Final Working Dockerfile Configuration
 
 ```dockerfile
