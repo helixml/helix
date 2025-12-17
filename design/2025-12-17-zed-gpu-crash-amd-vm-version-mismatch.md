@@ -1063,51 +1063,51 @@ User has been testing and the system is stable.
 | Component | Crashing (AMD Repos) | Working (Source Build) |
 |-----------|---------------------|------------------------|
 | Mesa | 25.0.7 from AMD 7.x repos | 25.0.7 from source |
-| SPIRV-Tools | Ubuntu 22.04 default | **vulkan-sdk-1.4.304.0** |
-| SPIRV-LLVM-Translator | N/A or old | **18.1.3 from source** |
 | libdrm | From AMD repos | 2.4.124 from source |
+| LLVM | AMD repo version | 18 from apt.llvm.org |
+| RADV_DEBUG | Not set | **hang** |
+| SPIRV-Tools | Ubuntu 22.04 default | vulkan-sdk-1.4.304.0 (for Intel) |
+| SPIRV-LLVM-Translator | N/A | 18.1.3 (for Intel) |
 
-### Root Cause Hypothesis: SPIRV-Tools SetAllowPtrTypeMismatch
+### Root Cause: UNKNOWN
 
-The critical change was building SPIRV-Tools from source with commit `vulkan-sdk-1.4.304.0`:
+**We don't know what fixed it.**
 
-```dockerfile
-# SPIRV-Tools from source (Mesa 25.x requires PR #5534 which is not in Ubuntu 22.04)
-# This provides spirv-opt, spirv-val, etc. with SetAllowPtrTypeMismatch linker option
-ARG SPIRV_TOOLS_VERSION=vulkan-sdk-1.4.304.0
-```
+The SPIRV-Tools and SPIRV-LLVM-Translator changes are for Intel support only. RADV (AMD's
+Vulkan driver) uses the ACO shader compiler, which compiles SPIR-V → NIR → AMD ISA directly
+without using SPIRV-Tools or LLVM.
 
-**Why this matters:**
-- `SetAllowPtrTypeMismatch` is a SPIR-V linker option added in recent SPIRV-Tools
-- It allows pointer type mismatches during shader linking
-- Without this option, Mesa's shader compiler may generate invalid pointers or illegal opcodes
-- The AMD repo packages use older SPIRV-Tools without this fix
+**Possible causes (speculative):**
 
-**The "illegal opcode" errors we saw were likely caused by:**
-1. Mesa compiling shaders that use pointer operations
-2. Old SPIRV-Tools rejecting or mishandling pointer type mismatches
-3. Resulting GPU commands containing invalid references (NULL pointers)
-4. GPU rejecting the commands → crash
+1. **RADV_DEBUG=hang** - Adds synchronization and command stream recording. Could mask a
+   race condition or timing issue in the driver.
 
-### Why This Wasn't Obvious
+2. **libdrm source build** - We build 2.4.124 from source. AMD repos may have patches or
+   different build flags that cause issues on MxGPU.
 
-We tested multiple configurations that all crashed:
-- RADV 7.1.1, 7.0.1 (from AMD repos) → CRASHED
-- vulkan-amdgpu-pro 6.4.4 (proprietary) → CRASHED
-- Mesa 25.0.7 from AMD repos → CRASHED
+3. **Mesa build configuration** - Our meson options may produce different code paths than
+   AMD's packaged build.
 
-**All of these used system SPIRV-Tools packages** which lacked the `SetAllowPtrTypeMismatch` fix.
+4. **LLVM 18** - Mesa links against LLVM for various utilities. Different version could
+   affect something indirectly.
 
-The working configuration builds SPIRV-Tools from source with the specific commit that includes
-the fix. This is why the source build works while all package-based installations failed.
+5. **Something else entirely** - We changed multiple variables at once and can't isolate.
 
-### Implications
+### What We Know For Sure
 
-1. **This is a Mesa/SPIRV-Tools bug, not a driver or hardware issue**
-2. **The fix is upstream in SPIRV-Tools** (vulkan-sdk-1.4.304.0)
-3. **AMD repo packages are outdated** for SPIRV-Tools
-4. **Source builds are required** until Ubuntu/AMD update their SPIRV-Tools packages
-5. **Intel support preserved** via SPIRV-LLVM-Translator 18.1.3 source build
+1. All package-based Mesa installations crashed (AMD 7.1.1, 7.0.1, vulkan-amdgpu-pro 6.4.4)
+2. Mesa 25.0.7 source build with RADV_DEBUG=hang works
+3. helix-sway (native Wayland) never had this problem on the same GPU
+4. The crash only happened with Xwayland + GNOME on AMD MxGPU
+
+### What We Don't Know
+
+1. Which specific change fixed it
+2. Whether RADV_DEBUG=hang is required or just the source build
+3. Whether this will stay fixed or crash again later
+
+**We're keeping RADV_DEBUG=hang enabled** because we don't trust it to stay working,
+and having crash dumps ready is better than being blind if it breaks again.
 
 ### Final Working Dockerfile Configuration
 
@@ -1135,11 +1135,22 @@ RUN cd /tmp && \
 
 ### Lessons Learned
 
-1. **Package versions matter** - not just the major version, but the exact commit/build
-2. **SPIRV-Tools is critical** - it's the shader linker, bugs here cause GPU crashes
-3. **Source builds are sometimes necessary** - especially for cutting-edge Mesa + vGPU
-4. **Debug tools are worth it** - RADV_DEBUG=hang and UMR helped narrow down the issue
-5. **Test systematically** - we tried many configurations before finding the right one
+1. **Source builds sometimes work when packages don't** - we don't know why
+2. **Changing multiple variables at once makes debugging impossible** - we can't isolate root cause
+3. **Keep debug tools enabled** - if it breaks again, we'll need the crash dumps
+4. **Document honestly** - don't make up explanations that sound plausible but are wrong
+
+### Notes on Debugging
+
+The debug tools (UMR, RADV_DEBUG=hang) were added for crash analysis but we never needed them
+because the crashes stopped. It's possible RADV_DEBUG=hang itself fixed the issue by adding
+synchronization - we don't know.
+
+**Debug tools are left enabled** in case crashes return:
+- `RADV_DEBUG=hang` - will dump command streams if a crash occurs
+- UMR installed at `/usr/bin/umr` - available for GPU state inspection
+
+If crashes return, check `/tmp/radv_dump_*` for RADV hang dumps.
 
 ## References
 
