@@ -594,6 +594,41 @@ RUN wget https://repo.radeon.com/amdgpu-install/6.1.3/ubuntu/jammy/amdgpu-instal
 - Driver knows which instructions/registers are available
 - Designed for datacenter/cloud virtualized GPU scenarios
 
+### Additional Research: RADV vs PRO Vulkan
+
+According to [Arch Linux Wiki](https://wiki.archlinux.org/title/AMDGPU_PRO) and [Phoronix benchmarks](https://www.phoronix.com/review/radv-amdvlk-pro):
+
+| Driver | Type | Shader Compiler | Target Use Case |
+|--------|------|-----------------|-----------------|
+| RADV | Open-source (Mesa) | ACO (AMD's open-source) | Gaming, general use |
+| AMDVLK | Open-source (AMD) | LLPC | General use |
+| PRO (vulkan-amdgpu-pro) | Closed-source | Proprietary | Workstation, CAD, enterprise |
+
+**Key difference**: PRO uses a **different proprietary shader compiler** that may avoid emitting
+illegal opcodes on MxGPU virtual functions. RADV's ACO compiler optimizes for consumer GPUs
+and may use instructions not available on virtualized GPUs.
+
+### Firmware-Assisted Shadowing for SR-IOV
+
+Per [Phoronix](https://www.phoronix.com/news/AMDGPU-FW-Assisted-Shadow-GFX11), firmware-assisted
+shadowing code was posted for RDNA3/GFX11, which is **required for proper SR-IOV support**.
+This enables mid-command buffer preemption needed for vGPU isolation. The V710 uses this
+technology for Azure NVv5 instances.
+
+### Build Command Used
+
+```dockerfile
+RUN amdgpu-install -y \
+    --usecase=graphics \
+    --vulkan=pro \
+    --no-dkms \
+    --no-32 \
+    --accept-eula
+```
+
+The `--vulkan=pro` flag installs AMD's closed-source Vulkan driver designed for
+Radeon PRO workstation GPUs, which includes the V710.
+
 ## References
 
 - [Mesa RADV driver](https://docs.mesa3d.org/drivers/radv.html)
