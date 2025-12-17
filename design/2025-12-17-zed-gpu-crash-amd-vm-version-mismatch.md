@@ -56,41 +56,82 @@ There are THREE layers where GPU drivers/libraries are involved:
 │  ├── Vulkan: 1.4.304.0-1                                       │
 │  └── ROCm SMI: 6.2 (MISMATCH with host 7.1.0)                  │
 ├─────────────────────────────────────────────────────────────────┤
-│ helix-sway Inner Container (WORKS - mostly)                     │
+│ helix-sway Inner Container (WORKS - reliably for weeks)         │
 │  ├── Base: Ubuntu 25.04 (ghcr.io/games-on-whales/gstreamer)    │
+│  ├── Display Stack: Wolf Wayland → Sway (native Wayland)       │
 │  ├── Compositor: Sway (wlroots-based, lightweight)             │
-│  ├── Zed (uses blade-graphics for Vulkan)                      │
+│  ├── Zed (uses blade-graphics for Vulkan, native Wayland)      │
 │  ├── libdrm: 2.4.124-2 (from base image)                       │
 │  ├── Mesa: 25.0.7 (from base image)                            │
 │  └── RADV (Mesa Vulkan driver for AMD)                         │
 ├─────────────────────────────────────────────────────────────────┤
 │ helix-ubuntu Inner Container (DOES NOT WORK - crashes GPU)      │
 │  ├── Base: Ubuntu 22.04                                         │
-│  ├── Compositor: Mutter/GNOME (heavy effects, Xwayland)        │
-│  ├── Zed (uses blade-graphics for Vulkan)                      │
-│  ├── libdrm: 2.4.124 (BUILT FROM SOURCE)                       │
-│  ├── Mesa: 24.3.4 (BUILT FROM SOURCE with meson)               │
-│  ├── LLVM: 15 (from Ubuntu 22.04 repos)                        │
-│  ├── RADV (Mesa Vulkan driver, built from source)              │
-│  └── Vulkan drivers: amd, intel, intel_hasvk                   │
+│  ├── Display Stack: Wolf Wayland → Xwayland → GNOME X11 mode   │
+│  ├── Compositor: Mutter running as X11 window manager          │
+│  ├── GDK_BACKEND=x11, WAYLAND_DISPLAY unset, DISPLAY=:9        │
+│  ├── Zed (uses blade-graphics for Vulkan, via Xwayland)        │
+│  ├── Vulkan: vulkan-amdgpu-pro 6.4.4 (proprietary, testing)    │
+│  ├── OpenGL: Mesa libgl1-mesa-dri (for GNOME compositing)      │
+│  └── libdrm-amdgpu1 from AMD 6.4.4 repos                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Focus**: helix-ubuntu crashes more frequently than helix-sway. The source build
-of Mesa 24.3.4 in helix-ubuntu was intended to fix crashes, but may be causing them.
+**Focus**: helix-ubuntu crashes while helix-sway works reliably for weeks on the same GPU.
+
+## Display Stack Differences
+
+The key architectural difference between the two desktop containers:
+
+### helix-sway (WORKS)
+```
+Wolf Wayland Compositor
+         ↓
+      Sway (native Wayland compositor, wlroots-based)
+         ↓
+      Zed (native Wayland app, Vulkan rendering)
+```
+- Sway is lightweight, minimal GPU operations
+- Apps run natively on Wayland
+- Single compositor layer
+
+### helix-ubuntu (CRASHES)
+```
+Wolf Wayland Compositor
+         ↓
+      Xwayland (X11 server on Wayland, DISPLAY=:9)
+         ↓
+      GNOME/Mutter (X11 window manager mode)
+         ↓
+      Zed (X11 app via Xwayland, Vulkan rendering)
+```
+- Configuration: `GDK_BACKEND=x11`, `WAYLAND_DISPLAY` unset
+- Extra Xwayland layer adds buffer/surface operations
+- Mutter runs as X11 WM, not Wayland compositor
+- More complex GPU operations that trigger illegal opcodes on MxGPU
+
+**Why this matters:** The extra Xwayland layer and GNOME's X11 mode create more
+Vulkan surface/buffer operations. These additional GPU commands may include
+operations that RADV compiles into illegal opcodes for the V710 MxGPU.
+
+**Stream startup flow:**
+1. Desktop container starts → GNOME/Mutter begins using Vulkan via Xwayland
+2. Zed launches → additional Vulkan usage
+3. Frontend initiates stream → Wolf tries VA-API encoding
+4. VA-API context creation fails because GPU already corrupted by Vulkan crashes
 
 ## Version Comparison
 
-| Component | Host (RHEL 9.4) | helix-sandbox | helix-sway | helix-ubuntu | Local Dev |
-|-----------|-----------------|---------------|------------|--------------|-----------|
+| Component | Host (RHEL 9.4) | helix-sandbox | helix-sway | helix-ubuntu (testing) | Local Dev |
+|-----------|-----------------|---------------|------------|------------------------|-----------|
 | Base OS | RHEL 9.4 | Ubuntu 25.04 | Ubuntu 25.04 | Ubuntu 22.04 | Ubuntu 24.04 |
 | Kernel | 5.14.0 | N/A (host) | N/A (host) | N/A (host) | 6.8.0 |
 | AMDGPU driver | PRO 6.16.6 | N/A (host) | N/A (host) | N/A (host) | Upstream |
-| libdrm | 2.4.125.70100 (PRO) | 2.4.124-2 | 2.4.124-2 | **2.4.124 (source)** | 2.4.122-1 |
-| Mesa | N/A | 25.0.7 | 25.0.7 | **24.3.4 (source)** | 25.0.7 |
-| LLVM (for Mesa) | N/A | N/A | N/A | **15** | N/A |
-| Vulkan driver | N/A | RADV | RADV | **RADV (built)** | RADV |
-| Compositor | N/A | N/A | Sway (wlroots) | **Mutter (GNOME)** | N/A |
+| libdrm | 2.4.125.70100 (PRO) | 2.4.124-2 | 2.4.124-2 | **libdrm-amdgpu1 6.4.4** | 2.4.122-1 |
+| Mesa (OpenGL) | N/A | 25.0.7 | 25.0.7 | libgl1-mesa-dri (6.4.4 repos) | 25.0.7 |
+| Vulkan driver | N/A | RADV | RADV | **vulkan-amdgpu-pro 6.4.4** | RADV |
+| Display mode | N/A | N/A | Native Wayland | **X11 via Xwayland** | N/A |
+| Compositor | N/A | N/A | Sway (wlroots) | **Mutter (X11 WM mode)** | N/A |
 | ROCm | 7.1.0 | 6.2 (SMI) | N/A | N/A | N/A (NVIDIA) |
 
 ## Root Cause Analysis
