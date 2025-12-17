@@ -1024,8 +1024,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 				URL:      gitRepo.ExternalURL,
 				Progress: os.Stdout,
 				Bare:     true,
-				// Clone ALL branches, not just the default one
-				// This ensures we have all remote branches available locally
+				Mirror:   true, // Clone ALL branches, tags, and refs - not just the default branch
 			}
 
 			cloneOptions.Auth = s.GetAuthConfig(gitRepo)

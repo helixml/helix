@@ -21,6 +21,9 @@ export function useApproveImplementation(specTaskId: string) {
       } else if (response.pull_request_id) {
         // PR exists but no URL
         snackbar.success('Pull request #' + response.pull_request_id + ' opened - awaiting merge')
+      } else if (response.status === 'pull_request') {
+        // External repo - task moved to pull_request status, waiting for agent to push
+        snackbar.success('Agent will push changes to open a pull request...')
       } else {
         // Internal repo - agent will merge
         snackbar.success('Implementation approved! Agent will merge to your primary branch...')
