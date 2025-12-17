@@ -779,7 +779,7 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError400("repository not attached to this project")
 	}
 
-	err = s.Store.DetachRepositoryFromProject(r.Context(), repoID)
+	err = s.Store.DetachRepositoryFromProject(r.Context(), projectID, repoID)
 	if err != nil {
 		log.Error().
 			Err(err).
