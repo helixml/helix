@@ -19182,6 +19182,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "project_id": {
+                    "description": "Deprecated: ProjectID is maintained for backward compatibility only.\nUse the project_repositories junction table for many-to-many project-repo relationships.\nThis column is kept in the database for rollback compatibility but reads should use the junction table.",
                     "type": "string"
                 },
                 "repo_type": {
@@ -23230,6 +23231,10 @@ const docTemplate = `{
                 "pull_request_id": {
                     "type": "string"
                 },
+                "pull_request_url": {
+                    "description": "Computed field, not stored",
+                    "type": "string"
+                },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
@@ -23890,6 +23895,7 @@ const docTemplate = `{
                 "implementation_queued",
                 "implementation",
                 "implementation_review",
+                "pull_request",
                 "done",
                 "spec_failed",
                 "implementation_failed"
@@ -23901,6 +23907,7 @@ const docTemplate = `{
                 "TaskStatusImplementationFailed": "Implementation failed",
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
+                "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
                 "TaskStatusSpecApproved": "Specs approved, ready for implementation",
                 "TaskStatusSpecFailed": "Spec generation failed",
                 "TaskStatusSpecGeneration": "Helix agent generating specs",
@@ -23916,6 +23923,7 @@ const docTemplate = `{
                 "TaskStatusImplementationQueued",
                 "TaskStatusImplementation",
                 "TaskStatusImplementationReview",
+                "TaskStatusPullRequest",
                 "TaskStatusDone",
                 "TaskStatusSpecFailed",
                 "TaskStatusImplementationFailed"

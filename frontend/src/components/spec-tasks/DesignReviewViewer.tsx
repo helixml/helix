@@ -1415,7 +1415,7 @@ export default function DesignReviewViewer({
               task?.status === TypesSpecTaskStatus.TaskStatusImplementation ||
               task?.status === TypesSpecTaskStatus.TaskStatusImplementationQueued ||
               task?.status === TypesSpecTaskStatus.TaskStatusImplementationReview ||
-              task?.status === 'pull_request' as any
+              task?.status === TypesSpecTaskStatus.TaskStatusPullRequest
             }
             onApprove={() => {
               setSubmitDecision('approve')
