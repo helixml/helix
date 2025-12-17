@@ -106,15 +106,8 @@ export function useUserGitRepositories(userId: string) {
   });
 }
 
-export function useListRepositoryBranches(repositoryId: string, options?: { enabled?: boolean }) {
+export function useListRepositoryBranches(repositoryId: string) {
   const api = useApi();
-
-  // Default to enabled if repositoryId is present, but allow override
-  // This allows callers to delay fetching until the repository is loaded
-  // (prevents race condition where branches fetch starts before clone completes)
-  const isEnabled = options?.enabled !== undefined
-    ? options.enabled && !!repositoryId
-    : !!repositoryId;
 
   return useQuery({
     queryKey: ['git-repositories', repositoryId, 'branches'] as const,
@@ -122,7 +115,11 @@ export function useListRepositoryBranches(repositoryId: string, options?: { enab
       const response = await api.getApiClient().listGitRepositoryBranches(repositoryId);
       return response.data;
     },
-    enabled: isEnabled,
+    enabled: !!repositoryId,
+    // Don't cache - always fetch fresh branch list
+    // This ensures we get updated branches after external repo clone completes
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
