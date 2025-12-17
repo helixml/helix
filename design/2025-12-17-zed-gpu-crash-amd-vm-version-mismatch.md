@@ -908,6 +908,13 @@ same Wolf/sandbox setup. The VA-API context creation errors we see with helix-ub
 **downstream symptom** of the Vulkan crashes, not a separate issue. GNOME/Mutter and Zed's
 Vulkan usage corrupts the GPU state, which then breaks VA-API in the sandbox.
 
+**GPU recovery test (2025-12-17 ~07:00 UTC):** After helix-ubuntu crashed the GPU (reset count
+reached 1), we tested helix-sway WITHOUT rebooting. Result: **Sway streams fine.** This shows:
+1. GPU recovers after reset - not permanently corrupted
+2. helix-sway works on same GPU that just crashed with helix-ubuntu
+3. Rebooting between tests may not be necessary
+4. Issue is specifically helix-ubuntu's Vulkan stack (GNOME/Mutter/Xwayland)
+
 **Remaining options:**
 
 1. **Proprietary vulkan-amdgpu-pro driver (version 6.4.4)** - Already prepared in Dockerfile
