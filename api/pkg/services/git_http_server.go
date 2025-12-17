@@ -1155,14 +1155,31 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 		Str("commit", commitHash).
 		Msg("Detected feature branch push")
 
-	// Find spec tasks in implementation status with this branch name
-	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: repo.ProjectID,
-	})
+	// Get all projects that have this repository attached (supports many-to-many)
+	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
 	if err != nil {
-		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks")
+		log.Error().Err(err).Str("repo_id", repo.ID).Msg("Failed to get projects for repository")
 		return
 	}
+
+	if len(projectIDs) == 0 {
+		log.Debug().Str("repo_id", repo.ID).Msg("Repository not attached to any project, skipping task update")
+		return
+	}
+
+	// Process spec tasks for ALL projects that have this repo attached
+	var allTasks []*types.SpecTask
+	for _, projectID := range projectIDs {
+		tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			ProjectID: projectID,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("Failed to get spec tasks for project")
+			continue
+		}
+		allTasks = append(allTasks, tasks...)
+	}
+	tasks := allTasks
 
 	for _, task := range tasks {
 		if task == nil {
@@ -1239,14 +1256,31 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 		Str("commit", commitHash).
 		Msg("Detected push to main branch")
 
-	// Find spec tasks in implementation_review status
-	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: repo.ProjectID,
-	})
+	// Get all projects that have this repository attached (supports many-to-many)
+	projectIDs, err := s.store.GetProjectsForRepository(ctx, repo.ID)
 	if err != nil {
-		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks")
+		log.Error().Err(err).Str("repo_id", repo.ID).Msg("Failed to get projects for repository")
 		return
 	}
+
+	if len(projectIDs) == 0 {
+		log.Debug().Str("repo_id", repo.ID).Msg("Repository not attached to any project, skipping task update")
+		return
+	}
+
+	// Process spec tasks for ALL projects that have this repo attached
+	var allTasks []*types.SpecTask
+	for _, projectID := range projectIDs {
+		tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			ProjectID: projectID,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("project_id", projectID).Msg("Failed to get spec tasks for project")
+			continue
+		}
+		allTasks = append(allTasks, tasks...)
+	}
+	tasks := allTasks
 
 	for _, task := range tasks {
 		if task == nil || task.BranchName == "" {

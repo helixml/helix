@@ -231,3 +231,152 @@ func TestAdminResetPassword_InvalidJSON(t *testing.T) {
 func setTestRequestUser(ctx context.Context, user *types.User) context.Context {
 	return context.WithValue(ctx, userKey, *user)
 }
+
+func TestAdminDeleteUser(t *testing.T) {
+	tests := []struct {
+		name           string
+		adminUser      *types.User
+		targetUserID   string
+		setupMocks     func(*store.MockStore)
+		expectedStatus int
+		expectedError  string
+	}{
+		{
+			name: "successful user deletion",
+			adminUser: &types.User{
+				ID:    "admin-123",
+				Email: "admin@example.com",
+				Admin: true,
+			},
+			targetUserID: "user-456",
+			setupMocks: func(mockStore *store.MockStore) {
+				targetUser := &types.User{
+					ID:    "user-456",
+					Email: "user@example.com",
+				}
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
+					Return(targetUser, nil)
+				mockStore.EXPECT().
+					DeleteUser(gomock.Any(), "user-456").
+					Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "non-admin cannot delete user",
+			adminUser: &types.User{
+				ID:    "user-123",
+				Email: "user@example.com",
+				Admin: false,
+			},
+			targetUserID:   "user-456",
+			setupMocks:     func(mockStore *store.MockStore) {},
+			expectedStatus: http.StatusForbidden,
+			expectedError:  "only admins can delete users",
+		},
+		{
+			name: "cannot delete own account",
+			adminUser: &types.User{
+				ID:    "admin-123",
+				Email: "admin@example.com",
+				Admin: true,
+			},
+			targetUserID:   "admin-123",
+			setupMocks:     func(mockStore *store.MockStore) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedError:  "cannot delete your own account",
+		},
+		{
+			name: "missing user ID",
+			adminUser: &types.User{
+				ID:    "admin-123",
+				Email: "admin@example.com",
+				Admin: true,
+			},
+			targetUserID:   "",
+			setupMocks:     func(mockStore *store.MockStore) {},
+			expectedStatus: http.StatusBadRequest,
+			expectedError:  "user ID is required",
+		},
+		{
+			name: "user not found",
+			adminUser: &types.User{
+				ID:    "admin-123",
+				Email: "admin@example.com",
+				Admin: true,
+			},
+			targetUserID: "nonexistent-user",
+			setupMocks: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "nonexistent-user"}).
+					Return(nil, store.ErrNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedError:  "user not found",
+		},
+		{
+			name: "delete fails",
+			adminUser: &types.User{
+				ID:    "admin-123",
+				Email: "admin@example.com",
+				Admin: true,
+			},
+			targetUserID: "user-456",
+			setupMocks: func(mockStore *store.MockStore) {
+				targetUser := &types.User{
+					ID:    "user-456",
+					Email: "user@example.com",
+				}
+				mockStore.EXPECT().
+					GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-456"}).
+					Return(targetUser, nil)
+				mockStore.EXPECT().
+					DeleteUser(gomock.Any(), "user-456").
+					Return(assert.AnError)
+			},
+			expectedStatus: http.StatusInternalServerError,
+			expectedError:  "failed to delete user",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStore := store.NewMockStore(ctrl)
+			tt.setupMocks(mockStore)
+
+			server := &HelixAPIServer{
+				Store: mockStore,
+			}
+
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/users/"+tt.targetUserID, nil)
+
+			// Set up mux vars
+			req = mux.SetURLVars(req, map[string]string{"id": tt.targetUserID})
+
+			// Set user in context
+			ctx := setTestRequestUser(req.Context(), tt.adminUser)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+
+			result, httpErr := server.adminDeleteUser(rr, req)
+
+			if tt.expectedError != "" {
+				require.NotNil(t, httpErr)
+				assert.Contains(t, httpErr.Error(), tt.expectedError)
+				httpError, ok := httpErr.(*system.HTTPError)
+				require.True(t, ok, "expected *system.HTTPError")
+				assert.Equal(t, tt.expectedStatus, httpError.StatusCode)
+			} else {
+				require.Nil(t, httpErr)
+				require.NotNil(t, result)
+				assert.Equal(t, "user deleted successfully", result["message"])
+				assert.Equal(t, tt.targetUserID, result["user_id"])
+			}
+		})
+	}
+}

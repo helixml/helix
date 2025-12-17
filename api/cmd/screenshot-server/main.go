@@ -72,6 +72,7 @@ func main() {
 	http.HandleFunc("/clipboard", handleClipboard)
 	http.HandleFunc("/keyboard-state", handleKeyboardState)
 	http.HandleFunc("/keyboard-reset", handleKeyboardReset)
+	http.HandleFunc("/upload", handleUpload)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -945,4 +946,98 @@ func getWaylandDisplay() string {
 	cachedWaylandDisplay = waylandSockets[0]
 	log.Printf("Using fallback Wayland display: %s", cachedWaylandDisplay)
 	return cachedWaylandDisplay
+}
+
+// uniqueFilePath returns a unique file path by adding numeric suffix if file exists
+// e.g., "report.zip" -> "report (1).zip" -> "report (2).zip"
+func uniqueFilePath(destPath, filename string) (string, string) {
+	if _, err := os.Stat(destPath); os.IsNotExist(err) {
+		return destPath, filename
+	}
+
+	dir := filepath.Dir(destPath)
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+
+	for i := 1; i < 1000; i++ {
+		newFilename := fmt.Sprintf("%s (%d)%s", base, i, ext)
+		newPath := filepath.Join(dir, newFilename)
+		if _, err := os.Stat(newPath); os.IsNotExist(err) {
+			return newPath, newFilename
+		}
+	}
+
+	// Fallback: use timestamp if somehow we have 1000 files with same name
+	newFilename := fmt.Sprintf("%s (%d)%s", base, time.Now().UnixNano(), ext)
+	return filepath.Join(dir, newFilename), newFilename
+}
+
+// handleUpload handles file uploads to the sandbox incoming folder
+// POST /upload
+// Body: multipart/form-data with "file" field
+// Response: JSON { "path": "/home/retro/work/incoming/filename", "size": 12345, "filename": "filename" }
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse multipart form (max 500MB)
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
+		log.Printf("Failed to parse multipart form: %v", err)
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		log.Printf("Failed to get file from form: %v", err)
+		http.Error(w, "Failed to get file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Always upload to ~/work/incoming/
+	destDir := "/home/retro/work/incoming"
+
+	// Ensure directory exists
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		log.Printf("Failed to create incoming directory: %v", err)
+		http.Error(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Sanitize filename to prevent path traversal
+	filename := filepath.Base(header.Filename)
+	destPath := filepath.Join(destDir, filename)
+
+	// If file exists, add numeric suffix like "file (1).ext", "file (2).ext"
+	destPath, filename = uniqueFilePath(destPath, filename)
+
+	// Create destination file
+	dst, err := os.Create(destPath)
+	if err != nil {
+		log.Printf("Failed to create destination file %s: %v", destPath, err)
+		http.Error(w, "Failed to create file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	// Copy file content
+	written, err := io.Copy(dst, file)
+	if err != nil {
+		log.Printf("Failed to write file content: %v", err)
+		http.Error(w, "Failed to write file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return success with filename for toast display
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"path":     destPath,
+		"size":     written,
+		"filename": filename,
+	})
+
+	log.Printf("File uploaded successfully: %s (%d bytes)", destPath, written)
 }

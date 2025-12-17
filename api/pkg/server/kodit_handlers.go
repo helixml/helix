@@ -62,26 +62,19 @@ func (apiServer *HelixAPIServer) reRegisterWithKodit(r *http.Request, repository
 		return "", fmt.Errorf("kodit service not available")
 	}
 
-	// Determine the clone URL for Kodit
-	var koditCloneURL string
-
-	if repository.IsExternal && repository.ExternalURL != "" {
-		// For external repos, use ExternalURL directly
-		koditCloneURL = repository.ExternalURL
-	} else {
-		// For local repos, we need the user's API key to build an authenticated URL
-		user := getRequestUser(r)
-		if user == nil {
-			return "", fmt.Errorf("user not found in request context")
-		}
-
-		apiKey, err := apiServer.getOrCreateUserAPIKey(r.Context(), user)
-		if err != nil {
-			return "", fmt.Errorf("failed to get user API key: %w", err)
-		}
-
-		koditCloneURL = apiServer.gitRepositoryService.BuildAuthenticatedCloneURL(repository.ID, apiKey)
+	// Always use the internal URL - Kodit clones through Helix's git server
+	// ensureKoditRepoID calls GetRepository first, so external repos are already cloned to disk
+	user := getRequestUser(r)
+	if user == nil {
+		return "", fmt.Errorf("user not found in request context")
 	}
+
+	apiKey, err := apiServer.getOrCreateUserAPIKey(r.Context(), user)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user API key: %w", err)
+	}
+
+	koditCloneURL := apiServer.gitRepositoryService.BuildAuthenticatedCloneURL(repository.ID, apiKey)
 
 	// Register with Kodit
 	koditResp, err := apiServer.koditService.RegisterRepository(r.Context(), koditCloneURL)
