@@ -107,7 +107,7 @@ If you have uncommitted changes, commit them first. If all changes are already c
 git commit --allow-empty -m "chore: open pull request for review"
 git push origin ` + specTask.BranchName + `
 
-This will open a Pull Request in Azure DevOps for code review.`
+This will open a Pull Request in the external repository for code review.`
 
 			_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
 			if err != nil {
