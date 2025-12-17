@@ -347,6 +347,8 @@ const LiveAgentScreenshot: React.FC<{
         sx={{
           mt: 1.5,
           mb: 0.5,
+          mx: -1, // Extend slightly beyond content using negative margins
+          width: 'calc(100% + 16px)', // Compensate for negative margins
           position: 'relative',
           borderRadius: 1.5,
           overflow: 'hidden',
@@ -361,8 +363,8 @@ const LiveAgentScreenshot: React.FC<{
           },
         }}
       >
-        <Box sx={{ position: 'relative', height: 174 }}>
-          <ExternalAgentDesktopViewer sessionId={sessionId} height={174} mode="screenshot" />
+        <Box sx={{ position: 'relative', height: 166 }}>
+          <ExternalAgentDesktopViewer sessionId={sessionId} height={166} mode="screenshot" />
         </Box>
         <Box
           sx={{
@@ -471,13 +473,9 @@ export default function TaskCard({
 
   const accentColor = getPhaseAccent(task.phase)
 
-  // Handle card click - open design docs if available, otherwise open session
+  // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
-    if (task.design_docs_pushed_at && onReviewDocs) {
-      // Design docs exist - open the spec review with tasks tab
-      onReviewDocs(task)
-    } else if (onTaskClick) {
-      // No design docs - open the session viewer
+    if (onTaskClick) {
       onTaskClick(task)
     }
   }
