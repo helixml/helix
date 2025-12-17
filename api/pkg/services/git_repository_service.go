@@ -162,8 +162,10 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	}
 
 	// Set default branch if not specified
+	// For external repos, leave empty - it will be detected from remote HEAD after clone
+	// For local repos, default to "main"
 	defaultBranch := request.DefaultBranch
-	if defaultBranch == "" {
+	if defaultBranch == "" && request.ExternalURL == "" {
 		defaultBranch = "main"
 	}
 
@@ -324,8 +326,8 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		}
 	}
 
-	// Update with current git information
-	err = s.updateRepositoryFromGit(gitRepo)
+	// Update with current git information (clones external repos if needed, detects default branch)
+	err = s.updateRepositoryFromGit(ctx, gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
 	}
@@ -1008,7 +1010,8 @@ func (s *GitRepositoryService) initializeGitRepository(
 //
 // IMPORTANT: This clones ALL branches from the external repo and detects the
 // default branch from HEAD (preserving 'master' if that's what the remote uses).
-func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitRepository) error {
+// If the default branch is detected/changed, it persists the change to the database.
+func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
 	var (
 		repo *git.Repository
 		err  error
@@ -1046,17 +1049,19 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 
 	// Detect default branch from HEAD if not already set
 	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
+	defaultBranchChanged := false
 	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
 		headRef, err := repo.Head()
 		if err == nil && headRef.Name().IsBranch() {
 			detectedBranch := headRef.Name().Short()
-			if gitRepo.DefaultBranch == "" || gitRepo.DefaultBranch != detectedBranch {
+			if gitRepo.DefaultBranch != detectedBranch {
 				log.Info().
 					Str("repo_id", gitRepo.ID).
 					Str("detected_branch", detectedBranch).
 					Str("previous_branch", gitRepo.DefaultBranch).
 					Msg("Detected default branch from repository HEAD")
 				gitRepo.DefaultBranch = detectedBranch
+				defaultBranchChanged = true
 			}
 		} else if err != nil {
 			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Could not detect default branch from HEAD")
@@ -1085,6 +1090,23 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 
 	gitRepo.LastActivity = time.Now()
 	gitRepo.UpdatedAt = time.Now()
+
+	// Persist changes to database if default branch was detected/changed
+	// This ensures the detected default branch from external repos is saved
+	if defaultBranchChanged {
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Failed to persist detected default branch to database")
+			// Don't fail - the in-memory value is correct
+		} else {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Persisted detected default branch to database")
+		}
+	}
 
 	return nil
 }
