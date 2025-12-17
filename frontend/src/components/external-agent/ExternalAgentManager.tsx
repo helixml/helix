@@ -42,6 +42,7 @@ import {
   Sync,
 } from '@mui/icons-material';
 import ScreenshotViewer from './ScreenshotViewer';
+import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 
 interface ExternalAgent {
   session_id: string;
@@ -112,12 +113,21 @@ const ExternalAgentManager: React.FC = () => {
   const createAgent = async (request: CreateAgentRequest) => {
     setLoading(true);
     try {
+      // Add browser locale env vars for automatic keyboard layout detection
+      // See: design/2025-12-17-keyboard-layout-option.md
+      const { keyboardLayout, timezone } = getBrowserLocale();
+      const envWithLocale = [
+        ...(request.env || []),
+        `XKB_DEFAULT_LAYOUT=${keyboardLayout}`,
+        `TZ=${timezone}`,
+      ];
+
       const response = await fetch('/api/v1/external-agents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, env: envWithLocale }),
       });
 
       if (!response.ok) {
