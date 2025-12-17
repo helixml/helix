@@ -129,6 +129,58 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WithoutPassword() {
 	suite.NotNil(createdUser)
 }
 
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue() {
+	// Set ADMIN_USERS=all (dev mode)
+	suite.cfg.WebServer.AdminUsers = config.AdminAllUsers
+
+	userID := uuid.New().String()
+	user := &types.User{
+		ID:       userID,
+		Email:    "devuser@example.com",
+		Username: "devuser",
+		Password: "testpassword123",
+		Admin:    false, // Initially not admin
+	}
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			// In dev mode, user should be created with Admin=true
+			suite.True(u.Admin, "user should be created as admin in dev mode")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestCreateUser_ProductionMode_PreservesAdminFalse() {
+	// Ensure we're in production mode (AdminUsers is empty)
+	suite.cfg.WebServer.AdminUsers = ""
+
+	userID := uuid.New().String()
+	user := &types.User{
+		ID:       userID,
+		Email:    "produser@example.com",
+		Username: "produser",
+		Password: "testpassword123",
+		Admin:    false,
+	}
+
+	suite.store.EXPECT().
+		CreateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
+			// In production mode, user should NOT be automatically made admin
+			suite.False(u.Admin, "user should not be admin in production mode")
+			return u, nil
+		})
+
+	createdUser, err := suite.auth.CreateUser(suite.ctx, user)
+	suite.NoError(err)
+	suite.NotNil(createdUser)
+}
+
 func (suite *HelixAuthenticatorTestSuite) TestUpdatePassword() {
 	userID := uuid.New().String()
 	newPassword := "newpassword123"
@@ -266,7 +318,8 @@ func (suite *HelixAuthenticatorTestSuite) TestValidateUserToken_Admin() {
 		Admin: false,
 	}
 
-	suite.cfg.WebServer.AdminIDs = []string{user.ID}
+	// Set ADMIN_USERS=all (dev mode) where everyone is admin
+	suite.cfg.WebServer.AdminUsers = config.AdminAllUsers
 
 	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
 	suite.Require().NoError(err)
