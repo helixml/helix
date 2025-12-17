@@ -308,9 +308,11 @@ const SpecTaskRow: React.FC<{
             <Typography variant="body2" fontWeight="medium" noWrap>
               {task.name}
             </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {task.description}
-            </Typography>
+            {task.description && task.description !== task.name && (
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {task.description}
+              </Typography>
+            )}
           </Box>
         </TableCell>
 

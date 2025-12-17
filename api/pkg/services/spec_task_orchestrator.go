@@ -26,6 +26,7 @@ type SpecTaskOrchestrator struct {
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
+	prPollInterval        time.Duration // Interval for polling external PR status (default 1 minute)
 	testMode              bool
 }
 
@@ -70,6 +71,10 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	o.wg.Add(1)
 	go o.orchestrationLoop(ctx)
 
+	// Start PR polling loop (runs every 1 minute to check external PR status)
+	o.wg.Add(1)
+	go o.prPollLoop(ctx)
+
 	// Start cleanup routine
 	o.wg.Add(1)
 	go o.cleanupLoop(ctx)
@@ -113,7 +118,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		return
 	}
 
-	// Filter to only active tasks
+	// Filter to only active tasks (PR polling handled by separate 1-minute loop)
 	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusSpecGeneration:       true,
@@ -121,7 +126,6 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		types.TaskStatusSpecRevision:         true,
 		types.TaskStatusImplementationQueued: true,
 		types.TaskStatusImplementation:       true,
-		types.TaskStatusPullRequest:          true, // Poll for PR merge status
 	}
 
 	for _, task := range tasks {
@@ -317,6 +321,7 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 }
 
 // handlePullRequest polls external repo for PR merge status
+// Called from the dedicated PR polling loop (runs every 1 minute)
 func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
 	if task.PullRequestID == "" {
 		log.Warn().
@@ -376,6 +381,66 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 	}
 
 	return nil
+}
+
+// prPollLoop polls external repos for PR merge status every minute
+func (o *SpecTaskOrchestrator) prPollLoop(ctx context.Context) {
+	defer o.wg.Done()
+
+	// Use configured interval or default to 1 minute
+	interval := o.prPollInterval
+	if interval == 0 {
+		interval = 1 * time.Minute
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info().Dur("interval", interval).Msg("Starting PR poll loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-o.stopChan:
+			return
+		case <-ticker.C:
+			o.pollPullRequests(ctx)
+		}
+	}
+}
+
+// pollPullRequests checks all tasks in pull_request status for merge status
+func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		Status: types.TaskStatusPullRequest,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list PR tasks for polling")
+		return
+	}
+
+	if len(tasks) > 0 {
+		log.Debug().Int("count", len(tasks)).Msg("Polling external PR status for tasks")
+	}
+
+	for _, task := range tasks {
+		err := o.handlePullRequest(ctx, task)
+		if err != nil {
+			// Tasks with deleted projects are expected - don't spam logs
+			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+				log.Trace().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("PR task references deleted project - skipping")
+			} else {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to poll PR status")
+			}
+		}
+	}
 }
 
 // cleanupLoop periodically cleans up stale agents

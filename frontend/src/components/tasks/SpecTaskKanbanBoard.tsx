@@ -173,6 +173,7 @@ interface SpecTaskKanbanBoardProps {
     implementation: number;
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
+  hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   // repositories prop removed - repos are now managed at project level
 }
 
@@ -186,8 +187,9 @@ const DroppableColumn: React.FC<{
   projectId?: string;
   focusTaskId?: string;
   archivingTaskId?: string | null;
+  hasExternalRepo?: boolean;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -209,6 +211,7 @@ const DroppableColumn: React.FC<{
         projectId={projectId}
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
+        hasExternalRepo={hasExternalRepo}
       />
     );
   };
@@ -345,6 +348,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
+  hasExternalRepo = false,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -1029,13 +1033,15 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 </IconButton>
               </Box>
 
-              {/* Task description */}
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {(task.description || '').length > 100 
-                  ? `${(task.description || '').substring(0, 100)}...` 
-                  : task.description || 'No description'
-                }
-              </Typography>
+              {/* Task description (hide if same as name) */}
+              {task.description && task.description !== task.name && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  {task.description.length > 100
+                    ? `${task.description.substring(0, 100)}...`
+                    : task.description
+                  }
+                </Typography>
+              )}
 
               {/* Status chips */}
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
@@ -1232,6 +1238,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             projectId={projectId}
             focusTaskId={focusTaskId}
             archivingTaskId={archivingTaskId}
+            hasExternalRepo={hasExternalRepo}
             theme={theme}
           />
         ))}

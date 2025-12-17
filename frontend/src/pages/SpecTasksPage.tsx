@@ -170,6 +170,12 @@ const SpecTasksPage: FC = () => {
     return defaultRepo?.default_branch || 'main';
   }, [projectRepositories, defaultRepoId]);
 
+  // Check if the default repo is an external repo (e.g., Azure DevOps)
+  const hasExternalRepo = useMemo(() => {
+    const defaultRepo = projectRepositories.find(r => r.id === defaultRepoId);
+    return !!(defaultRepo?.azure_devops || defaultRepo?.external_type);
+  }, [projectRepositories, defaultRepoId]);
+
   // Set baseBranch to default when dialog opens
   useEffect(() => {
     if (createDialogOpen && defaultBranchName && !baseBranch) {
@@ -769,6 +775,7 @@ const SpecTasksPage: FC = () => {
               refreshing={refreshing}
               refreshTrigger={refreshTrigger}
               focusTaskId={focusTaskId}
+              hasExternalRepo={hasExternalRepo}
             />
           </Box>
         </Box>

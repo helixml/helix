@@ -1008,26 +1008,28 @@ I'll give you feedback and we can iterate on any changes needed.`
                 )}
               </Box>
 
-              {/* Full Description/Prompt - Editable */}
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Description
-                </Typography>
-                {isEditMode ? (
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={4}
-                    value={editFormData.description}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Task description"
-                  />
-                ) : (
-                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                    {displayTask.description || displayTask.original_prompt || 'No description provided'}
+              {/* Full Description/Prompt - Editable (hide if same as name) */}
+              {(isEditMode || (displayTask.description && displayTask.description !== displayTask.name)) && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Description
                   </Typography>
-                )}
-              </Box>
+                  {isEditMode ? (
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      value={editFormData.description}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Task description"
+                    />
+                  ) : (
+                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {displayTask.description || displayTask.original_prompt || 'No description provided'}
+                    </Typography>
+                  )}
+                </Box>
+              )}
 
               {/* Context (from metadata) */}
               {displayTask.metadata?.context && (
