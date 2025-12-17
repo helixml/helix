@@ -523,6 +523,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
+
+	// Log audit event for agent started (now that session is created)
+	if s.auditLogService != nil {
+		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
+	}
 }
 
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
@@ -900,6 +905,11 @@ Follow these guidelines when making changes:
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Just Do It mode: Zed agent launched with branch instructions")
+
+	// Log audit event for agent started (now that session is created)
+	if s.auditLogService != nil {
+		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
+	}
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent
@@ -924,6 +934,11 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	log.Info().
 		Str("task_id", taskID).
 		Msg("Spec generation completed, awaiting human review")
+
+	// Log audit event for spec generated
+	if s.auditLogService != nil {
+		s.auditLogService.LogSpecGenerated(ctx, task, task.PlanningSessionID, task.CreatedBy, "")
+	}
 
 	// Send notification to user for spec review
 	if s.controller != nil && s.controller.Options.Notifier != nil {

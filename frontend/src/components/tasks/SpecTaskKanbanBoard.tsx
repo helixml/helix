@@ -416,59 +416,69 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Kanban columns configuration - Linear color scheme
-  const columns: KanbanColumn[] = useMemo(() => [
-    {
-      id: 'backlog',
-      title: 'Backlog',
-      color: '#6b7280',
-      backgroundColor: 'transparent',
-      description: 'Tasks without specifications',
-      tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
-    },
-    {
-      id: 'planning',
-      title: 'Planning',
-      color: '#f59e0b',
-      backgroundColor: 'rgba(245, 158, 11, 0.08)',
-      description: 'Specs being generated',
-      limit: WIP_LIMITS.planning,
-      tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
-    },
-    {
-      id: 'review',
-      title: 'Spec Review',
-      color: '#3b82f6',
-      backgroundColor: 'rgba(59, 130, 246, 0.08)',
-      description: 'Ready for review',
-      limit: WIP_LIMITS.review,
-      tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
-    },
-    {
-      id: 'implementation',
-      title: 'In Progress',
-      color: '#10b981',
-      backgroundColor: 'rgba(16, 185, 129, 0.08)',
-      description: 'Implementation active',
-      limit: WIP_LIMITS.implementation,
-      tasks: tasks.filter(t => (t as any).phase === 'implementation'),
-    },
-    {
-      id: 'pull_request',
-      title: 'Pull Request',
-      color: '#8b5cf6',
-      backgroundColor: 'rgba(139, 92, 246, 0.08)',
-      description: 'Awaiting merge in external repo',
-      tasks: tasks.filter(t => (t as any).phase === 'pull_request' || t.status === 'pull_request'),
-    },
-    {
+  // Pull Request column only shown for external repos (ADO)
+  const columns: KanbanColumn[] = useMemo(() => {
+    const baseColumns: KanbanColumn[] = [
+      {
+        id: 'backlog',
+        title: 'Backlog',
+        color: '#6b7280',
+        backgroundColor: 'transparent',
+        description: 'Tasks without specifications',
+        tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
+      },
+      {
+        id: 'planning',
+        title: 'Planning',
+        color: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+        description: 'Specs being generated',
+        limit: WIP_LIMITS.planning,
+        tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
+      },
+      {
+        id: 'review',
+        title: 'Spec Review',
+        color: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+        description: 'Ready for review',
+        limit: WIP_LIMITS.review,
+        tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
+      },
+      {
+        id: 'implementation',
+        title: 'In Progress',
+        color: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+        description: 'Implementation active',
+        limit: WIP_LIMITS.implementation,
+        tasks: tasks.filter(t => (t as any).phase === 'implementation'),
+      },
+    ];
+
+    // Only show Pull Request column for external repos (ADO)
+    if (hasExternalRepo) {
+      baseColumns.push({
+        id: 'pull_request',
+        title: 'Pull Request',
+        color: '#8b5cf6',
+        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+        description: 'Awaiting merge in external repo',
+        tasks: tasks.filter(t => (t as any).phase === 'pull_request' || t.status === 'pull_request'),
+      });
+    }
+
+    baseColumns.push({
       id: 'completed',
       title: 'Merged',
       color: '#6b7280',
       backgroundColor: 'transparent',
       description: 'Merged to main',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
-    },
-  ], [tasks, theme, wipLimits]);
+    });
+
+    return baseColumns;
+  }, [tasks, theme, wipLimits, hasExternalRepo]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
