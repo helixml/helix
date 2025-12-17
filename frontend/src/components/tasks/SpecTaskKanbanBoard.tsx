@@ -81,7 +81,7 @@ import gitRepositoryService, {
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
 // SpecTask types and statuses
-type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
+type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed';
 type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // Helper function to map backend status to frontend phase
@@ -113,7 +113,12 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
     phase = 'implementation';
     planningStatus = 'completed';
   }
-  // Completed phase
+  // Pull Request phase (external repos - awaiting merge)
+  else if (status === 'pull_request') {
+    phase = 'pull_request';
+    planningStatus = 'completed';
+  }
+  // Completed/Merged phase
   else if (status === 'done' || status === 'completed') {
     phase = 'completed';
     planningStatus = 'completed';
@@ -215,6 +220,7 @@ const DroppableColumn: React.FC<{
         case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
         case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
         case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
+        case 'pull_request': return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.08)' }; // Purple for PR
         case 'completed': return { color: '#6b7280', bg: 'transparent' };
         default: return { color: '#6b7280', bg: 'transparent' };
       }
@@ -443,11 +449,19 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       tasks: tasks.filter(t => (t as any).phase === 'implementation'),
     },
     {
+      id: 'pull_request',
+      title: 'Pull Request',
+      color: '#8b5cf6',
+      backgroundColor: 'rgba(139, 92, 246, 0.08)',
+      description: 'Awaiting merge in external repo',
+      tasks: tasks.filter(t => (t as any).phase === 'pull_request' || t.status === 'pull_request'),
+    },
+    {
       id: 'completed',
-      title: 'Done',
+      title: 'Merged',
       color: '#6b7280',
       backgroundColor: 'transparent',
-      description: 'Completed',
+      description: 'Merged to main',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
     },
   ], [tasks, theme, wipLimits]);

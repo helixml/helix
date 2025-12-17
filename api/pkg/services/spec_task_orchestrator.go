@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -122,6 +121,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		types.TaskStatusSpecRevision:         true,
 		types.TaskStatusImplementationQueued: true,
 		types.TaskStatusImplementation:       true,
+		types.TaskStatusPullRequest:          true, // Poll for PR merge status
 	}
 
 	for _, task := range tasks {
@@ -165,6 +165,8 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 		return o.handleImplementationQueued(ctx, task)
 	case types.TaskStatusImplementation:
 		return o.handleImplementation(ctx, task)
+	case types.TaskStatusPullRequest:
+		return o.handlePullRequest(ctx, task)
 	default:
 		return nil
 	}
@@ -314,6 +316,23 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 	return nil
 }
 
+// handlePullRequest polls external repo for PR merge status
+func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
+	if task.PullRequestID == "" {
+		log.Warn().
+			Str("task_id", task.ID).
+			Msg("Task in pull_request status but no PullRequestID set")
+		return nil
+	}
+
+	log.Debug().
+		Str("task_id", task.ID).
+		Str("pr_id", task.PullRequestID).
+		Msg("Polling external PR status")
+
+	return o.processExternalPullRequestStatus(ctx, task)
+}
+
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
 	project, err := o.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
@@ -325,20 +344,34 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		return fmt.Errorf("failed to get pull request: %w", err)
 	}
 
-	spew.Dump(pr)
-
 	switch pr.State {
 	case "active":
 		// Active - still open, nothing to do
+		log.Debug().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR still active, awaiting merge")
 	case "completed":
-		// Can move into "done"
+		// PR merged - move to done
+		now := time.Now()
 		task.Status = types.TaskStatusDone
-		task.UpdatedAt = time.Now()
+		task.MergedToMain = true
+		task.MergedAt = &now
+		task.CompletedAt = &now
+		task.UpdatedAt = now
+		log.Info().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR merged! Moving task to done")
 		return o.store.UpdateSpecTask(ctx, task)
 	case "abandoned":
-		// Can move into archived
+		// PR abandoned - archive the task
 		task.Archived = true
 		task.UpdatedAt = time.Now()
+		log.Info().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR abandoned, archiving task")
 		return o.store.UpdateSpecTask(ctx, task)
 	}
 

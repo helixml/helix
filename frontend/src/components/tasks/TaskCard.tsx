@@ -62,7 +62,7 @@ const spin = keyframes`
   }
 `
 
-type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed'
+type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'
 
 interface SpecTaskWithExtras {
   id: string
@@ -457,6 +457,8 @@ export default function TaskCard({
         return '#3b82f6'
       case 'implementation':
         return '#10b981'
+      case 'pull_request':
+        return '#8b5cf6' // Purple for PR
       case 'completed':
         return '#6b7280'
       default:
@@ -617,6 +619,8 @@ export default function TaskCard({
                     ? '#3b82f6'
                     : task.phase === 'implementation'
                     ? '#10b981'
+                    : task.phase === 'pull_request'
+                    ? '#8b5cf6'
                     : task.phase === 'completed'
                     ? '#6b7280'
                     : '#9ca3af',
@@ -631,7 +635,9 @@ export default function TaskCard({
                 ? 'Review'
                 : task.phase === 'implementation'
                 ? 'In Progress'
-                : 'Done'}
+                : task.phase === 'pull_request'
+                ? 'Pull Request'
+                : 'Merged'}
             </Typography>
             {runningDuration && (
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
