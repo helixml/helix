@@ -104,9 +104,13 @@ type GitRepositoryCreateRequest struct {
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 
-	// Internal field - not exposed in API
+	// Internal fields - not exposed in API
 	// Set by handler when user authenticates with API key, used for Kodit to clone local repos
 	KoditAPIKey string `json:"-"`
+	// Set by handler from authenticated user - used for git commits
+	// Enterprise ADO deployments reject commits with non-corporate email addresses
+	CreatorName  string `json:"-"`
+	CreatorEmail string `json:"-"`
 }
 
 // GitRepositoryUpdateRequest represents a request to update a repository
@@ -137,6 +141,10 @@ type CreateSampleRepositoryRequest struct {
 	OrganizationID string `json:"organization_id"`
 	SampleType     string `json:"sample_type"`
 	KoditIndexing  bool   `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
+	// Internal fields - set by handler from authenticated user
+	// Enterprise ADO deployments reject commits with non-corporate email addresses
+	CreatorName  string `json:"-"`
+	CreatorEmail string `json:"-"`
 }
 
 // TreeEntry represents a file or directory in a repository

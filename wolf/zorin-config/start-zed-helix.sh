@@ -57,13 +57,16 @@ else
     echo "✅ Git user.name: Helix Agent (default)"
 fi
 
+# CRITICAL: Enterprise ADO deployments reject commits from non-corporate email addresses
+# The wolf_executor MUST always set GIT_USER_EMAIL - missing is a bug
 if [ -n "$GIT_USER_EMAIL" ]; then
     git config --global user.email "$GIT_USER_EMAIL"
     echo "✅ Git user.email: $GIT_USER_EMAIL"
 else
-    # Default for Helix agents
-    git config --global user.email "agent@helix.ml"
-    echo "✅ Git user.email: agent@helix.ml (default)"
+    echo "❌ FATAL: GIT_USER_EMAIL not set"
+    echo "   Enterprise ADO deployments reject commits from non-corporate email addresses"
+    echo "   This is a bug in wolf_executor - it should always pass GIT_USER_EMAIL"
+    exit 1
 fi
 
 # Configure git to use merge commits (not rebase) for concurrent agent work

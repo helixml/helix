@@ -89,7 +89,11 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 
 // SaveStartupScriptToCodeRepo saves the startup script to a code repository
 // Commits to the default branch (main/master)
-func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, script string) error {
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, script string, userName string, userEmail string) error {
+	if userName == "" || userEmail == "" {
+		return fmt.Errorf("userName and userEmail are required for commits")
+	}
 	if codeRepoPath == "" {
 		return fmt.Errorf("code repo path not set")
 	}
@@ -147,8 +151,8 @@ func (s *ProjectRepoService) SaveStartupScriptToCodeRepo(codeRepoPath string, sc
 	commitMsg := fmt.Sprintf("Update startup script\n\nModified via Helix UI at %s", time.Now().Format(time.RFC3339))
 	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "Helix User",
-			Email: "user@helix.ml",
+			Name:  userName,
+			Email: userEmail,
 			When:  time.Now(),
 		},
 	})
@@ -230,7 +234,11 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath st
 
 // InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in a code repo
 // This is used when a project is created and a primary repo is selected
-func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string) error {
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string, userName string, userEmail string) error {
+	if userName == "" || userEmail == "" {
+		return fmt.Errorf("userName and userEmail are required for commits")
+	}
 	if codeRepoPath == "" {
 		return fmt.Errorf("code repo path not set")
 	}
@@ -268,12 +276,16 @@ echo "✅ Project startup complete"
 `
 	}
 
-	return s.SaveStartupScriptToCodeRepo(codeRepoPath, startupScript)
+	return s.SaveStartupScriptToCodeRepo(codeRepoPath, startupScript, userName, userEmail)
 }
 
 // InitializeCodeRepoFromSample creates a code repository with sample code
 // Returns the repo ID and path for the caller to create a store.GitRepository entry
-func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, project *types.Project, sampleID string) (repoID string, repoPath string, err error) {
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, project *types.Project, sampleID string, userName string, userEmail string) (repoID string, repoPath string, err error) {
+	if userName == "" || userEmail == "" {
+		return "", "", fmt.Errorf("userName and userEmail are required for commits")
+	}
 	// Get sample code
 	sampleCode, err := s.sampleCodeService.GetProjectCode(ctx, sampleID)
 	if err != nil {
@@ -360,8 +372,8 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 	commitMsg := fmt.Sprintf("Initial commit: %s\n\nSample: %s", project.Name, sampleCode.Name)
 	commitHash, err := worktree.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "Helix System",
-			Email: "system@helix.ml",
+			Name:  userName,
+			Email: userEmail,
 			When:  time.Now(),
 		},
 	})
@@ -434,13 +446,13 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 			// Create initial commit with empty tree (orphan branch start)
 			designDocsCommit := &object.Commit{
 				Author: object.Signature{
-					Name:  "Helix System",
-					Email: "system@helix.ml",
+					Name:  userName,
+					Email: userEmail,
 					When:  time.Now(),
 				},
 				Committer: object.Signature{
-					Name:  "Helix System",
-					Email: "system@helix.ml",
+					Name:  userName,
+					Email: userEmail,
 					When:  time.Now(),
 				},
 				Message:  "Initialize helix-specs branch\n\nOrphan branch for SpecTask design documents only.",
@@ -488,7 +500,11 @@ func (s *ProjectRepoService) InitializeCodeRepoFromSample(ctx context.Context, p
 
 // CloneSampleProject clones a sample project repository (e.g., from GitHub)
 // Returns the path to the cloned bare repository
-func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *types.Project, sampleRepoURL string) (string, error) {
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
+func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *types.Project, sampleRepoURL string, userName string, userEmail string) (string, error) {
+	if userName == "" || userEmail == "" {
+		return "", fmt.Errorf("userName and userEmail are required for commits")
+	}
 	// Create code repo in /filestore/git-repositories/ (standard location)
 	repoPath := filepath.Join(s.basePath, "..", "git-repositories", fmt.Sprintf("%s-code", project.ID))
 
@@ -560,8 +576,8 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 	commitMsg := fmt.Sprintf("Add Helix project structure\n\nInitialized from sample project")
 	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "Helix System",
-			Email: "system@helix.ml",
+			Name:  userName,
+			Email: userEmail,
 			When:  time.Now(),
 		},
 	})
