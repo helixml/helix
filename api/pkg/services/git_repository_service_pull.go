@@ -289,7 +289,7 @@ func (s *GitRepositoryService) SyncBaseBranchForTask(ctx context.Context, task *
 		if err != nil {
 			if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
 				// Return formatted error for divergence
-				return fmt.Errorf(FormatDivergenceErrorForUser(divergeErr, repo.Name))
+				return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 			}
 			return fmt.Errorf("failed to sync base branch '%s' for repository '%s': %w", branchToSync, repo.Name, err)
 		}
