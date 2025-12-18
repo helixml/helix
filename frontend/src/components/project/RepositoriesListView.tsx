@@ -15,7 +15,7 @@ import {
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import { GitBranch, Link, Brain, RefreshCw, Trash } from 'lucide-react'
+import { GitBranch, Link as LinkIcon, Brain, RefreshCw, Trash, Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -39,6 +39,9 @@ interface RepositoriesListViewProps {
   paginatedRepositories: TypesGitRepository[]
   totalPages: number
   onViewRepository: (repo: TypesGitRepository) => void
+  // Optional callbacks for creating repos from within this view
+  onCreateRepo?: () => void
+  onLinkExternalRepo?: () => void
 }
 
 const RepositoriesListView: FC<RepositoriesListViewProps> = ({
@@ -52,6 +55,8 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   paginatedRepositories,
   totalPages,
   onViewRepository,
+  onCreateRepo,
+  onLinkExternalRepo,
 }) => {
   const theme = useTheme()
   const queryClient = useQueryClient()
@@ -145,7 +150,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
                 {repo.metadata?.is_external && (
                   <Chip
-                    icon={<Link size={12} />}
+                    icon={<LinkIcon size={12} />}
                     label={repo.metadata.external_type.toUpperCase() || 'External'}
                     size="small"
                     sx={{ height: 20, fontSize: '0.75rem' }}
@@ -239,8 +244,31 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
               No repositories yet
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Create your first git repository to start collaborating with AI agents and your team.
+              Connect your existing repositories or create new ones to start collaborating with AI agents.
             </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+              {onLinkExternalRepo && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  size="large"
+                  startIcon={<LinkIcon size={18} />}
+                  onClick={onLinkExternalRepo}
+                >
+                  Link External Repository
+                </Button>
+              )}
+              {onCreateRepo && (
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<Plus size={18} />}
+                  onClick={onCreateRepo}
+                >
+                  New Repository
+                </Button>
+              )}
+            </Box>
           </CardContent>
         </Card>
       ) : (
