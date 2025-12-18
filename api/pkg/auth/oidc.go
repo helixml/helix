@@ -33,7 +33,7 @@ type OIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
-	AdminUsers   string // "all" for dev mode, otherwise uses database
+	AdminUserIDs []string // List of admin user IDs, or contains "all" for dev mode
 	Audience     string
 	Scopes       []string
 	Store        store.Store
@@ -57,7 +57,7 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 	client := &OIDCClient{
 		cfg: cfg,
 		adminConfig: &AdminConfig{
-			AdminUsers: cfg.AdminUsers,
+			AdminUserIDs: cfg.AdminUserIDs,
 		},
 		store: cfg.Store,
 	}
@@ -247,9 +247,9 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	}
 
 	// Determine admin status:
-	// - If ADMIN_USERS=all (dev mode), everyone is admin
+	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise use the database admin field
-	isAdmin := c.adminConfig.IsAllUsersAdmin() || user.Admin
+	isAdmin := c.adminConfig.IsUserInAdminList(userInfo.Subject) || user.Admin
 
 	return &types.User{
 		ID:          userInfo.Subject,
