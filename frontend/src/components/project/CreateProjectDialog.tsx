@@ -98,7 +98,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   // External repo linking fields
   const [externalUrl, setExternalUrl] = useState('')
   const [externalName, setExternalName] = useState('')
-  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
   const [externalUsername, setExternalUsername] = useState('')
   const [externalPassword, setExternalPassword] = useState('')
   const [externalOrgUrl, setExternalOrgUrl] = useState('')
@@ -183,7 +183,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setUserModifiedRepoName(false)
       setExternalUrl('')
       setExternalName('')
-      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
       setExternalUsername('')
       setExternalPassword('')
       setExternalOrgUrl('')
