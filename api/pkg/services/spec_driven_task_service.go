@@ -829,8 +829,8 @@ Follow these guidelines when making changes:
 
 %s
 
-**For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions, primaryRepoName)
+**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
