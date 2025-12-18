@@ -127,78 +127,104 @@ func sanitizeBranchPrefix(prefix string) string {
 	return name
 }
 
-// GenerateUniqueDesignDocPath creates a design doc path and ensures uniqueness across all projects
-// If the path already exists, appends _1, _2, etc. until unique
+// GenerateUniqueDesignDocPath creates a design doc path for the task.
+//
+// TODO(2025-12-18): Uniqueness check disabled - same issue as GenerateUniqueBranchName.
+// See that function's TODO for details. Re-enable after investigating root cause.
 func GenerateUniqueDesignDocPath(ctx context.Context, store DesignDocStore, task *types.SpecTask, taskNumber int) (string, error) {
 	basePath := GenerateDesignDocPath(task, taskNumber)
 
-	// Check if this path exists (across all projects)
-	tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		DesignDocPath:   basePath,
-		IncludeArchived: true,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to check design doc path uniqueness: %w", err)
-	}
+	// Uniqueness check disabled - see TODO above
+	return basePath, nil
 
-	// If no existing task with this path, use it
-	if len(tasks) == 0 {
-		return basePath, nil
-	}
-
-	// Path exists, try with suffixes _1, _2, etc.
-	for suffix := 1; suffix <= 100; suffix++ {
-		candidatePath := fmt.Sprintf("%s_%d", basePath, suffix)
+	/*
+		// Check if this path exists (across all projects)
 		tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			DesignDocPath:   candidatePath,
+			DesignDocPath:   basePath,
 			IncludeArchived: true,
 		})
 		if err != nil {
 			return "", fmt.Errorf("failed to check design doc path uniqueness: %w", err)
 		}
-		if len(tasks) == 0 {
-			return candidatePath, nil
-		}
-	}
 
-	// Fallback: use task ID for guaranteed uniqueness
-	return fmt.Sprintf("%s_%s", basePath, task.ID[:8]), nil
+		// If no existing task with this path, use it
+		if len(tasks) == 0 {
+			return basePath, nil
+		}
+
+		// Path exists, try with suffixes _1, _2, etc.
+		for suffix := 1; suffix <= 100; suffix++ {
+			candidatePath := fmt.Sprintf("%s_%d", basePath, suffix)
+			tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+				DesignDocPath:   candidatePath,
+				IncludeArchived: true,
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to check design doc path uniqueness: %w", err)
+			}
+			if len(tasks) == 0 {
+				return candidatePath, nil
+			}
+		}
+
+		// Fallback: use task ID for guaranteed uniqueness
+		return fmt.Sprintf("%s_%s", basePath, task.ID[:8]), nil
+	*/
 }
 
-// GenerateUniqueBranchName creates a branch name and ensures uniqueness across all projects
-// If the branch already exists, appends -1, -2, etc. until unique
+// GenerateUniqueBranchName creates a branch name for the task.
+//
+// TODO(2025-12-18): Uniqueness check disabled due to observed issue:
+// - Task spt_01kcrahm71zgkfmhdbp4a7y27n got branch name "feature/0001-make-the-homepage-of-the-1"
+// - But querying the DB shows NO other task with the base name "feature/0001-make-the-homepage-of-the"
+// - The LLM followed the prompt and created the branch it was told to, but PushBranchToRemote failed
+// - Actual branch in git was "feature/0001-make-the-homepage-of-the" (no suffix)
+//
+// Root cause: The uniqueness check INCORRECTLY added "-1" when there was no collision.
+// Possible causes:
+// 1. Race condition - another task briefly had this branch name then was deleted/updated?
+// 2. Bug in ListSpecTasks filter - maybe doing prefix match instead of exact match?
+// 3. Stale data or caching issue?
+//
+// For now, just return the base branch name. Task numbers are per-project so
+// collisions are unlikely in practice. Re-enable after investigating root cause.
 func GenerateUniqueBranchName(ctx context.Context, store DesignDocStore, task *types.SpecTask) (string, error) {
 	baseBranch := GenerateFeatureBranchName(task)
 
-	// Check if this branch exists (across all projects)
-	tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		BranchName:      baseBranch,
-		IncludeArchived: true,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to check branch name uniqueness: %w", err)
-	}
+	// Uniqueness check disabled - see TODO above
+	return baseBranch, nil
 
-	// If no existing task with this branch, use it
-	if len(tasks) == 0 {
-		return baseBranch, nil
-	}
-
-	// Branch exists, try with suffixes -1, -2, etc.
-	for suffix := 1; suffix <= 100; suffix++ {
-		candidateBranch := fmt.Sprintf("%s-%d", baseBranch, suffix)
+	/*
+		// Check if this branch exists (across all projects)
 		tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			BranchName:      candidateBranch,
+			BranchName:      baseBranch,
 			IncludeArchived: true,
 		})
 		if err != nil {
 			return "", fmt.Errorf("failed to check branch name uniqueness: %w", err)
 		}
-		if len(tasks) == 0 {
-			return candidateBranch, nil
-		}
-	}
 
-	// Fallback: use task ID for guaranteed uniqueness
-	return fmt.Sprintf("%s-%s", baseBranch, task.ID[:8]), nil
+		// If no existing task with this branch, use it
+		if len(tasks) == 0 {
+			return baseBranch, nil
+		}
+
+		// Branch exists, try with suffixes -1, -2, etc.
+		for suffix := 1; suffix <= 100; suffix++ {
+			candidateBranch := fmt.Sprintf("%s-%d", baseBranch, suffix)
+			tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+				BranchName:      candidateBranch,
+				IncludeArchived: true,
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to check branch name uniqueness: %w", err)
+			}
+			if len(tasks) == 0 {
+				return candidateBranch, nil
+			}
+		}
+
+		// Fallback: use task ID for guaranteed uniqueness
+		return fmt.Sprintf("%s-%s", baseBranch, task.ID[:8]), nil
+	*/
 }
