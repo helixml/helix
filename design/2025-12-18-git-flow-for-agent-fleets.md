@@ -82,9 +82,23 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 }
 ```
 
-## The Orphan Branch Trick
+## The Orphan Branch Trick: A Forward-Only Lab Notebook
 
 Another problem: startup scripts and agent config need to live *somewhere*, but enterprises protect their main branch. You can't push to main on Azure DevOps without a PR.
+
+But there's a deeper issue. We're doing **spec-driven development** - similar to AWS's [Kiro](https://kiro.dev/) approach where agents first write requirements, design docs, and implementation plans before coding. These specs need to live somewhere persistent.
+
+The problem with putting specs in feature branches:
+
+```
+Agent works on feature/add-auth:
+  - Writes requirements.md, design.md, tasks.md
+  - Implements the feature
+  - PR gets merged, feature branch deleted
+  - 💨 Design docs gone forever
+```
+
+Development involves constantly jumping between branches. You might have 5 agents on 5 different feature branches. But your **design documentation should be a forward-only lab notebook** - an append-only record of all the thinking, decisions, and learnings that happened across all tasks.
 
 Solution: an **orphan branch** called `helix-specs` that has no shared history with main.
 
@@ -103,7 +117,32 @@ commit := &object.Commit{
 }
 ```
 
-This gives us a branch we fully control, where agents can push config changes without going through PR review. The startup script at `.helix/startup.sh` lives here.
+This gives us:
+
+1. **A branch we fully control** - agents push directly, no PR review needed
+2. **Persistent design history** - specs survive feature branch deletion
+3. **Forward-only append** - helix-specs only moves forward, never syncs from upstream
+4. **Separation of concerns** - code history stays clean, design history is separate
+
+The structure inside helix-specs:
+
+```
+helix-specs/
+├── .helix/
+│   └── startup.sh           # Environment setup script
+└── design/
+    └── tasks/
+        ├── 2025-12-18_add-auth_42/
+        │   ├── requirements.md
+        │   ├── design.md
+        │   └── tasks.md
+        └── 2025-12-18_fix-login_43/
+            ├── requirements.md
+            ├── design.md
+            └── tasks.md
+```
+
+Each task gets a dated directory. When an agent marks a task complete in `tasks.md`, it commits and pushes to helix-specs. The lab notebook grows monotonically - you never lose the record of what the agent was thinking when it made decisions.
 
 ## Feature Branches: Don't Pull Mid-Work
 
