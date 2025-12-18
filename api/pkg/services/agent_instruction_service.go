@@ -93,7 +93,8 @@ Your design has been approved. Implement the code changes now.
 1. **PUSH after every task** - The UI tracks progress via git pushes to helix-specs
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [x] when you start each task, push immediately
-4. **Update design docs as you go** - Record discoveries, decisions, and blockers in design.md
+4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
+5. **Include Code-Ref** - Always reference the code commit in helix-specs commits (see below)
 
 ## Two Repositories - Don't Confuse Them
 
@@ -110,10 +111,20 @@ Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks
 When you START a task, change [ ] to [x] and push. Don't wait until "really done".
 Small frequent pushes are better than one big push at the end.
 
-After ANY checklist change:
+**IMPORTANT:** Always include a Code-Ref in your commit messages to link specs to code versions:
+
 ` + "```bash" + `
-cd /home/retro/work/helix-specs && git add -A && git commit -m "Progress update" && git push origin helix-specs
+# Get current code commit from your feature branch
+cd /home/retro/work/{{.PrimaryRepoName}}
+CODE_REF="$(git rev-parse --short HEAD)"
+
+cd /home/retro/work/helix-specs
+git add -A && git commit -m "Progress update
+
+Code-Ref: {{.PrimaryRepoName}}/{{.BranchName}}@${CODE_REF}" && git push origin helix-specs
 ` + "```" + `
+
+The **Code-Ref** line is machine-parsable and links spec versions to code versions.
 
 ## Steps
 
@@ -129,20 +140,25 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "Progress update"
 - "Run X at startup" → /home/retro/work/{{.PrimaryRepoName}}/.helix/startup.sh (idempotent), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
-## Update Design Docs As You Go
+## Update Design Docs As You Go (IMPORTANT)
 
-When you discover something new or make a decision:
-- Update design.md with what you learned or decided
+**Your plan is a living document.** When you discover something new or make a decision:
+- **Modify requirements.md** if requirements need clarification or discovered constraints
+- **Modify design.md** with what you learned, decisions made, or approaches that didn't work
+- **Modify tasks.md** to add new tasks, remove unnecessary ones, or adjust the plan
 - Push to helix-specs so the record is saved
 
-Example additions to design.md:
+Example modifications:
 ` + "```markdown" + `
-## Implementation Notes
+## Implementation Notes (add to design.md)
 
 - Found existing utility X, reusing instead of building new
 - Chose approach A over B because [reason]
 - Blocker: Y didn't work, used Z instead
+- Added new task: need to also update the config parser
 ` + "```" + `
+
+Don't treat the original plan as fixed - update it based on what you learn during implementation.
 
 ---
 
