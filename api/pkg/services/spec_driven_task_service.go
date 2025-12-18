@@ -1078,7 +1078,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			if err != nil {
 				// Check for divergence error and format a user-friendly message
 				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
-					return fmt.Errorf(FormatDivergenceErrorForUser(divergeErr, repo.Name))
+					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
 				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
