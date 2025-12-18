@@ -43,6 +43,8 @@ import {
   EyeOff,
   GitCommit,
   GitPullRequest,
+  Kanban,
+  Plus,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -54,6 +56,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   useGitRepository,
+  useListGitRepositories,
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
@@ -61,7 +64,10 @@ import {
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   useCreateBranch,
+  useCreateGitRepository,
+  useLinkExternalRepository,
 } from '../services/gitRepositoryService'
+import { useListProjects } from '../services/projectService'
 import {
   useListRepositoryAccessGrants,
   useCreateRepositoryAccessGrant,
@@ -78,7 +84,8 @@ import CodeIntelligenceTab from '../components/git/CodeIntelligenceTab'
 import CommitsTab from '../components/git/CommitsTab'
 import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
-import { TypesExternalRepositoryType } from '../api/api'
+import CreateProjectDialog from '../components/project/CreateProjectDialog'
+import { TypesExternalRepositoryType, TypesAzureDevOps, TypesGitRepository } from '../api/api'
 
 const TAB_NAMES = ['code', 'code-intelligence', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -138,6 +145,15 @@ const GitRepoDetail: FC = () => {
   const pushPullMutation = usePushPullGitRepository()
   const createBranchMutation = useCreateBranch()
 
+  // Fetch projects that use this repository as their primary repo
+  const { data: allProjects = [] } = useListProjects(currentOrg?.id)
+  const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
+
+  // Fetch all repositories for the create project dialog
+  const { data: allRepositories = [], isLoading: allReposLoading } = useListGitRepositories(ownerId)
+  const createRepoMutation = useCreateGitRepository()
+  const linkExternalRepoMutation = useLinkExternalRepository()
+
   // Query parameters
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
@@ -165,6 +181,7 @@ const GitRepoDetail: FC = () => {
   // UI State
   const [currentTab, setCurrentTab] = useState<TabName>(() => getTabName(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
   const [forcePushDialogOpen, setForcePushDialogOpen] = useState(false)
@@ -418,6 +435,46 @@ const GitRepoDetail: FC = () => {
     }
   }
 
+  // Handlers for CreateProjectDialog
+  const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
+    try {
+      const result = await createRepoMutation.mutateAsync({
+        name,
+        description,
+        organization_id: currentOrg?.id,
+      })
+      return result || null
+    } catch (err) {
+      snackbar.error('Failed to create repository')
+      return null
+    }
+  }
+
+  const handleLinkRepoForProject = async (
+    url: string,
+    name: string,
+    type: TypesExternalRepositoryType,
+    username?: string,
+    password?: string,
+    azureDevOps?: TypesAzureDevOps
+  ): Promise<TypesGitRepository | null> => {
+    try {
+      const result = await linkExternalRepoMutation.mutateAsync({
+        external_url: url,
+        name,
+        external_type: type,
+        username,
+        password,
+        azure_devops: azureDevOps,
+        organization_id: currentOrg?.id,
+      })
+      return result || null
+    } catch (err) {
+      snackbar.error('Failed to link repository')
+      return null
+    }
+  }
+
   const handleCreateAccessGrant = async (request: any) => {
     try {
       const result = await createAccessGrantMutation.mutateAsync(request)
@@ -655,6 +712,48 @@ const GitRepoDetail: FC = () => {
                   variant="outlined"
                 />
               </Box>
+            </Box>
+
+            {/* Project actions - prominent button in top right */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+              {projectsUsingThisRepo.length > 0 ? (
+                <>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Used by {projectsUsingThisRepo.length === 1 ? 'project' : 'projects'}:
+                  </Typography>
+                  {projectsUsingThisRepo.map((project) => (
+                    <Button
+                      key={project.id}
+                      variant="contained"
+                      color="secondary"
+                      startIcon={<Kanban size={16} />}
+                      onClick={() => account.orgNavigate('project-specs', { id: project.id })}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      {project.name}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="text"
+                    size="small"
+                    startIcon={<Plus size={14} />}
+                    onClick={() => setCreateProjectDialogOpen(true)}
+                    sx={{ mt: 0.5 }}
+                  >
+                    Use in Another Project
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<Plus size={16} />}
+                  onClick={() => setCreateProjectDialogOpen(true)}
+                  sx={{ whiteSpace: 'nowrap' }}
+                >
+                  Use in New Project
+                </Button>
+              )}
             </Box>
           </Box>
 
@@ -1285,6 +1384,17 @@ const GitRepoDetail: FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Create Project Dialog */}
+        <CreateProjectDialog
+          open={createProjectDialogOpen}
+          onClose={() => setCreateProjectDialogOpen(false)}
+          repositories={allRepositories}
+          reposLoading={allReposLoading}
+          onCreateRepo={handleCreateRepoForProject}
+          onLinkRepo={handleLinkRepoForProject}
+          preselectedRepoId={repoId}
+        />
       </Container>
     </Page>
   )
