@@ -7,13 +7,9 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Typography,
-  Paper,
-  IconButton,
 } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
-import CloseIcon from '@mui/icons-material/Close'
-import { Plus, Link, Brain, Sparkles, GitBranch } from 'lucide-react'
+import { Plus, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -96,9 +92,6 @@ const Projects: FC = () => {
   // Repository dialog states
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false)
   const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
-
-  // CTA banner dismissal state
-  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   // Agent selection modal state for sample project fork
   const [agentModalOpen, setAgentModalOpen] = useState(false)
@@ -443,86 +436,6 @@ const Projects: FC = () => {
       ) : null}
     >
       <Container maxWidth="lg" sx={{ mt: 4 }}>
-        {/* CTA Banner - show when no external repos linked */}
-        {currentView === 'projects' && !bannerDismissed && repositories.filter(r => r.external_url).length === 0 && (
-          <Paper
-            elevation={0}
-            sx={{
-              mb: 3,
-              p: 3,
-              borderRadius: 3,
-              background: 'linear-gradient(135deg, rgba(0, 213, 255, 0.12) 0%, rgba(138, 43, 226, 0.08) 50%, rgba(0, 213, 255, 0.05) 100%)',
-              border: '1px solid',
-              borderColor: 'rgba(0, 213, 255, 0.3)',
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
-            <IconButton
-              size="small"
-              onClick={() => setBannerDismissed(true)}
-              sx={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                color: 'text.secondary',
-                '&:hover': { color: 'text.primary' },
-              }}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 2,
-                    background: 'linear-gradient(135deg, #00d5ff 0%, #8a2be2 100%)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <GitBranch size={24} color="white" />
-                </Box>
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 200 }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  Connect Your Codebase
-                  <Sparkles size={18} color="#00d5ff" />
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Link your Azure DevOps, GitHub, or GitLab repository to unlock{' '}
-                  <Box component="span" sx={{ color: '#00d5ff', fontWeight: 500 }}>
-                    <Brain size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                    Code Intelligence
-                  </Box>{' '}
-                  and deploy a fleet of AI coding agents.
-                </Typography>
-              </Box>
-              <Button
-                variant="contained"
-                color="secondary"
-                size="large"
-                startIcon={<Link size={18} />}
-                onClick={() => setLinkRepoDialogOpen(true)}
-                sx={{
-                  px: 3,
-                  py: 1.5,
-                  fontWeight: 600,
-                  boxShadow: '0 4px 14px rgba(0, 213, 255, 0.3)',
-                  '&:hover': {
-                    boxShadow: '0 6px 20px rgba(0, 213, 255, 0.4)',
-                  },
-                }}
-              >
-                Link External Repository
-              </Button>
-            </Box>
-          </Paper>
-        )}
-
         {/* Projects View */}
         {currentView === 'projects' && (
           <ProjectsListView
