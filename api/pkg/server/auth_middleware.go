@@ -31,9 +31,10 @@ var (
 )
 
 type authMiddlewareConfig struct {
-	// adminUsers can be "all" for dev mode (everyone is admin), otherwise empty
-	adminUsers  string
-	runnerToken string
+	// adminUserIDs is a list of user IDs that should be admins.
+	// Can contain "all" for dev mode (everyone is admin), or specific user IDs.
+	adminUserIDs []string
+	runnerToken  string
 }
 
 type authMiddleware struct {
@@ -83,19 +84,25 @@ func (a *account) Type() accountType {
 }
 
 // isAdminWithContext checks admin status.
-// If ADMIN_USERS=all, everyone is admin (dev mode).
+// If ADMIN_USER_IDS contains "all", everyone is admin (dev mode).
+// If ADMIN_USER_IDS contains the user's ID, they are admin.
 // Otherwise, fetches the admin status from the database user record.
 func (auth *authMiddleware) isAdminWithContext(ctx context.Context, userID string) bool {
 	if userID == "" {
 		return false
 	}
 
-	// Dev mode: everyone is admin
-	if auth.cfg.adminUsers == config.AdminAllUsers {
-		return true
+	// Check if user is in the admin list (includes "all" check)
+	for _, adminID := range auth.cfg.adminUserIDs {
+		if adminID == config.AdminAllUsers {
+			return true // "all" means everyone is admin
+		}
+		if adminID == userID {
+			return true // User is explicitly in the admin list
+		}
 	}
 
-	// Production: fetch admin status from database
+	// If admin list is empty or user not in list, fetch admin status from database
 	dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
 	if err != nil {
 		log.Warn().Err(err).Str("user_id", userID).Msg("failed to get user from db for admin check")
