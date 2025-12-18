@@ -70,6 +70,20 @@ func (h *HelixAuthenticator) GetUserByID(ctx context.Context, userID string) (*t
 	return h.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
 }
 
+// isUserInAdminList checks if the user ID is in the ADMIN_USER_IDS list.
+// Returns true if "all" is in the list (everyone is admin) or if the specific user ID is listed.
+func (h *HelixAuthenticator) isUserInAdminList(userID string) bool {
+	for _, adminID := range h.cfg.WebServer.AdminUserIDs {
+		if adminID == config.AdminAllUsers {
+			return true // "all" means everyone is admin
+		}
+		if adminID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	if user.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
@@ -80,8 +94,8 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 		user.Password = ""
 	}
 
-	// Dev mode: everyone is admin
-	if h.cfg.WebServer.AdminUsers == config.AdminAllUsers {
+	// Check if user should be admin based on ADMIN_USER_IDS env var
+	if h.isUserInAdminList(user.ID) {
 		user.Admin = true
 	}
 
@@ -231,9 +245,9 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 	}
 
 	// Check admin status:
-	// - Dev mode (ADMIN_USERS=all): everyone is admin
+	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise: use database admin field
-	if h.cfg.WebServer.AdminUsers == config.AdminAllUsers {
+	if h.isUserInAdminList(user.ID) {
 		user.Admin = true
 	}
 

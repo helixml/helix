@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,9 @@ type AuditLogStore interface {
 
 // AuditLogService handles audit log operations
 type AuditLogService struct {
-	store AuditLogStore
+	store    AuditLogStore
+	wg       *sync.WaitGroup // Optional WaitGroup for testing async operations
+	testMode bool            // If true, skip async logging (used in tests)
 }
 
 // NewAuditLogService creates a new audit log service
@@ -27,11 +30,33 @@ func NewAuditLogService(store AuditLogStore) *AuditLogService {
 	return &AuditLogService{store: store}
 }
 
+// SetWaitGroup sets a WaitGroup for tracking async operations (used in tests)
+func (s *AuditLogService) SetWaitGroup(wg *sync.WaitGroup) {
+	s.wg = wg
+}
+
+// SetTestMode enables or disables test mode (skips async logging)
+func (s *AuditLogService) SetTestMode(enabled bool) {
+	s.testMode = enabled
+}
+
 // LogEvent creates a new audit log entry
 // This method is fire-and-forget - errors are logged but not returned to avoid blocking main operations
 func (s *AuditLogService) LogEvent(ctx context.Context, entry *types.ProjectAuditLog) {
+	// Skip async logging in test mode to avoid goroutine leaks
+	if s.testMode {
+		return
+	}
 	// Use background context since the HTTP request context may be canceled before the goroutine runs
-	go s.logEventAsync(context.Background(), entry)
+	if s.wg != nil {
+		s.wg.Add(1)
+	}
+	go func() {
+		if s.wg != nil {
+			defer s.wg.Done()
+		}
+		s.logEventAsync(context.Background(), entry)
+	}()
 }
 
 // logEventAsync performs the actual logging asynchronously
