@@ -56,7 +56,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   useGitRepository,
-  useListGitRepositories,
+  useGitRepositories,
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
@@ -65,7 +65,6 @@ import {
   usePushPullGitRepository,
   useCreateBranch,
   useCreateGitRepository,
-  useLinkExternalRepository,
 } from '../services/gitRepositoryService'
 import { useListProjects } from '../services/projectService'
 import {
@@ -150,9 +149,8 @@ const GitRepoDetail: FC = () => {
   const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
 
   // Fetch all repositories for the create project dialog
-  const { data: allRepositories = [], isLoading: allReposLoading } = useListGitRepositories(ownerId)
+  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories({ ownerId })
   const createRepoMutation = useCreateGitRepository()
-  const linkExternalRepoMutation = useLinkExternalRepository()
 
   // Query parameters
   const branchFromQuery = router.params.branch || ''
@@ -459,9 +457,9 @@ const GitRepoDetail: FC = () => {
     azureDevOps?: TypesAzureDevOps
   ): Promise<TypesGitRepository | null> => {
     try {
-      const result = await linkExternalRepoMutation.mutateAsync({
-        external_url: url,
+      const result = await createRepoMutation.mutateAsync({
         name,
+        external_url: url,
         external_type: type,
         username,
         password,
@@ -715,7 +713,7 @@ const GitRepoDetail: FC = () => {
             </Box>
 
             {/* Project actions - prominent button in top right */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, minWidth: 200 }}>
               {projectsUsingThisRepo.length > 0 ? (
                 <>
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
