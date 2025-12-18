@@ -1,5 +1,6 @@
-import React, { FC, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import React, { FC, useState, useMemo, ComponentPropsWithoutRef } from 'react'
+import ReactMarkdown, { Components } from 'react-markdown'
+import { useQueries } from '@tanstack/react-query'
 import {
   Box,
   Typography,
@@ -20,6 +21,10 @@ import {
   InputLabel,
   TextField,
   InputAdornment,
+  Paper,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material'
 import {
   Brain,
@@ -27,7 +32,16 @@ import {
   Code as CodeIcon,
   X as CloseIcon,
   Search as SearchIcon,
+  GitBranch,
+  Database,
+  ChevronDown,
+  Key,
+  Plug,
+  Copy,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import MermaidDiagram, { extractMermaidDiagrams, hasMermaidDiagram } from '../widgets/MermaidDiagram'
 
 import {
   useKoditEnrichmentDetail,
@@ -37,12 +51,19 @@ import {
   groupEnrichmentsByType,
   getEnrichmentTypeName,
   getEnrichmentSubtypeName,
+  koditEnrichmentDetailQueryKey,
   KODIT_TYPE_USAGE,
   KODIT_TYPE_DEVELOPER,
   KODIT_TYPE_LIVING_DOCUMENTATION,
+  KODIT_SUBTYPE_ARCHITECTURE,
+  KODIT_SUBTYPE_PHYSICAL,
+  KODIT_SUBTYPE_DATABASE_SCHEMA,
 } from '../../services/koditService'
 import { useRouter } from '../../hooks/useRouter'
 import useDebounce from '../../hooks/useDebounce'
+import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
+import { useGetUserAPIKeys } from '../../services/userService'
 import KoditStatusPill from './KoditStatusPill'
 
 interface CodeIntelligenceTabProps {
@@ -54,11 +75,131 @@ interface CodeIntelligenceTabProps {
 
 const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId, commitSha }) => {
   const router = useRouter()
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const snackbar = useSnackbar()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
   const { data: koditStatusData, isLoading: koditStatusLoading, error: koditStatusError } = useKoditStatus(repoId, { enabled: repoId && repository.kodit_indexing })
 
+  // Get user's API keys for MCP connection
+  const { data: apiKeys = [] } = useGetUserAPIKeys()
+  const userApiKey = apiKeys?.[0]?.key || ''
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  // Get the base URL for MCP endpoint
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+
+  // Subtypes that may contain Mermaid diagrams (prioritize physical first)
+  const DIAGRAM_SUBTYPES = [
+    KODIT_SUBTYPE_PHYSICAL,
+    KODIT_SUBTYPE_ARCHITECTURE,
+    KODIT_SUBTYPE_DATABASE_SCHEMA,
+  ]
+
+  // Find enrichments that might contain Mermaid diagrams, sorted by priority
+  const diagramEnrichmentIds = useMemo(() => {
+    // Sort enrichments by subtype priority (physical first)
+    const sorted = [...enrichments].sort((a, b) => {
+      const aSubtype = a?.attributes?.subtype || ''
+      const bSubtype = b?.attributes?.subtype || ''
+      const aIndex = DIAGRAM_SUBTYPES.indexOf(aSubtype)
+      const bIndex = DIAGRAM_SUBTYPES.indexOf(bSubtype)
+      // If both are in DIAGRAM_SUBTYPES, sort by index; otherwise, non-diagram subtypes go last
+      if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex
+      if (aIndex >= 0) return -1
+      if (bIndex >= 0) return 1
+      return 0
+    })
+
+    const filtered = sorted.filter(e => {
+      const subtype = e?.attributes?.subtype
+      return DIAGRAM_SUBTYPES.includes(subtype)
+    })
+    return filtered.map(e => e.id).filter(Boolean)
+  }, [enrichments])
+
+  // Fetch full details for diagram enrichments to get complete content
+  const diagramEnrichmentQueries = useQueries({
+    queries: diagramEnrichmentIds.map(enrichmentId => ({
+      queryKey: koditEnrichmentDetailQueryKey(repoId, enrichmentId),
+      queryFn: async () => {
+        const response = await apiClient.v1GitRepositoriesEnrichmentsDetail2(repoId, enrichmentId)
+        return response.data
+      },
+      enabled: !!repoId && !!enrichmentId && repository.kodit_indexing,
+      staleTime: 5 * 60 * 1000,
+    })),
+  })
+
+  // Extract Mermaid diagrams from the full enrichment content
+  const mermaidEnrichments = useMemo(() => {
+    const diagramsWithSource: Array<{ diagram: string; enrichment: any; type: 'erd' | 'graph' }> = []
+
+    for (const query of diagramEnrichmentQueries) {
+      if (query.data?.attributes) {
+        const enrichment = query.data
+        const content = enrichment?.attributes?.content || ''
+
+        if (hasMermaidDiagram(content)) {
+          const diagrams = extractMermaidDiagrams(content)
+          for (const diagram of diagrams) {
+            const isERD = diagram.toLowerCase().includes('erdiagram')
+            diagramsWithSource.push({
+              diagram,
+              enrichment,
+              type: isERD ? 'erd' : 'graph',
+            })
+          }
+        }
+      }
+    }
+
+    return diagramsWithSource
+  }, [diagramEnrichmentQueries])
+
+  // Check if diagrams are still loading
+  const diagramsLoading = diagramEnrichmentQueries.some(q => q.isLoading)
+
   // Fetch commits for the dropdown
   const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: repoId && repository.kodit_indexing })
+
+  // Copy to clipboard helper
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text)
+    snackbar.success(`${label} copied to clipboard`)
+  }
+
+  // Custom markdown components to render mermaid diagrams inline
+  const markdownComponents: Components = {
+    code: ({ className, children, ...props }) => {
+      const match = /language-(\w+)/.exec(className || '')
+      const language = match ? match[1] : ''
+      const codeContent = String(children).replace(/\n$/, '')
+
+      if (language === 'mermaid') {
+        return <MermaidDiagram code={codeContent} />
+      }
+
+      // Regular code block
+      return (
+        <Box
+          component="pre"
+          sx={{
+            backgroundColor: 'rgba(0, 0, 0, 0.1)',
+            padding: '1em',
+            borderRadius: '4px',
+            overflow: 'auto',
+            fontSize: '0.85em',
+            fontFamily: 'monospace',
+          }}
+        >
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </Box>
+      )
+    },
+  }
 
   const [selectedEnrichmentId, setSelectedEnrichmentId] = useState<string | null>(null)
   const enrichmentDrawerOpen = !!selectedEnrichmentId
@@ -95,22 +236,41 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     setSearchQuery('')
   }
 
+  // Global link styles for the entire Code Intelligence section
+  const globalLinkStyles = {
+    '& a': {
+      color: '#00d5ff',
+      textDecoration: 'none',
+      '&:hover': {
+        textDecoration: 'underline',
+      },
+      '&:visited': {
+        color: '#00d5ff',
+      },
+    },
+  }
+
   return (
     <>
-      <Box sx={{ maxWidth: 1200 }}>
+      <Box sx={{ maxWidth: 1200, ...globalLinkStyles }}>
         {repository.kodit_indexing ? (
           <Box sx={{ mb: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Brain size={24} />
-                <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                  Code Intelligence
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Brain size={24} />
+                  <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                    Code Intelligence
+                  </Typography>
+                  <KoditStatusPill
+                    data={koditStatusData}
+                    isLoading={koditStatusLoading}
+                    error={koditStatusError}
+                  />
+                </Box>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5, ml: 4.5 }}>
+                  Powered by Kodit. Available via the built-in MCP server for Helix code agents.
                 </Typography>
-                <KoditStatusPill
-                  data={koditStatusData}
-                  isLoading={koditStatusLoading}
-                  error={koditStatusError}
-                />
               </Box>
 
               {commits.length > 0 && (
@@ -176,6 +336,181 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
               <Alert severity="info" sx={{ mb: 3 }}>
                 {koditStatusData.message}
               </Alert>
+            )}
+
+            {/* MCP Client Connection Instructions - hide when searching */}
+            {!debouncedSearchQuery && (
+            <Accordion
+              sx={{
+                mb: 3,
+                bgcolor: 'rgba(0, 213, 255, 0.04)',
+                border: '1px solid',
+                borderColor: 'rgba(0, 213, 255, 0.2)',
+                borderRadius: '8px !important',
+                '&:before': { display: 'none' },
+                '&.Mui-expanded': { margin: '0 0 24px 0' },
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ChevronDown size={20} color="#00d5ff" />}
+                sx={{
+                  '& .MuiAccordionSummary-content': { alignItems: 'center', gap: 1 },
+                }}
+              >
+                <Plug size={18} color="#00d5ff" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#00d5ff' }}>
+                  Connect External MCP Clients
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Connect your local coding agents (Claude Code, Cursor, Cline, Roo Code, Codex, Gemini CLI, Qwen Code, Zed, etc.) to access this repository's code intelligence via the Kodit MCP server.
+                </Typography>
+
+                <Stack spacing={2}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      MCP Endpoint URL
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        value={`${baseUrl}/api/v1/mcp/kodit`}
+                        InputProps={{
+                          readOnly: true,
+                          sx: { fontFamily: 'monospace', fontSize: '0.85rem', bgcolor: 'rgba(0, 0, 0, 0.1)' },
+                        }}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={() => handleCopy(`${baseUrl}/api/v1/mcp/kodit`, 'MCP endpoint URL')}
+                        sx={{ color: '#00d5ff' }}
+                      >
+                        <Copy size={16} />
+                      </IconButton>
+                    </Box>
+                  </Box>
+
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      Authentication
+                    </Typography>
+                    {userApiKey ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          type={showApiKey ? 'text' : 'password'}
+                          value={userApiKey}
+                          InputProps={{
+                            readOnly: true,
+                            sx: { fontFamily: 'monospace', fontSize: '0.85rem', bgcolor: 'rgba(0, 0, 0, 0.1)' },
+                            startAdornment: (
+                              <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                                <Key size={16} color="#00d5ff" />
+                              </Box>
+                            ),
+                          }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          sx={{ color: '#00d5ff' }}
+                        >
+                          {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCopy(userApiKey, 'API key')}
+                          sx={{ color: '#00d5ff' }}
+                        >
+                          <Copy size={16} />
+                        </IconButton>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, bgcolor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
+                        <Key size={16} color="#00d5ff" />
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                          Use your Helix API key in the <code>Authorization: Bearer &lt;api_key&gt;</code> header
+                        </Typography>
+                      </Box>
+                    )}
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Add as <code>Authorization: Bearer &lt;api_key&gt;</code> header
+                    </Typography>
+                  </Box>
+
+                  <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+                    <Typography variant="body2">
+                      <strong>Quick Setup:</strong> In your MCP client configuration, add this server with the URL above and your API key.
+                      The Kodit MCP server provides tools for semantic code search, architecture diagrams, and documentation.
+                    </Typography>
+                  </Alert>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+            )}
+
+            {/* Prominent Mermaid Diagrams Section - hide when searching */}
+            {!debouncedSearchQuery && (
+            <>
+            {diagramsLoading && diagramEnrichmentIds.length > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="text.secondary">
+                  Loading diagrams...
+                </Typography>
+              </Box>
+            )}
+            {mermaidEnrichments.length > 0 && (
+              <Box sx={{ mb: 4 }}>
+                <Grid container spacing={3}>
+                  {mermaidEnrichments.map((item, index) => (
+                    <Grid item xs={12} md={6} key={`mermaid-${index}`}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 3,
+                          borderRadius: 3,
+                          background: 'linear-gradient(135deg, rgba(0, 213, 255, 0.08) 0%, rgba(0, 213, 255, 0.02) 100%)',
+                          border: '1px solid',
+                          borderColor: 'rgba(0, 213, 255, 0.3)',
+                          transition: 'all 0.3s ease-in-out',
+                          '&:hover': {
+                            borderColor: 'rgba(0, 213, 255, 0.6)',
+                            boxShadow: '0 8px 32px rgba(0, 213, 255, 0.15)',
+                          },
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                          {item.type === 'erd' ? (
+                            <Database size={20} color="#00d5ff" />
+                          ) : (
+                            <GitBranch size={20} color="#00d5ff" />
+                          )}
+                          <Typography variant="h6" sx={{ fontWeight: 600, color: '#00d5ff' }}>
+                            {item.type === 'erd' ? 'Database Schema' : 'Architecture Diagram'}
+                          </Typography>
+                          <Chip
+                            label={item.enrichment?.attributes?.subtype || 'architecture'}
+                            size="small"
+                            sx={{
+                              bgcolor: 'rgba(0, 213, 255, 0.15)',
+                              color: '#00d5ff',
+                              fontWeight: 600,
+                              fontSize: '0.7rem',
+                            }}
+                          />
+                        </Box>
+                        <MermaidDiagram code={item.diagram} />
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+            )}
+            </>
             )}
           </Box>
         ) : (
@@ -429,6 +764,13 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                                   '& h1, & h2, & h3, & h4, & h5, & h6': {
                                     margin: '0.5em 0 0.3em 0',
                                     fontWeight: 600
+                                  },
+                                  '& a': {
+                                    color: '#00d5ff',
+                                    textDecoration: 'none',
+                                    '&:hover': {
+                                      textDecoration: 'underline'
+                                    }
                                   }
                                 }}
                               >
@@ -561,6 +903,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
               )}
             </Stack>
 
+            {/* Render content with mermaid diagrams inline */}
             <Box
               sx={{
                 '& p': {
@@ -581,13 +924,6 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                   fontSize: '0.9em',
                   fontFamily: 'monospace',
                 },
-                '& pre': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                  padding: '1em',
-                  borderRadius: '4px',
-                  overflow: 'auto',
-                  fontSize: '0.85em',
-                },
                 '& h1, & h2, & h3, & h4, & h5, & h6': {
                   margin: '1em 0 0.5em 0',
                   fontWeight: 600,
@@ -595,9 +931,18 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                     marginTop: 0,
                   },
                 },
+                '& a': {
+                  color: '#00d5ff',
+                  textDecoration: 'none',
+                  '&:hover': {
+                    textDecoration: 'underline'
+                  }
+                },
               }}
             >
-              <ReactMarkdown>{enrichmentDetail.attributes?.content || 'No content available'}</ReactMarkdown>
+              <ReactMarkdown components={markdownComponents}>
+                {enrichmentDetail.attributes?.content || ''}
+              </ReactMarkdown>
             </Box>
           </Box>
         ) : (
