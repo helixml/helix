@@ -148,6 +148,16 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 	if s.SessionContextService != nil {
 		s.SessionContextService.SetTestMode(enabled)
 	}
+	if s.auditLogService != nil {
+		s.auditLogService.SetTestMode(enabled)
+	}
+}
+
+// SetAuditLogWaitGroup sets a WaitGroup for tracking async audit log operations (used in tests)
+func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
+	if s.auditLogService != nil {
+		s.auditLogService.SetWaitGroup(wg)
+	}
 }
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
@@ -1078,7 +1088,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			if err != nil {
 				// Check for divergence error and format a user-friendly message
 				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
-					return fmt.Errorf(FormatDivergenceErrorForUser(divergeErr, repo.Name))
+					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
 				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
