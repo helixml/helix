@@ -300,7 +300,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	if s.koditService != nil && request.KoditIndexing {
 		// Determine the clone URL for Kodit
 		// ALL repos (both external and local) should use Helix's git server URL with API key auth
-		// External repos are mirrored to Helix, and Kodit can't authenticate to ADO/GitHub/etc
+		// External repos are already cloned synchronously above, so Kodit can access via internal URL
 		var koditCloneURL string
 		if request.KoditAPIKey == "" {
 			log.Warn().
@@ -617,9 +617,8 @@ func (s *GitRepositoryService) UpdateRepository(
 
 	// Register with Kodit if indexing was just enabled
 	if shouldRegisterKodit {
-		// Determine the clone URL for Kodit
-		// ALL repos (both external and local) should use Helix's git server URL with API key auth
-		// External repos are mirrored to Helix, and Kodit can't authenticate to ADO/GitHub/etc
+		// Always use the internal URL - Kodit clones through Helix's git server
+		// GetRepository was called earlier, so external repos are already cloned to disk
 		if koditAPIKey == "" {
 			return nil, fmt.Errorf("cannot register repository with Kodit without API key")
 		}

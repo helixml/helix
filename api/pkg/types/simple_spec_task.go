@@ -23,6 +23,16 @@ const (
 	BranchModeExisting BranchMode = "existing" // Continue work on existing branch
 )
 
+// StartPlanningOptions contains options for starting spec generation or just-do-it mode
+// These options can be passed via query parameters for testing purposes
+type StartPlanningOptions struct {
+	// KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
+	// Used to configure the desktop container's keyboard layout from browser detection
+	KeyboardLayout string `json:"keyboard_layout,omitempty"`
+	// Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
+	Timezone string `json:"timezone,omitempty"`
+}
+
 // Request types
 type CreateTaskRequest struct {
 	ProjectID     string           `json:"project_id"`

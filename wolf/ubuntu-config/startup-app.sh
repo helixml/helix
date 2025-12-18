@@ -245,6 +245,39 @@ export XMODIFIERS=@im=none
 echo "IBus disabled (using simple input context)"
 
 # ============================================================================
+# Dynamic Keyboard Layout Configuration (Browser Locale Detection)
+# ============================================================================
+# If XKB_DEFAULT_LAYOUT is set (from browser locale detection in frontend),
+# configure it as the primary layout while keeping other layouts available.
+# See: design/2025-12-17-keyboard-layout-option.md
+if [ -n "$XKB_DEFAULT_LAYOUT" ]; then
+    echo "Setting default keyboard layout from browser: $XKB_DEFAULT_LAYOUT"
+
+    # Build dconf-compatible sources array with detected layout first
+    # Format: [('xkb', 'layout1'), ('xkb', 'layout2'), ...]
+    LAYOUT_SOURCES="[('xkb', '$XKB_DEFAULT_LAYOUT')"
+
+    # Add other common layouts (skip if already the default)
+    for layout in us gb fr de es it pt ru jp cn; do
+        if [ "$layout" != "$XKB_DEFAULT_LAYOUT" ]; then
+            LAYOUT_SOURCES="$LAYOUT_SOURCES, ('xkb', '$layout')"
+        fi
+    done
+    LAYOUT_SOURCES="$LAYOUT_SOURCES]"
+
+    # Create override dconf file that will be loaded after static settings
+    cat > /tmp/keyboard-override.ini << KEYBOARD_EOF
+[org/gnome/desktop/input-sources]
+sources=$LAYOUT_SOURCES
+KEYBOARD_EOF
+
+    echo "Keyboard layout sources: $LAYOUT_SOURCES"
+    echo "Created /tmp/keyboard-override.ini for dconf"
+else
+    echo "No XKB_DEFAULT_LAYOUT set, using default layouts from dconf-settings.ini"
+fi
+
+# ============================================================================
 # Window Management (devilspie2 + wmctrl)
 # ============================================================================
 # devilspie2 daemon watches for new windows and applies geometry rules
