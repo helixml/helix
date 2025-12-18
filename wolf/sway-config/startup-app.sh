@@ -424,6 +424,38 @@ EOF
     echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+
+    # =====================================================================
+    # Workspace bindings - CRITICAL for multi-desktop workflow
+    # =====================================================================
+    echo "# Workspace switching (Alt+1/2/3/4)" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+1 workspace number 1" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+2 workspace number 2" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+3 workspace number 3" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+4 workspace number 4" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+    echo "# Move windows to workspaces (Alt+Shift+1/2/3/4)" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+1 move container to workspace number 1" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+2 move container to workspace number 2" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+3 move container to workspace number 3" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+4 move container to workspace number 4" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # =====================================================================
+    # Auto-assign applications to workspaces
+    # =====================================================================
+    # Zed on workspace 1 (app_id from our dev build is "dev.zed.Zed-Dev")
+    echo "# Auto-assign applications to workspaces" >> $HOME/.config/sway/config
+    echo "assign [app_id=\"dev.zed.Zed-Dev\"] workspace number 1" >> $HOME/.config/sway/config
+    echo "assign [class=\"Zed\"] workspace number 1" >> $HOME/.config/sway/config
+    # Terminals on workspace 2
+    echo "assign [app_id=\"kitty\"] workspace number 2" >> $HOME/.config/sway/config
+    echo "assign [app_id=\"ghostty\"] workspace number 2" >> $HOME/.config/sway/config
+    echo "assign [app_id=\"foot\"] workspace number 2" >> $HOME/.config/sway/config
+    # Firefox on workspace 3
+    echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
+    echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
     # Pass required environment variables to settings-sync-daemon
@@ -431,7 +463,7 @@ EOF
 
     # Add resolution and app launch (like the original launcher)
     echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config
-    echo "workspace main; exec $@" >> $HOME/.config/sway/config
+    echo "workspace number 1; exec $@" >> $HOME/.config/sway/config
 
     # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop
     # Desktop/Spec Task/Exploratory sessions need persistent Sway compositor for reconnection

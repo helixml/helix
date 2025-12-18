@@ -59,18 +59,27 @@ Right side:
   - System stats and clock
 
 
+## WORKSPACE AUTO-ASSIGNMENT
+
+Applications automatically open in designated workspaces:
+  - Workspace 1: Zed (code editor)
+  - Workspace 2: Terminals (Kitty, Ghostty)
+  - Workspace 3: Firefox (browser)
+  - Workspace 4: Other applications
+
+
 ## TYPICAL WORKFLOW
 
-1. Zed opens on workspace 1
+1. Zed opens automatically on workspace 1
 
-2. To put terminals on workspace 2:
-   - Press Alt + Enter to open a terminal
-   - Press Alt + Shift + 2 to move it to workspace 2
-   - Press Alt + 1 to go back to Zed
+2. Open a terminal (Alt + Enter) - it appears on workspace 2
 
-3. Switch between workspaces:
+3. Open Firefox (Alt + Shift + f) - it appears on workspace 3
+
+4. Switch between workspaces:
    - Alt + 1 for Zed
    - Alt + 2 for terminals
+   - Alt + 3 for browser
    - Or click the numbers in the top bar
 
 
