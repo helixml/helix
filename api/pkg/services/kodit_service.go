@@ -325,40 +325,61 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query st
 
 	// Build search request body
 	searchType := "search"
-	requestBody := kodit.SearchRequest{
-		Data: kodit.SearchData{
-			Type: &searchType,
-			Attributes: kodit.SearchAttributes{
-				Text:  &kodit.SearchAttributes_Text{},
-				Limit: &kodit.SearchAttributes_Limit{},
-			},
-		},
-	}
+	textAttr := &kodit.SearchAttributes_Text{}
+	limitAttr := &kodit.SearchAttributes_Limit{}
 
-	// Set text query using JSON marshaling (unexported union field workaround)
-	textJSON, _ := json.Marshal(query)
-	json.Unmarshal(textJSON, &requestBody.Data.Attributes.Text)
+	// Set text query using the proper method
+	if err := textAttr.FromSearchAttributesText0(query); err != nil {
+		return nil, fmt.Errorf("failed to set search text: %w", err)
+	}
 
 	// Set limit
 	if limit <= 0 {
 		limit = 20
 	}
-	limitJSON, _ := json.Marshal(limit)
-	json.Unmarshal(limitJSON, &requestBody.Data.Attributes.Limit)
-
-	// Set repository filter
-	requestBody.Data.Attributes.Filters = &kodit.SearchAttributes_Filters{}
-	filters := SearchFilters{
-		Repositories: []string{koditRepoID},
+	if err := limitAttr.FromSearchAttributesLimit0(limit); err != nil {
+		return nil, fmt.Errorf("failed to set search limit: %w", err)
 	}
 
-	// Add commit SHA filter if provided (must be a list)
+	requestBody := kodit.SearchRequest{
+		Data: kodit.SearchData{
+			Type: &searchType,
+			Attributes: kodit.SearchAttributes{
+				Text:  textAttr,
+				Limit: limitAttr,
+			},
+		},
+	}
+
+	// Set repository filter using kodit.SearchFilters
+	koditFilters := kodit.SearchFilters{}
+
+	// Set sources (repositories) filter
+	sourcesAttr := &kodit.SearchFilters_Sources{}
+	if err := sourcesAttr.FromSearchFiltersSources0([]string{koditRepoID}); err != nil {
+		return nil, fmt.Errorf("failed to set sources filter: %w", err)
+	}
+	koditFilters.Sources = sourcesAttr
+
+	// Add commit SHA filter if provided
 	if commitSHA != "" {
-		filters.CommitSHA = []string{commitSHA}
+		commitShaAttr := &kodit.SearchFilters_CommitSha{}
+		if err := commitShaAttr.FromSearchFiltersCommitSha0([]string{commitSHA}); err != nil {
+			return nil, fmt.Errorf("failed to set commit_sha filter: %w", err)
+		}
+		koditFilters.CommitSha = commitShaAttr
 	}
 
-	filtersJSON, _ := json.Marshal(filters)
-	json.Unmarshal(filtersJSON, &requestBody.Data.Attributes.Filters)
+	// Set the filters on the request using the proper method
+	filtersAttr := &kodit.SearchAttributes_Filters{}
+	if err := filtersAttr.FromSearchFilters(koditFilters); err != nil {
+		return nil, fmt.Errorf("failed to set filters: %w", err)
+	}
+	requestBody.Data.Attributes.Filters = filtersAttr
+
+	// Log request body for debugging
+	reqBodyDebug, _ := json.Marshal(requestBody)
+	log.Debug().Str("request_body", string(reqBodyDebug)).Str("query", query).Msg("Sending search request to Kodit")
 
 	resp, err := s.client.SearchSnippetsApiV1SearchPost(ctx, requestBody)
 	if err != nil {

@@ -26,6 +26,7 @@ import {
   Tab,
   Tooltip,
   Paper,
+  useTheme,
 } from '@mui/material'
 import {
   GitBranch,
@@ -68,6 +69,7 @@ import {
 } from '../services/repositoryAccessGrantService'
 import {
   useKoditEnrichments,
+  useKoditStatus,
   groupEnrichmentsBySubtype,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -117,6 +119,7 @@ const GitRepoDetail: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
   const snackbar = useSnackbar()
+  const theme = useTheme()
 
   const currentOrg = account.organizationTools.organization
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
@@ -141,8 +144,21 @@ const GitRepoDetail: FC = () => {
   const currentBranch = branchFromQuery
   const commitsBranch = branchFromQuery  
 
-  // Kodit code intelligence enrichments (internal summary types filtered in backend)
-  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing })
+  // Kodit code intelligence status and enrichments
+  // Get indexing status to determine polling frequency
+  const { data: koditStatus } = useKoditStatus(repoId || '', {
+    enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing
+  })
+
+  // Poll more frequently (3s) when actively indexing to show enrichments flowing in
+  // Otherwise use default (30s for latest, no polling for specific commits)
+  const isActivelyIndexing = koditStatus?.status === 'indexing' || koditStatus?.status === 'in_progress'
+  const enrichmentsRefetchInterval = isActivelyIndexing ? 3000 : undefined
+
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, {
+    enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing,
+    refetchInterval: enrichmentsRefetchInterval,
+  })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
 
@@ -602,7 +618,7 @@ const GitRepoDetail: FC = () => {
                 <Box
                   component="span"
                   onClick={() => account.orgNavigate('projects', { tab: 'repositories' })}
-                  sx={{ color: '#3b82f6', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                  sx={{ color: theme.palette.secondary.main, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
                 >
                   {ownerSlug}
                 </Box>

@@ -206,7 +206,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
       <Box sx={{ mb: 3, pb: 2 }}>
         <Box sx={{ mb: 2 }}>
           <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <span style={{ color: '#3b82f6', cursor: 'pointer' }}>{ownerSlug}</span>
+            <span style={{ color: theme.palette.secondary.main, cursor: 'pointer' }}>{ownerSlug}</span>
             <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
             <span style={{ fontWeight: 600 }}>repositories</span>
           </Typography>

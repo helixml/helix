@@ -18,6 +18,7 @@ export const KODIT_SUBTYPE_COOKBOOK = 'cookbook' // How-to guides
 
 // Developer subtypes
 export const KODIT_SUBTYPE_ARCHITECTURE = 'architecture' // Architecture docs
+export const KODIT_SUBTYPE_PHYSICAL = 'physical' // Physical architecture diagrams
 export const KODIT_SUBTYPE_API_DOCS = 'api_docs' // API documentation
 export const KODIT_SUBTYPE_DATABASE_SCHEMA = 'database_schema' // Database schemas
 
@@ -40,10 +41,24 @@ export const koditSearchQueryKey = (repoId: string, query: string) => ['kodit', 
 
 /**
  * Hook to fetch code intelligence enrichments for a repository
+ *
+ * @param repoId - Repository ID
+ * @param commitSha - Optional commit SHA to filter enrichments
+ * @param options - Query options
+ * @param options.enabled - Whether to enable the query
+ * @param options.refetchInterval - Custom refetch interval in ms (default: 30s for latest, undefined for specific commits)
+ *                                  Set to a lower value (e.g., 3000) during active indexing to see enrichments flow in
  */
-export function useKoditEnrichments(repoId: string, commitSha?: string, options?: { enabled?: boolean }) {
+export function useKoditEnrichments(repoId: string, commitSha?: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const apiClient = api.getApiClient()
+
+  // Determine refetch interval:
+  // - If explicitly provided, use that value
+  // - For specific commits: no auto-refetch (data won't change)
+  // - For latest: refetch every 30 seconds by default
+  const defaultRefetchInterval = commitSha ? undefined : 30 * 1000
+  const refetchInterval = options?.refetchInterval !== undefined ? options.refetchInterval : defaultRefetchInterval
 
   return useQuery({
     queryKey: koditEnrichmentsQueryKey(repoId, commitSha),
@@ -55,7 +70,7 @@ export function useKoditEnrichments(repoId: string, commitSha?: string, options?
     },
     enabled: options?.enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchInterval: commitSha ? undefined : 30 * 1000, // Only auto-refetch for latest, not for specific commits
+    refetchInterval,
   })
 }
 
@@ -200,6 +215,7 @@ export function getEnrichmentSubtypeName(subtype: string): string {
 
     // Developer subtypes
     [KODIT_SUBTYPE_ARCHITECTURE]: 'Architecture',
+    [KODIT_SUBTYPE_PHYSICAL]: 'Physical Architecture',
     [KODIT_SUBTYPE_API_DOCS]: 'API Documentation',
     [KODIT_SUBTYPE_DATABASE_SCHEMA]: 'Database Schema',
 
@@ -238,6 +254,7 @@ export function getEnrichmentSubtypeIcon(subtype: string): string {
 
     // Developer subtypes
     [KODIT_SUBTYPE_ARCHITECTURE]: '🏗️',
+    [KODIT_SUBTYPE_PHYSICAL]: '🏛️',
     [KODIT_SUBTYPE_API_DOCS]: '📚',
     [KODIT_SUBTYPE_DATABASE_SCHEMA]: '🗄️',
 
