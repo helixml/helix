@@ -142,11 +142,15 @@ const ProjectSettings: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
 
   // Create SpecTask mutation for "Fix Startup Script" feature
+  // Uses branch_mode: "existing" with helix-specs branch to push directly (no PR)
   const createSpecTaskMutation = useMutation({
-    mutationFn: async (prompt: string) => {
+    mutationFn: async (request: { prompt: string; branch_mode?: string; base_branch?: string; working_branch?: string }) => {
       const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
         project_id: projectId,
-        prompt,
+        prompt: request.prompt,
+        branch_mode: request.branch_mode as any,
+        base_branch: request.base_branch,
+        working_branch: request.working_branch,
       })
       return response.data
     },
@@ -995,9 +999,13 @@ const ProjectSettings: FC = () => {
                   variant="outlined"
                   size="small"
                   startIcon={createSpecTaskMutation.isPending ? <CircularProgress size={16} /> : <AutoFixHighIcon />}
-                  onClick={() => createSpecTaskMutation.mutate(
-                    `Fix the project startup script at .helix/startup.sh. The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent. Once the user approves the changes, you will then push the changes to the repository, at which point the user can test it in the projects settings panel.`
-                  )}
+                  onClick={() => createSpecTaskMutation.mutate({
+                    prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.`,
+                    // Push directly to helix-specs, no PR needed
+                    branch_mode: 'existing',
+                    base_branch: 'helix-specs',
+                    working_branch: 'helix-specs',
+                  })}
                   disabled={createSpecTaskMutation.isPending}
                 >
                   {createSpecTaskMutation.isPending ? 'Creating task...' : 'Get AI to fix it'}

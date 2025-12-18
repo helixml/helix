@@ -1411,6 +1411,12 @@ export default function DesignReviewViewer({
             reviewStatus={review.status}
             unresolvedCount={unresolvedCount}
             startingImplementation={startingImplementation}
+            implementationStarted={
+              task?.status === TypesSpecTaskStatus.TaskStatusImplementation ||
+              task?.status === TypesSpecTaskStatus.TaskStatusImplementationQueued ||
+              task?.status === TypesSpecTaskStatus.TaskStatusImplementationReview ||
+              task?.status === TypesSpecTaskStatus.TaskStatusPullRequest
+            }
             onApprove={() => {
               setSubmitDecision('approve')
               setShowSubmitDialog(true)

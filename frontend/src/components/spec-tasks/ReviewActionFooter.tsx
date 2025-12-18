@@ -6,6 +6,7 @@ interface ReviewActionFooterProps {
   reviewStatus: 'pending' | 'in_review' | 'changes_requested' | 'approved' | 'superseded'
   unresolvedCount: number
   startingImplementation: boolean
+  implementationStarted: boolean // True if task is already in implementation phase
   onApprove: () => void
   onRequestChanges: () => void
   onReject: () => void
@@ -16,6 +17,7 @@ export default function ReviewActionFooter({
   reviewStatus,
   unresolvedCount,
   startingImplementation,
+  implementationStarted,
   onApprove,
   onRequestChanges,
   onReject,
@@ -36,18 +38,22 @@ export default function ReviewActionFooter({
       {reviewStatus === 'approved' ? (
         <Box display="flex" gap={2} flex={1}>
           <Alert severity="success" sx={{ flex: 1 }}>
-            Design approved! Ready to start implementation.
+            {implementationStarted
+              ? 'Design approved! Implementation in progress.'
+              : 'Design approved! Ready to start implementation.'}
           </Alert>
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={<CodeIcon />}
-            onClick={onStartImplementation}
-            disabled={startingImplementation}
-          >
-            {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
-          </Button>
+          {!implementationStarted && (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={<CodeIcon />}
+              onClick={onStartImplementation}
+              disabled={startingImplementation}
+            >
+              {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
+            </Button>
+          )}
         </Box>
       ) : reviewStatus !== 'superseded' ? (
         <>

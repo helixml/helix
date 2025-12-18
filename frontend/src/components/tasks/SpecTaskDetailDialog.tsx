@@ -36,6 +36,7 @@ import Send from '@mui/icons-material/Send'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import LaunchIcon from '@mui/icons-material/Launch'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -777,8 +778,8 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle1">
-                {displayTask.name}
+              <Typography variant="subtitle1" noWrap sx={{ maxWidth: 400 }}>
+                {displayTask.description || displayTask.name || 'Unnamed task'}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
                 <Chip
@@ -1006,31 +1007,21 @@ I'll give you feedback and we can iterate on any changes needed.`
                     Review Spec
                   </Button>
                 )}
+                {displayTask.pull_request_url && (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<LaunchIcon />}
+                    onClick={() => window.open(displayTask.pull_request_url, '_blank')}
+                  >
+                    View Pull Request
+                  </Button>
+                )}
               </Box>
 
               <Divider sx={{ mb: 3 }} />
 
-              {/* Task Name - Editable */}
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Name
-                </Typography>
-                {isEditMode ? (
-                  <TextField
-                    fullWidth
-                    size="small"
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Task name"
-                  />
-                ) : (
-                  <Typography variant="body1">
-                    {displayTask.name || 'Unnamed task'}
-                  </Typography>
-                )}
-              </Box>
-
-              {/* Full Description/Prompt - Editable */}
+              {/* Description - always show (name is derived from description) */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description
@@ -1186,6 +1177,20 @@ I'll give you feedback and we can iterate on any changes needed.`
                 {displayTask.branch_name && (
                   <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                     Branch: {displayTask.branch_name}
+                  </Typography>
+                )}
+                {displayTask.pull_request_url && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Pull Request:{' '}
+                    <a
+                      href={displayTask.pull_request_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#4caf50', textDecoration: 'underline', fontWeight: 600 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      #{displayTask.pull_request_id}
+                    </a>
                   </Typography>
                 )}
                 {activeSessionId && (

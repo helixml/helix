@@ -63,13 +63,6 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Update task - move straight to done when implementation is approved
-	now := time.Now()
-	specTask.ImplementationApprovedBy = user.ID
-	specTask.ImplementationApprovedAt = &now
-	specTask.Status = types.TaskStatusDone
-	specTask.CompletedAt = &now
-
 	if project.DefaultRepoID == "" {
 		http.Error(w, "Default repository not set for project", http.StatusBadRequest)
 		return
@@ -86,18 +79,69 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// If repo is external, push the branch and create a pull request
+	now := time.Now()
+	specTask.ImplementationApprovedBy = user.ID
+	specTask.ImplementationApprovedAt = &now
+
+	// If repo is external, move to pull_request status (awaiting merge in external system)
+	// For internal repos, move to done and instruct agent to merge
 	switch {
 	case repo.AzureDevOps != nil:
-		// Pull request should have been created on pushes, nothing to do here
+		// External repo: move to pull_request status, await merge via polling
+		specTask.Status = types.TaskStatusPullRequest
+
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to update spec task: %s", err.Error()), http.StatusInternalServerError)
 			return
 		}
-		writeResponse(w, specTask, http.StatusOK)
+
+		// Send message to agent to push a commit (triggers PR creation)
+		// The git handler will create the PR when it receives a push in pull_request status
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+
+			message := `Your implementation has been approved! Please push your changes now to open a Pull Request.
+
+If you have uncommitted changes, commit them first. If all changes are already committed, you can push an empty commit:
+git commit --allow-empty -m "chore: open pull request for review"
+git push origin ` + specTask.BranchName + `
+
+This will open a Pull Request in the external repository for code review.`
+
+			_, err := s.sendMessageToSpecTaskAgent(context.Background(), specTask, message, "")
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", specTask.ID).
+					Str("planning_session_id", specTask.PlanningSessionID).
+					Msg("Failed to send PR instruction to agent via WebSocket")
+			} else {
+				log.Info().
+					Str("task_id", specTask.ID).
+					Str("branch_name", specTask.BranchName).
+					Msg("Implementation approved - sent PR instruction to agent via WebSocket")
+			}
+		}()
+
+		// Re-fetch to get the latest PullRequestID (may have been set by concurrent push)
+		updatedTask, err := s.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get updated spec task: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		// Construct PR URL for ADO repos
+		if updatedTask.PullRequestID != "" {
+			updatedTask.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, updatedTask.PullRequestID)
+		}
+
+		writeResponse(w, updatedTask, http.StatusOK)
 		return
 	default:
-		// Proceed with merging into the default branch
+		// Internal repo: move straight to done
+		specTask.Status = types.TaskStatusDone
+		specTask.CompletedAt = &now
 	}
 
 	// Updating spec task

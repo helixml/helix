@@ -306,10 +306,7 @@ const SpecTaskRow: React.FC<{
         <TableCell>
           <Box>
             <Typography variant="body2" fontWeight="medium" noWrap>
-              {task.name}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {task.description}
+              {task.description || task.name || 'Unnamed task'}
             </Typography>
           </Box>
         </TableCell>

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -27,6 +26,7 @@ type SpecTaskOrchestrator struct {
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
+	prPollInterval        time.Duration // Interval for polling external PR status (default 1 minute)
 	testMode              bool
 }
 
@@ -71,6 +71,10 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	o.wg.Add(1)
 	go o.orchestrationLoop(ctx)
 
+	// Start PR polling loop (runs every 1 minute to check external PR status)
+	o.wg.Add(1)
+	go o.prPollLoop(ctx)
+
 	// Start cleanup routine
 	o.wg.Add(1)
 	go o.cleanupLoop(ctx)
@@ -114,7 +118,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		return
 	}
 
-	// Filter to only active tasks
+	// Filter to only active tasks (PR polling handled by separate 1-minute loop)
 	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
 		types.TaskStatusSpecGeneration:       true,
@@ -165,6 +169,8 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 		return o.handleImplementationQueued(ctx, task)
 	case types.TaskStatusImplementation:
 		return o.handleImplementation(ctx, task)
+	case types.TaskStatusPullRequest:
+		return o.handlePullRequest(ctx, task)
 	default:
 		return nil
 	}
@@ -300,12 +306,10 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		}
 	}
 
-	if task.PullRequestID != "" {
-		err := o.processExternalPullRequestStatus(ctx, task)
-		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to process external pull request status")
-		}
-	}
+	// NOTE: PR status polling removed from here to avoid hammering ADO API every
+	// 10 seconds. Now handled by dedicated prPollLoop which runs every 1 minute.
+	// Tasks move to pull_request status when user approves implementation, then
+	// prPollLoop polls ADO for merge status. See conversation with Karolis.
 
 	// Task not tracked - this is OK for new reuse-agent pattern
 	// Implementation progress is tracked via shell scripts in the sandbox
@@ -313,6 +317,24 @@ func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *t
 		Str("task_id", task.ID).
 		Msg("Task in implementation (using reused agent pattern)")
 	return nil
+}
+
+// handlePullRequest polls external repo for PR merge status
+// Called from the dedicated PR polling loop (runs every 1 minute)
+func (o *SpecTaskOrchestrator) handlePullRequest(ctx context.Context, task *types.SpecTask) error {
+	if task.PullRequestID == "" {
+		log.Warn().
+			Str("task_id", task.ID).
+			Msg("Task in pull_request status but no PullRequestID set")
+		return nil
+	}
+
+	log.Debug().
+		Str("task_id", task.ID).
+		Str("pr_id", task.PullRequestID).
+		Msg("Polling external PR status")
+
+	return o.processExternalPullRequestStatus(ctx, task)
 }
 
 func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Context, task *types.SpecTask) error {
@@ -326,24 +348,98 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		return fmt.Errorf("failed to get pull request: %w", err)
 	}
 
-	spew.Dump(pr)
-
 	switch pr.State {
 	case "active":
 		// Active - still open, nothing to do
+		log.Debug().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR still active, awaiting merge")
 	case "completed":
-		// Can move into "done"
+		// PR merged - move to done
+		now := time.Now()
 		task.Status = types.TaskStatusDone
-		task.UpdatedAt = time.Now()
+		task.MergedToMain = true
+		task.MergedAt = &now
+		task.CompletedAt = &now
+		task.UpdatedAt = now
+		log.Info().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR merged! Moving task to done")
 		return o.store.UpdateSpecTask(ctx, task)
 	case "abandoned":
-		// Can move into archived
+		// PR abandoned - archive the task
 		task.Archived = true
 		task.UpdatedAt = time.Now()
+		log.Info().
+			Str("task_id", task.ID).
+			Str("pr_id", task.PullRequestID).
+			Msg("PR abandoned, archiving task")
 		return o.store.UpdateSpecTask(ctx, task)
 	}
 
 	return nil
+}
+
+// prPollLoop polls external repos for PR merge status every minute
+func (o *SpecTaskOrchestrator) prPollLoop(ctx context.Context) {
+	defer o.wg.Done()
+
+	// Use configured interval or default to 1 minute
+	interval := o.prPollInterval
+	if interval == 0 {
+		interval = 1 * time.Minute
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Info().Dur("interval", interval).Msg("Starting PR poll loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-o.stopChan:
+			return
+		case <-ticker.C:
+			o.pollPullRequests(ctx)
+		}
+	}
+}
+
+// pollPullRequests checks all tasks in pull_request status for merge status
+func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		Status: types.TaskStatusPullRequest,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list PR tasks for polling")
+		return
+	}
+
+	if len(tasks) > 0 {
+		log.Debug().Int("count", len(tasks)).Msg("Polling external PR status for tasks")
+	}
+
+	for _, task := range tasks {
+		err := o.handlePullRequest(ctx, task)
+		if err != nil {
+			// Tasks with deleted projects are expected - don't spam logs
+			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+				log.Trace().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("PR task references deleted project - skipping")
+			} else {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to poll PR status")
+			}
+		}
+	}
 }
 
 // cleanupLoop periodically cleans up stale agents

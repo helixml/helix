@@ -21,6 +21,7 @@ import {
   MenuItem,
   FormControlLabel,
   Switch,
+  useTheme,
 } from '@mui/material'
 import { GitBranch, Plus, Brain, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -43,6 +44,7 @@ const GitRepos: FC = () => {
   const { navigate } = router
   const queryClient = useQueryClient()
   const api = useApi()
+  const theme = useTheme()
 
   // Get current org context for repo filtering
   const currentOrg = account.organizationTools.organization
@@ -233,7 +235,7 @@ const GitRepos: FC = () => {
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span style={{ color: '#3b82f6', cursor: 'pointer' }}>{ownerSlug}</span>
+                  <span style={{ color: theme.palette.secondary.main, cursor: 'pointer' }}>{ownerSlug}</span>
                   <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
                   <span style={{ fontWeight: 600 }}>repositories</span>
                 </Typography>
@@ -309,7 +311,7 @@ const GitRepos: FC = () => {
                         sx={{
                           fontSize: '1.25rem',
                           fontWeight: 600,
-                          color: '#3b82f6',
+                          color: theme.palette.secondary.main,
                           display: 'flex',
                           alignItems: 'center',
                           gap: 0.5,

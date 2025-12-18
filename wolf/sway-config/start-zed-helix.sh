@@ -127,15 +127,19 @@ if [ -n "$GIT_USER_NAME" ]; then
     echo "✅ Git user.name: $GIT_USER_NAME"
 else
     git config --global user.name "Helix Agent"
-    echo "✅ Git user.name: Helix Agent (default)"
+    echo "⚠️ Git user.name: Helix Agent (default - should have been set by executor)"
 fi
 
+# CRITICAL: Enterprise ADO deployments reject commits from non-corporate email addresses
+# The wolf_executor MUST always set GIT_USER_EMAIL - missing is a bug
 if [ -n "$GIT_USER_EMAIL" ]; then
     git config --global user.email "$GIT_USER_EMAIL"
     echo "✅ Git user.email: $GIT_USER_EMAIL"
 else
-    git config --global user.email "agent@helix.ml"
-    echo "✅ Git user.email: agent@helix.ml (default)"
+    echo "❌ FATAL: GIT_USER_EMAIL not set"
+    echo "   Enterprise ADO deployments reject commits from non-corporate email addresses"
+    echo "   This is a bug in wolf_executor - it should always pass GIT_USER_EMAIL"
+    exit 1
 fi
 
 # Configure git to use merge commits (not rebase) for concurrent agent work
@@ -177,22 +181,9 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         echo "📦 Repository: $REPO_NAME (type: $REPO_TYPE)"
         CLONE_DIR="$WORK_DIR/$REPO_NAME"
 
-        # If already cloned, pull latest .helix/startup.sh
+        # If already cloned, just skip (startup script is in helix-specs worktree)
         if [ -d "$CLONE_DIR/.git" ]; then
             echo "  ✅ Already cloned at $CLONE_DIR"
-            echo "  📥 Fetching latest startup script..."
-            if git -C "$CLONE_DIR" fetch origin 2>&1; then
-                # Use shared get_default_branch function (handles Azure DevOps repos)
-                DEFAULT_BRANCH=$(get_default_branch "$CLONE_DIR")
-                echo "  📍 Default branch: $DEFAULT_BRANCH"
-                if git -C "$CLONE_DIR" checkout "origin/$DEFAULT_BRANCH" -- .helix/startup.sh 2>/dev/null; then
-                    echo "  ✅ Updated startup script from origin/$DEFAULT_BRANCH"
-                else
-                    echo "  ℹ️  No startup script changes to pull (or file doesn't exist)"
-                fi
-            else
-                echo "  ⚠️  Failed to fetch latest changes (continuing with cached version)"
-            fi
             continue
         fi
 
@@ -403,10 +394,13 @@ echo ""
 # =========================================
 # Run project startup script (if exists)
 # =========================================
+# Startup script is now in helix-specs branch (not main branch)
+# This avoids modifying protected main branches on external repos
+HELIX_SPECS_DIR="$WORK_DIR/helix-specs"
 STARTUP_SCRIPT_PATH=""
-if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
-    PRIMARY_REPO_PATH="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
-    STARTUP_SCRIPT_PATH="$PRIMARY_REPO_PATH/.helix/startup.sh"
+
+if [ -d "$HELIX_SPECS_DIR" ]; then
+    STARTUP_SCRIPT_PATH="$HELIX_SPECS_DIR/.helix/startup.sh"
 fi
 
 if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
@@ -416,10 +410,13 @@ if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
     echo "========================================="
     echo ""
 
-    # Change to primary repository
-    if [ -d "$PRIMARY_REPO_PATH" ]; then
-        cd "$PRIMARY_REPO_PATH"
-        echo "📂 Working in: $HELIX_PRIMARY_REPO_NAME"
+    # Change to primary repository for running commands
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+        PRIMARY_REPO_PATH="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        if [ -d "$PRIMARY_REPO_PATH" ]; then
+            cd "$PRIMARY_REPO_PATH"
+            echo "📂 Working in: $HELIX_PRIMARY_REPO_NAME"
+        fi
     fi
     echo ""
 
@@ -442,9 +439,12 @@ if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
     fi
     echo ""
 else
-    if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
-        echo "No startup script found at .helix/startup.sh in $HELIX_PRIMARY_REPO_NAME"
+    if [ -d "$HELIX_SPECS_DIR" ]; then
+        echo "No startup script found at .helix/startup.sh in helix-specs"
         echo "Add a startup script in Project Settings to run setup commands"
+    elif [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+        echo "No helix-specs worktree found"
+        echo "Startup script should be in helix-specs/.helix/startup.sh"
     else
         echo "No startup script - no primary repository configured"
     fi

@@ -2926,6 +2926,104 @@ definitions:
       name:
         type: string
     type: object
+  types.AuditEventType:
+    enum:
+    - task_created
+    - task_cloned
+    - task_approved
+    - task_completed
+    - task_archived
+    - agent_prompt
+    - user_message
+    - agent_started
+    - spec_generated
+    - spec_updated
+    - review_comment
+    - review_comment_reply
+    - pr_created
+    - pr_merged
+    - git_push
+    type: string
+    x-enum-comments:
+      AuditEventAgentPrompt: Prompt sent from Helix UI to agent
+      AuditEventAgentStarted: Agent session started
+      AuditEventGitPush: Git push detected
+      AuditEventPRCreated: Pull request created
+      AuditEventPRMerged: Pull request merged
+      AuditEventReviewComment: Comment added to design review
+      AuditEventReviewCommentReply: Reply to a comment
+      AuditEventSpecGenerated: Spec was generated
+      AuditEventSpecUpdated: Spec was modified
+      AuditEventTaskCloned: Task cloned from another task
+      AuditEventUserMessage: Message sent by user inside agent (via WebSocket)
+    x-enum-varnames:
+    - AuditEventTaskCreated
+    - AuditEventTaskCloned
+    - AuditEventTaskApproved
+    - AuditEventTaskCompleted
+    - AuditEventTaskArchived
+    - AuditEventAgentPrompt
+    - AuditEventUserMessage
+    - AuditEventAgentStarted
+    - AuditEventSpecGenerated
+    - AuditEventSpecUpdated
+    - AuditEventReviewComment
+    - AuditEventReviewCommentReply
+    - AuditEventPRCreated
+    - AuditEventPRMerged
+    - AuditEventGitPush
+  types.AuditMetadata:
+    properties:
+      branch_name:
+        type: string
+      clone_group_id:
+        description: Group ID linking related cloned tasks
+        type: string
+      cloned_from_id:
+        description: Clone tracking (matches SpecTask fields)
+        type: string
+      cloned_from_project_id:
+        description: Source project ID if cloned from another project
+        type: string
+      comment_id:
+        type: string
+      design_review_id:
+        description: Design review tracking
+        type: string
+      external_task_id:
+        description: External system tracking (e.g., Azure DevOps)
+        type: string
+      external_task_url:
+        type: string
+      implementation_plan_hash:
+        description: Hash of implementation plan content
+        type: string
+      interaction_id:
+        description: For scrolling to specific interaction in session view
+        type: string
+      pull_request_id:
+        description: Pull request information
+        type: string
+      pull_request_url:
+        type: string
+      requirements_spec_hash:
+        description: Hash of requirements spec content
+        type: string
+      session_id:
+        description: Helix session/interaction linking
+        type: string
+      spec_version:
+        description: Spec versioning - capture spec state at time of event
+        type: integer
+      task_name:
+        type: string
+      task_number:
+        description: Task information
+        type: integer
+      technical_design_hash:
+        description: Hash of technical design content
+        type: string
+    type: object
   types.AuthProvider:
     enum:
     - regular
@@ -3998,6 +4096,10 @@ definitions:
         description: Password for the repository
         type: string
       project_id:
+        description: |-
+          Deprecated: ProjectID is maintained for backward compatibility only.
+          Use the project_repositories junction table for many-to-many project-repo relationships.
+          This column is kept in the database for rollback compatibility but reads should use the junction table.
         type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
@@ -5472,6 +5574,40 @@ definitions:
       user_id:
         type: string
     type: object
+  types.ProjectAuditLog:
+    properties:
+      created_at:
+        type: string
+      event_type:
+        $ref: '#/definitions/types.AuditEventType'
+      id:
+        type: string
+      metadata:
+        $ref: '#/definitions/types.AuditMetadata'
+      project_id:
+        type: string
+      prompt_text:
+        type: string
+      spec_task_id:
+        type: string
+      user_email:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.ProjectAuditLogResponse:
+    properties:
+      limit:
+        type: integer
+      logs:
+        items:
+          $ref: '#/definitions/types.ProjectAuditLog'
+        type: array
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
   types.ProjectCreateRequest:
     properties:
       default_branch:
@@ -6857,6 +6993,9 @@ definitions:
         type: string
       pull_request_id:
         type: string
+      pull_request_url:
+        description: Computed field, not stored
+        type: string
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
@@ -7327,6 +7466,7 @@ definitions:
     - implementation_queued
     - implementation
     - implementation_review
+    - pull_request
     - done
     - spec_failed
     - implementation_failed
@@ -7338,6 +7478,7 @@ definitions:
       TaskStatusImplementationFailed: Implementation failed
       TaskStatusImplementationQueued: Waiting for Zed agent pickup
       TaskStatusImplementationReview: Code review (PR created)
+      TaskStatusPullRequest: 'External repo: PR opened, awaiting merge'
       TaskStatusSpecApproved: Specs approved, ready for implementation
       TaskStatusSpecFailed: Spec generation failed
       TaskStatusSpecGeneration: Helix agent generating specs
@@ -7352,6 +7493,7 @@ definitions:
     - TaskStatusImplementationQueued
     - TaskStatusImplementation
     - TaskStatusImplementationReview
+    - TaskStatusPullRequest
     - TaskStatusDone
     - TaskStatusSpecFailed
     - TaskStatusImplementationFailed
@@ -8078,20 +8220,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -12521,6 +12663,73 @@ paths:
       summary: Grant access to a project to a team or organization member
       tags:
       - projects
+  /api/v1/projects/{id}/audit-logs:
+    get:
+      consumes:
+      - application/json
+      description: Get paginated audit logs for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Filter by event type
+        in: query
+        name: event_type
+        type: string
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by spec task ID
+        in: query
+        name: spec_task_id
+        type: string
+      - description: Filter by start date (RFC3339)
+        in: query
+        name: start_date
+        type: string
+      - description: Filter by end date (RFC3339)
+        in: query
+        name: end_date
+        type: string
+      - description: Search prompt text
+        in: query
+        name: search
+        type: string
+      - description: Page size (default 50, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProjectAuditLogResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: List project audit logs
+      tags:
+      - Projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
       description: Stop the running exploratory session for a project (stops Wolf

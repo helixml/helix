@@ -47,6 +47,7 @@ type SpecDrivenTaskService struct {
 	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService       // Service for inter-session coordination
+	auditLogService          *AuditLogService             // Service for audit logging
 	wg                       sync.WaitGroup
 }
 
@@ -70,6 +71,7 @@ func NewSpecDrivenTaskService(
 		helixAgentID:           helixAgentID,
 		zedAgentPool:           zedAgentPool,
 		testMode:               false,
+		auditLogService:        NewAuditLogService(store),
 	}
 
 	// Initialize Zed integration service
@@ -191,6 +193,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
+	// Log audit event for task creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogTaskCreated(ctx, task, req.UserID, req.UserEmail)
+	}
+
 	// DO NOT auto-start spec generation
 	// Tasks should start in backlog and wait for explicit user action to start planning
 	// This allows WIP limits to be enforced on the planning column
@@ -273,7 +280,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
-		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		// Generate unique design doc path (checks for collisions across all projects)
+		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
+			designDocPath = GenerateDesignDocPath(task, taskNumber)
+		}
+		task.DesignDocPath = designDocPath
 		log.Info().
 			Str("task_id", task.ID).
 			Int("task_number", taskNumber).
@@ -302,8 +315,17 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("HelixAppID persisted to task")
 	}
 
+	// Get primary repo name for the planning prompt (to reference in Code-Ref commits)
+	primaryRepoName := ""
+	if project != nil && project.DefaultRepoID != "" {
+		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+		if err == nil && repo != nil {
+			primaryRepoName = repo.Name
+		}
+	}
+
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines)
+	planningPrompt := BuildPlanningPrompt(task, guidelines, primaryRepoName)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -403,6 +425,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	if err != nil {
 		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
 		projectRepos = nil
+	}
+
+	// Sync base branch from upstream for external repos BEFORE starting work
+	// This ensures we have the latest code from the external repository
+	if err := s.gitRepositoryService.SyncBaseBranchForTask(ctx, task, projectRepos); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to sync base branch from upstream")
+		s.markTaskFailed(ctx, task, err.Error())
+		return
 	}
 
 	// Build list of all repository IDs to clone from project
@@ -509,6 +539,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
+
+	// Log audit event for agent started (now that session is created)
+	if s.auditLogService != nil {
+		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
+	}
 }
 
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
@@ -580,7 +615,13 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
-		task.DesignDocPath = GenerateDesignDocPath(task, taskNumber)
+		// Generate unique design doc path (checks for collisions across all projects)
+		designDocPath, err := GenerateUniqueDesignDocPath(ctx, s.store, task, taskNumber)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique design doc path, using fallback")
+			designDocPath = GenerateDesignDocPath(task, taskNumber)
+		}
+		task.DesignDocPath = designDocPath
 		log.Info().
 			Str("task_id", task.ID).
 			Int("task_number", taskNumber).
@@ -604,8 +645,13 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 			Str("branch_name", branchName).
 			Msg("Continuing work on existing branch")
 	} else {
-		// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
-		branchName = GenerateFeatureBranchName(task)
+		// New mode: generate unique feature branch name (checks for collisions across all projects)
+		var err error
+		branchName, err = GenerateUniqueBranchName(ctx, s.store, task)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique branch name, using fallback")
+			branchName = GenerateFeatureBranchName(task)
+		}
 
 		// Set base branch if not already set (defaults to repo default, handled in agent prompt)
 		if task.BaseBranch == "" && project != nil && project.DefaultRepoID != "" {
@@ -710,6 +756,14 @@ Follow these guidelines when making changes:
 		projectRepos = nil
 	}
 
+	// Sync base branch from upstream for external repos BEFORE starting work
+	// This ensures we have the latest code from the external repository
+	if err := s.gitRepositoryService.SyncBaseBranchForTask(ctx, task, projectRepos); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to sync base branch from upstream")
+		s.markTaskFailed(ctx, task, err.Error())
+		return
+	}
+
 	// Determine primary repository from project configuration
 	primaryRepoID := project.DefaultRepoID
 	if primaryRepoID == "" && len(projectRepos) > 0 {
@@ -740,7 +794,21 @@ Follow these guidelines when making changes:
 		// Creating new branch from base
 		baseBranch := task.BaseBranch
 		if baseBranch == "" {
-			baseBranch = "main" // fallback
+			// Use the primary repo's default branch as fallback
+			for _, repo := range projectRepos {
+				if repo.ID == primaryRepoID && repo.DefaultBranch != "" {
+					baseBranch = repo.DefaultBranch
+					break
+				}
+			}
+		}
+		if baseBranch == "" {
+			// Last resort: use "main" but log a warning
+			baseBranch = "main"
+			log.Warn().
+				Str("task_id", task.ID).
+				Str("project_id", task.ProjectID).
+				Msg("No base branch or default branch configured, falling back to 'main'")
 		}
 		gitInstructions = fmt.Sprintf(`**If making code changes:**
 1. git fetch origin && git checkout %s && git pull origin %s
@@ -761,8 +829,8 @@ Follow these guidelines when making changes:
 
 %s
 
-**For persistent installs:** Add commands to /home/retro/work/%s/.helix/startup.sh (runs at sandbox startup, must be idempotent).
-`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions, primaryRepoName)
+**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`, task.OriginalPrompt, guidelinesSection, primaryRepoName, gitInstructions)
 
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -874,6 +942,11 @@ Follow these guidelines when making changes:
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Just Do It mode: Zed agent launched with branch instructions")
+
+	// Log audit event for agent started (now that session is created)
+	if s.auditLogService != nil {
+		s.auditLogService.LogAgentStarted(ctx, task, session.ID, task.CreatedBy, "")
+	}
 }
 
 // buildEnvWithLocale constructs the environment variable array for desktop containers
@@ -920,6 +993,11 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	log.Info().
 		Str("task_id", taskID).
 		Msg("Spec generation completed, awaiting human review")
+
+	// Log audit event for spec generated
+	if s.auditLogService != nil {
+		s.auditLogService.LogSpecGenerated(ctx, task, task.CreatedBy, "")
+	}
 
 	// Send notification to user for spec review
 	if s.controller != nil && s.controller.Options.Notifier != nil {
@@ -993,12 +1071,17 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		if repo.ExternalURL != "" {
-			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("ApproveSpecs: pulling from remote")
+			log.Info().Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("ApproveSpecs: syncing base branch from remote")
 
-			err = s.gitRepositoryService.PullFromRemote(ctx, repo.ID, repo.DefaultBranch, false)
+			// Use SyncBaseBranch which handles divergence detection
+			err = s.gitRepositoryService.SyncBaseBranch(ctx, repo.ID, repo.DefaultBranch)
 			if err != nil {
-				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Bool("force", false).Msg("Failed to pull from remote")
-				return fmt.Errorf("failed to update base branch from external repository '%s', error: %w", repo.ExternalURL, err)
+				// Check for divergence error and format a user-friendly message
+				if divergeErr := GetBranchDivergenceError(err); divergeErr != nil {
+					return fmt.Errorf(FormatDivergenceErrorForUser(divergeErr, repo.Name))
+				}
+				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", repo.DefaultBranch).Msg("Failed to sync from remote")
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
 			}
 		}
 
@@ -1012,8 +1095,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 				Str("branch_name", branchName).
 				Msg("[ApproveSpecs] Continuing work on existing branch")
 		} else {
-			// New mode: generate feature branch name using task number (e.g., feature/install-uv-123)
-			branchName = GenerateFeatureBranchName(task)
+			// New mode: generate unique feature branch name (checks for collisions across all projects)
+			var err error
+			branchName, err = GenerateUniqueBranchName(ctx, s.store, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to generate unique branch name, using fallback")
+				branchName = GenerateFeatureBranchName(task)
+			}
 
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
@@ -1132,6 +1220,12 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			log.Warn().
 				Str("task_id", task.ID).
 				Msg("No message sender configured - agent will not receive revision instruction")
+		}
+
+		// Log audit event for review comment (revision request)
+		if s.auditLogService != nil && req.Comments != "" {
+			// reviewID=planningSessionID, commentID=empty (revision not a specific comment), commentText, userID, userEmail
+			s.auditLogService.LogReviewComment(ctx, task, task.PlanningSessionID, "", req.Comments, req.ApprovedBy, "")
 		}
 	}
 

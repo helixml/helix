@@ -1,3 +1,4 @@
+// Spec-driven task handlers with audit logging integration
 package server
 
 import (
@@ -45,8 +46,9 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Set user ID from context
+	// Set user ID and email from context
 	req.UserID = user.ID
+	req.UserEmail = user.Email
 
 	// Validate request
 	if req.Prompt == "" {
@@ -60,6 +62,11 @@ func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Req
 		log.Error().Err(err).Msg("Failed to create task from prompt")
 		http.Error(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for task creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogTaskCreated(ctx, task, user.ID, user.Email)
 	}
 
 	log.Info().
@@ -110,6 +117,17 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// Compute PullRequestURL for tasks with PullRequestID (external repos like ADO)
+	if task.PullRequestID != "" && task.PullRequestURL == "" {
+		project, err := s.Store.GetProject(ctx, task.ProjectID)
+		if err == nil && project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo.ExternalURL != "" {
+				task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -168,6 +186,21 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	// Ensure we return an empty array instead of null for empty results
 	if tasks == nil {
 		tasks = []*types.SpecTask{}
+	}
+
+	// Compute PullRequestURL for tasks with PullRequestID (external repos like ADO)
+	if projectID != "" {
+		project, err := s.Store.GetProject(ctx, projectID)
+		if err == nil && project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo.ExternalURL != "" {
+				for _, task := range tasks {
+					if task.PullRequestID != "" && task.PullRequestURL == "" {
+						task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
+					}
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -243,6 +276,11 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get updated task")
 		http.Error(w, "failed to get updated task", http.StatusInternalServerError)
 		return
+	}
+
+	// Log audit event for spec approval
+	if req.Approved && s.auditLogService != nil {
+		s.auditLogService.LogTaskApproved(ctx, task, user.ID, user.Email)
 	}
 
 	log.Info().
@@ -692,6 +730,15 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		action = "unarchived"
 	}
 	log.Info().Str("task_id", taskID).Bool("archived", req.Archived).Msgf("SpecTask %s", action)
+
+	// Log audit event for archive/unarchive
+	if s.auditLogService != nil {
+		if req.Archived {
+			s.auditLogService.LogTaskArchived(r.Context(), task, user.ID, user.Email)
+		} else {
+			s.auditLogService.LogTaskUnarchived(r.Context(), task, user.ID, user.Email)
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)

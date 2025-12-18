@@ -576,6 +576,10 @@ type Store interface {
 	// Used to assign unique task numbers for human-readable design doc paths
 	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
 
+	// Project Audit Log methods - append-only audit trail for project activity
+	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
+	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
+
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
 	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)

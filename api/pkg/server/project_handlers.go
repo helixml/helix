@@ -104,18 +104,18 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// Load startup script from primary CODE repo
-	// Startup script lives at .helix/startup.sh in the primary repository
+	// Load startup script from helix-specs branch in primary repo
+	// Startup script lives at .helix/startup.sh in the helix-specs branch
 	if project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			startupScript, err := s.projectInternalRepoService.LoadStartupScriptFromCodeRepo(primaryRepo.LocalPath)
+			startupScript, err := s.projectInternalRepoService.LoadStartupScriptFromHelixSpecs(primaryRepo.LocalPath)
 			if err != nil {
 				log.Warn().
 					Err(err).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("failed to load startup script from primary code repo")
+					Msg("failed to load startup script from helix-specs branch")
 			} else {
 				project.StartupScript = startupScript
 			}
@@ -250,6 +250,8 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 			primaryRepo.LocalPath,
 			created.Name,
 			req.StartupScript,
+			user.FullName,
+			user.Email,
 		)
 		if err != nil {
 			log.Warn().
@@ -270,6 +272,11 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		Str("project_id", created.ID).
 		Str("project_name", created.Name).
 		Msg("project created successfully")
+
+	// Log audit event for project creation
+	if s.auditLogService != nil {
+		s.auditLogService.LogProjectCreated(r.Context(), created, user.ID, user.Email)
+	}
 
 	return created, nil
 }
@@ -385,21 +392,40 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Save startup script to primary code repo (source of truth)
+	// Save startup script to helix-specs branch in the primary repo
+	// Note: We save to helix-specs (not main) to avoid conflicts with protected branches on external repos
 	if req.StartupScript != nil && project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			if err := s.projectInternalRepoService.SaveStartupScriptToCodeRepo(primaryRepo.LocalPath, *req.StartupScript); err != nil {
+			if err := s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email); err != nil {
 				log.Warn().
 					Err(err).
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("failed to save startup script to primary code repo")
+					Msg("failed to save startup script to helix-specs branch")
 			} else {
 				log.Info().
 					Str("project_id", projectID).
 					Str("primary_repo_id", project.DefaultRepoID).
-					Msg("Startup script saved to primary code repo")
+					Msg("Startup script saved to helix-specs branch")
+
+				// Push helix-specs branch to external upstream (if external repo)
+				// helix-specs is PUSH-ONLY: Helix is source of truth, always push to upstream
+				if primaryRepo.IsExternal && primaryRepo.ExternalURL != "" {
+					if err := s.gitRepositoryService.PushBranchToRemote(r.Context(), primaryRepo.ID, "helix-specs", false); err != nil {
+						log.Warn().
+							Err(err).
+							Str("project_id", projectID).
+							Str("primary_repo_id", project.DefaultRepoID).
+							Str("external_url", primaryRepo.ExternalURL).
+							Msg("failed to push helix-specs to external upstream (startup script saved locally)")
+					} else {
+						log.Info().
+							Str("project_id", projectID).
+							Str("primary_repo_id", project.DefaultRepoID).
+							Msg("Startup script pushed to external upstream (helix-specs branch)")
+					}
+				}
 			}
 		}
 	}
@@ -408,6 +434,52 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
 		Msg("project updated successfully")
+
+	// Log audit events for project updates
+	if s.auditLogService != nil {
+		// Track which fields were changed for audit log
+		var changedFields []string
+		if req.Name != nil {
+			changedFields = append(changedFields, "name")
+		}
+		if req.Description != nil {
+			changedFields = append(changedFields, "description")
+		}
+		if req.GitHubRepoURL != nil {
+			changedFields = append(changedFields, "github_repo_url")
+		}
+		if req.DefaultBranch != nil {
+			changedFields = append(changedFields, "default_branch")
+		}
+		if req.Technologies != nil {
+			changedFields = append(changedFields, "technologies")
+		}
+		if req.Status != nil {
+			changedFields = append(changedFields, "status")
+		}
+		if req.DefaultRepoID != nil {
+			changedFields = append(changedFields, "default_repo_id")
+		}
+		if req.AutoStartBacklogTasks != nil {
+			changedFields = append(changedFields, "auto_start_backlog_tasks")
+		}
+		if req.DefaultHelixAppID != nil {
+			changedFields = append(changedFields, "default_helix_app_id")
+		}
+		if req.Metadata != nil {
+			changedFields = append(changedFields, "metadata")
+		}
+
+		// Log guidelines update separately (it's versioned and more significant)
+		if req.Guidelines != nil {
+			s.auditLogService.LogProjectGuidelinesUpdated(r.Context(), project, user.ID, user.Email)
+		}
+
+		// Log general settings update if any non-guidelines fields changed
+		if len(changedFields) > 0 {
+			s.auditLogService.LogProjectSettingsUpdated(r.Context(), project, changedFields, user.ID, user.Email)
+		}
+	}
 
 	return project, nil
 }
@@ -498,6 +570,11 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
 		Msg("project archived successfully with all sessions stopped")
+
+	// Log audit event for project deletion
+	if s.auditLogService != nil {
+		s.auditLogService.LogProjectDeleted(r.Context(), project, user.ID, user.Email)
+	}
 
 	return map[string]string{"message": "project deleted successfully"}, nil
 }
@@ -1328,13 +1405,13 @@ func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError400("primary repository is external - history not available")
 	}
 
-	versions, err := s.projectInternalRepoService.GetStartupScriptHistoryFromCodeRepo(primaryRepo.LocalPath)
+	versions, err := s.projectInternalRepoService.GetStartupScriptHistoryFromHelixSpecs(primaryRepo.LocalPath)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("project_id", projectID).
 			Str("primary_repo_id", project.DefaultRepoID).
-			Msg("failed to get startup script history from code repo")
+			Msg("failed to get startup script history from helix-specs branch")
 		return nil, system.NewHTTPError500("failed to get startup script history")
 	}
 
