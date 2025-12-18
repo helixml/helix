@@ -81,7 +81,7 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 	}
 
 	// Dev mode: everyone is admin
-	if h.cfg.WebServer.AdminUsers == config.AdminAllUsers {
+	if h.cfg.WebServer.GetEffectiveAdminUsers() == config.AdminAllUsers {
 		user.Admin = true
 	}
 
@@ -231,9 +231,9 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 	}
 
 	// Check admin status:
-	// - Dev mode (ADMIN_USERS=all): everyone is admin
+	// - Dev mode (ADMIN_USERS=all or ADMIN_USER_IDS=all): everyone is admin
 	// - Otherwise: use database admin field
-	if h.cfg.WebServer.AdminUsers == config.AdminAllUsers {
+	if h.cfg.WebServer.GetEffectiveAdminUsers() == config.AdminAllUsers {
 		user.Admin = true
 	}
 

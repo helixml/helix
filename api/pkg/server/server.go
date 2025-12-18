@@ -183,7 +183,7 @@ func NewServer(
 			ClientID:     cfg.Auth.OIDC.ClientID,
 			ClientSecret: cfg.Auth.OIDC.ClientSecret,
 			RedirectURL:  helixRedirectURL,
-			AdminUsers:   cfg.WebServer.AdminUsers,
+			AdminUsers:   cfg.WebServer.GetEffectiveAdminUsers(),
 			Audience:     cfg.Auth.OIDC.Audience,
 			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
 			Store:        store,
@@ -275,7 +275,7 @@ func NewServer(
 			authenticator,
 			store,
 			authMiddlewareConfig{
-				adminUsers:  cfg.WebServer.AdminUsers,
+				adminUsers:  cfg.WebServer.GetEffectiveAdminUsers(),
 				runnerToken: cfg.WebServer.RunnerToken,
 			},
 		),

@@ -407,6 +407,9 @@ type WebServer struct {
 	// Set to "all" to make all users admins (development mode).
 	// Otherwise, admin status is determined by the user's admin field in the database.
 	AdminUsers string `envconfig:"ADMIN_USERS" description:"Set to 'all' for dev mode where everyone is admin. Otherwise uses database admin field."`
+	// DEPRECATED: Use ADMIN_USERS instead. Kept for backward compatibility.
+	// If ADMIN_USERS is empty and this contains "all", it will be used.
+	AdminUserIDs []string `envconfig:"ADMIN_USER_IDS" description:"DEPRECATED: Use ADMIN_USERS instead."`
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string `envconfig:"EVAL_USER_ID" description:""`
@@ -434,6 +437,22 @@ type WebServer struct {
 
 // AdminAllUsers is the special value for ADMIN_USERS that makes all users admins
 const AdminAllUsers = "all"
+
+// GetEffectiveAdminUsers returns the effective admin users value.
+// It checks AdminUsers first, then falls back to AdminUserIDs for backward compatibility.
+func (ws *WebServer) GetEffectiveAdminUsers() string {
+	// New config takes precedence
+	if ws.AdminUsers != "" {
+		return ws.AdminUsers
+	}
+	// Backward compatibility: check if old env var contains "all"
+	for _, id := range ws.AdminUserIDs {
+		if id == AdminAllUsers {
+			return AdminAllUsers
+		}
+	}
+	return ""
+}
 
 type SubscriptionQuotas struct {
 	Enabled    bool `envconfig:"SUBSCRIPTION_QUOTAS_ENABLED" default:"true"`

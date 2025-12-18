@@ -76,7 +76,7 @@ func NewKeycloakAuthenticator(cfg *config.ServerConfig, store store.Store) (*Key
 		ClientID:     cfg.Auth.Keycloak.APIClientID,
 		ClientSecret: cfg.Auth.Keycloak.ClientSecret,
 		RedirectURL:  helixRedirectURL,
-		AdminUsers:   cfg.WebServer.AdminUsers,
+		AdminUsers:   cfg.WebServer.GetEffectiveAdminUsers(),
 		Audience:     "account",
 		Scopes:       []string{"openid", "profile", "email"},
 		Store:        store,
