@@ -148,6 +148,16 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 	if s.SessionContextService != nil {
 		s.SessionContextService.SetTestMode(enabled)
 	}
+	if s.auditLogService != nil {
+		s.auditLogService.SetTestMode(enabled)
+	}
+}
+
+// SetAuditLogWaitGroup sets a WaitGroup for tracking async audit log operations (used in tests)
+func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
+	if s.auditLogService != nil {
+		s.auditLogService.SetWaitGroup(wg)
+	}
 }
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
