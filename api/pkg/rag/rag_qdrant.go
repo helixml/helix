@@ -155,6 +155,7 @@ func (q *Qdrant) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexC
 	_, err = q.client.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: q.collection,
 		Points:         points,
+		Wait:           qdrant.PtrOf(true),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upsert points: %w", err)
