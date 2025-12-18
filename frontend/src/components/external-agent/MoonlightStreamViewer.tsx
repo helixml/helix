@@ -127,6 +127,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [userBitrate, setUserBitrate] = useState<number | null>(null); // User-selected bitrate (overrides backend)
   const [bitrateMenuAnchor, setBitrateMenuAnchor] = useState<null | HTMLElement>(null);
   const manualBitrateSelectionTimeRef = useRef<number>(0); // Track when user manually selected bitrate (20s cooldown before auto-reduce)
+  // Bandwidth recommendation state - instead of auto-switching, we show a recommendation popup
+  const [bitrateRecommendation, setBitrateRecommendation] = useState<{
+    type: 'decrease' | 'increase';
+    targetBitrate: number;
+    reason: string;
+    frameDrift?: number; // Current frame drift for decrease recommendations
+    measuredThroughput?: number; // Measured throughput for increase recommendations
+  } | null>(null);
   const [streamingMode, setStreamingMode] = useState<StreamingMode>('websocket'); // Default to WebSocket video transport
   const [canvasDisplaySize, setCanvasDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
@@ -669,6 +677,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     // Mark as explicitly closing to prevent 'disconnected' event from showing "Reconnecting..." UI
     isExplicitlyClosingRef.current = true;
+
+    // Clear any pending bandwidth recommendation (stale recommendations shouldn't persist across sessions)
+    setBitrateRecommendation(null);
 
     // Cancel any pending reconnect timeout
     if (pendingReconnectTimeoutRef.current) {
@@ -1470,18 +1481,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, []);
 
-  // Calculate optimal bitrate from measured throughput (with 25% headroom)
+  // Calculate optimal bitrate from measured throughput (with 25% headroom + extra pessimism)
+  // We go down one notch from what we could theoretically support to be conservative
   const calculateOptimalBitrate = useCallback((throughputMbps: number): number => {
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80];
     const maxSustainableBitrate = throughputMbps / 1.25;
 
     // Find highest bitrate option that fits
+    let optimalIndex = 0;
     for (let i = BITRATE_OPTIONS.length - 1; i >= 0; i--) {
       if (BITRATE_OPTIONS[i] <= maxSustainableBitrate) {
-        return BITRATE_OPTIONS[i];
+        optimalIndex = i;
+        break;
       }
     }
-    return BITRATE_OPTIONS[0]; // Default to lowest
+
+    // Be more pessimistic: go down one notch since quality difference is minimal
+    // and we'd rather start low and recommend increasing than start high and have stuttering
+    const pessimisticIndex = Math.max(0, optimalIndex - 1);
+    return BITRATE_OPTIONS[pessimisticIndex];
   }, []);
 
   // Auto-connect when wolfLobbyId becomes available
@@ -1851,17 +1869,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           const timeSinceLastChange = now - lastBitrateChangeRef.current;
 
           if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
-            // Step down one tier
+            // Step down one tier - but show recommendation instead of auto-switching
             const currentIndex = BITRATE_OPTIONS.indexOf(currentBitrate);
             if (currentIndex > 0) {
               const newBitrate = BITRATE_OPTIONS[currentIndex - 1];
-              console.log(`[AdaptiveBitrate] Sustained high frame drift (${congestionCheckCountRef.current} samples, ${frameDrift.toFixed(0)}ms), reducing: ${currentBitrate} -> ${newBitrate} Mbps`);
-              addChartEvent('rtt_spike', `Sustained drift ${frameDrift.toFixed(0)}ms, reducing ${currentBitrate}→${newBitrate} Mbps`);
+              console.log(`[AdaptiveBitrate] Sustained high frame drift (${congestionCheckCountRef.current} samples, ${frameDrift.toFixed(0)}ms), recommending: ${currentBitrate} -> ${newBitrate} Mbps`);
 
+              // Show recommendation popup instead of auto-switching
+              setBitrateRecommendation({
+                type: 'decrease',
+                targetBitrate: newBitrate,
+                reason: `Your connection is experiencing delays (${frameDrift.toFixed(0)}ms frame drift)`,
+                frameDrift: frameDrift,
+              });
+
+              // Reset counters so we don't keep re-recommending
               lastBitrateChangeRef.current = now;
               stableCheckCountRef.current = 0;
-              congestionCheckCountRef.current = 0; // Reset after reduction
-              setUserBitrate(newBitrate);
+              congestionCheckCountRef.current = 0;
               return;
             }
           }
@@ -1908,10 +1933,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
                 if (targetBitrate > currentBitrate) {
                   console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps`);
-                  console.log(`[AdaptiveBitrate] Jumping directly: ${currentBitrate} → ${targetBitrate} Mbps`);
-                  addChartEvent('increase', `Probe: ${measuredThroughputMbps.toFixed(0)} Mbps, jumping ${currentBitrate}→${targetBitrate} Mbps`);
+                  console.log(`[AdaptiveBitrate] Recommending upgrade: ${currentBitrate} → ${targetBitrate} Mbps`);
+
+                  // Show recommendation popup instead of auto-switching
+                  setBitrateRecommendation({
+                    type: 'increase',
+                    targetBitrate: targetBitrate,
+                    reason: `Your connection has improved (measured ${measuredThroughputMbps.toFixed(0)} Mbps)`,
+                    measuredThroughput: measuredThroughputMbps,
+                  });
+
                   lastBitrateChangeRef.current = Date.now();
-                  setUserBitrate(targetBitrate);
                 } else {
                   console.log(`[AdaptiveBitrate] Probe measured ${measuredThroughputMbps.toFixed(1)} Mbps → max sustainable ${maxSustainableBitrate.toFixed(1)} Mbps (not enough for next tier)`);
                   lastBitrateChangeRef.current = Date.now();
@@ -2991,6 +3023,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               onClick={() => {
                 setUserBitrate(bitrate);
                 setBitrateMenuAnchor(null);
+                // Clear any pending recommendation since user made an explicit choice
+                setBitrateRecommendation(null);
                 // Record manual selection time - adaptive algorithm will wait 20s before auto-reducing
                 manualBitrateSelectionTimeRef.current = Date.now();
                 // The userBitrate change effect will handle reconnecting with proper status message
@@ -3039,6 +3073,100 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
               Screenshot mode ({screenshotFps} FPS @ {screenshotQuality}% quality)
             </Typography>
+          </Box>
+        </Box>
+      )}
+
+      {/* Bandwidth Recommendation Popup */}
+      {bitrateRecommendation && isConnected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: shouldPollScreenshots ? 90 : 50, // Below screenshot banner if visible
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999,
+            backgroundColor: bitrateRecommendation.type === 'decrease'
+              ? 'rgba(255, 152, 0, 0.95)' // Orange for decrease warning
+              : 'rgba(76, 175, 80, 0.95)', // Green for increase opportunity
+            color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
+            padding: '8px 16px',
+            borderRadius: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1,
+            fontFamily: 'monospace',
+            fontSize: '0.8rem',
+            maxWidth: '90%',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {bitrateRecommendation.type === 'decrease' ? (
+              <SignalCellularAlt sx={{ fontSize: 18 }} />
+            ) : (
+              <Speed sx={{ fontSize: 18 }} />
+            )}
+            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+              {bitrateRecommendation.type === 'decrease'
+                ? 'Slow connection detected'
+                : 'Connection improved'}
+            </Typography>
+          </Box>
+          <Typography variant="caption" sx={{ textAlign: 'center', opacity: 0.9 }}>
+            {bitrateRecommendation.reason}
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => {
+                // Apply the recommended bitrate
+                setUserBitrate(bitrateRecommendation.targetBitrate);
+                manualBitrateSelectionTimeRef.current = Date.now();
+                addChartEvent(
+                  bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
+                  `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
+                );
+                setBitrateRecommendation(null);
+              }}
+              sx={{
+                backgroundColor: bitrateRecommendation.type === 'decrease' ? '#d84315' : '#2e7d32',
+                color: 'white',
+                fontSize: '0.7rem',
+                px: 2,
+                py: 0.5,
+                textTransform: 'none',
+                '&:hover': {
+                  backgroundColor: bitrateRecommendation.type === 'decrease' ? '#bf360c' : '#1b5e20',
+                },
+              }}
+            >
+              Switch to {bitrateRecommendation.targetBitrate} Mbps
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => {
+                console.log(`[AdaptiveBitrate] User dismissed ${bitrateRecommendation.type} recommendation`);
+                setBitrateRecommendation(null);
+              }}
+              sx={{
+                borderColor: bitrateRecommendation.type === 'decrease' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
+                color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
+                fontSize: '0.7rem',
+                px: 1.5,
+                py: 0.5,
+                textTransform: 'none',
+                '&:hover': {
+                  borderColor: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
+                  backgroundColor: 'rgba(0,0,0,0.1)',
+                },
+              }}
+            >
+              Dismiss
+            </Button>
           </Box>
         </Box>
       )}
