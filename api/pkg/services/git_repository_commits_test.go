@@ -69,8 +69,9 @@ func TestListCommits(t *testing.T) {
 
 	repoID := "test-repo-id"
 	gitRepo := &types.GitRepository{
-		ID:        repoID,
-		LocalPath: repoPath,
+		ID:            repoID,
+		LocalPath:     repoPath,
+		DefaultBranch: "master",
 	}
 
 	service := NewGitRepositoryService(
@@ -313,8 +314,9 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 		repoID := "test-repo"
 		gitRepo := &types.GitRepository{
-			ID:        repoID,
-			LocalPath: repoPath,
+			ID:            repoID,
+			LocalPath:     repoPath,
+			DefaultBranch: "master",
 		}
 
 		mockStore.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(gitRepo, nil)
@@ -353,8 +355,9 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 		repoID := "test-repo-2"
 		gitRepo := &types.GitRepository{
-			ID:        repoID,
-			LocalPath: repoPath,
+			ID:            repoID,
+			LocalPath:     repoPath,
+			DefaultBranch: "master",
 		}
 
 		mockStore.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(gitRepo, nil)
@@ -393,8 +396,9 @@ func TestListCommits_ErrorCases(t *testing.T) {
 
 		repoID := "test-repo-3"
 		gitRepo := &types.GitRepository{
-			ID:        repoID,
-			LocalPath: repoPath,
+			ID:            repoID,
+			LocalPath:     repoPath,
+			DefaultBranch: "master",
 		}
 
 		mockStore.EXPECT().GetGitRepository(gomock.Any(), repoID).Return(gitRepo, nil)
