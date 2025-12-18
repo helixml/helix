@@ -1179,6 +1179,20 @@ I'll give you feedback and we can iterate on any changes needed.`
                     Branch: {displayTask.branch_name}
                   </Typography>
                 )}
+                {displayTask.pull_request_url && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Pull Request:{' '}
+                    <a
+                      href={displayTask.pull_request_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#4caf50', textDecoration: 'underline', fontWeight: 600 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      #{displayTask.pull_request_id}
+                    </a>
+                  </Typography>
+                )}
                 {activeSessionId && (
                   <>
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
