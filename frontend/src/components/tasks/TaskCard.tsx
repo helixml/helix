@@ -81,6 +81,7 @@ interface SpecTaskWithExtras {
   cloned_from_id?: string
   pull_request_id?: string
   pull_request_url?: string
+  implementation_approved_at?: string
 }
 
 interface KanbanColumn {
@@ -828,34 +829,66 @@ export default function TaskCard({
         {/* Pull Request phase - awaiting merge in external repo */}
         {task.phase === 'pull_request' && (
           <Box sx={{ mt: 1.5 }}>
-            {task.pull_request_url && (
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<LaunchIcon />}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  window.open(task.pull_request_url, '_blank')
-                }}
-                fullWidth
-                sx={{ mb: 1 }}
-              >
-                View Pull Request
-              </Button>
+            {task.pull_request_url ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<LaunchIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.open(task.pull_request_url, '_blank')
+                  }}
+                  fullWidth
+                  sx={{ mb: 1 }}
+                >
+                  View Pull Request
+                </Button>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: '0.7rem',
+                    color: 'text.secondary',
+                    fontStyle: 'italic',
+                    display: 'block',
+                    textAlign: 'center',
+                  }}
+                >
+                  Address review comments with agent.<br />Moves to Merged when PR closes.
+                </Typography>
+              </>
+            ) : (
+              (() => {
+                // Calculate seconds since approval
+                const approvedAt = task.implementation_approved_at ? new Date(task.implementation_approved_at).getTime() : 0
+                const secondsSinceApproval = approvedAt ? (Date.now() - approvedAt) / 1000 : 0
+                const isWaitingTooLong = secondsSinceApproval > 30
+
+                return isWaitingTooLong ? (
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block' }}>
+                      Agent hasn't pushed feature branch yet. Please check if the agent is having trouble.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={20} />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '0.7rem',
+                        color: 'text.secondary',
+                        fontStyle: 'italic',
+                        textAlign: 'center',
+                      }}
+                    >
+                      Waiting for agent to push branch to create PR...
+                    </Typography>
+                  </Box>
+                )
+              })()
             )}
-            <Typography
-              variant="caption"
-              sx={{
-                fontSize: '0.7rem',
-                color: 'text.secondary',
-                fontStyle: 'italic',
-                display: 'block',
-                textAlign: 'center',
-              }}
-            >
-              Address review comments with agent.<br />Moves to Merged when PR closes.
-            </Typography>
           </Box>
         )}
 
