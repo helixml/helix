@@ -232,7 +232,7 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath st
 	return versions, nil
 }
 
-// InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in a code repo
+// InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in helix-specs branch
 // This is used when a project is created and a primary repo is selected
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string, userName string, userEmail string) error {
@@ -243,8 +243,8 @@ func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath stri
 		return fmt.Errorf("code repo path not set")
 	}
 
-	// Check if startup script already exists
-	existingScript, err := s.LoadStartupScriptFromCodeRepo(codeRepoPath)
+	// Check if startup script already exists in helix-specs branch
+	existingScript, err := s.LoadStartupScriptFromHelixSpecs(codeRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to check existing startup script: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath stri
 	if existingScript != "" {
 		log.Info().
 			Str("code_repo_path", codeRepoPath).
-			Msg("Startup script already exists in code repo, not overwriting")
+			Msg("Startup script already exists in helix-specs, not overwriting")
 		return nil
 	}
 
@@ -276,7 +276,8 @@ echo "✅ Project startup complete"
 `
 	}
 
-	return s.SaveStartupScriptToCodeRepo(codeRepoPath, startupScript, userName, userEmail)
+	// Save to helix-specs branch (not main) to avoid protected branch issues
+	return s.SaveStartupScriptToHelixSpecs(codeRepoPath, startupScript, userName, userEmail)
 }
 
 // InitializeCodeRepoFromSample creates a code repository with sample code
