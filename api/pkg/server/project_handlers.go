@@ -250,6 +250,8 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 			primaryRepo.LocalPath,
 			created.Name,
 			req.StartupScript,
+			user.FullName,
+			user.Email,
 		)
 		if err != nil {
 			log.Warn().
@@ -394,7 +396,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.StartupScript != nil && project.DefaultRepoID != "" {
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
-			if err := s.projectInternalRepoService.SaveStartupScriptToCodeRepo(primaryRepo.LocalPath, *req.StartupScript); err != nil {
+			if err := s.projectInternalRepoService.SaveStartupScriptToCodeRepo(primaryRepo.LocalPath, *req.StartupScript, user.FullName, user.Email); err != nil {
 				log.Warn().
 					Err(err).
 					Str("project_id", projectID).

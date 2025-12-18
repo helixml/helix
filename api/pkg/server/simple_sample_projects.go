@@ -814,7 +814,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	// NOTE: Internal repos are no longer used - startup script lives in the primary code repo at .helix/startup.sh
 	if req.SampleProjectID == "helix-blog-posts" {
 		// Special case: Clone real HelixML/helix repo as code repo
-		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git")
+		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git", user.FullName, user.Email)
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -880,14 +880,14 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "jupyter-financial-analysis" {
 		// Special case: Create TWO repositories - one for notebooks, one for pyforest library
 
 		// Repository 1: Jupyter notebooks
-		notebooksRepoID, notebooksPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "jupyter-notebooks")
+		notebooksRepoID, notebooksPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "jupyter-notebooks", user.FullName, user.Email)
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -928,7 +928,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Msg("✅ Notebooks repository created")
 
 		// Repository 2: pyforest library
-		pyforestRepoID, pyforestPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "pyforest-library")
+		pyforestRepoID, pyforestPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "pyforest-library", user.FullName, user.Email)
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -977,7 +977,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in primary code repo (notebooks)
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "clone-demo-pipelines" {
@@ -1059,7 +1059,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Create code repository for this pipeline
-			codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdPipelineProject, pipelineCfg.sampleCodeID)
+			codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdPipelineProject, pipelineCfg.sampleCodeID, user.FullName, user.Email)
 			if repoErr != nil {
 				log.Error().Err(repoErr).Str("project_id", createdPipelineProject.ID).Msg("Failed to initialize pipeline code repo")
 				continue
@@ -1100,7 +1100,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Initialize startup script
-			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdPipelineProject.Name, pipelineSampleCode.StartupScript); scriptErr != nil {
+			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdPipelineProject.Name, pipelineSampleCode.StartupScript, user.FullName, user.Email); scriptErr != nil {
 				log.Warn().Err(scriptErr).Msg("Failed to initialize startup script in pipeline repo")
 			}
 
@@ -1175,7 +1175,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}, nil
 	} else {
 		// Use hardcoded sample code for all other samples
-		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID)
+		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID, user.FullName, user.Email)
 		if repoErr != nil {
 			log.Error().
 				Err(repoErr).
@@ -1244,7 +1244,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript); err != nil {
+		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.FullName, user.Email); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	}

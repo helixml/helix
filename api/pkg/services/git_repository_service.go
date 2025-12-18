@@ -201,6 +201,11 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	}
 
 	if gitRepo.ExternalURL == "" {
+		// Validate creator credentials for commits
+		if request.CreatorName == "" || request.CreatorEmail == "" {
+			return nil, fmt.Errorf("creator name and email are required for repository creation")
+		}
+
 		// Initialize git repository as bare
 		// ALL filestore repos are bare - agents and API server push to them
 		initialFiles := request.InitialFiles
@@ -210,7 +215,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
 			}
 		}
-		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true)
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true, request.CreatorName, request.CreatorEmail)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
@@ -707,7 +712,7 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	currentName := request.Name
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		request := &types.GitRepositoryCreateRequest{
+		createReq := &types.GitRepositoryCreateRequest{
 			Name:           currentName,
 			Description:    request.Description,
 			RepoType:       types.GitRepositoryTypeCode,
@@ -720,9 +725,11 @@ func (s *GitRepositoryService) CreateSampleRepository(
 				"created_from": "sample",
 			},
 			KoditIndexing: request.KoditIndexing,
+			CreatorName:   request.CreatorName,
+			CreatorEmail:  request.CreatorEmail,
 		}
 
-		repo, err := s.CreateRepository(ctx, request)
+		repo, err := s.CreateRepository(ctx, createReq)
 		if err == nil {
 			// Success!
 			if currentName != request.Name {
@@ -793,13 +800,19 @@ func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string)
 }
 
 // initializeGitRepository initializes a new git repository with initial files
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
 	defaultBranch string,
 	repoName string,
 	initialFiles map[string]string,
 	isBare bool,
+	userName string,
+	userEmail string,
 ) error {
+	if userName == "" || userEmail == "" {
+		return fmt.Errorf("userName and userEmail are required for commits")
+	}
 	// Create repository directory
 	err := os.MkdirAll(repoPath, 0755)
 	if err != nil {
@@ -858,8 +871,8 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 		_, err = worktree.Commit("Initial commit", &git.CommitOptions{
 			Author: &object.Signature{
-				Name:  "Helix System",
-				Email: "system@helix.ml",
+				Name:  userName,
+				Email: userEmail,
 				When:  time.Now(),
 			},
 		})
@@ -1006,8 +1019,8 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 	// Initial commit
 	signature := &object.Signature{
-		Name:  s.gitUserName,
-		Email: s.gitUserEmail,
+		Name:  userName,
+		Email: userEmail,
 		When:  time.Now(),
 	}
 
