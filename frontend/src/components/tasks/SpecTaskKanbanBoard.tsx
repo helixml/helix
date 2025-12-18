@@ -82,7 +82,7 @@ import gitRepositoryService, {
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
 // SpecTask types and statuses
-type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
+type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed';
 type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // Helper function to map backend status to frontend phase
@@ -114,7 +114,12 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
     phase = 'implementation';
     planningStatus = 'completed';
   }
-  // Completed phase
+  // Pull Request phase (external repos - awaiting merge)
+  else if (status === 'pull_request') {
+    phase = 'pull_request';
+    planningStatus = 'completed';
+  }
+  // Completed/Merged phase
   else if (status === 'done' || status === 'completed') {
     phase = 'completed';
     planningStatus = 'completed';
@@ -169,6 +174,7 @@ interface SpecTaskKanbanBoardProps {
     implementation: number;
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
+  hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
   // repositories prop removed - repos are now managed at project level
 }
 
@@ -182,8 +188,9 @@ const DroppableColumn: React.FC<{
   projectId?: string;
   focusTaskId?: string;
   archivingTaskId?: string | null;
+  hasExternalRepo?: boolean;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -205,6 +212,7 @@ const DroppableColumn: React.FC<{
         projectId={projectId}
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
+        hasExternalRepo={hasExternalRepo}
       />
     );
   };
@@ -216,6 +224,7 @@ const DroppableColumn: React.FC<{
         case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
         case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
         case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
+        case 'pull_request': return { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.08)' }; // Purple for PR
         case 'completed': return { color: '#6b7280', bg: 'transparent' };
         default: return { color: '#6b7280', bg: 'transparent' };
       }
@@ -340,6 +349,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
+  hasExternalRepo = false,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -407,51 +417,69 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Kanban columns configuration - Linear color scheme
-  const columns: KanbanColumn[] = useMemo(() => [
-    {
-      id: 'backlog',
-      title: 'Backlog',
-      color: '#6b7280',
-      backgroundColor: 'transparent',
-      description: 'Tasks without specifications',
-      tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
-    },
-    {
-      id: 'planning',
-      title: 'Planning',
-      color: '#f59e0b',
-      backgroundColor: 'rgba(245, 158, 11, 0.08)',
-      description: 'Specs being generated',
-      limit: WIP_LIMITS.planning,
-      tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
-    },
-    {
-      id: 'review',
-      title: 'Spec Review',
-      color: '#3b82f6',
-      backgroundColor: 'rgba(59, 130, 246, 0.08)',
-      description: 'Ready for review',
-      limit: WIP_LIMITS.review,
-      tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
-    },
-    {
-      id: 'implementation',
-      title: 'In Progress',
-      color: '#10b981',
-      backgroundColor: 'rgba(16, 185, 129, 0.08)',
-      description: 'Implementation active',
-      limit: WIP_LIMITS.implementation,
-      tasks: tasks.filter(t => (t as any).phase === 'implementation'),
-    },
-    {
+  // Pull Request column only shown for external repos (ADO)
+  const columns: KanbanColumn[] = useMemo(() => {
+    const baseColumns: KanbanColumn[] = [
+      {
+        id: 'backlog',
+        title: 'Backlog',
+        color: '#6b7280',
+        backgroundColor: 'transparent',
+        description: 'Tasks without specifications',
+        tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
+      },
+      {
+        id: 'planning',
+        title: 'Planning',
+        color: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
+        description: 'Specs being generated',
+        limit: WIP_LIMITS.planning,
+        tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
+      },
+      {
+        id: 'review',
+        title: 'Spec Review',
+        color: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+        description: 'Ready for review',
+        limit: WIP_LIMITS.review,
+        tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
+      },
+      {
+        id: 'implementation',
+        title: 'In Progress',
+        color: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+        description: 'Implementation active',
+        limit: WIP_LIMITS.implementation,
+        tasks: tasks.filter(t => (t as any).phase === 'implementation'),
+      },
+    ];
+
+    // Only show Pull Request column for external repos (ADO)
+    if (hasExternalRepo) {
+      baseColumns.push({
+        id: 'pull_request',
+        title: 'Pull Request',
+        color: '#8b5cf6',
+        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+        description: 'Awaiting merge in external repo',
+        tasks: tasks.filter(t => (t as any).phase === 'pull_request' || t.status === 'pull_request'),
+      });
+    }
+
+    baseColumns.push({
       id: 'completed',
-      title: 'Done',
+      title: 'Merged',
       color: '#6b7280',
       backgroundColor: 'transparent',
-      description: 'Completed',
+      description: 'Merged to main',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
-    },
-  ], [tasks, theme, wipLimits]);
+    });
+
+    return baseColumns;
+  }, [tasks, theme, wipLimits, hasExternalRepo]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
@@ -1026,23 +1054,18 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         onClick={() => onTaskClick?.(task)}
       >
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              {/* Task header */}
+              {/* Task header - show description (name is derived from it) */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                  {task.name}
+                  {(task.description || task.name || '').length > 100
+                    ? `${(task.description || task.name || '').substring(0, 100)}...`
+                    : (task.description || task.name || 'Unnamed task')
+                  }
                 </Typography>
                 <IconButton size="small" onClick={(e) => e.stopPropagation()}>
                   <MoreIcon fontSize="small" />
                 </IconButton>
               </Box>
-
-              {/* Task description */}
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {(task.description || '').length > 100 
-                  ? `${(task.description || '').substring(0, 100)}...` 
-                  : task.description || 'No description'
-                }
-              </Typography>
 
               {/* Status chips */}
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
@@ -1239,6 +1262,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             projectId={projectId}
             focusTaskId={focusTaskId}
             archivingTaskId={archivingTaskId}
+            hasExternalRepo={hasExternalRepo}
             theme={theme}
           />
         ))}

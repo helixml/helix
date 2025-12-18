@@ -26,6 +26,7 @@ import {
   Tab,
   Tooltip,
   Paper,
+  useTheme,
 } from '@mui/material'
 import {
   GitBranch,
@@ -42,6 +43,8 @@ import {
   EyeOff,
   GitCommit,
   GitPullRequest,
+  Kanban,
+  Plus,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -53,6 +56,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   useGitRepository,
+  useGitRepositories,
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
@@ -60,7 +64,9 @@ import {
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   useCreateBranch,
+  useCreateGitRepository,
 } from '../services/gitRepositoryService'
+import { useListProjects } from '../services/projectService'
 import {
   useListRepositoryAccessGrants,
   useCreateRepositoryAccessGrant,
@@ -68,6 +74,7 @@ import {
 } from '../services/repositoryAccessGrantService'
 import {
   useKoditEnrichments,
+  useKoditStatus,
   groupEnrichmentsBySubtype,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -76,7 +83,8 @@ import CodeIntelligenceTab from '../components/git/CodeIntelligenceTab'
 import CommitsTab from '../components/git/CommitsTab'
 import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
-import { TypesExternalRepositoryType } from '../api/api'
+import CreateProjectDialog from '../components/project/CreateProjectDialog'
+import { TypesExternalRepositoryType, TypesAzureDevOps, TypesGitRepository } from '../api/api'
 
 const TAB_NAMES = ['code', 'code-intelligence', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -93,15 +101,17 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
     return ''
   }
 
+  // Priority 1: Use repo's configured default branch
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  // Priority 2: Common defaults if no configured default
   if (branches.includes('main')) {
     return 'main'
   }
   if (branches.includes('master')) {
     return 'master'
-  }
-
-  if (defaultBranch && branches.includes(defaultBranch)) {
-    return defaultBranch
   }
 
   return branches[0] || ''
@@ -115,6 +125,7 @@ const GitRepoDetail: FC = () => {
   const queryClient = useQueryClient()
   const api = useApi()
   const snackbar = useSnackbar()
+  const theme = useTheme()
 
   const currentOrg = account.organizationTools.organization
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
@@ -133,20 +144,42 @@ const GitRepoDetail: FC = () => {
   const pushPullMutation = usePushPullGitRepository()
   const createBranchMutation = useCreateBranch()
 
+  // Fetch projects that use this repository as their primary repo
+  const { data: allProjects = [] } = useListProjects(currentOrg?.id)
+  const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
+
+  // Fetch all repositories for the create project dialog
+  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories({ ownerId })
+  const createRepoMutation = useCreateGitRepository()
+
   // Query parameters
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
   const currentBranch = branchFromQuery
   const commitsBranch = branchFromQuery  
 
-  // Kodit code intelligence enrichments (internal summary types filtered in backend)
-  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing })
+  // Kodit code intelligence status and enrichments
+  // Get indexing status to determine polling frequency
+  const { data: koditStatus } = useKoditStatus(repoId || '', {
+    enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing
+  })
+
+  // Poll more frequently (3s) when actively indexing to show enrichments flowing in
+  // Otherwise use default (30s for latest, no polling for specific commits)
+  const isActivelyIndexing = koditStatus?.status === 'indexing' || koditStatus?.status === 'in_progress'
+  const enrichmentsRefetchInterval = isActivelyIndexing ? 3000 : undefined
+
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, {
+    enabled: !isLoading && repository !== undefined && repository !== null && repository?.kodit_indexing,
+    refetchInterval: enrichmentsRefetchInterval,
+  })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
 
   // UI State
   const [currentTab, setCurrentTab] = useState<TabName>(() => getTabName(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
   const [forcePushDialogOpen, setForcePushDialogOpen] = useState(false)
@@ -400,6 +433,46 @@ const GitRepoDetail: FC = () => {
     }
   }
 
+  // Handlers for CreateProjectDialog
+  const handleCreateRepoForProject = async (name: string, description: string): Promise<TypesGitRepository | null> => {
+    try {
+      const result = await createRepoMutation.mutateAsync({
+        name,
+        description,
+        organization_id: currentOrg?.id,
+      })
+      return result || null
+    } catch (err) {
+      snackbar.error('Failed to create repository')
+      return null
+    }
+  }
+
+  const handleLinkRepoForProject = async (
+    url: string,
+    name: string,
+    type: TypesExternalRepositoryType,
+    username?: string,
+    password?: string,
+    azureDevOps?: TypesAzureDevOps
+  ): Promise<TypesGitRepository | null> => {
+    try {
+      const result = await createRepoMutation.mutateAsync({
+        name,
+        external_url: url,
+        external_type: type,
+        username,
+        password,
+        azure_devops: azureDevOps,
+        organization_id: currentOrg?.id,
+      })
+      return result || null
+    } catch (err) {
+      snackbar.error('Failed to link repository')
+      return null
+    }
+  }
+
   const handleCreateAccessGrant = async (request: any) => {
     try {
       const result = await createAccessGrantMutation.mutateAsync(request)
@@ -600,7 +673,7 @@ const GitRepoDetail: FC = () => {
                 <Box
                   component="span"
                   onClick={() => account.orgNavigate('projects', { tab: 'repositories' })}
-                  sx={{ color: '#3b82f6', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                  sx={{ color: theme.palette.secondary.main, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
                 >
                   {ownerSlug}
                 </Box>
@@ -637,6 +710,48 @@ const GitRepoDetail: FC = () => {
                   variant="outlined"
                 />
               </Box>
+            </Box>
+
+            {/* Project actions - prominent button in top right */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, minWidth: 200 }}>
+              {projectsUsingThisRepo.length > 0 ? (
+                <>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Used by {projectsUsingThisRepo.length === 1 ? 'project' : 'projects'}:
+                  </Typography>
+                  {projectsUsingThisRepo.map((project) => (
+                    <Button
+                      key={project.id}
+                      variant="contained"
+                      color="secondary"
+                      startIcon={<Kanban size={16} />}
+                      onClick={() => account.orgNavigate('project-specs', { id: project.id })}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      {project.name}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="text"
+                    size="small"
+                    startIcon={<Plus size={14} />}
+                    onClick={() => setCreateProjectDialogOpen(true)}
+                    sx={{ mt: 0.5 }}
+                  >
+                    Use in Another Project
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<Plus size={16} />}
+                  onClick={() => setCreateProjectDialogOpen(true)}
+                  sx={{ whiteSpace: 'nowrap' }}
+                >
+                  Use in New Project
+                </Button>
+              )}
             </Box>
           </Box>
 
@@ -1267,6 +1382,17 @@ const GitRepoDetail: FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Create Project Dialog */}
+        <CreateProjectDialog
+          open={createProjectDialogOpen}
+          onClose={() => setCreateProjectDialogOpen(false)}
+          repositories={allRepositories}
+          reposLoading={allReposLoading}
+          onCreateRepo={handleCreateRepoForProject}
+          onLinkRepo={handleLinkRepoForProject}
+          preselectedRepoId={repoId}
+        />
       </Container>
     </Page>
   )

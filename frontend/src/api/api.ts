@@ -1713,6 +1713,58 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export enum TypesAuditEventType {
+  AuditEventTaskCreated = "task_created",
+  AuditEventTaskCloned = "task_cloned",
+  AuditEventTaskApproved = "task_approved",
+  AuditEventTaskCompleted = "task_completed",
+  AuditEventTaskArchived = "task_archived",
+  AuditEventAgentPrompt = "agent_prompt",
+  AuditEventUserMessage = "user_message",
+  AuditEventAgentStarted = "agent_started",
+  AuditEventSpecGenerated = "spec_generated",
+  AuditEventSpecUpdated = "spec_updated",
+  AuditEventReviewComment = "review_comment",
+  AuditEventReviewCommentReply = "review_comment_reply",
+  AuditEventPRCreated = "pr_created",
+  AuditEventPRMerged = "pr_merged",
+  AuditEventGitPush = "git_push",
+}
+
+export interface TypesAuditMetadata {
+  branch_name?: string;
+  /** Group ID linking related cloned tasks */
+  clone_group_id?: string;
+  /** Clone tracking (matches SpecTask fields) */
+  cloned_from_id?: string;
+  /** Source project ID if cloned from another project */
+  cloned_from_project_id?: string;
+  comment_id?: string;
+  /** Design review tracking */
+  design_review_id?: string;
+  /** External system tracking (e.g., Azure DevOps) */
+  external_task_id?: string;
+  external_task_url?: string;
+  /** Hash of implementation plan content */
+  implementation_plan_hash?: string;
+  /** For scrolling to specific interaction in session view */
+  interaction_id?: string;
+  /** Pull request information */
+  pull_request_id?: string;
+  pull_request_url?: string;
+  /** Hash of requirements spec content */
+  requirements_spec_hash?: string;
+  /** Helix session/interaction linking */
+  session_id?: string;
+  /** Spec versioning - capture spec state at time of event */
+  spec_version?: number;
+  task_name?: string;
+  /** Task information */
+  task_number?: number;
+  /** Hash of technical design content */
+  technical_design_hash?: string;
+}
+
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
   AuthProviderKeycloak = "keycloak",
@@ -2357,6 +2409,11 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
+  /**
+   * Deprecated: ProjectID is maintained for backward compatibility only.
+   * Use the project_repositories junction table for many-to-many project-repo relationships.
+   * This column is kept in the database for rollback compatibility but reads should use the junction table.
+   */
   project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
@@ -3224,6 +3281,25 @@ export interface TypesProject {
   user_id?: string;
 }
 
+export interface TypesProjectAuditLog {
+  created_at?: string;
+  event_type?: TypesAuditEventType;
+  id?: string;
+  metadata?: TypesAuditMetadata;
+  project_id?: string;
+  prompt_text?: string;
+  spec_task_id?: string;
+  user_email?: string;
+  user_id?: string;
+}
+
+export interface TypesProjectAuditLogResponse {
+  limit?: number;
+  logs?: TypesProjectAuditLog[];
+  offset?: number;
+  total?: number;
+}
+
 export interface TypesProjectCreateRequest {
   default_branch?: string;
   /** Default agent for spec tasks */
@@ -4031,6 +4107,8 @@ export interface TypesSpecTask {
   project_id?: string;
   project_path?: string;
   pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -4295,6 +4373,7 @@ export enum TypesSpecTaskStatus {
   TaskStatusImplementationQueued = "implementation_queued",
   TaskStatusImplementation = "implementation",
   TaskStatusImplementationReview = "implementation_review",
+  TaskStatusPullRequest = "pull_request",
   TaskStatusDone = "done",
   TaskStatusSpecFailed = "spec_failed",
   TaskStatusImplementationFailed = "implementation_failed",
@@ -4719,12 +4798,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -8352,6 +8431,47 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Get paginated audit logs for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsAuditLogsDetail
+     * @summary List project audit logs
+     * @request GET:/api/v1/projects/{id}/audit-logs
+     * @secure
+     */
+    v1ProjectsAuditLogsDetail: (
+      id: string,
+      query?: {
+        /** Filter by event type */
+        event_type?: string;
+        /** Filter by user ID */
+        user_id?: string;
+        /** Filter by spec task ID */
+        spec_task_id?: string;
+        /** Filter by start date (RFC3339) */
+        start_date?: string;
+        /** Filter by end date (RFC3339) */
+        end_date?: string;
+        /** Search prompt text */
+        search?: string;
+        /** Page size (default 50, max 100) */
+        limit?: number;
+        /** Pagination offset */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProjectAuditLogResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/audit-logs`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

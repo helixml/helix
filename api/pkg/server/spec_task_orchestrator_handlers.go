@@ -67,6 +67,8 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 			OrganizationID: demoReq.OrganizationID,
 			SampleType:     demoReq.DemoRepo,
 			KoditIndexing:  true,
+			CreatorName:    user.FullName,
+			CreatorEmail:   user.Email,
 		},
 	)
 	if err != nil {

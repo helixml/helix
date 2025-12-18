@@ -116,6 +116,10 @@ export function useListRepositoryBranches(repositoryId: string) {
       return response.data;
     },
     enabled: !!repositoryId,
+    // Don't cache - always fetch fresh branch list
+    // This ensures we get updated branches after external repo clone completes
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 

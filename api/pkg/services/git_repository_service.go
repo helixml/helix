@@ -162,8 +162,10 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	}
 
 	// Set default branch if not specified
+	// For external repos, leave empty - it will be detected from remote HEAD after clone
+	// For local repos, default to "main"
 	defaultBranch := request.DefaultBranch
-	if defaultBranch == "" {
+	if defaultBranch == "" && request.ExternalURL == "" {
 		defaultBranch = "main"
 	}
 
@@ -199,6 +201,11 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	}
 
 	if gitRepo.ExternalURL == "" {
+		// Validate creator credentials for commits
+		if request.CreatorName == "" || request.CreatorEmail == "" {
+			return nil, fmt.Errorf("creator name and email are required for repository creation")
+		}
+
 		// Initialize git repository as bare
 		// ALL filestore repos are bare - agents and API server push to them
 		initialFiles := request.InitialFiles
@@ -208,10 +215,59 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
 			}
 		}
-		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true)
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true, request.CreatorName, request.CreatorEmail)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
+	} else {
+		// For external repos: clone synchronously BEFORE creating DB record
+		// This ensures the repo exists in Helix before Kodit tries to index it
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Msg("Cloning external repository...")
+
+		cloneOptions := &git.CloneOptions{
+			URL:      gitRepo.ExternalURL,
+			Progress: os.Stdout,
+			Bare:     true,
+			Mirror:   true, // Clone ALL branches, tags, and refs
+		}
+		cloneOptions.Auth = s.GetAuthConfig(gitRepo)
+
+		repo, err := git.PlainClone(repoPath, cloneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to clone external repository: %w", err)
+		}
+
+		// Detect default branch from HEAD
+		headRef, err := repo.Head()
+		if err == nil && headRef.Name().IsBranch() {
+			gitRepo.DefaultBranch = headRef.Name().Short()
+			log.Info().
+				Str("repo_id", repoID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Detected default branch from external repository")
+		}
+
+		// Populate branches list
+		refs, err := repo.References()
+		if err == nil {
+			var branches []string
+			refs.ForEach(func(ref *plumbing.Reference) error {
+				if ref.Name().IsBranch() {
+					branches = append(branches, ref.Name().Short())
+				}
+				return nil
+			})
+			gitRepo.Branches = branches
+		}
+
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Successfully cloned external repository")
 	}
 
 	// Store repository metadata (if store supports it)
@@ -242,24 +298,14 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 	// Register with Kodit if kodit_indexing is enabled
 	if s.koditService != nil && request.KoditIndexing {
-		// For external repos, we need to clone the repo to disk first so Kodit can access it
-		// via the internal URL. The internal URL is always used so Kodit clones through Helix.
-		if isExternal {
-			if err := s.updateRepositoryFromGit(gitRepo); err != nil {
-				log.Error().
-					Err(err).
-					Str("repo_id", repoID).
-					Msg("Failed to clone external repository for Kodit indexing")
-				// Don't fail repo creation, but skip Kodit registration
-				return gitRepo, nil
-			}
-		}
-
-		// Always use the internal URL - Kodit clones through Helix's git server
+		// Determine the clone URL for Kodit
+		// ALL repos (both external and local) should use Helix's git server URL with API key auth
+		// External repos are already cloned synchronously above, so Kodit can access via internal URL
 		var koditCloneURL string
 		if request.KoditAPIKey == "" {
 			log.Warn().
 				Str("repo_id", repoID).
+				Bool("is_external", isExternal).
 				Msg("Cannot register repository with Kodit without API key - user must authenticate with API key")
 		} else {
 			// Build authenticated URL: http://api:APIKEY@host/git/repo_id
@@ -333,8 +379,8 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		}
 	}
 
-	// Update with current git information
-	err = s.updateRepositoryFromGit(gitRepo)
+	// Update with current git information (clones external repos if needed, detects default branch)
+	err = s.updateRepositoryFromGit(ctx, gitRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository info from git: %w", err)
 	}
@@ -361,9 +407,9 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 
 	if branchName == "" {
 		branchName = gitRepo.DefaultBranch
-		if branchName == "" {
-			branchName = "main"
-		}
+	}
+	if branchName == "" {
+		return nil, fmt.Errorf("no branch specified and repository has no default branch set")
 	}
 
 	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
@@ -665,7 +711,7 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	currentName := request.Name
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		request := &types.GitRepositoryCreateRequest{
+		createReq := &types.GitRepositoryCreateRequest{
 			Name:           currentName,
 			Description:    request.Description,
 			RepoType:       types.GitRepositoryTypeCode,
@@ -678,9 +724,11 @@ func (s *GitRepositoryService) CreateSampleRepository(
 				"created_from": "sample",
 			},
 			KoditIndexing: request.KoditIndexing,
+			CreatorName:   request.CreatorName,
+			CreatorEmail:  request.CreatorEmail,
 		}
 
-		repo, err := s.CreateRepository(ctx, request)
+		repo, err := s.CreateRepository(ctx, createReq)
 		if err == nil {
 			// Success!
 			if currentName != request.Name {
@@ -751,13 +799,19 @@ func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string)
 }
 
 // initializeGitRepository initializes a new git repository with initial files
+// userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
 	defaultBranch string,
 	repoName string,
 	initialFiles map[string]string,
 	isBare bool,
+	userName string,
+	userEmail string,
 ) error {
+	if userName == "" || userEmail == "" {
+		return fmt.Errorf("userName and userEmail are required for commits")
+	}
 	// Create repository directory
 	err := os.MkdirAll(repoPath, 0755)
 	if err != nil {
@@ -816,8 +870,8 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 		_, err = worktree.Commit("Initial commit", &git.CommitOptions{
 			Author: &object.Signature{
-				Name:  "Helix System",
-				Email: "system@helix.ml",
+				Name:  userName,
+				Email: userEmail,
 				When:  time.Now(),
 			},
 		})
@@ -964,8 +1018,8 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 	// Initial commit
 	signature := &object.Signature{
-		Name:  s.gitUserName,
-		Email: s.gitUserEmail,
+		Name:  userName,
+		Email: userEmail,
 		When:  time.Now(),
 	}
 
@@ -1010,7 +1064,11 @@ func (s *GitRepositoryService) initializeGitRepository(
 // For external repositories, this clones them as BARE repositories to allow
 // receiving pushes from agents. The actual working copy is created on-demand
 // when needed for operations like CreateOrUpdateFileContents.
-func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitRepository) error {
+//
+// IMPORTANT: This clones ALL branches from the external repo and detects the
+// default branch from HEAD (preserving 'master' if that's what the remote uses).
+// If the default branch is detected/changed, it persists the change to the database.
+func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitRepo *types.GitRepository) error {
 	var (
 		repo *git.Repository
 		err  error
@@ -1023,6 +1081,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				URL:      gitRepo.ExternalURL,
 				Progress: os.Stdout,
 				Bare:     true,
+				Mirror:   true, // Clone ALL branches, tags, and refs - not just the default branch
 			}
 
 			cloneOptions.Auth = s.GetAuthConfig(gitRepo)
@@ -1031,6 +1090,11 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 			if err != nil {
 				return fmt.Errorf("failed to clone git repository: %w", err)
 			}
+
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("external_url", gitRepo.ExternalURL).
+				Msg("Cloned external repository as bare repo")
 		}
 	} else {
 		repo, err = git.PlainOpen(gitRepo.LocalPath)
@@ -1039,21 +1103,82 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 		}
 	}
 
+	// Detect default branch from HEAD if not already set
+	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
+	defaultBranchChanged := false
+	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
+		headRef, err := repo.Head()
+		if err == nil && headRef.Name().IsBranch() {
+			detectedBranch := headRef.Name().Short()
+			if gitRepo.DefaultBranch != detectedBranch {
+				log.Info().
+					Str("repo_id", gitRepo.ID).
+					Str("detected_branch", detectedBranch).
+					Str("previous_branch", gitRepo.DefaultBranch).
+					Msg("Detected default branch from repository HEAD")
+				gitRepo.DefaultBranch = detectedBranch
+				defaultBranchChanged = true
+			}
+		} else if err != nil {
+			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Could not detect default branch from HEAD")
+		}
+	}
+
+	// List all branches (both local refs/heads/* and remote-tracking refs/remotes/origin/*)
+	// This handles both mirrored repos (all branches as local refs) and non-mirrored repos
 	refs, err := repo.References()
 	if err == nil {
-		branches := []string{}
+		branchSet := make(map[string]bool)
 		refs.ForEach(func(ref *plumbing.Reference) error {
-			if ref.Name().IsBranch() {
-				branchName := ref.Name().Short()
-				branches = append(branches, branchName)
+			refName := ref.Name()
+			// Local branches: refs/heads/*
+			if refName.IsBranch() {
+				branchSet[refName.Short()] = true
+			}
+			// Remote-tracking branches: refs/remotes/origin/* (for non-mirrored repos)
+			if refName.IsRemote() {
+				// Extract branch name from refs/remotes/origin/branch-name
+				refStr := refName.String()
+				if strings.HasPrefix(refStr, "refs/remotes/origin/") {
+					branchName := strings.TrimPrefix(refStr, "refs/remotes/origin/")
+					branchSet[branchName] = true
+				}
 			}
 			return nil
 		})
+
+		branches := make([]string, 0, len(branchSet))
+		for branch := range branchSet {
+			branches = append(branches, branch)
+		}
 		gitRepo.Branches = branches
+
+		log.Debug().
+			Str("repo_id", gitRepo.ID).
+			Strs("branches", branches).
+			Str("default_branch", gitRepo.DefaultBranch).
+			Msg("Updated repository branch information")
 	}
 
 	gitRepo.LastActivity = time.Now()
 	gitRepo.UpdatedAt = time.Now()
+
+	// Persist changes to database if default branch was detected/changed
+	// This ensures the detected default branch from external repos is saved
+	if defaultBranchChanged {
+		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
+			log.Warn().Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Failed to persist detected default branch to database")
+			// Don't fail - the in-memory value is correct
+		} else {
+			log.Info().
+				Str("repo_id", gitRepo.ID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Persisted detected default branch to database")
+		}
+	}
 
 	return nil
 }

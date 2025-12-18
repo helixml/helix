@@ -30,6 +30,7 @@ import {
   RadioButtonUnchecked as UncheckedIcon,
   ContentCopy as CopyIcon,
   AccountTree as BatchIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
@@ -62,7 +63,7 @@ const spin = keyframes`
   }
 `
 
-type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed'
+type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'
 
 interface SpecTaskWithExtras {
   id: string
@@ -78,6 +79,12 @@ interface SpecTaskWithExtras {
   design_docs_pushed_at?: string
   clone_group_id?: string
   cloned_from_id?: string
+  pull_request_id?: string
+  pull_request_url?: string
+  implementation_approved_at?: string
+  // Branch tracking for direct-push detection
+  base_branch?: string
+  branch_name?: string
 }
 
 interface KanbanColumn {
@@ -97,6 +104,7 @@ interface TaskCardProps {
   projectId?: string
   focusStartPlanning?: boolean // When true, focus the Start Planning button
   isArchiving?: boolean // When true, show spinner on archive button (parent is archiving this task)
+  hasExternalRepo?: boolean // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
 }
 
 // Interface for checklist items from API
@@ -345,6 +353,8 @@ const LiveAgentScreenshot: React.FC<{
         sx={{
           mt: 1.5,
           mb: 0.5,
+          mx: -1, // Extend slightly beyond content using negative margins
+          width: 'calc(100% + 16px)', // Compensate for negative margins
           position: 'relative',
           borderRadius: 1.5,
           overflow: 'hidden',
@@ -359,8 +369,8 @@ const LiveAgentScreenshot: React.FC<{
           },
         }}
       >
-        <Box sx={{ position: 'relative', height: 180 }}>
-          <ExternalAgentDesktopViewer sessionId={sessionId} height={180} mode="screenshot" />
+        <Box sx={{ position: 'relative', height: 138 }}>
+          <ExternalAgentDesktopViewer sessionId={sessionId} height={138} mode="screenshot" />
         </Box>
         <Box
           sx={{
@@ -398,6 +408,7 @@ export default function TaskCard({
   projectId,
   focusStartPlanning = false,
   isArchiving = false,
+  hasExternalRepo = false,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -457,6 +468,8 @@ export default function TaskCard({
         return '#3b82f6'
       case 'implementation':
         return '#10b981'
+      case 'pull_request':
+        return '#8b5cf6' // Purple for PR
       case 'completed':
         return '#6b7280'
       default:
@@ -466,13 +479,9 @@ export default function TaskCard({
 
   const accentColor = getPhaseAccent(task.phase)
 
-  // Handle card click - open design docs if available, otherwise open session
+  // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
-    if (task.design_docs_pushed_at && onReviewDocs) {
-      // Design docs exist - open the spec review with tasks tab
-      onReviewDocs(task)
-    } else if (onTaskClick) {
-      // No design docs - open the session viewer
+    if (onTaskClick) {
       onTaskClick(task)
     }
   }
@@ -617,6 +626,8 @@ export default function TaskCard({
                     ? '#3b82f6'
                     : task.phase === 'implementation'
                     ? '#10b981'
+                    : task.phase === 'pull_request'
+                    ? '#8b5cf6'
                     : task.phase === 'completed'
                     ? '#6b7280'
                     : '#9ca3af',
@@ -631,7 +642,9 @@ export default function TaskCard({
                 ? 'Review'
                 : task.phase === 'implementation'
                 ? 'In Progress'
-                : 'Done'}
+                : task.phase === 'pull_request'
+                ? 'Pull Request'
+                : 'Merged'}
             </Typography>
             {runningDuration && (
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
@@ -761,7 +774,9 @@ export default function TaskCard({
                 disabled={approveImplementationMutation.isPending}
                 sx={{ flex: 1 }}
               >
-                {approveImplementationMutation.isPending ? 'Accepting...' : 'Accept'}
+                {approveImplementationMutation.isPending
+                  ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
+                  : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
               </Button>
             </Box>
           </Box>
@@ -814,6 +829,72 @@ export default function TaskCard({
           </Box>
         )}
 
+        {/* Pull Request phase - awaiting merge in external repo */}
+        {task.phase === 'pull_request' && (
+          <Box sx={{ mt: 1.5 }}>
+            {task.pull_request_url ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<LaunchIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.open(task.pull_request_url, '_blank')
+                  }}
+                  fullWidth
+                  sx={{ mb: 1 }}
+                >
+                  View Pull Request
+                </Button>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: '0.7rem',
+                    color: 'text.secondary',
+                    fontStyle: 'italic',
+                    display: 'block',
+                    textAlign: 'center',
+                  }}
+                >
+                  Address review comments with agent.<br />Moves to Merged when PR closes.
+                </Typography>
+              </>
+            ) : (
+              (() => {
+                // Calculate seconds since approval
+                const approvedAt = task.implementation_approved_at ? new Date(task.implementation_approved_at).getTime() : 0
+                const secondsSinceApproval = approvedAt ? (Date.now() - approvedAt) / 1000 : 0
+                const isWaitingTooLong = secondsSinceApproval > 30
+
+                return isWaitingTooLong ? (
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block' }}>
+                      Agent hasn't pushed feature branch yet. Please check if the agent is having trouble.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={20} />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '0.7rem',
+                        color: 'text.secondary',
+                        fontStyle: 'italic',
+                        textAlign: 'center',
+                      }}
+                    >
+                      Waiting for agent to push branch to create PR...
+                    </Typography>
+                  </Box>
+                )
+              })()
+            )}
+          </Box>
+        )}
+
         {/* Completed tasks */}
         {task.status === 'done' && task.merged_to_main && (
           <Box sx={{ mt: 1.5 }}>
@@ -834,6 +915,34 @@ export default function TaskCard({
                 fullWidth
               >
                 Start Exploratory Session
+              </Button>
+            </Alert>
+          </Box>
+        )}
+
+        {/* Pull Request link - for external repos (ADO, etc.) */}
+        {task.pull_request_url && (
+          <Box sx={{ mt: 1.5 }}>
+            <Alert
+              severity={task.status === 'done' ? 'success' : 'info'}
+              sx={{ py: 0.5 }}
+              icon={<OpenInNewIcon fontSize="small" />}
+            >
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                {task.status === 'done' ? 'Task complete! Review the PR:' : 'Pull Request:'}
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                color={task.status === 'done' ? 'success' : 'info'}
+                startIcon={<OpenInNewIcon />}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  window.open(task.pull_request_url, '_blank')
+                }}
+                fullWidth
+              >
+                View Pull Request #{task.pull_request_id}
               </Button>
             </Alert>
           </Box>

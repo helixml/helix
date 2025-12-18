@@ -577,6 +577,20 @@ func (mr *MockStoreMockRecorder) CreateProject(ctx, project any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProject", reflect.TypeOf((*MockStore)(nil).CreateProject), ctx, project)
 }
 
+// CreateProjectAuditLog mocks base method.
+func (m *MockStore) CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateProjectAuditLog", ctx, log)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateProjectAuditLog indicates an expected call of CreateProjectAuditLog.
+func (mr *MockStoreMockRecorder) CreateProjectAuditLog(ctx, log any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProjectAuditLog", reflect.TypeOf((*MockStore)(nil).CreateProjectAuditLog), ctx, log)
+}
+
 // CreateProjectRepository mocks base method.
 func (m *MockStore) CreateProjectRepository(ctx context.Context, projectID, repositoryID, organizationID string) error {
 	m.ctrl.T.Helper()
@@ -3696,6 +3710,21 @@ func (m *MockStore) ListPersonalDevEnvironments(ctx context.Context, userID stri
 func (mr *MockStoreMockRecorder) ListPersonalDevEnvironments(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPersonalDevEnvironments", reflect.TypeOf((*MockStore)(nil).ListPersonalDevEnvironments), ctx, userID)
+}
+
+// ListProjectAuditLogs mocks base method.
+func (m *MockStore) ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjectAuditLogs", ctx, filters)
+	ret0, _ := ret[0].(*types.ProjectAuditLogResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjectAuditLogs indicates an expected call of ListProjectAuditLogs.
+func (mr *MockStoreMockRecorder) ListProjectAuditLogs(ctx, filters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjectAuditLogs", reflect.TypeOf((*MockStore)(nil).ListProjectAuditLogs), ctx, filters)
 }
 
 // ListProjectRepositories mocks base method.

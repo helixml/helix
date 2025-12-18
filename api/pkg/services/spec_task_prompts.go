@@ -9,12 +9,13 @@ import (
 
 // PlanningPromptData contains all data needed for the planning prompt template
 type PlanningPromptData struct {
-	Guidelines  string // Formatted guidelines section (includes header if non-empty)
-	TaskDirName string // Directory name for task (e.g., "0042-add-dark-mode")
-	ProjectID   string
-	TaskType    string
-	Priority    string
-	TaskName    string // Human-readable task name for commit message
+	Guidelines      string // Formatted guidelines section (includes header if non-empty)
+	TaskDirName     string // Directory name for task (e.g., "0042-add-dark-mode")
+	ProjectID       string
+	TaskType        string
+	Priority        string
+	TaskName        string // Human-readable task name for commit message
+	PrimaryRepoName string // Name of the primary code repository
 }
 
 // planningPromptTemplate is the compiled template for planning prompts
@@ -48,6 +49,8 @@ Match solution complexity to task complexity:
 
 ## Git Workflow
 
+**IMPORTANT:** Always include a Code-Ref in your commit messages to link specs to code versions.
+
 ` + "```bash" + `
 cd /home/retro/work/helix-specs
 mkdir -p design/tasks/{{.TaskDirName}}
@@ -55,14 +58,23 @@ cd design/tasks/{{.TaskDirName}}
 
 # Create requirements.md, design.md, tasks.md here
 
+# Get the code commit hash you're designing against (from the primary code repo)
+cd /home/retro/work/{{.PrimaryRepoName}}
+CODE_REF="$(git rev-parse --short HEAD)"
+CODE_BRANCH="$(git branch --show-current)"
+
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Design docs for {{.TaskName}}" && git push origin helix-specs
+git add -A && git commit -m "Design docs for {{.TaskName}}
+
+Code-Ref: {{.PrimaryRepoName}}/${CODE_BRANCH}@${CODE_REF}" && git push origin helix-specs
 ` + "```" + `
 
 If push fails (another agent pushed first):
 ` + "```bash" + `
 git pull origin helix-specs --rebase && git push origin helix-specs
 ` + "```" + `
+
+The **Code-Ref** line is machine-parsable and links this spec version to the code state you analyzed.
 
 ## tasks.md Format
 
@@ -88,7 +100,8 @@ Tell the user the design is ready for review. The backend detects your push and 
 // - SpecDrivenTaskService.StartSpecGeneration (explicit user action)
 // - SpecTaskOrchestrator.handleBacklog (auto-start when enabled)
 // guidelines contains concatenated organization + project guidelines (can be empty)
-func BuildPlanningPrompt(task *types.SpecTask, guidelines string) string {
+// primaryRepoName is the name of the primary code repository (e.g., "my-app")
+func BuildPlanningPrompt(task *types.SpecTask, guidelines, primaryRepoName string) string {
 	// Use DesignDocPath if set (new human-readable format), fall back to task ID
 	taskDirName := task.DesignDocPath
 	if taskDirName == "" {
@@ -111,12 +124,13 @@ Follow these guidelines when creating specifications:
 	}
 
 	data := PlanningPromptData{
-		Guidelines:  guidelinesSection,
-		TaskDirName: taskDirName,
-		ProjectID:   task.ProjectID,
-		TaskType:    string(task.Type),
-		Priority:    string(task.Priority),
-		TaskName:    task.Name,
+		Guidelines:      guidelinesSection,
+		TaskDirName:     taskDirName,
+		ProjectID:       task.ProjectID,
+		TaskType:        string(task.Type),
+		Priority:        string(task.Priority),
+		TaskName:        task.Name,
+		PrimaryRepoName: primaryRepoName,
 	}
 
 	var buf bytes.Buffer
