@@ -173,6 +173,93 @@ Provide UI options:
 4. Push to Helix main directly → start new task → verify divergence error
 5. Force sync → verify recovery works
 
+## Branch Direction Strategy
+
+Each branch type has a **single direction** for sync operations between Helix repos and external upstream.
+This prevents conflicts and makes the sync behavior predictable.
+
+### Direction Matrix
+
+| Branch Type | Direction | Pull from Upstream | Push to Upstream | Rationale |
+|-------------|-----------|-------------------|------------------|-----------|
+| Main/default branches | PULL-ONLY | ✅ Always allowed | ❌ Never (protected) | External main is source of truth. Protected on most enterprise repos. |
+| `helix-specs` | PUSH-ONLY | ❌ Never | ✅ Always | Helix-owned branch for config/design docs. No external edits. |
+| Feature branches | PUSH-ONLY | ⚠️ Warning only | ✅ Always | Created by Helix tasks. Upstream may have changes if user edits PR. |
+
+### helix-specs Branch
+
+The `helix-specs` branch is an **orphan branch** (no shared history with main) that stores:
+- Project startup script (`.helix/startup.sh`)
+- SpecTask design documents (`.helix/tasks/<task-id>/`)
+- Guidelines history and other Helix-specific metadata
+
+**Key properties:**
+- Created automatically when project is initialized
+- Never pulled from upstream (Helix is source of truth)
+- Always pushed to upstream after modifications
+- Lives in worktree at `~/work/helix-specs` inside sandbox
+
+**Why orphan?**
+- Keeps Helix metadata completely separate from code history
+- Avoids polluting main branch history with config commits
+- Works even on protected main branches (common in enterprise)
+
+### Feature Branch Handling
+
+Feature branches (`feature/helix-<task-id>-*`) are created by SpecTasks:
+
+1. **On task start:** Create branch from synced base (main)
+2. **During work:** Agent commits to feature branch
+3. **On push:** Push feature branch to upstream
+4. **If building on another WIP branch:** DON'T pull upstream changes
+
+**Key insight:** When a task is building on top of another feature branch (not main), we should NOT try to pull upstream changes into the WIP branch. The upstream branch may have been modified by another agent, but pulling those changes would cause merge conflicts in the middle of work.
+
+**Correct approach:**
+- Just continue working on the local version
+- Push your changes when done
+- Let the merge happen at PR merge time (GitHub/ADO handles this)
+- If there are conflicts at merge time, the user resolves them in the PR UI
+
+**Edge case - same branch modified by two agents:**
+If push fails because upstream has commits we don't have, that's an error. Two agents shouldn't be working on the exact same branch simultaneously. The solution is to either:
+1. Coordinate agents to work on different branches
+2. Or provide the upstream version to the agent in the IDE and ask them to resolve the merge (future enhancement)
+
+### Implementation Details
+
+**Startup script flow (helix-specs):**
+1. User edits startup script in UI
+2. `SaveStartupScriptToHelixSpecs` saves to local bare repo helix-specs branch
+3. `SaveStartupScriptToHelixSpecs` pushes helix-specs to external upstream (if external repo)
+4. Agent sandbox runs startup script from `~/work/helix-specs/.helix/startup.sh`
+
+**Base branch sync (main):**
+1. Before starting SpecTask, call `SyncBaseBranch(repoID, "main")`
+2. Fetch from upstream to remote-tracking ref
+3. Check for divergence
+4. If diverged → ERROR (user must reconcile)
+5. If fast-forward → Update local main
+
+## Edge Cases to Handle
+
+### Default Branch Renamed on Upstream
+
+If the upstream repository (ADO/GitHub) changes its default branch (e.g., `master` → `main`), Helix's stored `DefaultBranch` value becomes stale. This causes:
+- Sync operations to fail (branch no longer exists)
+- New tasks to use wrong base branch
+
+**Detection options:**
+1. On sync failure, check if the branch exists upstream
+2. Periodically query upstream for current default branch
+3. Let user manually update in repository settings
+
+**Resolution:**
+- Update `GitRepository.DefaultBranch` when detected
+- May need to update in-flight tasks that reference old branch name
+
+**TODO:** Implement detection and auto-update of default branch.
+
 ## Questions for Review
 
 1. Should force sync require admin privileges?

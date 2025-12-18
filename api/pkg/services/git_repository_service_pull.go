@@ -89,6 +89,12 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 		return fmt.Errorf("failed to fetch from remote: %w", err)
 	}
 
+	log.Debug().
+		Str("repo_id", gitRepo.ID).
+		Str("branch", branchName).
+		Bool("already_up_to_date", err == git.NoErrAlreadyUpToDate).
+		Msg("Fetch completed for base branch sync")
+
 	// Get local branch ref
 	localRef, err := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
 	if err != nil {
@@ -241,7 +247,10 @@ func (s *GitRepositoryService) SyncBaseBranchWithResult(ctx context.Context, rep
 	return &SyncBaseBranchResult{Synced: true}, nil
 }
 
-// SyncBaseBranchForTask syncs the base branch for a SpecTask, handling errors appropriately
+// SyncBaseBranchForTask syncs the base branch for a SpecTask, handling errors appropriately.
+// IMPORTANT: Only syncs main/default branches, NOT feature branches.
+// Feature branches are PUSH-ONLY - we don't pull upstream changes into WIP branches.
+// This avoids mid-work merge conflicts when building on top of another task's branch.
 func (s *GitRepositoryService) SyncBaseBranchForTask(ctx context.Context, task *types.SpecTask, repos []*types.GitRepository) error {
 	// Determine base branch - use task's BaseBranch or fall back to repo default
 	baseBranch := task.BaseBranch
@@ -255,6 +264,19 @@ func (s *GitRepositoryService) SyncBaseBranchForTask(ctx context.Context, task *
 		branchToSync := baseBranch
 		if branchToSync == "" {
 			branchToSync = repo.DefaultBranch
+		}
+
+		// Only sync if this is the default branch (main/master)
+		// Feature branches are PUSH-ONLY - don't pull upstream changes into WIP branches
+		// This avoids merge conflicts when building on top of another agent's work
+		if branchToSync != repo.DefaultBranch {
+			log.Info().
+				Str("task_id", task.ID).
+				Str("repo_id", repo.ID).
+				Str("branch", branchToSync).
+				Str("default_branch", repo.DefaultBranch).
+				Msg("Skipping sync for non-default branch (feature branches are PUSH-ONLY)")
+			continue
 		}
 
 		log.Info().
