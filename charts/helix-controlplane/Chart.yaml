@@ -33,7 +33,3 @@ dependencies:
     tags:
       - bitnami-common
     version: 2.x.x
-  - name: kodit
-    condition: kodit.enabled
-    repository: https://helixml.github.io/kodit
-    version: 0.1.1

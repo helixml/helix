@@ -439,22 +439,85 @@ typesense:
     #   matchLabels:
     #     app: typesense
 
-# Kodit configuration
-# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml
-# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
-#
-# Kodit is automatically configured to use Helix as its LLM proxy for code enrichments.
-# By default, it uses the runner token secret "helix-runner-secrets" with key "api-token".
-# If your runner token is in a different secret, override it like this:
+## Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix.
+# It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.
 kodit:
   enabled: true
-  # controllers:
-  #   kodit:
-  #     containers:
-  #       kodit:
-  #         env:
-  #           ENRICHMENT_ENDPOINT_API_KEY:
-  #             valueFrom:
-  #               secretKeyRef:
-  #                 name: "my-custom-secret"    # Your secret name
-  #                 key: "my-api-key"           # Key within the secret
+
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.16"  # Pin to specific version
+    # Use custom registry if needed
+    # repository: "my-registry.example.com/helix/kodit"
+
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "secure-kodit-db-password"
+    database: "kodit"
+
+    # Option: Use existing secret for all auth credentials
+    # existingSecret: "kodit-auth-secret"
+    # usernameKey: "username"  # defaults to "username" if not specified
+    # passwordKey: "password"  # defaults to "password" if not specified
+    # databaseKey: "database"  # defaults to "database" if not specified
+
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  # This allows kodit to generate code enrichments using the Helix inference API
+  enrichment:
+    # Base URL defaults to http://<release-name>:80/v1 (Helix controlplane)
+    # baseUrl: "http://custom-llm-service:8080/v1"
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+
+    # API key for enrichment endpoint
+    # For production, use the runner token secret:
+    # existingSecret: "helix-runner-secrets"
+    # existingSecretKey: "api-token"
+    #
+    # Or create a dedicated secret:
+    #   kubectl create secret generic kodit-enrichment --from-literal=api-key="your-runner-token"
+    # existingSecret: "kodit-enrichment"
+    # existingSecretKey: "api-key"
+
+  # Persistence for kodit data
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "" # Use default storage class
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-kodit-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: kodit
+    # Custom data source
+    # dataSource:
+    #   name: "my-snapshot"
+    #   kind: "VolumeSnapshot"
+    #   apiGroup: "snapshot.storage.k8s.io"
+
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  # This is kodit's dedicated vector database, separate from helix's pgvector
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      # Use custom registry if needed
+      # repository: "my-registry.example.com/tensorchord/vchord-suite"
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: "" # Use default storage class
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      # Use existing PVC
+      # existingClaim: "my-kodit-vectorchord-pvc"
