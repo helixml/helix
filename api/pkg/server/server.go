@@ -64,9 +64,9 @@ type Options struct {
 	Port        int
 	FrontendURL string // Can either be a URL to frontend or a path to static files
 	RunnerToken string
-	// Set to "all" for dev mode where everyone is admin
-	// Otherwise uses database admin field
-	AdminUsers string
+	// List of admin user IDs, or contains "all" for dev mode where everyone is admin.
+	// If empty, uses database admin field.
+	AdminUserIDs []string
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string
@@ -183,7 +183,7 @@ func NewServer(
 			ClientID:     cfg.Auth.OIDC.ClientID,
 			ClientSecret: cfg.Auth.OIDC.ClientSecret,
 			RedirectURL:  helixRedirectURL,
-			AdminUsers:   cfg.WebServer.AdminUsers,
+			AdminUserIDs: cfg.WebServer.AdminUserIDs,
 			Audience:     cfg.Auth.OIDC.Audience,
 			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
 			Store:        store,
@@ -275,7 +275,7 @@ func NewServer(
 			authenticator,
 			store,
 			authMiddlewareConfig{
-				adminUsers:  cfg.WebServer.AdminUsers,
+				adminUserIDs: cfg.WebServer.AdminUserIDs,
 				runnerToken: cfg.WebServer.RunnerToken,
 			},
 		),
