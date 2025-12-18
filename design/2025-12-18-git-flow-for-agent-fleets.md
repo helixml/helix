@@ -123,6 +123,7 @@ This gives us:
 2. **Persistent design history** - specs survive feature branch deletion
 3. **Forward-only append** - helix-specs only moves forward, never syncs from upstream
 4. **Separation of concerns** - code history stays clean, design history is separate
+5. **No markdown pollution in code PRs** - some of our developers *hated* when agents dumped huge piles of markdown into the codebase alongside code changes. The separate branch keeps design artifacts out of code reviews entirely.
 
 The structure inside helix-specs:
 
@@ -191,6 +192,23 @@ Bare repos have no working directory, which means:
 - No working directory conflicts
 - Multiple agents can push via HTTP simultaneously
 - We control when to sync with upstream
+
+## We're All Managers Now
+
+Let's be clear: this isn't about fully automating software development. We're not trying to fire developers and replace them with agents.
+
+The better mental model is **pair programming with a fleet**. You're still the engineer. You still make architectural decisions. You still review the code. But now you're coordinating multiple AI pair programmers working in parallel on different parts of your system.
+
+Some of our team joke that "we're all managers now" - and there's truth to it. Instead of writing every line of code yourself, you're:
+- Defining tasks clearly enough for agents to execute
+- Reviewing design docs before implementation starts
+- Monitoring agent progress on the Kanban board
+- Stepping in when an agent gets stuck or goes off-track
+- Merging PRs and resolving conflicts
+
+The git flow we've built assumes humans are in the loop. That's why feature branches are PUSH-ONLY (humans resolve conflicts in PR reviews), why helix-specs keeps design docs visible (humans review specs before approving implementation), and why we have a Kanban board showing all agent work in progress.
+
+The agents do the grunt work. You do the thinking.
 
 ## The Stats
 
