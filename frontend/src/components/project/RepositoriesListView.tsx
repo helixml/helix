@@ -12,7 +12,14 @@ import {
   Menu,
   MenuItem,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  CircularProgress,
 } from '@mui/material'
+import WarningIcon from '@mui/icons-material/Warning'
 import SearchIcon from '@mui/icons-material/Search'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { GitBranch, Link as LinkIcon, Brain, RefreshCw, Trash, Plus } from 'lucide-react'
@@ -65,6 +72,9 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentRepo, setCurrentRepo] = useState<TypesGitRepository | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [repoToDelete, setRepoToDelete] = useState<TypesGitRepository | null>(null)
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, repo: any) => {
     setAnchorEl(event.currentTarget)
@@ -90,17 +100,30 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
     handleMenuClose()
   }
 
-  const handleDelete = async () => {
-    if (!currentRepo?.id) return
+  const handleDelete = () => {
+    if (!currentRepo) return
+    setRepoToDelete(currentRepo)
+    setDeleteDialogOpen(true)
+    handleMenuClose()
+  }
+
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false)
+    setRepoToDelete(null)
+    setDeleteConfirmName('')
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!repoToDelete?.id) return
 
     try {
-      await deleteRepositoryMutation.mutateAsync(currentRepo.id)
+      await deleteRepositoryMutation.mutateAsync(repoToDelete.id)
       snackbar.success('Repository deleted successfully')
+      handleCloseDeleteDialog()
     } catch (error) {
       console.error('Failed to delete repository:', error)
       snackbar.error('Failed to delete repository')
     }
-    handleMenuClose()
   }
 
   const tableData = useMemo(() => {
@@ -312,6 +335,60 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
           </Menu>
         </>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningIcon color="error" />
+            <span>Delete Repository</span>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+              This action cannot be undone!
+            </Typography>
+            <Typography variant="body2">
+              This will permanently delete the repository <strong>{repoToDelete?.name}</strong> and all its data from Helix.
+              {repoToDelete?.metadata?.is_external && (
+                <> The external repository will not be affected.</>
+              )}
+            </Typography>
+          </Alert>
+
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Please type the repository name <strong>{repoToDelete?.name}</strong> to confirm:
+          </Typography>
+
+          <TextField
+            fullWidth
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            placeholder={repoToDelete?.name}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDelete}
+            variant="contained"
+            color="error"
+            disabled={deleteConfirmName !== repoToDelete?.name || deleteRepositoryMutation.isPending}
+            startIcon={deleteRepositoryMutation.isPending ? <CircularProgress size={16} /> : <Trash size={16} />}
+          >
+            {deleteRepositoryMutation.isPending ? 'Deleting...' : 'Delete Repository'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }
