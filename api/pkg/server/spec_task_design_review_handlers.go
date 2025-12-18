@@ -1058,7 +1058,9 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		Str("completed_comment", comment.ID).
 		Msg("Comment response complete, checking for next in queue")
 
-	go s.processNextCommentInQueue(ctx, sessionID)
+	// Call synchronously - we're already in a goroutine from handleMessageCompleted
+	// No need for another async hop which adds latency
+	s.processNextCommentInQueue(ctx, sessionID)
 
 	return nil
 }
