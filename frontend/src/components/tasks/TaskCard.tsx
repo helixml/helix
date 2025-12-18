@@ -82,6 +82,9 @@ interface SpecTaskWithExtras {
   pull_request_id?: string
   pull_request_url?: string
   implementation_approved_at?: string
+  // Branch tracking for direct-push detection
+  base_branch?: string
+  branch_name?: string
 }
 
 interface KanbanColumn {
@@ -772,8 +775,8 @@ export default function TaskCard({
                 sx={{ flex: 1 }}
               >
                 {approveImplementationMutation.isPending
-                  ? (hasExternalRepo ? 'Opening PR...' : 'Accepting...')
-                  : (hasExternalRepo ? 'Open PR' : 'Accept')}
+                  ? (hasExternalRepo && task.base_branch !== task.branch_name ? 'Opening PR...' : 'Accepting...')
+                  : (hasExternalRepo && task.base_branch !== task.branch_name ? 'Open PR' : 'Accept')}
               </Button>
             </Box>
           </Box>
