@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/client"
@@ -32,6 +33,11 @@ func newTestCmd() *cobra.Command {
 }
 
 func TestResetPassword_NonAdminResetsOwnPassword_Succeeds(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: false,
+		User:  "user-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "user-123",
 		Email: "user@example.com",
@@ -41,13 +47,12 @@ func TestResetPassword_NonAdminResetsOwnPassword_Succeeds(t *testing.T) {
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/status":
-			// Return current user info
+			json.NewEncoder(w).Encode(userStatus)
+		case "/api/v1/users/user-123":
 			json.NewEncoder(w).Encode(currentUser)
 		case "/api/v1/auth/password-update":
-			// Verify it's a POST request
 			assert.Equal(t, http.MethodPost, r.Method)
 
-			// Verify the request body
 			var req types.PasswordUpdateRequest
 			err := json.NewDecoder(r.Body).Decode(&req)
 			require.NoError(t, err)
@@ -66,6 +71,11 @@ func TestResetPassword_NonAdminResetsOwnPassword_Succeeds(t *testing.T) {
 }
 
 func TestResetPassword_AdminResetsOwnPassword_Succeeds(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: true,
+		User:  "admin-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "admin-123",
 		Email: "admin@example.com",
@@ -75,6 +85,8 @@ func TestResetPassword_AdminResetsOwnPassword_Succeeds(t *testing.T) {
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/status":
+			json.NewEncoder(w).Encode(userStatus)
+		case "/api/v1/users/admin-123":
 			json.NewEncoder(w).Encode(currentUser)
 		case "/api/v1/auth/password-update":
 			assert.Equal(t, http.MethodPost, r.Method)
@@ -97,6 +109,11 @@ func TestResetPassword_AdminResetsOwnPassword_Succeeds(t *testing.T) {
 }
 
 func TestResetPassword_AdminResetsOtherUserPassword_Succeeds(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: true,
+		User:  "admin-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "admin-123",
 		Email: "admin@example.com",
@@ -112,6 +129,8 @@ func TestResetPassword_AdminResetsOtherUserPassword_Succeeds(t *testing.T) {
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/status":
+			json.NewEncoder(w).Encode(userStatus)
+		case "/api/v1/users/admin-123":
 			json.NewEncoder(w).Encode(currentUser)
 		case "/api/v1/users":
 			// Return list of users matching email filter
@@ -142,6 +161,11 @@ func TestResetPassword_AdminResetsOtherUserPassword_Succeeds(t *testing.T) {
 }
 
 func TestResetPassword_NonAdminResetsOtherUserPassword_Fails(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: false,
+		User:  "user-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "user-123",
 		Email: "user@example.com",
@@ -151,6 +175,8 @@ func TestResetPassword_NonAdminResetsOtherUserPassword_Fails(t *testing.T) {
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/status":
+			json.NewEncoder(w).Encode(userStatus)
+		case "/api/v1/users/user-123":
 			json.NewEncoder(w).Encode(currentUser)
 		default:
 			t.Errorf("Unexpected request to %s - non-admin should not make further requests", r.URL.Path)
@@ -183,6 +209,11 @@ func TestResetPassword_InvalidAPIKey_Fails(t *testing.T) {
 }
 
 func TestResetPassword_UserNotFound_Fails(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: true,
+		User:  "admin-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "admin-123",
 		Email: "admin@example.com",
@@ -192,6 +223,8 @@ func TestResetPassword_UserNotFound_Fails(t *testing.T) {
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/status":
+			json.NewEncoder(w).Encode(userStatus)
+		case "/api/v1/users/admin-123":
 			json.NewEncoder(w).Encode(currentUser)
 		case "/api/v1/users":
 			// Return empty list - user not found
@@ -212,6 +245,11 @@ func TestResetPassword_UserNotFound_Fails(t *testing.T) {
 }
 
 func TestResetPassword_AdminEndpointReturnsError_Fails(t *testing.T) {
+	userStatus := &types.UserStatus{
+		Admin: true,
+		User:  "admin-123",
+	}
+
 	currentUser := &types.User{
 		ID:    "admin-123",
 		Email: "admin@example.com",
@@ -225,15 +263,17 @@ func TestResetPassword_AdminEndpointReturnsError_Fails(t *testing.T) {
 	}
 
 	_, apiClient := setupTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/status":
+		switch {
+		case r.URL.Path == "/api/v1/status":
+			json.NewEncoder(w).Encode(userStatus)
+		case r.URL.Path == "/api/v1/users/admin-123":
 			json.NewEncoder(w).Encode(currentUser)
-		case "/api/v1/users":
+		case r.URL.Path == "/api/v1/users" && r.URL.RawQuery != "":
 			json.NewEncoder(w).Encode(&types.PaginatedUsersList{
 				Users:      []*types.User{targetUser},
 				TotalCount: 1,
 			})
-		case "/api/v1/admin/users/user-456/password":
+		case strings.HasPrefix(r.URL.Path, "/api/v1/admin/users/") && strings.HasSuffix(r.URL.Path, "/password"):
 			// Return error from admin endpoint
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`{"error": "password too short"}`))

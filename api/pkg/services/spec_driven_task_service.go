@@ -200,7 +200,8 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
-func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
+// opts contains optional settings like keyboard layout from browser locale detection
+func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
 	// Add panic recovery for debugging
 	defer func() {
 		if r := recover(); r != nil {
@@ -481,9 +482,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env: []string{
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
-		},
+		Env:                 buildEnvWithLocale(userAPIKey, opts),
 	}
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
 
@@ -514,7 +513,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
-func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
+// opts contains optional settings like keyboard layout from browser locale detection
+func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
 	// Add panic recovery for debugging (match StartSpecGeneration pattern)
 	defer func() {
 		if r := recover(); r != nil {
@@ -856,9 +856,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env: []string{
-			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
-		},
+		Env:                 buildEnvWithLocale(userAPIKey, opts),
 	}
 
 	// Start the Zed agent via Wolf executor
@@ -876,6 +874,28 @@ Follow these guidelines when making changes:
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Just Do It mode: Zed agent launched with branch instructions")
+}
+
+// buildEnvWithLocale constructs the environment variable array for desktop containers
+// Includes the API token and optional locale settings (keyboard layout, timezone)
+func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []string {
+	env := []string{
+		fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+	}
+
+	// Add keyboard layout if specified (from browser locale detection)
+	if opts.KeyboardLayout != "" {
+		env = append(env, fmt.Sprintf("XKB_DEFAULT_LAYOUT=%s", opts.KeyboardLayout))
+		log.Debug().Str("keyboard", opts.KeyboardLayout).Msg("Adding keyboard layout to container env")
+	}
+
+	// Add timezone if specified
+	if opts.Timezone != "" {
+		env = append(env, fmt.Sprintf("TZ=%s", opts.Timezone))
+		log.Debug().Str("timezone", opts.Timezone).Msg("Adding timezone to container env")
+	}
+
+	return env
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent

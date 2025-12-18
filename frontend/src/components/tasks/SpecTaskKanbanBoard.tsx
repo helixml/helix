@@ -63,6 +63,7 @@ import { useTheme } from '@mui/material/styles';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
+import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
 import TaskCard from './TaskCard';
 import specTaskService, {
@@ -872,7 +873,27 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
     try {
       // Call the start-planning endpoint which actually starts spec generation
-      await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id!);
+      // Include keyboard layout from browser locale detection (or ?keyboard= override)
+      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const queryParams = new URLSearchParams();
+      if (keyboardLayout) queryParams.set('keyboard', keyboardLayout);
+      if (timezone) queryParams.set('timezone', timezone);
+      const queryString = queryParams.toString();
+      const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ''}`;
+
+      // Log keyboard layout being sent to API
+      console.log(`%c[Start Planning] Keyboard: ${keyboardLayout}${isOverridden ? ' (from URL override)' : ' (from browser)'}`, 'color: #2196F3; font-weight: bold;');
+      console.log(`[Start Planning] API URL: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `Failed to start planning: ${response.statusText}`);
+      }
 
       // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation

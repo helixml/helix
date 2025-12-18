@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc"
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -34,8 +33,7 @@ type OIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
-	AdminUserIDs []string
-	AdminUserSrc config.AdminSrcType
+	AdminUsers   string // "all" for dev mode, otherwise uses database
 	Audience     string
 	Scopes       []string
 	Store        store.Store
@@ -59,8 +57,7 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 	client := &OIDCClient{
 		cfg: cfg,
 		adminConfig: &AdminConfig{
-			AdminUserIDs: cfg.AdminUserIDs,
-			AdminUserSrc: cfg.AdminUserSrc,
+			AdminUsers: cfg.AdminUsers,
 		},
 		store: cfg.Store,
 	}
@@ -249,7 +246,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
 	}
 
-	account := account{userInfo: userInfo}
+	// Determine admin status:
+	// - If ADMIN_USERS=all (dev mode), everyone is admin
+	// - Otherwise use the database admin field
+	isAdmin := c.adminConfig.IsAllUsersAdmin() || user.Admin
 
 	return &types.User{
 		ID:          userInfo.Subject,
@@ -259,7 +259,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		Token:       accessToken,
 		TokenType:   types.TokenTypeOIDC,
 		Type:        types.OwnerTypeUser,
-		Admin:       account.isAdmin(c.adminConfig),
+		Admin:       isAdmin,
 		SB:          user.SB,
 		Deactivated: user.Deactivated,
 	}, nil
