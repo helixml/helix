@@ -214,6 +214,55 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
+	} else {
+		// For external repos: clone synchronously BEFORE creating DB record
+		// This ensures the repo exists in Helix before Kodit tries to index it
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Msg("Cloning external repository...")
+
+		cloneOptions := &git.CloneOptions{
+			URL:      gitRepo.ExternalURL,
+			Progress: os.Stdout,
+			Bare:     true,
+			Mirror:   true, // Clone ALL branches, tags, and refs
+		}
+		cloneOptions.Auth = s.GetAuthConfig(gitRepo)
+
+		repo, err := git.PlainClone(repoPath, cloneOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to clone external repository: %w", err)
+		}
+
+		// Detect default branch from HEAD
+		headRef, err := repo.Head()
+		if err == nil && headRef.Name().IsBranch() {
+			gitRepo.DefaultBranch = headRef.Name().Short()
+			log.Info().
+				Str("repo_id", repoID).
+				Str("default_branch", gitRepo.DefaultBranch).
+				Msg("Detected default branch from external repository")
+		}
+
+		// Populate branches list
+		refs, err := repo.References()
+		if err == nil {
+			var branches []string
+			refs.ForEach(func(ref *plumbing.Reference) error {
+				if ref.Name().IsBranch() {
+					branches = append(branches, ref.Name().Short())
+				}
+				return nil
+			})
+			gitRepo.Branches = branches
+		}
+
+		log.Info().
+			Str("repo_id", repoID).
+			Str("external_url", gitRepo.ExternalURL).
+			Int("branches", len(gitRepo.Branches)).
+			Msg("Successfully cloned external repository")
 	}
 
 	// Store repository metadata (if store supports it)
