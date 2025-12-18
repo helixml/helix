@@ -267,92 +267,67 @@ postgresql:
     existingSecretPasswordKey: ""
     annotations: {}
 
-# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml 
-# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+# Kodit configuration - Code indexing service
+# Kodit provides code search and analysis capabilities for Helix
 kodit:
   enabled: true
 
-  # Replace this with your own secret.
-  secrets:
-    kodit:
-      enabled: true
-      stringData:
-        POSTGRES_USER: cG9zdGdyZXM=  # postgres gitleaks:allow
-        POSTGRES_PASSWORD: bXlzZWNyZXRwYXNzd29yZA==  # mysecretpassword gitleaks:allow
-        POSTGRES_DB: a29kaXQ=  # kodit gitleaks:allow
+  # Kodit application image
+  image:
+    repository: registry.helixml.tech/helix/kodit
+    tag: "0.5.16"
+    pullPolicy: IfNotPresent
 
-  controllers:
-    kodit:
-      containers:
-        kodit:
-          image:
-            repository: registry.helixml.tech/helix/kodit
-            tag: "0.5.16"  # Pinned version - see https://github.com/helixml/kodit/releases
-          # Replace this with your own secret.
-          envFrom:
-            - secretRef:
-                name: "{{ .Release.Name }}-kodit"
-          env:
-            # Please see https://docs.helixml.tech/kodit/reference/configuration/ for all possible values.
-            DATA_DIR: /data
-            DB_URL: postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-kodit-vectorchord:5432/$(POSTGRES_DB)
-            DEFAULT_SEARCH_PROVIDER: vectorchord
-            # Enrichment endpoint - Kodit uses Helix as LLM proxy for code enrichments
-            # Override ENRICHMENT_ENDPOINT_API_KEY to reference your runner token secret
-            ENRICHMENT_ENDPOINT_BASE_URL: "http://{{ .Release.Name }}:80/v1"
-            ENRICHMENT_ENDPOINT_MODEL: openai/kodit-model
-            ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS: "3"
-            ENRICHMENT_ENDPOINT_TIMEOUT: "120"
-            # API key from runner token secret - override this in your values.yaml:
-            # kodit.controllers.kodit.containers.kodit.env.ENRICHMENT_ENDPOINT_API_KEY.valueFrom.secretKeyRef.name
-            # kodit.controllers.kodit.containers.kodit.env.ENRICHMENT_ENDPOINT_API_KEY.valueFrom.secretKeyRef.key
-            ENRICHMENT_ENDPOINT_API_KEY:
-              valueFrom:
-                secretKeyRef:
-                  name: "helix-runner-secrets"  # Override with your secret name
-                  key: "api-token"              # Override with your secret key
+  # Database authentication (for kodit's vectorchord database)
+  auth:
+    username: "postgres"
+    password: "kodit-password"
+    database: "kodit"
+    # Option: Use existing secret for all auth credentials
+    existingSecret: ""
+    usernameKey: ""   # defaults to "username"
+    passwordKey: ""   # defaults to "password"
+    databaseKey: ""   # defaults to "database"
 
-    vectorchord:
-      enabled: true
-      strategy: Recreate
-      containers:
-        vectorchord:
-          image:
-            repository: tensorchord/vchord-suite
-            tag: pg17-20250601
-            pullPolicy: IfNotPresent
-          envFrom:
-            - secretRef:
-                name: "{{ .Release.Name }}-kodit"
-  service:
-    kodit:
-      controller: kodit
-      ports:
-        http:
-          port: 8080
-    vectorchord:
-      enabled: true
-      controller: vectorchord
-      ports:
-        postgres:
-          port: 5432
+  # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
+  enrichment:
+    # Base URL for enrichment API (defaults to Helix controlplane)
+    baseUrl: ""  # Defaults to http://<fullname>:80/v1
+    model: "openai/kodit-model"
+    parallelTasks: "3"
+    timeout: "120"
+    # API key for enrichment endpoint
+    apiKey: ""
+    # Option: Use existing secret for API key (recommended - use runner token secret)
+    existingSecret: ""
+    existingSecretKey: ""  # defaults to "api-token"
 
+  # Persistence for kodit data
   persistence:
-    kodit-data:
+    enabled: true
+    size: "10Gi"
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
+
+  # Vectorchord (PostgreSQL + pgvector) configuration for kodit
+  vectorchord:
+    enabled: true
+    image:
+      repository: tensorchord/vchord-suite
+      tag: pg17-20250601
+      pullPolicy: IfNotPresent
+    persistence:
       enabled: true
-      # existingClaim: kodit-data # RECOMMENDED
-      size: 10Gi
-      accessMode: ReadWriteOnce
-      advancedMounts:
-        kodit:
-          kodit:
-            - path: /data
-    vectorchord-data:
-      enabled: true
-      # existingClaim: kodit-vectorchord # RECOMMENDED
-      size: 10Gi
-      accessMode: ReadWriteOnce
-      advancedMounts:
-        vectorchord:
-          vectorchord:
-            - path: /var/lib/postgresql/data
+      size: "10Gi"
+      storageClass: ""
+      annotations: {}
+      accessModes:
+        - ReadWriteOnce
+      existingClaim: ""
+      selector: {}
+      dataSource: {}

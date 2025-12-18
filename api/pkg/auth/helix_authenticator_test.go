@@ -130,8 +130,8 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_WithoutPassword() {
 }
 
 func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue() {
-	// Set ADMIN_USERS=all (dev mode)
-	suite.cfg.WebServer.AdminUsers = config.AdminAllUsers
+	// Set ADMIN_USER_IDS=all (dev mode)
+	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}
 
 	userID := uuid.New().String()
 	user := &types.User{
@@ -156,8 +156,8 @@ func (suite *HelixAuthenticatorTestSuite) TestCreateUser_DevMode_SetsAdminTrue()
 }
 
 func (suite *HelixAuthenticatorTestSuite) TestCreateUser_ProductionMode_PreservesAdminFalse() {
-	// Ensure we're in production mode (AdminUsers is empty)
-	suite.cfg.WebServer.AdminUsers = ""
+	// Ensure we're in production mode (AdminUserIDs is empty)
+	suite.cfg.WebServer.AdminUserIDs = nil
 
 	userID := uuid.New().String()
 	user := &types.User{
@@ -318,8 +318,8 @@ func (suite *HelixAuthenticatorTestSuite) TestValidateUserToken_Admin() {
 		Admin: false,
 	}
 
-	// Set ADMIN_USERS=all (dev mode) where everyone is admin
-	suite.cfg.WebServer.AdminUsers = config.AdminAllUsers
+	// Set ADMIN_USER_IDS=all (dev mode) where everyone is admin
+	suite.cfg.WebServer.AdminUserIDs = []string{config.AdminAllUsers}
 
 	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
 	suite.Require().NoError(err)
