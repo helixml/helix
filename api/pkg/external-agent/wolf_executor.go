@@ -663,6 +663,21 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		}
 	}
 
+	// Get spec directory name for git hooks (Spec-Ref trailer)
+	var specDirName string
+	if agent.SpecTaskID != "" {
+		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get spec task for design doc path")
+		} else if specTask != nil && specTask.DesignDocPath != "" {
+			specDirName = specTask.DesignDocPath
+			log.Debug().
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("spec_dir_name", specDirName).
+				Msg("Spec directory name for git hooks")
+		}
+	}
+
 	log.Info().
 		Str("wolf_app_id", wolfAppID).
 		Str("workspace_dir", workspaceDir).
@@ -749,6 +764,11 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	// Add primary repository name for design docs worktree setup
 	if primaryRepoName != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", primaryRepoName))
+	}
+
+	// Add spec directory name for git hooks (Spec-Ref trailer includes this)
+	if specDirName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_SPEC_DIR_NAME=%s", specDirName))
 	}
 
 	// Pass repository information for startup script to clone
