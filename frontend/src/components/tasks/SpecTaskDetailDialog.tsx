@@ -1017,6 +1017,29 @@ I'll give you feedback and we can iterate on any changes needed.`
                     View Pull Request
                   </Button>
                 )}
+                {/* Archive button - always available */}
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={updateSpecTask.isPending ? <CircularProgress size={16} color="inherit" /> : <CloseIcon />}
+                  onClick={async () => {
+                    if (!task?.id) return
+                    try {
+                      await updateSpecTask.mutateAsync({
+                        taskId: task.id,
+                        updates: { archived: true },
+                      })
+                      snackbar.success('Task archived')
+                      onClose()
+                    } catch (err) {
+                      console.error('Failed to archive task:', err)
+                      snackbar.error('Failed to archive task')
+                    }
+                  }}
+                  disabled={updateSpecTask.isPending}
+                >
+                  {updateSpecTask.isPending ? 'Archiving...' : 'Archive'}
+                </Button>
               </Box>
 
               <Divider sx={{ mb: 3 }} />
