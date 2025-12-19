@@ -94,7 +94,6 @@ Your design has been approved. Implement the code changes now.
 2. **Do the bare minimum** - Simple tasks = simple solutions. No over-engineering.
 3. **Update tasks.md** - Mark [x] when you start each task, push immediately
 4. **Update design docs as you go** - Modify requirements.md, design.md, tasks.md when you learn something new
-5. **Include Code-Ref** - Always reference the code commit in helix-specs commits (see below)
 
 ## Two Repositories - Don't Confuse Them
 
@@ -111,20 +110,10 @@ Your checklist: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/tasks
 When you START a task, change [ ] to [x] and push. Don't wait until "really done".
 Small frequent pushes are better than one big push at the end.
 
-**IMPORTANT:** Always include a Code-Ref in your commit messages to link specs to code versions:
-
 ` + "```bash" + `
-# Get current code commit from your feature branch
-cd /home/retro/work/{{.PrimaryRepoName}}
-CODE_REF="$(git rev-parse --short HEAD)"
-
 cd /home/retro/work/helix-specs
-git add -A && git commit -m "Progress update
-
-Code-Ref: {{.PrimaryRepoName}}/{{.BranchName}}@${CODE_REF}" && git push origin helix-specs
+git add -A && git commit -m "Progress update" && git push origin helix-specs
 ` + "```" + `
-
-The **Code-Ref** line is machine-parsable and links spec versions to code versions.
 
 ## Steps
 
