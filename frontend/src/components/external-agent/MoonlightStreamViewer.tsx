@@ -3081,7 +3081,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 },
               }}
             >
-              {bitrateRecommendation.type === 'decrease' ? '↓' : '↑'} {bitrateRecommendation.targetBitrate}M
+              {bitrateRecommendation.type === 'decrease'
+                ? `Slow connection · Try ${bitrateRecommendation.targetBitrate}M`
+                : `Improved · Try ${bitrateRecommendation.targetBitrate}M`}
             </Button>
           </Tooltip>
         )}
