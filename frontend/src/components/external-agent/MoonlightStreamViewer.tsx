@@ -144,7 +144,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high'); // Default to high mode (switch to screenshot manually if needed)
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
