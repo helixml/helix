@@ -144,7 +144,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high');
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -1812,13 +1812,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    const CHECK_INTERVAL_MS = 1000;       // Check every second
-    const REDUCE_COOLDOWN_MS = 10000;     // Don't reduce again within 10 seconds
-    const INCREASE_COOLDOWN_MS = 30000;   // Don't increase again within 30 seconds
-    const MANUAL_SELECTION_COOLDOWN_MS = 20000;  // Don't auto-reduce within 20s of user manually selecting bitrate
+    const CHECK_INTERVAL_MS = 1000;       // Check every second (for congestion detection)
+    const REDUCE_COOLDOWN_MS = 300000;    // Don't show another recommendation within 5 minutes
+    const INCREASE_COOLDOWN_MS = 300000;  // Don't show another recommendation within 5 minutes
+    const MANUAL_SELECTION_COOLDOWN_MS = 60000;  // Don't auto-reduce within 60s of user manually selecting bitrate
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
-    const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of low frame drift before trying increase
+    const STABLE_CHECKS_FOR_INCREASE = 300; // Need 5 minutes of low frame drift before running bandwidth probe
     const CONGESTION_CHECKS_FOR_REDUCE = 3; // Need 3 consecutive high drift samples before reducing (dampening)
     const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
 
@@ -3045,6 +3045,46 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
           </IconButton>
         </Tooltip>
+        {/* Discreet bandwidth recommendation indicator */}
+        {bitrateRecommendation && isConnected && (
+          <Tooltip
+            title={`${bitrateRecommendation.reason}. Click to switch.`}
+            arrow
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+          >
+            <Button
+              size="small"
+              onClick={() => {
+                setUserBitrate(bitrateRecommendation.targetBitrate);
+                manualBitrateSelectionTimeRef.current = Date.now();
+                addChartEvent(
+                  bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
+                  `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
+                );
+                setBitrateRecommendation(null);
+              }}
+              sx={{
+                backgroundColor: bitrateRecommendation.type === 'decrease'
+                  ? 'rgba(255, 152, 0, 0.9)'
+                  : 'rgba(76, 175, 80, 0.9)',
+                color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
+                fontSize: '0.65rem',
+                px: 1,
+                py: 0.25,
+                minWidth: 'auto',
+                textTransform: 'none',
+                borderRadius: 1,
+                '&:hover': {
+                  backgroundColor: bitrateRecommendation.type === 'decrease'
+                    ? 'rgba(255, 152, 0, 1)'
+                    : 'rgba(76, 175, 80, 1)',
+                },
+              }}
+            >
+              {bitrateRecommendation.type === 'decrease' ? '↓' : '↑'} {bitrateRecommendation.targetBitrate}M
+            </Button>
+          </Tooltip>
+        )}
       </Box>
 
       {/* Screenshot Mode / High Latency Warning Banner */}
@@ -3073,100 +3113,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
               Screenshot mode ({screenshotFps} FPS @ {screenshotQuality}% quality)
             </Typography>
-          </Box>
-        </Box>
-      )}
-
-      {/* Bandwidth Recommendation Popup */}
-      {bitrateRecommendation && isConnected && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: shouldPollScreenshots ? 90 : 50, // Below screenshot banner if visible
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 999,
-            backgroundColor: bitrateRecommendation.type === 'decrease'
-              ? 'rgba(255, 152, 0, 0.95)' // Orange for decrease warning
-              : 'rgba(76, 175, 80, 0.95)', // Green for increase opportunity
-            color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-            padding: '8px 16px',
-            borderRadius: 2,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 1,
-            fontFamily: 'monospace',
-            fontSize: '0.8rem',
-            maxWidth: '90%',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {bitrateRecommendation.type === 'decrease' ? (
-              <SignalCellularAlt sx={{ fontSize: 18 }} />
-            ) : (
-              <Speed sx={{ fontSize: 18 }} />
-            )}
-            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-              {bitrateRecommendation.type === 'decrease'
-                ? 'Slow connection detected'
-                : 'Connection improved'}
-            </Typography>
-          </Box>
-          <Typography variant="caption" sx={{ textAlign: 'center', opacity: 0.9 }}>
-            {bitrateRecommendation.reason}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => {
-                // Apply the recommended bitrate
-                setUserBitrate(bitrateRecommendation.targetBitrate);
-                manualBitrateSelectionTimeRef.current = Date.now();
-                addChartEvent(
-                  bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
-                  `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
-                );
-                setBitrateRecommendation(null);
-              }}
-              sx={{
-                backgroundColor: bitrateRecommendation.type === 'decrease' ? '#d84315' : '#2e7d32',
-                color: 'white',
-                fontSize: '0.7rem',
-                px: 2,
-                py: 0.5,
-                textTransform: 'none',
-                '&:hover': {
-                  backgroundColor: bitrateRecommendation.type === 'decrease' ? '#bf360c' : '#1b5e20',
-                },
-              }}
-            >
-              Switch to {bitrateRecommendation.targetBitrate} Mbps
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => {
-                console.log(`[AdaptiveBitrate] User dismissed ${bitrateRecommendation.type} recommendation`);
-                setBitrateRecommendation(null);
-              }}
-              sx={{
-                borderColor: bitrateRecommendation.type === 'decrease' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
-                color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-                fontSize: '0.7rem',
-                px: 1.5,
-                py: 0.5,
-                textTransform: 'none',
-                '&:hover': {
-                  borderColor: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-                  backgroundColor: 'rgba(0,0,0,0.1)',
-                },
-              }}
-            >
-              Dismiss
-            </Button>
           </Box>
         </Box>
       )}
