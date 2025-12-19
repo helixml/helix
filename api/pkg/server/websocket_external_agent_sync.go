@@ -538,6 +538,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleChatResponseDone(sessionID, syncMsg)
 	case "message_completed":
 		return apiServer.handleMessageCompleted(sessionID, syncMsg)
+	case "thread_load_error":
+		return apiServer.handleThreadLoadError(sessionID, syncMsg)
 	case "chat_response_error":
 		return apiServer.handleChatResponseError(sessionID, syncMsg)
 	case "ping":
@@ -1611,6 +1613,105 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			log.Debug().
 				Str("session_id", helixSessionID).
 				Msg("No pending design review comment to finalize for session (this is normal for non-comment interactions)")
+		}
+	}
+
+	return nil
+}
+
+// handleThreadLoadError handles thread load failures from Zed
+// This happens when Zed tries to load an existing thread but fails (e.g., session already active via UI)
+// We need to treat this like a completion so the UI clears the text box and shows an error
+func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("⚠️ [HELIX] RECEIVED THREAD_LOAD_ERROR FROM EXTERNAL AGENT")
+
+	// Extract error details
+	acpThreadID, _ := syncMsg.Data["acp_thread_id"].(string)
+	requestID, _ := syncMsg.Data["request_id"].(string)
+	errorMsg, _ := syncMsg.Data["error"].(string)
+
+	log.Error().
+		Str("acp_thread_id", acpThreadID).
+		Str("request_id", requestID).
+		Str("error", errorMsg).
+		Msg("❌ [HELIX] Thread load failed in Zed - session may be active via UI click")
+
+	// Look up helix_session_id from context mapping (if thread was previously mapped)
+	var helixSessionID string
+	if acpThreadID != "" {
+		apiServer.contextMappingsMutex.RLock()
+		helixSessionID = apiServer.contextMappings[acpThreadID]
+		apiServer.contextMappingsMutex.RUnlock()
+	}
+
+	// If we have a request_id, try to send error to the done channel
+	// This allows the HTTP streaming to complete with an error message
+	if requestID != "" {
+		lookupSessionID := helixSessionID
+		if lookupSessionID == "" {
+			// Fall back to the WebSocket session ID
+			lookupSessionID = sessionID
+		}
+
+		_, doneChan, errorChan, exists := apiServer.getResponseChannel(lookupSessionID, requestID)
+		if exists {
+			// Send error message
+			if errorChan != nil {
+				select {
+				case errorChan <- fmt.Errorf("thread load failed: %s", errorMsg):
+					log.Info().
+						Str("request_id", requestID).
+						Msg("✅ [HELIX] Sent error to error channel")
+				default:
+					log.Debug().Msg("Error channel full")
+				}
+			}
+
+			// Send completion signal so UI clears
+			if doneChan != nil {
+				select {
+				case doneChan <- true:
+					log.Info().
+						Str("request_id", requestID).
+						Msg("✅ [HELIX] Sent done signal (after error)")
+				default:
+					log.Debug().Msg("Done channel full")
+				}
+			}
+		}
+	}
+
+	// If we have a helix session, update the interaction to show error
+	if helixSessionID != "" {
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err == nil && helixSession != nil {
+			// Find the waiting interaction and mark it with error
+			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1000,
+			})
+			if err == nil {
+				for i := len(interactions) - 1; i >= 0; i-- {
+					if interactions[i].State == types.InteractionStateWaiting {
+						interactions[i].State = types.InteractionStateError
+						interactions[i].Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
+						interactions[i].Updated = time.Now()
+						interactions[i].Completed = time.Now()
+						apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interactions[i])
+
+						log.Info().
+							Str("helix_session_id", helixSessionID).
+							Str("interaction_id", interactions[i].ID).
+							Msg("✅ [HELIX] Marked interaction as error due to thread load failure")
+						break
+					}
+				}
+			}
 		}
 	}
 
