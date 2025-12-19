@@ -117,7 +117,6 @@ RUNNER=false
 SANDBOX=false
 LARGE=false
 HAYSTACK=""
-KODIT=""
 CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
@@ -246,7 +245,6 @@ Options:
   --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
-  --kodit                  Enable the kodit code indexing service
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
@@ -383,10 +381,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --haystack)
             HAYSTACK=true
-            shift
-            ;;
-        --kodit)
-            KODIT=true
             shift
             ;;
         --code)
@@ -1589,9 +1583,6 @@ EOF
     COMPOSE_PROFILES=""
     if [[ -n "$HAYSTACK" ]]; then
         COMPOSE_PROFILES="haystack"
-    fi
-    if [[ -n "$KODIT" ]]; then
-        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
     fi
 
     # Set RAG provider
