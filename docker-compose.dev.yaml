@@ -167,7 +167,6 @@ services:
 
   # Kodit code indexing service
   kodit:
-    profiles: [kodit]
     image: registry.helixml.tech/helix/kodit:0.5.16
     # ports:
     #   - 8632:8632
@@ -199,7 +198,6 @@ services:
 
   # Kodit PostgreSQL database with pgvector
   vectorchord-kodit:
-    profiles: [kodit]
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
     environment:
