@@ -325,17 +325,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("HelixAppID persisted to task")
 	}
 
-	// Get primary repo name for the planning prompt (to reference in Code-Ref commits)
-	primaryRepoName := ""
-	if project != nil && project.DefaultRepoID != "" {
-		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err == nil && repo != nil {
-			primaryRepoName = repo.Name
-		}
-	}
-
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines, primaryRepoName)
+	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
