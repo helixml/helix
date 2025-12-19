@@ -6731,6 +6731,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/prompt-history": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get prompt history entries for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "List prompt history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID (required)",
+                        "name": "spec_task_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID (optional filter)",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID (optional filter)",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Only entries after this timestamp (Unix milliseconds)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max entries to return (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistoryListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/sync": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Sync prompt history entries from the frontend (union merge - no deletes)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Sync prompt history",
+                "parameters": [
+                    {
+                        "description": "Prompt history entries to sync",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistorySyncRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistorySyncResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints": {
             "get": {
                 "security": [
@@ -10928,6 +11064,18 @@ const docTemplate = `{
                         "name": "taskId",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection",
+                        "name": "keyboard",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection",
+                        "name": "timezone",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -17713,6 +17861,7 @@ const docTemplate = `{
                 "task_approved",
                 "task_completed",
                 "task_archived",
+                "task_unarchived",
                 "agent_prompt",
                 "user_message",
                 "agent_started",
@@ -17722,7 +17871,11 @@ const docTemplate = `{
                 "review_comment_reply",
                 "pr_created",
                 "pr_merged",
-                "git_push"
+                "git_push",
+                "project_created",
+                "project_deleted",
+                "project_settings_updated",
+                "project_guidelines_updated"
             ],
             "x-enum-comments": {
                 "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
@@ -17730,6 +17883,10 @@ const docTemplate = `{
                 "AuditEventGitPush": "Git push detected",
                 "AuditEventPRCreated": "Pull request created",
                 "AuditEventPRMerged": "Pull request merged",
+                "AuditEventProjectCreated": "Project was created",
+                "AuditEventProjectDeleted": "Project was deleted",
+                "AuditEventProjectGuidelinesUpdated": "Project guidelines were modified",
+                "AuditEventProjectSettingsUpdated": "Project settings were modified",
                 "AuditEventReviewComment": "Comment added to design review",
                 "AuditEventReviewCommentReply": "Reply to a comment",
                 "AuditEventSpecGenerated": "Spec was generated",
@@ -17743,6 +17900,7 @@ const docTemplate = `{
                 "AuditEventTaskApproved",
                 "AuditEventTaskCompleted",
                 "AuditEventTaskArchived",
+                "AuditEventTaskUnarchived",
                 "AuditEventAgentPrompt",
                 "AuditEventUserMessage",
                 "AuditEventAgentStarted",
@@ -17752,7 +17910,11 @@ const docTemplate = `{
                 "AuditEventReviewCommentReply",
                 "AuditEventPRCreated",
                 "AuditEventPRMerged",
-                "AuditEventGitPush"
+                "AuditEventGitPush",
+                "AuditEventProjectCreated",
+                "AuditEventProjectDeleted",
+                "AuditEventProjectSettingsUpdated",
+                "AuditEventProjectGuidelinesUpdated"
             ]
         },
         "types.AuditMetadata": {
@@ -17793,6 +17955,10 @@ const docTemplate = `{
                 },
                 "interaction_id": {
                     "description": "For scrolling to specific interaction in session view",
+                    "type": "string"
+                },
+                "project_name": {
+                    "description": "Project information",
                     "type": "string"
                 },
                 "pull_request_id": {
@@ -18549,6 +18715,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Optional: Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_email": {
+                    "description": "Optional: User email for audit trail",
+                    "type": "string"
                 },
                 "user_id": {
                     "type": "string"
@@ -21643,6 +21813,116 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "types.PromptHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Content",
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Composite primary key: ID is globally unique, but we also index by user+spec_task",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "For reference, but primary grouping is by spec_task",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Optional - which session this was sent to",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PromptHistoryEntrySync": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Unix timestamp in milliseconds",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.PromptHistoryListResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntry"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.PromptHistorySyncRequest": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntrySync"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PromptHistorySyncResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "All entries for this user+project (for client merge)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntry"
+                    }
+                },
+                "existing": {
+                    "description": "Number that already existed",
+                    "type": "integer"
+                },
+                "synced": {
+                    "description": "Number of entries synced",
+                    "type": "integer"
                 }
             }
         },
@@ -25241,20 +25521,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

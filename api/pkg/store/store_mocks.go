@@ -3290,6 +3290,21 @@ func (mr *MockStoreMockRecorder) IncrementProjectTaskNumber(ctx, projectID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementProjectTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementProjectTaskNumber), ctx, projectID)
 }
 
+// IncrementGlobalTaskNumber mocks base method.
+func (m *MockStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementGlobalTaskNumber", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementGlobalTaskNumber indicates an expected call of IncrementGlobalTaskNumber.
+func (mr *MockStoreMockRecorder) IncrementGlobalTaskNumber(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementGlobalTaskNumber", reflect.TypeOf((*MockStore)(nil).IncrementGlobalTaskNumber), ctx)
+}
+
 // IncrementWolfSandboxCount mocks base method.
 func (m *MockStore) IncrementWolfSandboxCount(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -3755,6 +3770,21 @@ func (m *MockStore) ListProjects(ctx context.Context, query *ListProjectsQuery) 
 func (mr *MockStoreMockRecorder) ListProjects(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, query)
+}
+
+// ListPromptHistory mocks base method.
+func (m *MockStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPromptHistory", ctx, userID, req)
+	ret0, _ := ret[0].(*types.PromptHistoryListResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPromptHistory indicates an expected call of ListPromptHistory.
+func (mr *MockStoreMockRecorder) ListPromptHistory(ctx, userID, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistory", reflect.TypeOf((*MockStore)(nil).ListPromptHistory), ctx, userID, req)
 }
 
 // ListProviderEndpoints mocks base method.
@@ -4424,6 +4454,21 @@ func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string
 func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
+}
+
+// SyncPromptHistory mocks base method.
+func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SyncPromptHistory", ctx, userID, req)
+	ret0, _ := ret[0].(*types.PromptHistorySyncResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SyncPromptHistory indicates an expected call of SyncPromptHistory.
+func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
 }
 
 // UpdateAgentRunner mocks base method.

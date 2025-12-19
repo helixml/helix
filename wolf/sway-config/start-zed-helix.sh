@@ -222,6 +222,112 @@ else
 fi
 
 # =========================================
+# Checkout correct branch (based on branch mode)
+# =========================================
+# HELIX_BRANCH_MODE: "new" or "existing"
+# HELIX_BASE_BRANCH: For new mode, the branch to create from
+# HELIX_WORKING_BRANCH: For new mode, the new branch name; for existing mode, branch to checkout
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -n "$HELIX_BRANCH_MODE" ]; then
+    echo "========================================="
+    echo "Configuring branch..."
+    echo "========================================="
+
+    PRIMARY_REPO_PATH="$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+
+    if [ -d "$PRIMARY_REPO_PATH/.git" ]; then
+        cd "$PRIMARY_REPO_PATH"
+
+        # Fetch all remote branches to ensure we have the latest
+        echo "  📥 Fetching remote branches..."
+        git fetch origin --prune 2>&1 || echo "  ⚠️  Failed to fetch (continuing anyway)"
+
+        if [ "$HELIX_BRANCH_MODE" = "existing" ]; then
+            # Existing branch mode: checkout the working branch
+            if [ -n "$HELIX_WORKING_BRANCH" ]; then
+                echo "  📍 Mode: Continue existing branch"
+                echo "  🌿 Checking out branch: $HELIX_WORKING_BRANCH"
+
+                # Check if branch exists locally or remotely
+                if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
+                    # Local branch exists
+                    git checkout "$HELIX_WORKING_BRANCH" 2>&1
+                    echo "  ✅ Checked out existing local branch: $HELIX_WORKING_BRANCH"
+                elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
+                    # Remote branch exists, create tracking branch
+                    git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
+                    echo "  ✅ Created tracking branch from origin: $HELIX_WORKING_BRANCH"
+                else
+                    echo "  ❌ Branch not found locally or remotely: $HELIX_WORKING_BRANCH"
+                    echo "  Available remote branches:"
+                    git branch -r | head -10
+                fi
+            else
+                echo "  ⚠️  Existing mode but HELIX_WORKING_BRANCH not set"
+            fi
+        elif [ "$HELIX_BRANCH_MODE" = "new" ]; then
+            # New branch mode: create branch from base
+            echo "  📍 Mode: Create new branch"
+
+            # Determine base branch (use HELIX_BASE_BRANCH or detect default)
+            BASE_BRANCH="$HELIX_BASE_BRANCH"
+            if [ -z "$BASE_BRANCH" ]; then
+                # Get default branch
+                BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+                if [ -z "$BASE_BRANCH" ]; then
+                    if git show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
+                        BASE_BRANCH="main"
+                    elif git show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
+                        BASE_BRANCH="master"
+                    else
+                        BASE_BRANCH="main"
+                    fi
+                fi
+                echo "  📍 Using detected default branch: $BASE_BRANCH"
+            else
+                echo "  📍 Using specified base branch: $BASE_BRANCH"
+            fi
+
+            # Checkout base branch first
+            if git show-ref --verify --quiet "refs/remotes/origin/$BASE_BRANCH"; then
+                git checkout "$BASE_BRANCH" 2>&1 || git checkout -b "$BASE_BRANCH" "origin/$BASE_BRANCH" 2>&1
+                git pull origin "$BASE_BRANCH" 2>&1 || echo "  ⚠️  Failed to pull (continuing anyway)"
+            else
+                echo "  ⚠️  Base branch not found: $BASE_BRANCH"
+            fi
+
+            # Create new working branch if specified
+            if [ -n "$HELIX_WORKING_BRANCH" ]; then
+                echo "  🌱 Creating new branch: $HELIX_WORKING_BRANCH from $BASE_BRANCH"
+
+                # Check if branch already exists
+                if git show-ref --verify --quiet "refs/heads/$HELIX_WORKING_BRANCH"; then
+                    echo "  ⚠️  Branch already exists locally, checking out: $HELIX_WORKING_BRANCH"
+                    git checkout "$HELIX_WORKING_BRANCH" 2>&1
+                elif git show-ref --verify --quiet "refs/remotes/origin/$HELIX_WORKING_BRANCH"; then
+                    echo "  ⚠️  Branch already exists remotely, creating tracking branch: $HELIX_WORKING_BRANCH"
+                    git checkout -b "$HELIX_WORKING_BRANCH" "origin/$HELIX_WORKING_BRANCH" 2>&1
+                else
+                    git checkout -b "$HELIX_WORKING_BRANCH" 2>&1
+                    echo "  ✅ Created new branch: $HELIX_WORKING_BRANCH"
+                fi
+            fi
+        fi
+
+        CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+        echo "  📍 Current branch: $CURRENT_BRANCH"
+        cd "$WORK_DIR"
+    else
+        echo "  ⚠️  Primary repository not found at $PRIMARY_REPO_PATH"
+    fi
+    echo ""
+else
+    if [ -z "$HELIX_BRANCH_MODE" ]; then
+        echo "No branch mode specified (HELIX_BRANCH_MODE not set) - staying on default branch"
+    fi
+    echo ""
+fi
+
+# =========================================
 # Setup helix-specs worktree
 # =========================================
 if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
