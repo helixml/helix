@@ -624,6 +624,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/ssh-keys/generate", system.Wrapper(apiServer.generateSSHKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/ssh-keys/{id}", system.Wrapper(apiServer.deleteSSHKey)).Methods(http.MethodDelete)
 
+	// Prompt history endpoints (cross-device sync)
+	authRouter.HandleFunc("/prompt-history", system.Wrapper(apiServer.listPromptHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/prompt-history/sync", system.Wrapper(apiServer.syncPromptHistory)).Methods(http.MethodPost)
+
 	// Zed config endpoints
 	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)

@@ -33,9 +33,9 @@ bash -c "./stack start"                # OR THIS
 - `./stack update_openapi` - Update OpenAPI docs
 - `./stack up <service>` - Start specific service (use sparingly)
 
-## 🚨 CRITICAL: Sandbox Build Pipeline - COMMIT EVERYTHING FIRST 🚨
+## 🚨 CRITICAL: Sandbox Build Pipeline 🚨
 
-**The sandbox architecture is deeply nested. Changes MUST be committed before rebuilding.**
+**The sandbox architecture is deeply nested. Understanding what triggers rebuilds is essential.**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -48,42 +48,44 @@ bash -c "./stack start"                # OR THIS
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**The problem: `./stack build-sway` copies from LOCAL builds, not git repos:**
-- It copies `~/pm/qwen-code/packages/cli/dist/` → into Docker image
-- It copies `~/pm/zed/target/release/zed` → into Docker image
-- Wolf's inner Docker pulls the helix-sway image by TAG (based on git commit)
+**How change detection works:**
 
-**If you don't commit before rebuild:**
-1. Build runs → creates new helix-sway image
-2. Image gets tagged with current git commit hash
-3. BUT if repos aren't committed, the tag doesn't change
-4. Wolf's inner Docker sees same tag → uses cached image
-5. **YOUR CHANGES DON'T RUN** ← This wastes hours of debugging
+| Component | Detection Method | Commits Needed? |
+|-----------|-----------------|-----------------|
+| **Helix files** (Dockerfiles, configs, Go code) | Docker layer cache | ❌ No - Docker detects file changes |
+| **qwen-code** | `git rev-parse HEAD` | ✅ Yes - must commit |
+| **Zed binary** | Checks if `./zed-build/zed` exists | ❌ No - but run `build-zed` after changes |
+
+**Image tagging (how Wolf finds images):**
+- IMAGE_TAG = first 6 chars of Docker image hash (e.g., `e18c10`)
+- Written to `sandbox-images/helix-sway.version`
+- Sandbox heartbeat reports this version
+- Wolf uses `helix-sway:<tag>` to start containers
+- **Tag changes automatically when image content changes** (no commit needed for helix)
 
 **CORRECT WORKFLOW for sandbox changes:**
 
 ```bash
-# Step 1: COMMIT ALL THREE REPOS FIRST
+# For HELIX changes (configs, Go code, Dockerfiles):
+./stack build-sway  # Docker detects changes automatically
+
+# For QWEN-CODE changes (MUST commit first):
 cd ~/pm/qwen-code && git add -A && git commit -m "feat: description"
-cd ~/pm/zed && git add -A && git commit -m "feat: description"
-cd ~/pm/helix && git add -A && git commit -m "feat: description"
+cd ~/pm/helix
+./stack build-sway  # Now detects qwen-code change via git hash
 
-# Step 2: Build Zed binary (if Zed code changed)
-./stack build-zed
+# For ZED changes:
+./stack build-zed   # Rebuild the binary
+./stack build-sway  # Include new binary in image
 
-# Step 3: Build sway container (picks up qwen-code, zed binary, helix changes)
-./stack build-sway
+# VERIFY the build worked:
+cat sandbox-images/helix-sway.version  # Shows image hash tag
+docker images helix-sway --format "table {{.Tag}}\t{{.CreatedAt}}" | head -3
 
-# Step 4: VERIFY the build worked
-docker images helix-sway --format "{{.Tag}} {{.CreatedAt}}" | head -1
-# Tag should match your latest helix commit hash
-# CreatedAt should be just now
-
-# Step 5: Start a NEW session (existing containers use old image)
-# Ask user to create new agent session to test
+# Start a NEW session (existing containers use old image)
 ```
 
-**Common mistakes that waste hours:**
+**Common mistakes:**
 - ❌ Editing qwen-code but not committing before build-sway
 - ❌ Editing zed but not running build-zed before build-sway
 - ❌ Assuming existing sandbox containers got updated (they didn't)
@@ -92,10 +94,13 @@ docker images helix-sway --format "{{.Tag}} {{.CreatedAt}}" | head -1
 **Signs your changes didn't deploy:**
 - Same bug still happens after "fix"
 - Console logs you added don't appear
-- Image timestamp is old
+- `cat sandbox-images/helix-sway.version` shows old hash
 
 **ALWAYS verify after building:**
 ```bash
+# Check version file updated
+cat sandbox-images/helix-sway.version
+
 # Check helix-sway image was just created
 docker images helix-sway --format "table {{.Tag}}\t{{.CreatedAt}}" | head -3
 
@@ -339,36 +344,30 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **NEVER assume you can delete someone else's code.**
 
-## 🚨 CRITICAL: COMMIT BEFORE BUILDING SANDBOX IMAGE 🚨
+## 🚨 CRITICAL: COMMIT QWEN-CODE BEFORE BUILDING SANDBOX IMAGE 🚨
 
-**ALWAYS commit before running `./stack build-sway` or `./stack build-sandbox`**
+**Commit qwen-code before running `./stack build-sway` or `./stack build-sandbox`**
 
-This applies to BOTH repos:
-- **helix** - for sway config, Wolf executor, API changes
-- **qwen-code** (at `../qwen-code`) - for Qwen Code tool/agent changes
+Only **qwen-code** requires commits - helix changes are detected automatically by Docker:
+- **helix** - Docker detects file changes automatically (no commit needed)
+- **qwen-code** (at `../qwen-code`) - uses `git rev-parse HEAD` for change detection (MUST commit)
 
 `./stack build-sway` is faster if you only modified the sway image. `./stack build-sandbox` also builds wolf and moonlight-web-stream.
 
 ```bash
-# ❌ WRONG: Build without committing
-./stack build-sway                    # Changes won't be detected!
-./stack build-sandbox                 # Changes won't be detected!
+# For HELIX changes only:
+./stack build-sway                    # Docker detects changes automatically
 
-# ✅ CORRECT: Commit in BOTH repos if you changed both
-# In helix:
-git add -A && git commit -m "changes" && git push
-
-# In qwen-code (if modified):
+# For QWEN-CODE changes (MUST commit first):
 cd ../qwen-code
-git add -A && git commit -m "changes" && git push
+git add -A && git commit -m "changes"
 cd ../helix
-
-./stack build-sway                    # Now detects all changes
+./stack build-sway                    # Now detects qwen-code change
 ```
 
-**Why:**
-- The helix-sway image tag is derived from the helix git commit hash
-- Qwen-code rebuild detection compares git commit hashes (uncommitted changes are invisible!)
+**Why qwen-code needs commits:**
+- Qwen-code rebuild detection uses `git rev-parse HEAD` to compare commit hashes
+- Uncommitted qwen-code changes are invisible to the build system
 - Push is required for the version link in the UI to work
 
 ## 🚨 CRITICAL: VERIFY DOCKER CACHE BUSTING ON REBUILDS 🚨

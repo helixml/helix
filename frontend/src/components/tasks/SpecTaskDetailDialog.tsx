@@ -52,6 +52,7 @@ import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import RobustPromptInput from '../common/RobustPromptInput'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -153,7 +154,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
   const nodeRef = useRef(null)
 
@@ -407,22 +407,6 @@ I'll give you feedback and we can iterate on any changes needed.`
         || err?.message
         || 'Failed to start planning. Please try again.'
       snackbar.error(errorMessage)
-    }
-  }
-
-  const handleSendMessage = async () => {
-    if (!message.trim() || !activeSessionId) return
-
-    try {
-      await streaming.NewInference({
-        type: SESSION_TYPE_TEXT,
-        message: message.trim(),
-        sessionId: activeSessionId,
-      })
-      setMessage('')
-    } catch (err) {
-      console.error('Failed to send message:', err)
-      snackbar.error('Failed to send message')
     }
   }
 
@@ -901,30 +885,20 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               {/* Message input box */}
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="Send message to agent..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="contained"
-                    size="small"
-                    endIcon={<Send />}
-                    onClick={handleSendMessage}
-                    disabled={!message.trim()}
-                  >
-                    Send
-                  </Button>
-                </Box>
+                <RobustPromptInput
+                  sessionId={activeSessionId}
+                  specTaskId={displayTask.id}
+                  projectId={displayTask.project_id}
+                  apiClient={api.getApiClient()}
+                  onSend={async (message: string) => {
+                    await streaming.NewInference({
+                      type: SESSION_TYPE_TEXT,
+                      message,
+                      sessionId: activeSessionId,
+                    })
+                  }}
+                  placeholder="Send message to agent..."
+                />
               </Box>
             </>
           )}
