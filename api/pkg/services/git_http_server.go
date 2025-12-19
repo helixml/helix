@@ -407,6 +407,17 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 	user := s.getUser(r)
+
+	// Log the clone/fetch attempt with details (helps debug "expected packfile" issues)
+	log.Info().
+		Str("repo_id", repoID).
+		Str("user_id", user.ID).
+		Str("remote_addr", r.RemoteAddr).
+		Int64("content_length", r.ContentLength).
+		Str("user_agent", r.Header.Get("User-Agent")).
+		Str("git_protocol", r.Header.Get("Git-Protocol")).
+		Msg("Git upload-pack request (clone/fetch) started")
+
 	if !s.hasReadAccess(r.Context(), user, repoID) {
 		log.Warn().
 			Str("user_id", user.ID).
@@ -452,7 +463,20 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found")
-		http.Error(w, "Repository not found", http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Repository not found: %s (repo_id=%s)", err.Error(), repoID), http.StatusNotFound)
+		return
+	}
+
+	// Pre-flight checks: verify repository is healthy before starting transfer
+	// This catches issues that would otherwise cause "expected packfile" errors mid-stream
+	repoHealthErr := s.checkRepositoryHealth(repo.LocalPath, repoID)
+	if repoHealthErr != nil {
+		log.Error().
+			Err(repoHealthErr).
+			Str("repo_id", repoID).
+			Str("repo_path", repo.LocalPath).
+			Msg("Repository health check failed - cannot serve git request")
+		http.Error(w, fmt.Sprintf("Repository health check failed: %s", repoHealthErr.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -556,11 +580,25 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		stdout.Close()
 		if err := cmd.Wait(); err != nil {
 			stderrStr := stderrBuf.String()
+			// Log detailed error info to help debug "expected packfile" and similar issues
 			log.Error().
 				Err(err).
 				Str("repo_id", repoID).
+				Str("repo_path", repo.LocalPath).
+				Str("git_path", gitPath).
+				Str("method", r.Method).
 				Str("stderr", stderrStr).
-				Msg("Git http-backend exited with error")
+				Str("content_type", r.Header.Get("Content-Type")).
+				Int64("content_length", r.ContentLength).
+				Msg("Git http-backend exited with error - this may cause 'expected packfile' on client")
+
+			// If stderr has useful info, also log it at warn level with context
+			if stderrStr != "" {
+				log.Warn().
+					Str("repo_id", repoID).
+					Str("git_stderr", stderrStr).
+					Msg("Git http-backend stderr output (may explain client-side errors)")
+			}
 		}
 	}()
 
@@ -615,12 +653,29 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// This handles large packfiles without buffering in memory
 	bytesWritten, err := io.Copy(w, reader)
 	if err != nil {
-		// Client may have disconnected, log but don't try to write error response
-		log.Warn().
+		// Get stderr immediately to capture any error output from git-http-backend
+		stderrStr := stderrBuf.String()
+
+		// Client may have disconnected, or there may be a server-side issue
+		// Log extensively to help debug "expected packfile" errors
+		log.Error().
 			Err(err).
 			Str("repo_id", repoID).
+			Str("repo_path", repo.LocalPath).
+			Str("git_path", gitPath).
+			Str("method", r.Method).
 			Int64("bytes_written", bytesWritten).
-			Msg("Error streaming git response (client may have disconnected)")
+			Int("status_code", statusCode).
+			Str("stderr", stderrStr).
+			Msg("Error streaming git response - this WILL cause 'expected packfile' error on client")
+
+		if stderrStr != "" {
+			log.Error().
+				Str("repo_id", repoID).
+				Str("git_stderr", stderrStr).
+				Msg("Git http-backend stderr at time of streaming failure")
+		}
+
 		// Kill the process to avoid hanging
 		cmd.Process.Kill()
 		return
@@ -632,12 +687,18 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		go s.handlePostPushHook(context.Background(), repoID, repo.LocalPath)
 	}
 
-	log.Debug().
+	// Calculate data rate for debugging slow transfers
+	sizeMB := float64(bytesWritten) / (1024 * 1024)
+
+	log.Info().
 		Str("repo_id", repoID).
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
-		Int64("response_size", bytesWritten).
-		Msg("Git HTTP request completed via http-backend")
+		Str("git_path", gitPath).
+		Int64("response_bytes", bytesWritten).
+		Float64("response_mb", sizeMB).
+		Int("status_code", statusCode).
+		Msg("Git HTTP request completed successfully")
 }
 
 // handlePostPushHook processes commits after a successful push
@@ -1773,6 +1834,63 @@ func (s *GitHTTPServer) CreateAPIKeyForRepository(ctx context.Context, userID st
 	// - Or create new general-purpose API keys
 
 	return "", fmt.Errorf("use existing Helix API keys for git access - no repository-specific keys needed")
+}
+
+// checkRepositoryHealth verifies a git repository is healthy before serving
+// This catches common issues that would otherwise cause cryptic "expected packfile" errors
+func (s *GitHTTPServer) checkRepositoryHealth(repoPath, repoID string) error {
+	// Check if repository path exists
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return fmt.Errorf("repository path does not exist: %s", repoPath)
+	}
+
+	// Check if it's a valid git repository by running git rev-parse
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("not a valid git repository: %s (git rev-parse output: %s)", err.Error(), strings.TrimSpace(string(output)))
+	}
+
+	// Check if repository has at least one object (empty repos can cause issues)
+	// For bare repos, objects are in objects/ directory
+	objectsPath := filepath.Join(repoPath, "objects")
+	if _, err := os.Stat(objectsPath); os.IsNotExist(err) {
+		return fmt.Errorf("repository objects directory missing: %s", objectsPath)
+	}
+
+	// Run git fsck --connectivity-only for a quick consistency check
+	// This catches corrupted pack files that would cause "expected packfile" errors
+	cmd = exec.Command("git", "fsck", "--connectivity-only", "--no-progress")
+	cmd.Dir = repoPath
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		outputStr := strings.TrimSpace(string(output))
+		log.Warn().
+			Str("repo_id", repoID).
+			Str("fsck_output", outputStr).
+			Err(err).
+			Msg("Git fsck found issues - repository may be corrupted")
+		return fmt.Errorf("repository integrity check failed: %s (details: %s)", err.Error(), outputStr)
+	}
+
+	// Get repository size for logging (helps debug large repo issues)
+	var totalSize int64
+	filepath.Walk(repoPath, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			totalSize += info.Size()
+		}
+		return nil
+	})
+	sizeMB := float64(totalSize) / (1024 * 1024)
+
+	log.Debug().
+		Str("repo_id", repoID).
+		Str("repo_path", repoPath).
+		Float64("size_mb", sizeMB).
+		Msg("Repository health check passed")
+
+	return nil
 }
 
 // Helper function for min
