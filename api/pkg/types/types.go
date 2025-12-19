@@ -1843,6 +1843,12 @@ type ZedAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+
+	// Branch configuration (for starting on correct branch)
+	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"
+	BaseBranch    string `json:"base_branch,omitempty"`    // For new mode: branch to create from
+	WorkingBranch string `json:"working_branch,omitempty"` // For existing mode: branch to checkout; for new mode: new branch name
+
 	// Video settings for streaming (Phase 3.5) - defaults to 1080p
 	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)

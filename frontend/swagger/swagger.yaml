@@ -2933,6 +2933,7 @@ definitions:
     - task_approved
     - task_completed
     - task_archived
+    - task_unarchived
     - agent_prompt
     - user_message
     - agent_started
@@ -2943,6 +2944,10 @@ definitions:
     - pr_created
     - pr_merged
     - git_push
+    - project_created
+    - project_deleted
+    - project_settings_updated
+    - project_guidelines_updated
     type: string
     x-enum-comments:
       AuditEventAgentPrompt: Prompt sent from Helix UI to agent
@@ -2950,6 +2955,10 @@ definitions:
       AuditEventGitPush: Git push detected
       AuditEventPRCreated: Pull request created
       AuditEventPRMerged: Pull request merged
+      AuditEventProjectCreated: Project was created
+      AuditEventProjectDeleted: Project was deleted
+      AuditEventProjectGuidelinesUpdated: Project guidelines were modified
+      AuditEventProjectSettingsUpdated: Project settings were modified
       AuditEventReviewComment: Comment added to design review
       AuditEventReviewCommentReply: Reply to a comment
       AuditEventSpecGenerated: Spec was generated
@@ -2962,6 +2971,7 @@ definitions:
     - AuditEventTaskApproved
     - AuditEventTaskCompleted
     - AuditEventTaskArchived
+    - AuditEventTaskUnarchived
     - AuditEventAgentPrompt
     - AuditEventUserMessage
     - AuditEventAgentStarted
@@ -2972,6 +2982,10 @@ definitions:
     - AuditEventPRCreated
     - AuditEventPRMerged
     - AuditEventGitPush
+    - AuditEventProjectCreated
+    - AuditEventProjectDeleted
+    - AuditEventProjectSettingsUpdated
+    - AuditEventProjectGuidelinesUpdated
   types.AuditMetadata:
     properties:
       branch_name:
@@ -3000,6 +3014,9 @@ definitions:
         type: string
       interaction_id:
         description: For scrolling to specific interaction in session view
+        type: string
+      project_name:
+        description: Project information
         type: string
       pull_request_id:
         description: Pull request information
@@ -3516,6 +3533,9 @@ definitions:
       use_host_docker:
         description: 'Optional: Use host Docker socket (requires privileged sandbox)'
         type: boolean
+      user_email:
+        description: 'Optional: User email for audit trail'
+        type: string
       user_id:
         type: string
       working_branch:
@@ -5670,6 +5690,84 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  types.PromptHistoryEntry:
+    properties:
+      content:
+        description: Content
+        type: string
+      created_at:
+        description: Timestamps
+        type: string
+      id:
+        description: 'Composite primary key: ID is globally unique, but we also index
+          by user+spec_task'
+        type: string
+      project_id:
+        description: For reference, but primary grouping is by spec_task
+        type: string
+      session_id:
+        description: Optional - which session this was sent to
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        description: |-
+          Status tracks whether this was successfully sent
+          Values: "pending", "sent", "failed"
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.PromptHistoryEntrySync:
+    properties:
+      content:
+        type: string
+      id:
+        type: string
+      session_id:
+        type: string
+      status:
+        type: string
+      timestamp:
+        description: Unix timestamp in milliseconds
+        type: integer
+    type: object
+  types.PromptHistoryListResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/types.PromptHistoryEntry'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.PromptHistorySyncRequest:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/types.PromptHistoryEntrySync'
+        type: array
+      project_id:
+        type: string
+      spec_task_id:
+        type: string
+    type: object
+  types.PromptHistorySyncResponse:
+    properties:
+      entries:
+        description: All entries for this user+project (for client merge)
+        items:
+          $ref: '#/definitions/types.PromptHistoryEntry'
+        type: array
+      existing:
+        description: Number that already existed
+        type: integer
+      synced:
+        description: Number of entries synced
+        type: integer
     type: object
   types.Provider:
     enum:
@@ -8220,20 +8318,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -13083,6 +13181,94 @@ paths:
       summary: Quick-create a project for a repository
       tags:
       - Projects
+  /api/v1/prompt-history:
+    get:
+      consumes:
+      - application/json
+      description: Get prompt history entries for the current user
+      parameters:
+      - description: Spec Task ID (required)
+        in: query
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Project ID (optional filter)
+        in: query
+        name: project_id
+        type: string
+      - description: Session ID (optional filter)
+        in: query
+        name: session_id
+        type: string
+      - description: Only entries after this timestamp (Unix milliseconds)
+        in: query
+        name: since
+        type: integer
+      - description: Max entries to return (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PromptHistoryListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List prompt history
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/sync:
+    post:
+      consumes:
+      - application/json
+      description: Sync prompt history entries from the frontend (union merge - no
+        deletes)
+      parameters:
+      - description: Prompt history entries to sync
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PromptHistorySyncRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PromptHistorySyncResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Sync prompt history
+      tags:
+      - PromptHistory
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -15652,6 +15838,16 @@ paths:
         in: path
         name: taskId
         required: true
+        type: string
+      - description: XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing
+          browser locale detection
+        in: query
+        name: keyboard
+        type: string
+      - description: IANA timezone (e.g., 'Europe/Paris') - for testing browser locale
+          detection
+        in: query
+        name: timezone
         type: string
       produces:
       - application/json

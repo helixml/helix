@@ -114,6 +114,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
+  const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [pendingAutoJoin, setPendingAutoJoin] = useState(false); // Wait for video before auto-join
@@ -129,7 +130,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const manualBitrateSelectionTimeRef = useRef<number>(0); // Track when user manually selected bitrate (20s cooldown before auto-reduce)
   // Bandwidth recommendation state - instead of auto-switching, we show a recommendation popup
   const [bitrateRecommendation, setBitrateRecommendation] = useState<{
-    type: 'decrease' | 'increase';
+    type: 'decrease' | 'increase' | 'screenshot';
     targetBitrate: number;
     reason: string;
     frameDrift?: number; // Current frame drift for decrease recommendations
@@ -144,7 +145,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high'); // Default to high mode (switch to screenshot manually if needed)
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability on high-latency connections
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -502,6 +503,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // - 'low' mode: wait for first screenshot (handled in screenshot polling)
           if (qualityMode === 'low') {
             setStatus('Waiting for screenshot...');
+            // CRITICAL: Disable video on server when starting in screenshot mode
+            // This prevents the server from sending video frames we can't render
+            // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
+            if (stream instanceof WebSocketStream) {
+              console.log('[MoonlightStreamViewer] Starting in low mode - disabling WS video');
+              stream.setVideoEnabled(false);
+            }
           } else {
             setStatus('Waiting for video...');
           }
@@ -1502,15 +1510,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return BITRATE_OPTIONS[pessimisticIndex];
   }, []);
 
-  // Auto-connect when wolfLobbyId becomes available
+  // Auto-connect when wolfLobbyId becomes available AND component is visible
   // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
   // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  // NEW: Wait for visibility before connecting (saves bandwidth when component not in view)
   // NEW: Probe bandwidth FIRST, then connect at optimal bitrate (avoids reconnect on startup)
   const hasConnectedRef = useRef(false);
   const hasEverConnectedRef = useRef(false); // True after first successful connection (distinguishes initial vs reconnect)
   useEffect(() => {
     // Only auto-connect once
     if (hasConnectedRef.current) return;
+
+    // Wait for component to become visible before connecting
+    // This prevents wasting bandwidth on hidden tabs/components
+    if (!isVisible) {
+      console.log('[MoonlightStreamViewer] Waiting for component to become visible before connecting...');
+      return;
+    }
 
     // If wolfLobbyId prop is expected but not yet loaded, wait for it
     // We detect this by checking if sessionId is provided (external agent mode)
@@ -1546,7 +1562,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     probeAndConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wolfLobbyId, sessionId]); // Only trigger on props, not on function identity changes
+  }, [wolfLobbyId, sessionId, isVisible]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1891,6 +1907,31 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
           }
         }
+      } else if (congestionDetected && currentBitrate === MIN_BITRATE) {
+        // Already at minimum bitrate but still experiencing congestion
+        // Recommend switching to screenshot mode for better reliability
+        congestionCheckCountRef.current++;
+        stableCheckCountRef.current = 0;
+
+        if (congestionCheckCountRef.current >= CONGESTION_CHECKS_FOR_REDUCE) {
+          const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+          if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
+            console.log(`[AdaptiveBitrate] At minimum bitrate (${MIN_BITRATE}Mbps) but still experiencing congestion (${frameDrift.toFixed(0)}ms drift), recommending screenshot mode`);
+
+            setBitrateRecommendation({
+              type: 'screenshot',
+              targetBitrate: MIN_BITRATE, // Keep same bitrate, just switch mode
+              reason: `Video streaming is struggling even at ${MIN_BITRATE}Mbps`,
+              frameDrift: frameDrift,
+            });
+
+            lastBitrateChangeRef.current = now;
+            stableCheckCountRef.current = 0;
+            congestionCheckCountRef.current = 0;
+            return;
+          }
+        }
       } else {
         // Low frame drift - connection is stable at current bitrate
         congestionCheckCountRef.current = 0; // Reset congestion counter on good sample
@@ -2002,6 +2043,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
   }, []);
+
+  // Track visibility for deferred connection - only connect when component is visible
+  // This saves bandwidth and avoids connection issues on high-latency networks
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && !isVisible) {
+          console.log('[MoonlightStreamViewer] Component became visible - will trigger connection');
+          setIsVisible(true);
+        }
+        // Note: we don't set isVisible=false when hidden - once connected, stay connected
+      },
+      { threshold: 0.1 } // Trigger when 10% visible
+    );
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isVisible]);
 
   // Calculate proper canvas display size to maintain aspect ratio
   useEffect(() => {
@@ -3055,19 +3118,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Button
               size="small"
               onClick={() => {
-                setUserBitrate(bitrateRecommendation.targetBitrate);
+                if (bitrateRecommendation.type === 'screenshot') {
+                  // Switch to screenshot mode
+                  setQualityMode('low');
+                  addChartEvent('reduce', 'User switched to screenshot mode');
+                } else {
+                  // Change bitrate
+                  setUserBitrate(bitrateRecommendation.targetBitrate);
+                  addChartEvent(
+                    bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
+                    `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
+                  );
+                }
                 manualBitrateSelectionTimeRef.current = Date.now();
-                addChartEvent(
-                  bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
-                  `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
-                );
                 setBitrateRecommendation(null);
               }}
               sx={{
-                backgroundColor: bitrateRecommendation.type === 'decrease'
-                  ? 'rgba(255, 152, 0, 0.9)'
-                  : 'rgba(76, 175, 80, 0.9)',
-                color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
+                backgroundColor: bitrateRecommendation.type === 'screenshot'
+                  ? 'rgba(244, 67, 54, 0.9)' // Red for screenshot recommendation
+                  : bitrateRecommendation.type === 'decrease'
+                    ? 'rgba(255, 152, 0, 0.9)'
+                    : 'rgba(76, 175, 80, 0.9)',
+                color: 'white',
                 fontSize: '0.65rem',
                 px: 1,
                 py: 0.25,
@@ -3075,15 +3147,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 textTransform: 'none',
                 borderRadius: 1,
                 '&:hover': {
-                  backgroundColor: bitrateRecommendation.type === 'decrease'
-                    ? 'rgba(255, 152, 0, 1)'
-                    : 'rgba(76, 175, 80, 1)',
+                  backgroundColor: bitrateRecommendation.type === 'screenshot'
+                    ? 'rgba(244, 67, 54, 1)'
+                    : bitrateRecommendation.type === 'decrease'
+                      ? 'rgba(255, 152, 0, 1)'
+                      : 'rgba(76, 175, 80, 1)',
                 },
               }}
             >
-              {bitrateRecommendation.type === 'decrease'
-                ? `Slow connection · Try ${bitrateRecommendation.targetBitrate}M`
-                : `Improved · Try ${bitrateRecommendation.targetBitrate}M`}
+              {bitrateRecommendation.type === 'screenshot'
+                ? 'Struggling · Try screenshots'
+                : bitrateRecommendation.type === 'decrease'
+                  ? `Slow connection · Try ${bitrateRecommendation.targetBitrate}M`
+                  : `Improved · Try ${bitrateRecommendation.targetBitrate}M`}
             </Button>
           </Tooltip>
         )}

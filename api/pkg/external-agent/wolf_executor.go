@@ -801,6 +801,18 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
 	}
 
+	// Pass branch configuration for startup script to checkout correct branch
+	// This ensures the agent starts on the right branch without relying on prompts
+	if agent.BranchMode != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_BRANCH_MODE=%s", agent.BranchMode))
+	}
+	if agent.BaseBranch != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_BASE_BRANCH=%s", agent.BaseBranch))
+	}
+	if agent.WorkingBranch != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_WORKING_BRANCH=%s", agent.WorkingBranch))
+	}
+
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
