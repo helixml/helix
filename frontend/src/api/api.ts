@@ -1927,6 +1927,7 @@ export interface TypesCloneTaskResponse {
 
 export interface TypesCloneTaskResult {
   project_id?: string;
+  project_name?: string;
   /** "created", "started", "failed" */
   status?: string;
   task_id?: string;

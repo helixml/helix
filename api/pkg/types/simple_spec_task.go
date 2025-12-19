@@ -344,9 +344,10 @@ type CloneTaskResponse struct {
 }
 
 type CloneTaskResult struct {
-	TaskID    string `json:"task_id"`
-	ProjectID string `json:"project_id"`
-	Status    string `json:"status"` // "created", "started", "failed"
+	TaskID      string `json:"task_id"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Status      string `json:"status"` // "created", "started", "failed"
 }
 
 type CloneTaskError struct {

@@ -39,6 +39,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import EmbeddedSessionView from '../session/EmbeddedSessionView'
 import DesignDocViewer from './DesignDocViewer'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -51,7 +52,8 @@ import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionServ
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
-import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { useUpdateSpecTask, useSpecTask, useCloneGroups } from '../../services/specTaskService'
+import { CloneGroupProgressCompact } from '../specTask/CloneGroupProgress'
 import RobustPromptInput from '../common/RobustPromptInput'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
@@ -73,6 +75,9 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const apps = useApps()
   const updateSpecTask = useUpdateSpecTask()
   const queryClient = useQueryClient()
+
+  // Fetch clone groups where this task is the source
+  const { data: cloneGroups } = useCloneGroups(task?.id || '')
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false)
@@ -862,26 +867,19 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
-            {activeSessionId && <Tab label="Active Session" />}
+            {activeSessionId && <Tab label="Session" />}
+            {activeSessionId && <Tab label="IDE" />}
             <Tab label="Details" />
           </Tabs>
         </Box>
 
         {/* Tab Content */}
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {/* Tab 0: Active Session (only if session exists) */}
+          {/* Tab 0: Session - Chat/Message Thread (only if session exists) */}
           {activeSessionId && currentTab === 0 && (
             <>
-              {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
-              <ExternalAgentDesktopViewer
-                sessionId={activeSessionId}
-                wolfLobbyId={wolfLobbyId}
-                mode="stream"
-                onClientIdCalculated={setClientUniqueId}
-                displayWidth={displaySettings.width}
-                displayHeight={displaySettings.height}
-                displayFps={displaySettings.fps}
-              />
+              {/* EmbeddedSessionView - shows the message thread */}
+              <EmbeddedSessionView sessionId={activeSessionId} />
 
               {/* Message input box */}
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
@@ -903,8 +901,42 @@ I'll give you feedback and we can iterate on any changes needed.`
             </>
           )}
 
+          {/* Tab 1: IDE - Desktop/Video Viewer (only if session exists) */}
+          {activeSessionId && currentTab === 1 && (
+            <>
+              {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
+              <ExternalAgentDesktopViewer
+                sessionId={activeSessionId}
+                wolfLobbyId={wolfLobbyId}
+                mode="stream"
+                onClientIdCalculated={setClientUniqueId}
+                displayWidth={displaySettings.width}
+                displayHeight={displaySettings.height}
+                displayFps={displaySettings.fps}
+              />
+
+              {/* Message input box for IDE tab too */}
+              <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+                <RobustPromptInput
+                  sessionId={activeSessionId}
+                  specTaskId={displayTask.id}
+                  projectId={displayTask.project_id}
+                  apiClient={api.getApiClient()}
+                  onSend={async (message: string) => {
+                    await streaming.NewInference({
+                      type: SESSION_TYPE_TEXT,
+                      message,
+                      sessionId: activeSessionId,
+                    })
+                  }}
+                  placeholder="Send message to agent..."
+                />
+              </Box>
+            </>
+          )}
+
           {/* Details Tab */}
-          {((activeSessionId && currentTab === 1) || (!activeSessionId && currentTab === 0)) && (
+          {((activeSessionId && currentTab === 2) || (!activeSessionId && currentTab === 0)) && (
             <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
               {/* Action Buttons */}
               <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1128,6 +1160,31 @@ I'll give you feedback and we can iterate on any changes needed.`
                   Updated: {displayTask.updated_at ? new Date(displayTask.updated_at).toLocaleString() : 'N/A'}
                 </Typography>
               </Box>
+
+              {/* Clone Groups - show if this task was used as a source for cloning */}
+              {cloneGroups && cloneGroups.length > 0 && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Clone Batches ({cloneGroups.length})
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                      This task has been cloned to other projects
+                    </Typography>
+                    {cloneGroups.map((group: { id: string; total_targets?: number; created_at?: string }) => (
+                      <Box key={group.id} sx={{ mb: 1 }}>
+                        <CloneGroupProgressCompact
+                          groupId={group.id}
+                          onTaskClick={(taskId, projectId) => {
+                            window.location.href = `/projects/${projectId}`;
+                          }}
+                        />
+                      </Box>
+                    ))}
+                  </Box>
+                </>
+              )}
 
               {/* Debug Information */}
               <Divider sx={{ my: 2 }} />
