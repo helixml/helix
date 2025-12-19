@@ -1859,35 +1859,14 @@ func (s *GitHTTPServer) checkRepositoryHealth(repoPath, repoID string) error {
 		return fmt.Errorf("repository objects directory missing: %s", objectsPath)
 	}
 
-	// Run git fsck --connectivity-only for a quick consistency check
-	// This catches corrupted pack files that would cause "expected packfile" errors
-	cmd = exec.Command("git", "fsck", "--connectivity-only", "--no-progress")
-	cmd.Dir = repoPath
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		outputStr := strings.TrimSpace(string(output))
-		log.Warn().
-			Str("repo_id", repoID).
-			Str("fsck_output", outputStr).
-			Err(err).
-			Msg("Git fsck found issues - repository may be corrupted")
-		return fmt.Errorf("repository integrity check failed: %s (details: %s)", err.Error(), outputStr)
-	}
-
-	// Get repository size for logging (helps debug large repo issues)
-	var totalSize int64
-	filepath.Walk(repoPath, func(_ string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			totalSize += info.Size()
-		}
-		return nil
-	})
-	sizeMB := float64(totalSize) / (1024 * 1024)
+	// NOTE: We intentionally do NOT run git fsck or calculate repo size here -
+	// both are O(n) operations that would add unacceptable latency for large repos.
+	// The checks above catch the most common issues (missing path, not a git repo,
+	// missing objects dir).
 
 	log.Debug().
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
-		Float64("size_mb", sizeMB).
 		Msg("Repository health check passed")
 
 	return nil
