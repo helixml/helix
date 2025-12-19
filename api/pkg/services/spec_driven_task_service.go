@@ -174,6 +174,26 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		branchMode = types.BranchModeNew
 	}
 
+	// VALIDATION: Check for active tasks on the same branch
+	// This prevents multiple agents working on the same branch which causes confusion
+	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" {
+		existingTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			ProjectID:  req.ProjectID,
+			BranchName: req.WorkingBranch,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("branch", req.WorkingBranch).Msg("Failed to check for existing tasks on branch")
+			// Continue anyway - don't block task creation on this check
+		} else {
+			// Check if any existing task is active (not completed, cancelled, or archived)
+			for _, existingTask := range existingTasks {
+				if !isTaskInactive(existingTask) {
+					return nil, fmt.Errorf("branch '%s' already has an active task: %s (%s). Complete or archive that task first, or create a new branch", req.WorkingBranch, existingTask.Name, existingTask.ID)
+				}
+			}
+		}
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -201,6 +221,19 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	err := s.store.CreateSpecTask(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
+	}
+
+	// PR DETECTION: Check if the existing branch has an open PR
+	// If so, update the task to start in pull_request status
+	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
+		prDetected := s.detectAndLinkExistingPR(ctx, task, req.ProjectID, req.WorkingBranch)
+		if prDetected {
+			log.Info().
+				Str("task_id", task.ID).
+				Str("branch", req.WorkingBranch).
+				Str("pr_id", task.PullRequestID).
+				Msg("Detected existing PR for branch, task starts in pull_request column")
+		}
 	}
 
 	// Log audit event for task creation
@@ -282,10 +315,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Msg("Starting spec generation")
 
 	// Assign task number and design doc path if not already set
-	if task.TaskNumber == 0 && task.ProjectID != "" {
-		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+	// Task numbers are globally unique across the entire deployment
+	if task.TaskNumber == 0 {
+		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
 		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
 			// Fallback: use a hash of task ID for uniqueness
 			taskNumber = 1
 		}
@@ -514,6 +548,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
 		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		// Branch configuration - startup script will checkout correct branch
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
 
@@ -609,10 +647,11 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Msg("Starting Just Do It mode - skipping spec generation")
 
 	// Assign task number and design doc path if not already set
-	if task.TaskNumber == 0 && task.ProjectID != "" {
-		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+	// Task numbers are globally unique across the entire deployment
+	if task.TaskNumber == 0 {
+		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
 		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
@@ -926,6 +965,10 @@ Follow these guidelines when making changes:
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
 		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		// Branch configuration - startup script will checkout correct branch
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
 
 	// Start the Zed agent via Wolf executor
@@ -1345,6 +1388,80 @@ func generateTaskNameFromPrompt(prompt string) string {
 		return prompt[:57] + "..."
 	}
 	return prompt
+}
+
+// isTaskInactive returns true if the task is in a terminal/inactive state
+// (completed, failed, or archived) and should not block creating new tasks on the same branch
+func isTaskInactive(task *types.SpecTask) bool {
+	if task.Archived {
+		return true
+	}
+	switch task.Status {
+	case types.TaskStatusDone, types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// detectAndLinkExistingPR checks if the branch has an open pull request and links it to the task
+// Returns true if a PR was found and linked, false otherwise
+// The task is updated in-place and saved to the database
+func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, task *types.SpecTask, projectID, branchName string) bool {
+	// Get project to find the default repository
+	project, err := s.store.GetProject(ctx, projectID)
+	if err != nil || project == nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project for PR detection")
+		return false
+	}
+
+	if project.DefaultRepoID == "" {
+		log.Debug().Str("project_id", projectID).Msg("Project has no default repo, skipping PR detection")
+		return false
+	}
+
+	// List PRs from the repository
+	prs, err := s.gitRepositoryService.ListPullRequests(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs for detection")
+		return false
+	}
+
+	// Find an open PR with matching source branch
+	// ADO branch refs are like "refs/heads/branch-name"
+	branchRef := "refs/heads/" + branchName
+	for _, pr := range prs {
+		// Check if PR is open (ADO uses "active" status)
+		if pr.State != "active" {
+			continue
+		}
+
+		// Check if source branch matches
+		if pr.SourceBranch == branchRef || pr.SourceBranch == branchName {
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("pr_title", pr.Title).
+				Str("source_branch", pr.SourceBranch).
+				Str("target_branch", pr.TargetBranch).
+				Msg("Found existing PR for branch")
+
+			// Update task with PR info
+			task.PullRequestID = pr.ID
+			task.PullRequestURL = pr.URL
+			task.Status = types.TaskStatusPullRequest
+
+			// Save updated task
+			err = s.store.UpdateSpecTask(ctx, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
+				return false
+			}
+
+			return true
+		}
+	}
+
+	return false
 }
 
 func convertPriorityToInt(priority string) int {

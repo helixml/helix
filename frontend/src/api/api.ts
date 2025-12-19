@@ -1719,6 +1719,7 @@ export enum TypesAuditEventType {
   AuditEventTaskApproved = "task_approved",
   AuditEventTaskCompleted = "task_completed",
   AuditEventTaskArchived = "task_archived",
+  AuditEventTaskUnarchived = "task_unarchived",
   AuditEventAgentPrompt = "agent_prompt",
   AuditEventUserMessage = "user_message",
   AuditEventAgentStarted = "agent_started",
@@ -1729,6 +1730,10 @@ export enum TypesAuditEventType {
   AuditEventPRCreated = "pr_created",
   AuditEventPRMerged = "pr_merged",
   AuditEventGitPush = "git_push",
+  AuditEventProjectCreated = "project_created",
+  AuditEventProjectDeleted = "project_deleted",
+  AuditEventProjectSettingsUpdated = "project_settings_updated",
+  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
 }
 
 export interface TypesAuditMetadata {
@@ -1749,6 +1754,8 @@ export interface TypesAuditMetadata {
   implementation_plan_hash?: string;
   /** For scrolling to specific interaction in session view */
   interaction_id?: string;
+  /** Project information */
+  project_name?: string;
   /** Pull request information */
   pull_request_id?: string;
   pull_request_url?: string;
@@ -2066,6 +2073,8 @@ export interface TypesCreateTaskRequest {
   type?: string;
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Optional: User email for audit trail */
+  user_email?: string;
   user_id?: string;
   /** For existing mode: branch to continue working on */
   working_branch?: string;
@@ -3334,6 +3343,56 @@ export interface TypesProjectUpdateRequest {
   startup_script?: string;
   status?: string;
   technologies?: string[];
+}
+
+export interface TypesPromptHistoryEntry {
+  /** Content */
+  content?: string;
+  /** Timestamps */
+  created_at?: string;
+  /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
+  id?: string;
+  /** For reference, but primary grouping is by spec_task */
+  project_id?: string;
+  /** Optional - which session this was sent to */
+  session_id?: string;
+  spec_task_id?: string;
+  /**
+   * Status tracks whether this was successfully sent
+   * Values: "pending", "sent", "failed"
+   */
+  status?: string;
+  updated_at?: string;
+  user_id?: string;
+}
+
+export interface TypesPromptHistoryEntrySync {
+  content?: string;
+  id?: string;
+  session_id?: string;
+  status?: string;
+  /** Unix timestamp in milliseconds */
+  timestamp?: number;
+}
+
+export interface TypesPromptHistoryListResponse {
+  entries?: TypesPromptHistoryEntry[];
+  total?: number;
+}
+
+export interface TypesPromptHistorySyncRequest {
+  entries?: TypesPromptHistoryEntrySync[];
+  project_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesPromptHistorySyncResponse {
+  /** All entries for this user+project (for client merge) */
+  entries?: TypesPromptHistoryEntry[];
+  /** Number that already existed */
+  existing?: number;
+  /** Number of entries synced */
+  synced?: number;
 }
 
 export enum TypesProvider {
@@ -4798,12 +4857,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -8662,6 +8721,60 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get prompt history entries for the current user
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryList
+     * @summary List prompt history
+     * @request GET:/api/v1/prompt-history
+     * @secure
+     */
+    v1PromptHistoryList: (
+      query: {
+        /** Spec Task ID (required) */
+        spec_task_id: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
+        /** Session ID (optional filter) */
+        session_id?: string;
+        /** Only entries after this timestamp (Unix milliseconds) */
+        since?: number;
+        /** Max entries to return (default 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryListResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sync prompt history entries from the frontend (union merge - no deletes)
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistorySyncCreate
+     * @summary Sync prompt history
+     * @request POST:/api/v1/prompt-history/sync
+     * @secure
+     */
+    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
+      this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history/sync`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -10450,10 +10563,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
      * @secure
      */
-    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksStartPlanningCreate: (
+      taskId: string,
+      query?: {
+        /** XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection */
+        keyboard?: string;
+        /** IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection */
+        timezone?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/start-planning`,
         method: "POST",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",

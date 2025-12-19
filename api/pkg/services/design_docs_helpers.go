@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -59,16 +58,15 @@ func sanitizeForBranchName(taskName string) string {
 }
 
 // GenerateDesignDocPath creates a human-readable directory path for design docs
-// Format: "NNNNN_YYYY-MM-DD_shortname" e.g., "00001_2025-12-09_install-cowsay"
-// The taskNumber should come from atomically incrementing project.NextTaskNumber
+// Format: "NNNNNN_shortname" e.g., "000001_install-cowsay"
+// The taskNumber is globally unique across the entire deployment
 func GenerateDesignDocPath(task *types.SpecTask, taskNumber int) string {
-	dateStr := time.Now().Format("2006-01-02")
 	sanitizedName := sanitizeForBranchName(task.Name) // Already limited to 25 chars
-	return fmt.Sprintf("%04d_%s_%s", taskNumber, dateStr, sanitizedName)
+	return fmt.Sprintf("%06d_%s", taskNumber, sanitizedName)
 }
 
 // GenerateFeatureBranchName creates a human-readable feature branch name
-// Format: "feature/NNNNN-shortname" e.g., "feature/00001-install-cowsay"
+// Format: "feature/NNNNNN-shortname" e.g., "feature/000001-install-cowsay"
 // If task.BranchPrefix is set by user, uses that instead of auto-generating from name
 // Uses task.TaskNumber if set, otherwise falls back to last 8 chars of task ID
 func GenerateFeatureBranchName(task *types.SpecTask) string {
@@ -80,7 +78,7 @@ func GenerateFeatureBranchName(task *types.SpecTask) string {
 		baseName := sanitizeBranchPrefix(task.BranchPrefix)
 		// Use TaskNumber if available (new format), otherwise use ID suffix (backwards compat)
 		if task.TaskNumber > 0 {
-			return fmt.Sprintf("%s-%04d", baseName, task.TaskNumber)
+			return fmt.Sprintf("%s-%06d", baseName, task.TaskNumber)
 		}
 		// Fallback for old tasks without TaskNumber
 		taskIDSuffix := task.ID
@@ -90,9 +88,9 @@ func GenerateFeatureBranchName(task *types.SpecTask) string {
 		return fmt.Sprintf("%s-%s", baseName, taskIDSuffix)
 	}
 
-	// Auto-generate: feature/NNNN-shortname
+	// Auto-generate: feature/NNNNNN-shortname
 	if task.TaskNumber > 0 {
-		return fmt.Sprintf("feature/%04d-%s", task.TaskNumber, sanitizedName)
+		return fmt.Sprintf("feature/%06d-%s", task.TaskNumber, sanitizedName)
 	}
 
 	// Fallback for old tasks without TaskNumber
