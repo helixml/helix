@@ -144,7 +144,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high'); // Default to high mode (switch to screenshot manually if needed)
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability on high-latency connections
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -502,6 +502,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // - 'low' mode: wait for first screenshot (handled in screenshot polling)
           if (qualityMode === 'low') {
             setStatus('Waiting for screenshot...');
+            // CRITICAL: Disable video on server when starting in screenshot mode
+            // This prevents the server from sending video frames we can't render
+            // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
+            if (stream instanceof WebSocketStream) {
+              console.log('[MoonlightStreamViewer] Starting in low mode - disabling WS video');
+              stream.setVideoEnabled(false);
+            }
           } else {
             setStatus('Waiting for video...');
           }
