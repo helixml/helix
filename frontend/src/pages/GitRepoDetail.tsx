@@ -284,7 +284,7 @@ const GitRepoDetail: FC = () => {
 
   // Set file from query param (takes priority over README auto-load)
   React.useEffect(() => {
-    if (fileFromQuery && !selectedFile) {
+    if (fileFromQuery) {
       setSelectedFile(fileFromQuery)
     }
   }, [fileFromQuery])
