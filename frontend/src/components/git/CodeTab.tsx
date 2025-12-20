@@ -118,7 +118,6 @@ interface CodeTabProps {
   creatingFile: boolean
   createBranchMutation: any
   createOrUpdateFileMutation: any
-  searchText?: string
 }
 
 const CodeTab: FC<CodeTabProps> = ({
@@ -150,21 +149,7 @@ const CodeTab: FC<CodeTabProps> = ({
   setNewFilePath,
   setNewFileContent,
   setIsEditingFile,
-  searchText,
 }) => {
-  const fileContentRef = React.useRef<HTMLPreElement>(null)
-  const highlightRef = React.useRef<HTMLSpanElement>(null)
-
-  // Scroll to highlighted text when file loads with search text
-  React.useEffect(() => {
-    if (highlightRef.current && searchText && fileData?.content) {
-      // Small delay to ensure DOM is updated
-      setTimeout(() => {
-        highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 100)
-    }
-  }, [fileData?.content, searchText])
-
   const router = useRouter()
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -632,7 +617,6 @@ const CodeTab: FC<CodeTabProps> = ({
                 </Box>
               ) : (
                 <Box
-                  ref={fileContentRef}
                   component="pre"
                   sx={{
                     fontFamily: 'monospace',
@@ -645,33 +629,7 @@ const CodeTab: FC<CodeTabProps> = ({
                     margin: 0,
                   }}
                 >
-                  {(() => {
-                    const content = fileData?.content || 'No content'
-                    if (!searchText || !content.includes(searchText)) {
-                      return content
-                    }
-                    // Split content and highlight the first match
-                    const index = content.indexOf(searchText)
-                    const before = content.slice(0, index)
-                    const match = content.slice(index, index + searchText.length)
-                    const after = content.slice(index + searchText.length)
-                    return (
-                      <>
-                        {before}
-                        <span
-                          ref={highlightRef}
-                          style={{
-                            backgroundColor: 'rgba(255, 213, 0, 0.4)',
-                            borderRadius: '2px',
-                            padding: '1px 2px',
-                          }}
-                        >
-                          {match}
-                        </span>
-                        {after}
-                      </>
-                    )
-                  })()}
+                  {fileData?.content || 'No content'}
                 </Box>
               )}
             </Paper>
