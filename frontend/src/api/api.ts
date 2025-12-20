@@ -690,6 +690,19 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPromptPinRequest {
+  pinned?: boolean;
+}
+
+export interface ServerPromptTagsRequest {
+  /** JSON array of tags */
+  tags?: string;
+}
+
+export interface ServerPromptTemplateRequest {
+  is_template?: boolean;
+}
+
 export interface ServerPushPullResponse {
   branch?: string;
   message?: string;
@@ -3352,8 +3365,24 @@ export interface TypesPromptHistoryEntry {
   created_at?: string;
   /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
   id?: string;
+  /**
+   * Interrupt indicates this message should interrupt the current conversation
+   * When false, message waits until current conversation completes
+   */
+  interrupt?: boolean;
+  /** Saved as a reusable template */
+  is_template?: boolean;
+  /** Last time reused */
+  last_used_at?: string;
+  /** Library features for prompt reuse */
+  pinned?: boolean;
   /** For reference, but primary grouping is by spec_task */
   project_id?: string;
+  /**
+   * QueuePosition tracks ordering for drag-and-drop reordering
+   * Lower values = earlier in queue. Null for sent messages.
+   */
+  queue_position?: number;
   /** Optional - which session this was sent to */
   session_id?: string;
   spec_task_id?: string;
@@ -3362,15 +3391,29 @@ export interface TypesPromptHistoryEntry {
    * Values: "pending", "sent", "failed"
    */
   status?: string;
+  /** JSON array of user-defined tags */
+  tags?: string;
   updated_at?: string;
+  /** How many times reused */
+  usage_count?: number;
   user_id?: string;
 }
 
 export interface TypesPromptHistoryEntrySync {
   content?: string;
   id?: string;
+  /** If true, interrupts current conversation */
+  interrupt?: boolean;
+  /** If true, saved as template */
+  is_template?: boolean;
+  /** If true, pinned by user */
+  pinned?: boolean;
+  /** Position in queue for drag-and-drop ordering */
+  queue_position?: number;
   session_id?: string;
   status?: string;
+  /** JSON array of tags */
+  tags?: string;
   /** Unix timestamp in milliseconds */
   timestamp?: number;
 }
@@ -4863,6 +4906,37 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+}
+
+export interface TypesUnifiedSearchResponse {
+  /** Echo back query */
+  query?: string;
+  results?: TypesUnifiedSearchResult[];
+  /** Total results across all types */
+  total?: number;
+}
+
+export interface TypesUnifiedSearchResult {
+  /** ISO timestamp */
+  created_at?: string;
+  /** Brief description/content preview */
+  description?: string;
+  /** Icon hint for UI */
+  icon?: string;
+  /** Entity ID */
+  id?: string;
+  /** Additional context (status, owner, etc) */
+  metadata?: Record<string, string>;
+  /** Relevance score */
+  score?: number;
+  /** Display title */
+  title?: string;
+  /** "project", "task", "session", "prompt" */
+  type?: string;
+  /** ISO timestamp */
+  updated_at?: string;
+  /** Frontend URL to navigate to */
+  url?: string;
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -8755,6 +8829,139 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Pin or unpin a prompt for quick access
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinUpdate
+     * @summary Update prompt pin status
+     * @request PUT:/api/v1/prompt-history/{id}/pin
+     * @secure
+     */
+    v1PromptHistoryPinUpdate: (id: string, request: ServerPromptPinRequest, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/pin`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update tags for a prompt
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTagsUpdate
+     * @summary Update prompt tags
+     * @request PUT:/api/v1/prompt-history/{id}/tags
+     * @secure
+     */
+    v1PromptHistoryTagsUpdate: (id: string, request: ServerPromptTagsRequest, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/tags`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mark or unmark a prompt as a reusable template
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTemplateUpdate
+     * @summary Update prompt template status
+     * @request PUT:/api/v1/prompt-history/{id}/template
+     * @secure
+     */
+    v1PromptHistoryTemplateUpdate: (id: string, request: ServerPromptTemplateRequest, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/template`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Increment usage count when a prompt is reused
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryUseCreate
+     * @summary Increment prompt usage
+     * @request POST:/api/v1/prompt-history/{id}/use
+     * @secure
+     */
+    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/use`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all pinned prompts for the current user
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinnedList
+     * @summary List pinned prompts
+     * @request GET:/api/v1/prompt-history/pinned
+     * @secure
+     */
+    v1PromptHistoryPinnedList: (
+      query?: {
+        /** Filter by spec task ID */
+        spec_task_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+        path: `/api/v1/prompt-history/pinned`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search prompts by content
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistorySearchList
+     * @summary Search prompts
+     * @request GET:/api/v1/prompt-history/search
+     * @secure
+     */
+    v1PromptHistorySearchList: (
+      query: {
+        /** Search query */
+        q: string;
+        /** Max results (default 50) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+        path: `/api/v1/prompt-history/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Sync prompt history entries from the frontend (union merge - no deletes)
      *
      * @tags PromptHistory
@@ -8768,6 +8975,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/prompt-history/sync`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all prompt templates for the current user (across all projects)
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTemplatesList
+     * @summary List prompt templates
+     * @request GET:/api/v1/prompt-history/templates
+     * @secure
+     */
+    v1PromptHistoryTemplatesList: (params: RequestParams = {}) =>
+      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+        path: `/api/v1/prompt-history/templates`,
+        method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -9301,30 +9527,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Search knowledges for a given app and prompt
+     * @description Search across projects, tasks, sessions, and prompts
      *
-     * @tags knowledge
+     * @tags Search
      * @name V1SearchList
-     * @summary Search knowledges
+     * @summary Unified search across Helix entities
      * @request GET:/api/v1/search
      * @secure
      */
     v1SearchList: (
       query: {
-        /** App ID */
-        app_id: string;
-        /** Knowledge ID */
-        knowledge_id?: string;
-        /** Search prompt */
-        prompt: string;
+        /** Search query */
+        q: string;
+        /** Entity types to search: projects, tasks, sessions, prompts */
+        types?: string[];
+        /** Max results per type (default 10) */
+        limit?: number;
+        /** Filter by organization ID */
+        org_id?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesKnowledgeSearchResult[], any>({
+      this.request<TypesUnifiedSearchResponse, SystemHTTPError>({
         path: `/api/v1/search`,
         method: "GET",
         query: query,
         secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

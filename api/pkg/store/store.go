@@ -649,6 +649,18 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
+	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	MarkPromptAsSent(ctx context.Context, promptID string) error
+	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
+	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
+	UpdatePromptTemplate(ctx context.Context, promptID string, isTemplate bool) error
+	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	ListPromptTemplates(ctx context.Context, userID string) ([]*types.PromptHistoryEntry, error)
+	IncrementPromptUsage(ctx context.Context, promptID string) error
+	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
+	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 }
 
 type EmbeddingsStore interface {

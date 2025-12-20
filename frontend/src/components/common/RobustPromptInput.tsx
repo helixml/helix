@@ -29,6 +29,8 @@ import {
   alpha,
   Collapse,
   LinearProgress,
+  TextField,
+  InputAdornment,
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import HistoryIcon from '@mui/icons-material/History'
@@ -43,6 +45,30 @@ import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import BoltIcon from '@mui/icons-material/Bolt'
+import QueueIcon from '@mui/icons-material/Queue'
+import DoneIcon from '@mui/icons-material/Done'
+import DoneAllIcon from '@mui/icons-material/DoneAll'
+import PushPinIcon from '@mui/icons-material/PushPin'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
+import SearchIcon from '@mui/icons-material/Search'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 
@@ -56,6 +82,278 @@ interface RobustPromptInputProps {
   specTaskId?: string
   projectId?: string
   apiClient?: Api<unknown>['api']
+}
+
+// Props for sortable queue item
+interface SortableQueueItemProps {
+  entry: PromptHistoryEntry
+  index: number
+  totalCount: number
+  isSending: boolean
+  isEditing: boolean
+  editingContent: string
+  setEditingContent: (content: string) => void
+  editTextareaRef: React.RefObject<HTMLTextAreaElement | null>
+  handleEditKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
+  handleSaveEdit: () => void
+  handleCancelEdit: () => void
+  handleStartEdit: (entry: PromptHistoryEntry) => void
+  handleRemoveFromQueue: (id: string) => void
+  handleToggleInterrupt: (id: string) => void
+  truncateContent: (content: string, maxLen?: number) => string
+}
+
+// Sortable queue item component
+const SortableQueueItem: FC<SortableQueueItemProps> = ({
+  entry,
+  index,
+  totalCount,
+  isSending,
+  isEditing,
+  editingContent,
+  setEditingContent,
+  editTextareaRef,
+  handleEditKeyDown,
+  handleSaveEdit,
+  handleCancelEdit,
+  handleStartEdit,
+  handleRemoveFromQueue,
+  handleToggleInterrupt,
+  truncateContent,
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: entry.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  const isFailed = entry.status === 'failed'
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={style}
+      sx={{
+        display: 'flex',
+        alignItems: isEditing ? 'flex-start' : 'center',
+        gap: 0.5,
+        px: 1,
+        py: isEditing ? 1 : 0.5,
+        borderBottom: index < totalCount - 1 ? '1px solid' : 'none',
+        borderColor: 'divider',
+        bgcolor: isDragging
+          ? (theme) => alpha(theme.palette.primary.main, 0.12)
+          : isEditing
+            ? (theme) => alpha(theme.palette.info.main, 0.12)
+            : isFailed
+              ? (theme) => alpha(theme.palette.error.main, 0.08)
+              : 'transparent',
+        transition: 'background-color 0.2s',
+        '&:hover': !isEditing && !isSending && !isDragging ? {
+          bgcolor: (theme) => alpha(theme.palette.action.hover, 0.04),
+          '& .drag-handle': { opacity: 1 },
+        } : undefined,
+      }}
+    >
+      {/* Drag handle - only show when not sending and not editing */}
+      {!isSending && !isEditing && (
+        <Box
+          {...attributes}
+          {...listeners}
+          className="drag-handle"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            cursor: 'grab',
+            color: 'text.secondary',
+            opacity: 0.4,
+            transition: 'opacity 0.15s',
+            '&:hover': { opacity: 1, color: 'text.primary' },
+            '&:active': { cursor: 'grabbing' },
+            flexShrink: 0,
+            p: 0.25,
+            mr: 0.25,
+          }}
+        >
+          <DragIndicatorIcon sx={{ fontSize: 16 }} />
+        </Box>
+      )}
+
+      {/* Status indicator */}
+      {isSending ? (
+        <CircularProgress size={14} sx={{ flexShrink: 0, mt: isEditing ? 0.5 : 0, ml: isEditing ? 0 : 2.5 }} />
+      ) : isFailed ? (
+        <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
+      ) : isEditing ? (
+        <EditIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: 0.5, ml: 2.5 }} />
+      ) : (
+        <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
+      )}
+
+      {/* Message content - either edit mode or display mode */}
+      {isEditing ? (
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box
+            component="textarea"
+            ref={editTextareaRef}
+            value={editingContent}
+            onChange={(e) => setEditingContent(e.target.value)}
+            onKeyDown={handleEditKeyDown}
+            onBlur={handleSaveEdit}
+            sx={{
+              width: '100%',
+              resize: 'none',
+              border: '1px solid',
+              borderColor: 'info.main',
+              borderRadius: 1,
+              outline: 'none',
+              bgcolor: 'background.paper',
+              color: 'text.primary',
+              fontFamily: 'inherit',
+              fontSize: '0.875rem',
+              lineHeight: 1.5,
+              p: 1,
+              minHeight: 60,
+              maxHeight: 120,
+              overflowY: 'auto',
+              '&:focus': {
+                borderColor: 'info.light',
+                boxShadow: (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.25)}`,
+              },
+            }}
+          />
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1 }}>
+              Enter to save, Esc to cancel
+            </Typography>
+            <Tooltip title="Cancel (Esc)">
+              <IconButton
+                size="small"
+                onClick={handleCancelEdit}
+                sx={{ p: 0.25 }}
+              >
+                <CloseIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Save (Enter)">
+              <IconButton
+                size="small"
+                onClick={handleSaveEdit}
+                color="primary"
+                sx={{ p: 0.25 }}
+              >
+                <CheckIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            cursor: isSending ? 'default' : 'pointer',
+            '&:hover': !isSending ? {
+              '& .edit-hint': { opacity: 1 },
+            } : undefined,
+          }}
+          onClick={() => !isSending && handleStartEdit(entry)}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: isFailed ? 'error.main' : 'text.primary',
+                flex: 1,
+              }}
+            >
+              {truncateContent(entry.content, 50)}
+            </Typography>
+            {!isSending && (
+              <EditIcon
+                className="edit-hint"
+                sx={{
+                  fontSize: 14,
+                  color: 'text.secondary',
+                  opacity: 0,
+                  transition: 'opacity 0.15s',
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </Box>
+          {isFailed && (
+            <Typography variant="caption" sx={{ color: 'error.main' }}>
+              Failed to send - will retry
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {/* Actions - only show when not editing */}
+      {!isEditing && !isSending && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+          {/* Interrupt toggle */}
+          <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleToggleInterrupt(entry.id)
+              }}
+              sx={{
+                p: 0.5,
+                color: entry.interrupt !== false ? 'warning.main' : 'info.main',
+                opacity: 0.7,
+                '&:hover': { opacity: 1 },
+              }}
+            >
+              {entry.interrupt !== false ? (
+                <BoltIcon sx={{ fontSize: 14 }} />
+              ) : (
+                <QueueIcon sx={{ fontSize: 14 }} />
+              )}
+            </IconButton>
+          </Tooltip>
+          {/* Delete */}
+          <Tooltip title="Remove from queue">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleRemoveFromQueue(entry.id)
+              }}
+              sx={{ p: 0.5 }}
+            >
+              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          {/* Sync status indicator */}
+          <Tooltip title={entry.syncedToBackend ? "Synced to cloud" : "Pending sync"}>
+            <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5 }}>
+              {entry.syncedToBackend ? (
+                <DoneAllIcon sx={{ fontSize: 14, color: 'info.main' }} />
+              ) : (
+                <DoneIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+              )}
+            </Box>
+          </Tooltip>
+        </Box>
+      )}
+    </Box>
+  )
 }
 
 const RobustPromptInput: FC<RobustPromptInputProps> = ({
@@ -73,8 +371,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [historyMenuAnchor, setHistoryMenuAnchor] = useState<null | HTMLElement>(null)
   const [showHistoryHint, setShowHistoryHint] = useState(false)
+  const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
+  const [interruptMode, setInterruptMode] = useState(true) // true = interrupt, false = queue after
   const processingRef = useRef(false)
 
   // Editing state for queued messages
@@ -92,11 +392,34 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     markAsSent,
     markAsFailed,
     updateContent,
+    updateInterrupt,
     removeFromQueue,
+    reorderQueue,
     pendingPrompts,
     failedPrompts,
     clearDraft,
+    pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px drag before activating (allows clicks)
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  // Handle drag end
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      reorderQueue(active.id as string, over.id as string)
+    }
+  }, [reorderQueue])
 
   // Monitor online status
   useEffect(() => {
@@ -112,18 +435,40 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [])
 
+  // Check if backend queue processing is enabled
+  // When specTaskId, projectId, and apiClient are all provided, the backend handles queue processing
+  const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
+
   // Process queue - send pending messages one at a time
+  // NOTE: This only runs when backend queue processing is NOT enabled
+  // When backend queue is enabled, the backend handles sending after sync
   const processQueue = useCallback(async () => {
+    // If backend handles queue processing, don't process here
+    if (backendQueueEnabled) return
+
     // Prevent concurrent processing
     if (processingRef.current || !isOnline || disabled) return
 
-    // Find next message to send (pending, not currently sending, not being edited)
+    // Build queue in order: failed first, then pending
     const queuedMessages = [...failedPrompts, ...pendingPrompts]
-    const nextToSend = queuedMessages.find(m =>
-      m.id !== sendingId &&
-      m.id !== editingId &&  // Skip message being edited
-      m.status !== 'sent'
-    )
+
+    // If editing, find the index of the message being edited
+    // Block that message and everything after it (maintain ordering)
+    let editingIndex = -1
+    if (editingId) {
+      editingIndex = queuedMessages.findIndex(m => m.id === editingId)
+    }
+
+    // Find next message to send (only messages before the editing one)
+    const nextToSend = queuedMessages.find((m, index) => {
+      // Don't send if currently sending
+      if (m.id === sendingId) return false
+      // Don't send if already sent
+      if (m.status === 'sent') return false
+      // If editing, don't send this message or anything after it
+      if (editingIndex !== -1 && index >= editingIndex) return false
+      return true
+    })
 
     if (!nextToSend) return
 
@@ -140,23 +485,23 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setSendingId(null)
       processingRef.current = false
     }
-  }, [isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
-  // Auto-process queue when online and messages are pending
+  // Auto-process queue when online and messages are pending (only if backend queue not enabled)
   useEffect(() => {
-    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
+    if (!backendQueueEnabled && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
       const timer = setTimeout(processQueue, 500)
       return () => clearTimeout(timer)
     }
-  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  }, [backendQueueEnabled, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
-  // Continue processing queue after each send
+  // Continue processing queue after each send (only if backend queue not enabled)
   useEffect(() => {
-    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
+    if (!backendQueueEnabled && !sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
       const timer = setTimeout(processQueue, 300)
       return () => clearTimeout(timer)
     }
-  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  }, [backendQueueEnabled, sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -177,20 +522,28 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     const content = draft.trim()
     if (!content || disabled) return
 
-    // Add to queue with pending status
-    saveToHistory(content)
+    // Add to queue with pending status, passing interrupt mode
+    saveToHistory(content, interruptMode)
     clearDraft()
 
     // If online and nothing sending, start processing immediately
     if (isOnline && !processingRef.current) {
       setTimeout(processQueue, 100)
     }
-  }, [draft, disabled, saveToHistory, clearDraft, isOnline, processQueue])
+  }, [draft, disabled, saveToHistory, clearDraft, isOnline, processQueue, interruptMode])
 
   // Remove from queue
   const handleRemoveFromQueue = useCallback((entryId: string) => {
     removeFromQueue(entryId)
   }, [removeFromQueue])
+
+  // Toggle interrupt mode for a queued message
+  const handleToggleInterrupt = useCallback((entryId: string) => {
+    const entry = [...failedPrompts, ...pendingPrompts].find(e => e.id === entryId)
+    if (entry) {
+      updateInterrupt(entryId, entry.interrupt === false)
+    }
+  }, [failedPrompts, pendingPrompts, updateInterrupt])
 
   // Start editing a queued message
   const handleStartEdit = useCallback((entry: PromptHistoryEntry) => {
@@ -327,7 +680,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             )}
             <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
               {editingId
-                ? 'Editing message - queue paused'
+                ? 'Editing - paused from here'
                 : isOnline
                   ? 'Sending queue'
                   : 'Offline - will send when connected'}
@@ -339,167 +692,39 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             />
           </Box>
 
-          {/* Queue items */}
+          {/* Queue items with drag and drop */}
           <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
-            {queuedMessages.map((entry, index) => {
-              const isSending = entry.id === sendingId
-              const isFailed = entry.status === 'failed'
-              const isEditing = entry.id === editingId
-
-              return (
-                <Box
-                  key={entry.id}
-                  sx={{
-                    display: 'flex',
-                    alignItems: isEditing ? 'flex-start' : 'center',
-                    gap: 1,
-                    px: 1.5,
-                    py: isEditing ? 1 : 0.75,
-                    borderBottom: index < queuedMessages.length - 1 ? '1px solid' : 'none',
-                    borderColor: 'divider',
-                    bgcolor: isEditing
-                      ? (theme) => alpha(theme.palette.info.main, 0.12)
-                      : isFailed
-                        ? (theme) => alpha(theme.palette.error.main, 0.08)
-                        : 'transparent',
-                    transition: 'background-color 0.2s',
-                    '&:hover': !isEditing && !isSending ? {
-                      bgcolor: (theme) => alpha(theme.palette.action.hover, 0.04),
-                    } : undefined,
-                  }}
-                >
-                  {/* Status indicator */}
-                  {isSending ? (
-                    <CircularProgress size={14} sx={{ flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
-                  ) : isFailed ? (
-                    <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
-                  ) : isEditing ? (
-                    <EditIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: 0.5 }} />
-                  ) : (
-                    <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
-                  )}
-
-                  {/* Message content - either edit mode or display mode */}
-                  {isEditing ? (
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box
-                        component="textarea"
-                        ref={editTextareaRef}
-                        value={editingContent}
-                        onChange={(e) => setEditingContent(e.target.value)}
-                        onKeyDown={handleEditKeyDown}
-                        onBlur={handleSaveEdit}
-                        sx={{
-                          width: '100%',
-                          resize: 'none',
-                          border: '1px solid',
-                          borderColor: 'info.main',
-                          borderRadius: 1,
-                          outline: 'none',
-                          bgcolor: 'background.paper',
-                          color: 'text.primary',
-                          fontFamily: 'inherit',
-                          fontSize: '0.875rem',
-                          lineHeight: 1.5,
-                          p: 1,
-                          minHeight: 60,
-                          maxHeight: 120,
-                          overflowY: 'auto',
-                          '&:focus': {
-                            borderColor: 'info.light',
-                            boxShadow: (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.25)}`,
-                          },
-                        }}
-                      />
-                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1 }}>
-                          Enter to save, Esc to cancel
-                        </Typography>
-                        <Tooltip title="Cancel (Esc)">
-                          <IconButton
-                            size="small"
-                            onClick={handleCancelEdit}
-                            sx={{ p: 0.25 }}
-                          >
-                            <CloseIcon sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Save (Enter)">
-                          <IconButton
-                            size="small"
-                            onClick={handleSaveEdit}
-                            color="primary"
-                            sx={{ p: 0.25 }}
-                          >
-                            <CheckIcon sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  ) : (
-                    <Box
-                      sx={{
-                        flex: 1,
-                        minWidth: 0,
-                        cursor: isSending ? 'default' : 'pointer',
-                        '&:hover': !isSending ? {
-                          '& .edit-hint': { opacity: 1 },
-                        } : undefined,
-                      }}
-                      onClick={() => !isSending && handleStartEdit(entry)}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            color: isFailed ? 'error.main' : 'text.primary',
-                            flex: 1,
-                          }}
-                        >
-                          {truncateContent(entry.content, 50)}
-                        </Typography>
-                        {!isSending && (
-                          <EditIcon
-                            className="edit-hint"
-                            sx={{
-                              fontSize: 14,
-                              color: 'text.secondary',
-                              opacity: 0,
-                              transition: 'opacity 0.15s',
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                      </Box>
-                      {isFailed && (
-                        <Typography variant="caption" sx={{ color: 'error.main' }}>
-                          Failed to send - will retry
-                        </Typography>
-                      )}
-                    </Box>
-                  )}
-
-                  {/* Actions - only show when not editing */}
-                  {!isEditing && !isSending && (
-                    <Tooltip title="Remove from queue">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleRemoveFromQueue(entry.id)
-                        }}
-                        sx={{ p: 0.5 }}
-                      >
-                        <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Box>
-              )
-            })}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={queuedMessages.map(m => m.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {queuedMessages.map((entry, index) => (
+                  <SortableQueueItem
+                    key={entry.id}
+                    entry={entry}
+                    index={index}
+                    totalCount={queuedMessages.length}
+                    isSending={entry.id === sendingId}
+                    isEditing={entry.id === editingId}
+                    editingContent={editingContent}
+                    setEditingContent={setEditingContent}
+                    editTextareaRef={editTextareaRef}
+                    handleEditKeyDown={handleEditKeyDown}
+                    handleSaveEdit={handleSaveEdit}
+                    handleCancelEdit={handleCancelEdit}
+                    handleStartEdit={handleStartEdit}
+                    handleRemoveFromQueue={handleRemoveFromQueue}
+                    handleToggleInterrupt={handleToggleInterrupt}
+                    truncateContent={truncateContent}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </Box>
 
           {/* Sending progress */}
@@ -613,6 +838,39 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           </Tooltip>
         )}
 
+        {/* Interrupt mode toggle */}
+        <Tooltip
+          title={interruptMode
+            ? "Interrupt mode: Message will be sent immediately, interrupting current conversation"
+            : "Queue mode: Message will wait until current conversation completes"
+          }
+        >
+          <IconButton
+            size="small"
+            onClick={() => setInterruptMode(!interruptMode)}
+            sx={{
+              flexShrink: 0,
+              color: interruptMode ? 'warning.main' : 'info.main',
+              bgcolor: (theme) => alpha(
+                interruptMode ? theme.palette.warning.main : theme.palette.info.main,
+                0.1
+              ),
+              '&:hover': {
+                bgcolor: (theme) => alpha(
+                  interruptMode ? theme.palette.warning.main : theme.palette.info.main,
+                  0.2
+                ),
+              },
+            }}
+          >
+            {interruptMode ? (
+              <BoltIcon fontSize="small" />
+            ) : (
+              <QueueIcon fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+
         {/* Send button */}
         <Tooltip title="Add to queue (Enter)">
           <span>
@@ -669,64 +927,170 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       <Menu
         anchorEl={historyMenuAnchor}
         open={Boolean(historyMenuAnchor)}
-        onClose={() => setHistoryMenuAnchor(null)}
+        onClose={() => {
+          setHistoryMenuAnchor(null)
+          setHistorySearchQuery('')
+        }}
         anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         slotProps={{
           paper: {
             sx: {
-              maxHeight: 400,
-              minWidth: 350,
-              maxWidth: 500,
+              maxHeight: 450,
+              minWidth: 400,
+              maxWidth: 550,
             },
           },
         }}
       >
-        {sentHistory.length > 0 ? (
-          <>
-            <Box sx={{ px: 2, py: 1, bgcolor: 'background.default' }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                Recent Prompts
-              </Typography>
-            </Box>
-            {sentHistory.slice().reverse().slice(0, 20).map((entry, index) => (
-              <MenuItem
-                key={entry.id}
-                onClick={() => {
-                  setDraft(entry.content)
-                  setHistoryMenuAnchor(null)
-                  textareaRef.current?.focus()
-                }}
-                sx={{
-                  borderLeft: historyIndex === index ? '3px solid' : '3px solid transparent',
-                  borderColor: historyIndex === index ? 'primary.main' : 'transparent',
-                }}
-              >
-                <ListItemIcon>
-                  <CheckCircleOutlineIcon fontSize="small" sx={{ color: 'success.main', opacity: 0.6 }} />
-                </ListItemIcon>
+        {/* Search field */}
+        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Search history..."
+            value={historySearchQuery}
+            onChange={(e) => setHistorySearchQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                fontSize: '0.875rem',
+              },
+            }}
+          />
+        </Box>
+
+        {(() => {
+          // Filter and sort history: pinned first, then by timestamp, filtered by search
+          const filteredHistory = sentHistory
+            .filter(entry => {
+              if (!historySearchQuery.trim()) return true
+              return entry.content.toLowerCase().includes(historySearchQuery.toLowerCase())
+            })
+            .sort((a, b) => {
+              // Pinned items first
+              if (a.pinned && !b.pinned) return -1
+              if (!a.pinned && b.pinned) return 1
+              // Then by timestamp (newest first)
+              return b.timestamp - a.timestamp
+            })
+            .slice(0, 30)
+
+          const pinnedCount = filteredHistory.filter(e => e.pinned).length
+
+          if (filteredHistory.length === 0) {
+            return (
+              <MenuItem disabled>
                 <ListItemText
-                  primary={truncateContent(entry.content)}
-                  secondary={formatTime(entry.timestamp)}
-                  primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
-                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                  primary={historySearchQuery ? 'No matching prompts' : 'No history yet'}
+                  secondary={historySearchQuery ? 'Try a different search term' : 'Your sent messages will appear here'}
                 />
-                {index < 9 && (
-                  <Typography variant="caption" sx={{ color: 'text.disabled', fontFamily: 'monospace', ml: 1 }}>
-                    ↑{index + 1}
-                  </Typography>
-                )}
               </MenuItem>
-            ))}
-          </>
-        ) : (
-          <MenuItem disabled>
-            <ListItemText
-              primary="No history yet"
-              secondary="Your sent messages will appear here"
-            />
-          </MenuItem>
-        )}
+            )
+          }
+
+          return (
+            <>
+              {/* Pinned section header */}
+              {pinnedCount > 0 && (
+                <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <PushPinIcon sx={{ fontSize: 14 }} />
+                    Pinned ({pinnedCount})
+                  </Typography>
+                </Box>
+              )}
+
+              {filteredHistory.map((entry, index) => {
+                const isPinned = entry.pinned
+                const isFirstUnpinned = index > 0 && !isPinned && filteredHistory[index - 1]?.pinned
+
+                return (
+                  <Box key={entry.id}>
+                    {/* Show "Recent" header before first unpinned item */}
+                    {isFirstUnpinned && (
+                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default', borderTop: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                          Recent
+                        </Typography>
+                      </Box>
+                    )}
+                    {/* Show "Recent" header at top if no pinned items */}
+                    {index === 0 && pinnedCount === 0 && (
+                      <Box sx={{ px: 2, py: 0.75, bgcolor: 'background.default' }}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                          Recent Prompts
+                        </Typography>
+                      </Box>
+                    )}
+                    <MenuItem
+                      onClick={() => {
+                        setDraft(entry.content)
+                        setHistoryMenuAnchor(null)
+                        setHistorySearchQuery('')
+                        textareaRef.current?.focus()
+                      }}
+                      sx={{
+                        borderLeft: isPinned ? '3px solid' : '3px solid transparent',
+                        borderColor: isPinned ? 'warning.main' : 'transparent',
+                        bgcolor: isPinned ? (theme) => alpha(theme.palette.warning.main, 0.04) : 'transparent',
+                        '&:hover .pin-button': { opacity: 1 },
+                      }}
+                    >
+                      <ListItemIcon>
+                        {isPinned ? (
+                          <PushPinIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                        ) : (
+                          <CheckCircleOutlineIcon fontSize="small" sx={{ color: 'success.main', opacity: 0.6 }} />
+                        )}
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={truncateContent(entry.content)}
+                        secondary={formatTime(entry.timestamp)}
+                        primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
+                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                      />
+                      {/* Pin/unpin button */}
+                      <Tooltip title={isPinned ? 'Unpin' : 'Pin for quick access'}>
+                        <IconButton
+                          className="pin-button"
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            pinPrompt(entry.id, !isPinned)
+                          }}
+                          sx={{
+                            ml: 1,
+                            opacity: isPinned ? 0.8 : 0.3,
+                            transition: 'opacity 0.15s',
+                            color: isPinned ? 'warning.main' : 'text.secondary',
+                            '&:hover': {
+                              color: isPinned ? 'warning.dark' : 'warning.main',
+                            },
+                          }}
+                        >
+                          {isPinned ? (
+                            <PushPinIcon sx={{ fontSize: 16 }} />
+                          ) : (
+                            <PushPinOutlinedIcon sx={{ fontSize: 16 }} />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    </MenuItem>
+                  </Box>
+                )
+              })}
+            </>
+          )
+        })()}
       </Menu>
     </Box>
   )
