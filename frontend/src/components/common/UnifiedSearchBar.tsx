@@ -36,6 +36,8 @@ import ChatIcon from '@mui/icons-material/Chat'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import CodeIcon from '@mui/icons-material/Code'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import SourceIcon from '@mui/icons-material/Source'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
 import CloseIcon from '@mui/icons-material/Close'
 import KeyboardIcon from '@mui/icons-material/Keyboard'
 import { useUnifiedSearch, groupResultsByType, getSearchResultTypeLabel } from '../../services/searchService'
@@ -51,7 +53,7 @@ interface UnifiedSearchBarProps {
 }
 
 // Tab order for the search results
-const TAB_ORDER = ['all', 'session', 'prompt', 'code', 'knowledge', 'project', 'task'] as const
+const TAB_ORDER = ['all', 'session', 'agent', 'prompt', 'code', 'knowledge', 'repository', 'project', 'task'] as const
 type TabType = typeof TAB_ORDER[number]
 
 const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
@@ -138,6 +140,10 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         if (appId) {
           account.orgNavigate('app', { app_id: appId })
         }
+      } else if (result.type === 'repository') {
+        account.orgNavigate('repository', { repository_id: result.id })
+      } else if (result.type === 'agent') {
+        account.orgNavigate('app', { app_id: result.id })
       } else {
         // For prompts, navigate to the task if available
         const taskId = result.metadata?.taskId
@@ -164,6 +170,10 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         return <CodeIcon sx={{ color: 'success.main' }} />
       case 'knowledge':
         return <MenuBookIcon sx={{ color: '#9c27b0' }} />
+      case 'repository':
+        return <SourceIcon sx={{ color: '#00bcd4' }} />
+      case 'agent':
+        return <SmartToyIcon sx={{ color: '#ff5722' }} />
       default:
         return <SearchIcon />
     }
