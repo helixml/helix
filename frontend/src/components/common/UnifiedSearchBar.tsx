@@ -135,9 +135,12 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         const repoId = result.metadata?.repoId
         const filePath = result.metadata?.filePath
         if (repoId) {
+          // Encode the snippet description as search text to find in file
+          const searchText = result.description ? encodeURIComponent(result.description.slice(0, 100)) : undefined
           account.orgNavigate('git-repo-detail', {
             repoId: repoId,
             file: filePath || undefined,
+            search: searchText,
           })
         }
       } else if (result.type === 'knowledge') {

@@ -156,6 +156,7 @@ const GitRepoDetail: FC = () => {
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
   const fileFromQuery = router.params.file || ''
+  const searchFromQuery = router.params.search ? decodeURIComponent(router.params.search) : ''
   const currentBranch = branchFromQuery
   const commitsBranch = branchFromQuery  
 
@@ -871,6 +872,7 @@ const GitRepoDetail: FC = () => {
               creatingFile={creatingFile}
               createBranchMutation={createBranchMutation}
               createOrUpdateFileMutation={createOrUpdateFileMutation}
+              searchText={searchFromQuery}
             />
           )}
 
