@@ -155,6 +155,7 @@ const GitRepoDetail: FC = () => {
   // Query parameters
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
+  const fileFromQuery = router.params.file || ''
   const currentBranch = branchFromQuery
   const commitsBranch = branchFromQuery  
 
@@ -281,9 +282,16 @@ const GitRepoDetail: FC = () => {
     }
   }, [repository, branchFromQuery, branches])
 
-  // Auto-load README.md when repository loads
+  // Set file from query param (takes priority over README auto-load)
   React.useEffect(() => {
-    if (treeData?.entries && !selectedFile) {
+    if (fileFromQuery && !selectedFile) {
+      setSelectedFile(fileFromQuery)
+    }
+  }, [fileFromQuery])
+
+  // Auto-load README.md when repository loads (only if no file specified in query)
+  React.useEffect(() => {
+    if (treeData?.entries && !selectedFile && !fileFromQuery) {
       const readme = treeData.entries.find(entry =>
         entry?.name?.toLowerCase() === 'readme.md' && !entry?.is_dir
       )
@@ -291,7 +299,7 @@ const GitRepoDetail: FC = () => {
         setSelectedFile(readme.path)
       }
     }
-  }, [treeData, selectedFile])
+  }, [treeData, selectedFile, fileFromQuery])
 
   const handleOpenEdit = () => {
     if (repository) {

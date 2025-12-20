@@ -131,10 +131,14 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
       } else if (result.type === 'session') {
         account.orgNavigate('session', { session_id: result.id })
       } else if (result.type === 'code') {
-        // For code results, navigate to the repository
+        // For code results, navigate to the repository with file selected
         const repoId = result.metadata?.repoId
+        const filePath = result.metadata?.filePath
         if (repoId) {
-          account.orgNavigate('git-repo-detail', { repoId: repoId })
+          account.orgNavigate('git-repo-detail', {
+            repoId: repoId,
+            file: filePath || undefined,
+          })
         }
       } else if (result.type === 'knowledge') {
         // For knowledge, navigate to the app if available
