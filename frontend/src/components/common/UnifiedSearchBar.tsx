@@ -2,7 +2,8 @@
  * UnifiedSearchBar - A prominent search bar for searching across all Helix entities
  *
  * Features:
- * - Search across projects, tasks, sessions, and prompts
+ * - Search across projects, tasks, sessions, prompts, code, and knowledge
+ * - Tabbed results interface like Google search
  * - Real-time search results dropdown
  * - Keyboard shortcuts (Cmd/Ctrl+K)
  * - Click-through to results
@@ -16,7 +17,6 @@ import {
   Paper,
   Typography,
   List,
-  ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
@@ -25,8 +25,9 @@ import {
   Popper,
   ClickAwayListener,
   alpha,
-  Divider,
   Fade,
+  Tabs,
+  Tab,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import FolderIcon from '@mui/icons-material/Folder'
@@ -34,6 +35,7 @@ import TaskIcon from '@mui/icons-material/Task'
 import ChatIcon from '@mui/icons-material/Chat'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import CodeIcon from '@mui/icons-material/Code'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import CloseIcon from '@mui/icons-material/Close'
 import KeyboardIcon from '@mui/icons-material/Keyboard'
 import { useUnifiedSearch, groupResultsByType, getSearchResultTypeLabel } from '../../services/searchService'
@@ -48,6 +50,10 @@ interface UnifiedSearchBarProps {
   onResultClick?: (result: TypesUnifiedSearchResult) => void
 }
 
+// Tab order for the search results
+const TAB_ORDER = ['all', 'session', 'prompt', 'code', 'knowledge', 'project', 'task'] as const
+type TabType = typeof TAB_ORDER[number]
+
 const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
   placeholder = 'Search projects, tasks, sessions...',
   autoFocus = false,
@@ -57,6 +63,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabType>('all')
   const inputRef = useRef<HTMLInputElement>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
@@ -73,7 +80,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
 
   const { data, isLoading } = useUnifiedSearch({
     query: debouncedQuery,
-    limit: 5,
+    limit: 10,
     enabled: debouncedQuery.length >= 2,
   })
 
@@ -85,6 +92,11 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
       setOpen(false)
     }
   }, [data, debouncedQuery, focused])
+
+  // Reset tab when query changes
+  useEffect(() => {
+    setActiveTab('all')
+  }, [debouncedQuery])
 
   // Keyboard shortcut: Cmd/Ctrl+K
   useEffect(() => {
@@ -120,6 +132,12 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         if (repoId) {
           account.orgNavigate('repository', { repository_id: repoId })
         }
+      } else if (result.type === 'knowledge') {
+        // For knowledge, navigate to the app if available
+        const appId = result.metadata?.appId
+        if (appId) {
+          account.orgNavigate('app', { app_id: appId })
+        }
       } else {
         // For prompts, navigate to the task if available
         const taskId = result.metadata?.taskId
@@ -144,12 +162,37 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         return <FormatQuoteIcon sx={{ color: 'warning.main' }} />
       case 'code':
         return <CodeIcon sx={{ color: 'success.main' }} />
+      case 'knowledge':
+        return <MenuBookIcon sx={{ color: '#9c27b0' }} />
       default:
         return <SearchIcon />
     }
   }
 
   const groupedResults = data?.results ? groupResultsByType(data.results) : {}
+
+  // Get available tabs (only show tabs that have results)
+  const availableTabs = TAB_ORDER.filter(tab => {
+    if (tab === 'all') return true
+    return groupedResults[tab] && groupedResults[tab].length > 0
+  })
+
+  // Get results for the current tab
+  const getFilteredResults = (): TypesUnifiedSearchResult[] => {
+    if (!data?.results) return []
+    if (activeTab === 'all') return data.results
+    return groupedResults[activeTab] || []
+  }
+
+  const filteredResults = getFilteredResults()
+
+  // Get tab label with count
+  const getTabLabel = (tab: TabType): string => {
+    if (tab === 'all') return 'All'
+    const count = groupedResults[tab]?.length || 0
+    const label = getSearchResultTypeLabel(tab)
+    return count > 0 ? `${label}s (${count})` : `${label}s`
+  }
 
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
@@ -247,11 +290,13 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                 elevation={8}
                 sx={{
                   mt: 1,
-                  maxHeight: 400,
-                  overflow: 'auto',
+                  maxHeight: 500,
+                  overflow: 'hidden',
                   borderRadius: 2,
                   border: '1px solid',
                   borderColor: 'divider',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
                 {!data?.results || data.results.length === 0 ? (
@@ -263,32 +308,63 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                     </Typography>
                   </Box>
                 ) : (
-                  <List dense disablePadding>
-                    {Object.entries(groupedResults).map(([type, results], groupIndex) => (
-                      <React.Fragment key={type}>
-                        {groupIndex > 0 && <Divider />}
-                        <ListItem sx={{ py: 0.5, bgcolor: 'action.hover' }}>
-                          <ListItemText
-                            primary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase' }}
-                                >
-                                  {getSearchResultTypeLabel(type)}s
-                                </Typography>
-                                <Chip
-                                  label={results.length}
-                                  size="small"
-                                  sx={{ height: 16, fontSize: '0.65rem' }}
-                                />
-                              </Box>
-                            }
+                  <>
+                    {/* Tabs - Google-style */}
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}>
+                      <Tabs
+                        value={activeTab}
+                        onChange={(_, newValue) => setActiveTab(newValue)}
+                        variant="scrollable"
+                        scrollButtons="auto"
+                        sx={{
+                          minHeight: 36,
+                          '& .MuiTab-root': {
+                            minHeight: 36,
+                            py: 0.5,
+                            px: 1.5,
+                            fontSize: '0.75rem',
+                            textTransform: 'none',
+                            minWidth: 'auto',
+                          },
+                        }}
+                      >
+                        {availableTabs.map((tab) => (
+                          <Tab
+                            key={tab}
+                            value={tab}
+                            label={getTabLabel(tab)}
+                            icon={tab !== 'all' ? getIcon(tab) : undefined}
+                            iconPosition="start"
+                            sx={{
+                              '& .MuiSvgIcon-root': {
+                                fontSize: 16,
+                                mr: 0.5,
+                              },
+                            }}
                           />
-                        </ListItem>
-                        {results.map((result: TypesUnifiedSearchResult) => (
+                        ))}
+                      </Tabs>
+                    </Box>
+
+                    {/* Results list */}
+                    <List
+                      dense
+                      disablePadding
+                      sx={{
+                        overflow: 'auto',
+                        maxHeight: 400,
+                      }}
+                    >
+                      {filteredResults.length === 0 ? (
+                        <Box sx={{ p: 2, textAlign: 'center' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            No {activeTab === 'all' ? '' : getSearchResultTypeLabel(activeTab).toLowerCase()} results
+                          </Typography>
+                        </Box>
+                      ) : (
+                        filteredResults.map((result: TypesUnifiedSearchResult) => (
                           <ListItemButton
-                            key={result.id}
+                            key={`${result.type}-${result.id}`}
                             onClick={() => handleResultClick(result)}
                             sx={{
                               py: 1,
@@ -302,14 +378,28 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                             </ListItemIcon>
                             <ListItemText
                               primary={result.title}
-                              secondary={result.description}
+                              secondary={
+                                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  {activeTab === 'all' && (
+                                    <Chip
+                                      label={getSearchResultTypeLabel(result.type || 'unknown')}
+                                      size="small"
+                                      sx={{ height: 16, fontSize: '0.6rem' }}
+                                    />
+                                  )}
+                                  <Typography
+                                    component="span"
+                                    variant="body2"
+                                    sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+                                    noWrap
+                                  >
+                                    {result.description}
+                                  </Typography>
+                                </Box>
+                              }
                               primaryTypographyProps={{
                                 noWrap: true,
                                 fontWeight: 500,
-                              }}
-                              secondaryTypographyProps={{
-                                noWrap: true,
-                                fontSize: '0.75rem',
                               }}
                             />
                             {result.metadata?.status && (
@@ -319,11 +409,34 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                                 sx={{ height: 20, fontSize: '0.65rem', ml: 1 }}
                               />
                             )}
+                            {result.metadata?.sourceType && (
+                              <Chip
+                                label={result.metadata.sourceType}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 20, fontSize: '0.65rem', ml: 1 }}
+                              />
+                            )}
                           </ListItemButton>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </List>
+                        ))
+                      )}
+                    </List>
+
+                    {/* Total count */}
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 0.5,
+                        borderTop: 1,
+                        borderColor: 'divider',
+                        bgcolor: 'action.hover',
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        {data.total} result{data.total !== 1 ? 's' : ''} for "{data.query}"
+                      </Typography>
+                    </Box>
+                  </>
                 )}
               </Paper>
             </Fade>
