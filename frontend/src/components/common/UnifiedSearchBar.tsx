@@ -33,6 +33,7 @@ import FolderIcon from '@mui/icons-material/Folder'
 import TaskIcon from '@mui/icons-material/Task'
 import ChatIcon from '@mui/icons-material/Chat'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
+import CodeIcon from '@mui/icons-material/Code'
 import CloseIcon from '@mui/icons-material/Close'
 import KeyboardIcon from '@mui/icons-material/Keyboard'
 import { useUnifiedSearch, groupResultsByType, getSearchResultTypeLabel } from '../../services/searchService'
@@ -113,6 +114,12 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         account.orgNavigate('spec-task', { id: result.id })
       } else if (result.type === 'session') {
         router.navigate('session', { id: result.id })
+      } else if (result.type === 'code') {
+        // For code results, navigate to the repository
+        const repoId = result.metadata?.repoId
+        if (repoId) {
+          account.orgNavigate('repository', { repository_id: repoId })
+        }
       } else {
         // For prompts, navigate to the task if available
         const taskId = result.metadata?.taskId
@@ -135,6 +142,8 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         return <ChatIcon sx={{ color: 'info.main' }} />
       case 'prompt':
         return <FormatQuoteIcon sx={{ color: 'warning.main' }} />
+      case 'code':
+        return <CodeIcon sx={{ color: 'success.main' }} />
       default:
         return <SearchIcon />
     }

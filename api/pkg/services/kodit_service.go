@@ -77,6 +77,11 @@ func NewKoditService(baseURL, apiKey string) *KoditService {
 	return &KoditService{enabled: true, client: client}
 }
 
+// IsEnabled returns whether the Kodit service is enabled
+func (s *KoditService) IsEnabled() bool {
+	return s != nil && s.enabled
+}
+
 // Enrichment type constants
 const (
 	EnrichmentTypeUsage               = "usage"

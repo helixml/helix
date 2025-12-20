@@ -510,12 +510,12 @@ func (apiServer *HelixAPIServer) incrementPromptUsage(_ http.ResponseWriter, req
 }
 
 // @Summary Unified search across Helix entities
-// @Description Search across projects, tasks, sessions, and prompts
+// @Description Search across projects, tasks, sessions, prompts, and code
 // @Tags Search
 // @Accept json
 // @Produce json
 // @Param q query string true "Search query"
-// @Param types query []string false "Entity types to search: projects, tasks, sessions, prompts"
+// @Param types query []string false "Entity types to search: projects, tasks, sessions, prompts, code"
 // @Param limit query int false "Max results per type (default 10)"
 // @Param org_id query string false "Filter by organization ID"
 // @Success 200 {object} types.UnifiedSearchResponse
@@ -544,9 +544,25 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 	}
 
 	// Parse limit
+	limit := 10
 	if limitStr := query.Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
 			searchReq.Limit = l
+		}
+	}
+
+	// Check if code search is requested
+	searchCode := false
+	if len(searchReq.Types) == 0 {
+		// Default includes code
+		searchCode = true
+	} else {
+		for _, t := range searchReq.Types {
+			if t == "code" {
+				searchCode = true
+				break
+			}
 		}
 	}
 
@@ -559,5 +575,85 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to search: %v", err))
 	}
 
+	// Add Kodit code search results if requested and service is available
+	if searchCode && apiServer.koditService != nil && apiServer.koditService.IsEnabled() {
+		codeResults := apiServer.searchCodeAcrossRepositories(ctx, user.ID, searchQuery, limit)
+		response.Results = append(response.Results, codeResults...)
+		response.Total = len(response.Results)
+	}
+
 	return response, nil
+}
+
+// searchCodeAcrossRepositories searches code snippets across all user's Kodit-enabled repositories
+func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Context, userID, query string, limit int) []types.UnifiedSearchResult {
+	results := make([]types.UnifiedSearchResult, 0)
+
+	// Get all repositories the user owns with Kodit indexing enabled
+	repos, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		OwnerID: userID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userID).Msg("Failed to list repositories for code search")
+		return results
+	}
+
+	// Search each Kodit-enabled repository
+	for _, repo := range repos {
+		if !repo.KoditIndexing {
+			continue
+		}
+
+		// Get kodit_repo_id from metadata
+		var koditRepoID string
+		if repo.Metadata != nil {
+			if id, ok := repo.Metadata["kodit_repo_id"].(string); ok {
+				koditRepoID = id
+			}
+		}
+		if koditRepoID == "" {
+			continue
+		}
+
+		// Search snippets in this repository
+		snippets, err := apiServer.koditService.SearchSnippets(ctx, koditRepoID, query, limit, "")
+		if err != nil {
+			log.Debug().Err(err).
+				Str("repo_id", repo.ID).
+				Str("kodit_repo_id", koditRepoID).
+				Msg("Failed to search snippets in repository")
+			continue
+		}
+
+		// Convert snippets to unified search results
+		for _, snippet := range snippets {
+			title := snippet.FilePath
+			if title == "" {
+				title = truncateString(snippet.Content, 60)
+			}
+
+			results = append(results, types.UnifiedSearchResult{
+				Type:        "code",
+				ID:          snippet.ID,
+				Title:       title,
+				Description: truncateString(snippet.Content, 150),
+				URL:         "/repositories/" + repo.ID,
+				Icon:        "code",
+				Metadata: map[string]string{
+					"repoId":   repo.ID,
+					"repoName": repo.Name,
+					"filePath": snippet.FilePath,
+					"language": snippet.Language,
+				},
+			})
+		}
+
+		// Limit total code results
+		if len(results) >= limit {
+			results = results[:limit]
+			break
+		}
+	}
+
+	return results
 }
