@@ -17,7 +17,7 @@ export const searchQueryKey = (query: string, types?: string[], limit?: number) 
   ['unified-search', query, types?.join(',') || 'all', limit] as const
 
 // Search entity types
-export type SearchEntityType = 'projects' | 'tasks' | 'sessions' | 'prompts'
+export type SearchEntityType = 'projects' | 'tasks' | 'sessions' | 'prompts' | 'code'
 
 // Search request options
 export interface UnifiedSearchOptions {
@@ -100,6 +100,8 @@ export function getSearchResultIcon(type: string): string {
       return 'chat'
     case 'prompt':
       return 'prompt'
+    case 'code':
+      return 'code'
     default:
       return 'search'
   }
@@ -118,6 +120,8 @@ export function getSearchResultTypeLabel(type: string): string {
       return 'Session'
     case 'prompt':
       return 'Prompt'
+    case 'code':
+      return 'Code'
     default:
       return type.charAt(0).toUpperCase() + type.slice(1)
   }
