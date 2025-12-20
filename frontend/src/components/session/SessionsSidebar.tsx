@@ -550,8 +550,8 @@ export const SessionsSidebar: FC<{
 
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
-      {/* Unified Search Bar - aligned with New Chat button (ml: 1, mr: 2) */}
-      <Box sx={{ ml: 1, mr: 2, pt: 1, pb: 1 }}>
+      {/* Unified Search Bar */}
+      <Box sx={{ pl: 3, pr: 0, py: 1 }}>
         <UnifiedSearchBar
           placeholder="Search..."
           compact
