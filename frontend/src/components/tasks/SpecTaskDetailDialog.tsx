@@ -53,6 +53,7 @@ import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import RobustPromptInput from '../common/RobustPromptInput'
+import EmbeddedSessionView from '../session/EmbeddedSessionView'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -862,6 +863,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
+            {activeSessionId && <Tab label="Session" />}
             {activeSessionId && <Tab label="Desktop + IDE" />}
             <Tab label="Details" />
           </Tabs>
@@ -869,8 +871,34 @@ I'll give you feedback and we can iterate on any changes needed.`
 
         {/* Tab Content */}
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {/* Tab 0: Active Session (only if session exists) */}
+          {/* Tab 0: Session - Chat thread (only if session exists) */}
           {activeSessionId && currentTab === 0 && (
+            <>
+              {/* EmbeddedSessionView - shows the chat message thread */}
+              <EmbeddedSessionView sessionId={activeSessionId} />
+
+              {/* Message input box */}
+              <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+                <RobustPromptInput
+                  sessionId={activeSessionId}
+                  specTaskId={displayTask.id}
+                  projectId={displayTask.project_id}
+                  apiClient={api.getApiClient()}
+                  onSend={async (message: string) => {
+                    await streaming.NewInference({
+                      type: SESSION_TYPE_TEXT,
+                      message,
+                      sessionId: activeSessionId,
+                    })
+                  }}
+                  placeholder="Send message to agent..."
+                />
+              </Box>
+            </>
+          )}
+
+          {/* Tab 1: Desktop + IDE (only if session exists) */}
+          {activeSessionId && currentTab === 1 && (
             <>
               {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
               <ExternalAgentDesktopViewer
@@ -903,8 +931,8 @@ I'll give you feedback and we can iterate on any changes needed.`
             </>
           )}
 
-          {/* Details Tab */}
-          {((activeSessionId && currentTab === 1) || (!activeSessionId && currentTab === 0)) && (
+          {/* Details Tab - Tab 2 when session exists, Tab 0 when no session */}
+          {((activeSessionId && currentTab === 2) || (!activeSessionId && currentTab === 0)) && (
             <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
               {/* Action Buttons */}
               <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
