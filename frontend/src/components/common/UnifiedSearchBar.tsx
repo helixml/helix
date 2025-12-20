@@ -389,7 +389,7 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                             <ListItemText
                               primary={result.title}
                               secondary={
-                                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                   {activeTab === 'all' && (
                                     <Chip
                                       label={getSearchResultTypeLabel(result.type || 'unknown')}
@@ -397,10 +397,27 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
                                       sx={{ height: 16, fontSize: '0.6rem' }}
                                     />
                                   )}
+                                  {/* Show relationship context */}
+                                  {result.metadata?.projectName && (
+                                    <Chip
+                                      label={result.metadata.projectName}
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ height: 16, fontSize: '0.6rem', borderColor: 'secondary.main', color: 'secondary.main' }}
+                                    />
+                                  )}
+                                  {result.metadata?.taskName && (
+                                    <Chip
+                                      label={result.metadata.taskName}
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ height: 16, fontSize: '0.6rem', borderColor: 'primary.main', color: 'primary.main' }}
+                                    />
+                                  )}
                                   <Typography
                                     component="span"
                                     variant="body2"
-                                    sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+                                    sx={{ fontSize: '0.75rem', color: 'text.secondary', flex: 1, minWidth: 0 }}
                                     noWrap
                                   >
                                     {result.description}
