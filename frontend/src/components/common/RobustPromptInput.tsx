@@ -39,6 +39,10 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CloudQueueIcon from '@mui/icons-material/CloudQueue'
+import EditIcon from '@mui/icons-material/Edit'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 
@@ -65,12 +69,17 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   apiClient,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [historyMenuAnchor, setHistoryMenuAnchor] = useState<null | HTMLElement>(null)
   const [showHistoryHint, setShowHistoryHint] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
   const processingRef = useRef(false)
+
+  // Editing state for queued messages
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
 
   const {
     draft,
@@ -82,6 +91,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     saveToHistory,
     markAsSent,
     markAsFailed,
+    updateContent,
+    removeFromQueue,
     pendingPrompts,
     failedPrompts,
     clearDraft,
@@ -106,9 +117,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     // Prevent concurrent processing
     if (processingRef.current || !isOnline || disabled) return
 
-    // Find next message to send (pending, not currently sending)
+    // Find next message to send (pending, not currently sending, not being edited)
     const queuedMessages = [...failedPrompts, ...pendingPrompts]
-    const nextToSend = queuedMessages.find(m => m.id !== sendingId && m.status !== 'sent')
+    const nextToSend = queuedMessages.find(m =>
+      m.id !== sendingId &&
+      m.id !== editingId &&  // Skip message being edited
+      m.status !== 'sent'
+    )
 
     if (!nextToSend) return
 
@@ -125,7 +140,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setSendingId(null)
       processingRef.current = false
     }
-  }, [isOnline, disabled, failedPrompts, pendingPrompts, sendingId, onSend, markAsSent, markAsFailed])
+  }, [isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
   // Auto-process queue when online and messages are pending
   useEffect(() => {
@@ -174,10 +189,56 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Remove from queue
   const handleRemoveFromQueue = useCallback((entryId: string) => {
-    // For now, just mark as sent to remove from pending view
-    // In a real implementation, we'd have a proper delete method
-    markAsSent(entryId)
-  }, [markAsSent])
+    removeFromQueue(entryId)
+  }, [removeFromQueue])
+
+  // Start editing a queued message
+  const handleStartEdit = useCallback((entry: PromptHistoryEntry) => {
+    // Don't allow editing a message that's currently sending
+    if (entry.id === sendingId) return
+
+    setEditingId(entry.id)
+    setEditingContent(entry.content)
+
+    // Focus the edit textarea after render
+    setTimeout(() => {
+      editTextareaRef.current?.focus()
+      editTextareaRef.current?.select()
+    }, 50)
+  }, [sendingId])
+
+  // Save edited message
+  const handleSaveEdit = useCallback(() => {
+    if (!editingId) return
+
+    const trimmedContent = editingContent.trim()
+    if (trimmedContent) {
+      updateContent(editingId, trimmedContent)
+    } else {
+      // If content is empty, remove the message
+      removeFromQueue(editingId)
+    }
+
+    setEditingId(null)
+    setEditingContent('')
+  }, [editingId, editingContent, updateContent, removeFromQueue])
+
+  // Cancel editing
+  const handleCancelEdit = useCallback(() => {
+    setEditingId(null)
+    setEditingContent('')
+  }, [])
+
+  // Handle key events in edit textarea
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSaveEdit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCancelEdit()
+    }
+  }, [handleSaveEdit, handleCancelEdit])
 
   // Handle key events
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -238,9 +299,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             mb: 1.5,
             borderRadius: 1.5,
             border: '1px solid',
-            borderColor: isOnline ? 'primary.dark' : 'warning.dark',
+            borderColor: editingId ? 'info.main' : isOnline ? 'primary.dark' : 'warning.dark',
             bgcolor: (theme) => alpha(theme.palette.background.paper, 0.5),
             overflow: 'hidden',
+            transition: 'border-color 0.2s',
           }}
         >
           {/* Queue header */}
@@ -251,18 +313,24 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               gap: 1,
               px: 1.5,
               py: 0.75,
-              bgcolor: isOnline ? 'primary.dark' : 'warning.dark',
+              bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
               borderBottom: '1px solid',
               borderColor: 'divider',
             }}
           >
-            {isOnline ? (
+            {editingId ? (
+              <PauseCircleOutlineIcon sx={{ fontSize: 16 }} />
+            ) : isOnline ? (
               <CloudQueueIcon sx={{ fontSize: 16 }} />
             ) : (
               <CloudOffIcon sx={{ fontSize: 16 }} />
             )}
             <Typography variant="caption" sx={{ flex: 1, fontWeight: 600 }}>
-              {isOnline ? 'Sending queue' : 'Offline - will send when connected'}
+              {editingId
+                ? 'Editing message - queue paused'
+                : isOnline
+                  ? 'Sending queue'
+                  : 'Offline - will send when connected'}
             </Typography>
             <Chip
               label={queuedMessages.length}
@@ -272,62 +340,157 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           </Box>
 
           {/* Queue items */}
-          <Box sx={{ maxHeight: 150, overflowY: 'auto' }}>
+          <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
             {queuedMessages.map((entry, index) => {
               const isSending = entry.id === sendingId
               const isFailed = entry.status === 'failed'
+              const isEditing = entry.id === editingId
 
               return (
                 <Box
                   key={entry.id}
                   sx={{
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: isEditing ? 'flex-start' : 'center',
                     gap: 1,
                     px: 1.5,
-                    py: 0.75,
+                    py: isEditing ? 1 : 0.75,
                     borderBottom: index < queuedMessages.length - 1 ? '1px solid' : 'none',
                     borderColor: 'divider',
-                    bgcolor: isFailed
-                      ? (theme) => alpha(theme.palette.error.main, 0.08)
-                      : 'transparent',
+                    bgcolor: isEditing
+                      ? (theme) => alpha(theme.palette.info.main, 0.12)
+                      : isFailed
+                        ? (theme) => alpha(theme.palette.error.main, 0.08)
+                        : 'transparent',
+                    transition: 'background-color 0.2s',
+                    '&:hover': !isEditing && !isSending ? {
+                      bgcolor: (theme) => alpha(theme.palette.action.hover, 0.04),
+                    } : undefined,
                   }}
                 >
                   {/* Status indicator */}
                   {isSending ? (
-                    <CircularProgress size={14} sx={{ flexShrink: 0 }} />
+                    <CircularProgress size={14} sx={{ flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
                   ) : isFailed ? (
-                    <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0 }} />
+                    <ErrorOutlineIcon sx={{ fontSize: 16, color: 'error.main', flexShrink: 0, mt: isEditing ? 0.5 : 0 }} />
+                  ) : isEditing ? (
+                    <EditIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0, mt: 0.5 }} />
                   ) : (
                     <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.secondary', flexShrink: 0 }} />
                   )}
 
-                  {/* Message content */}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography
-                      variant="body2"
+                  {/* Message content - either edit mode or display mode */}
+                  {isEditing ? (
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box
+                        component="textarea"
+                        ref={editTextareaRef}
+                        value={editingContent}
+                        onChange={(e) => setEditingContent(e.target.value)}
+                        onKeyDown={handleEditKeyDown}
+                        onBlur={handleSaveEdit}
+                        sx={{
+                          width: '100%',
+                          resize: 'none',
+                          border: '1px solid',
+                          borderColor: 'info.main',
+                          borderRadius: 1,
+                          outline: 'none',
+                          bgcolor: 'background.paper',
+                          color: 'text.primary',
+                          fontFamily: 'inherit',
+                          fontSize: '0.875rem',
+                          lineHeight: 1.5,
+                          p: 1,
+                          minHeight: 60,
+                          maxHeight: 120,
+                          overflowY: 'auto',
+                          '&:focus': {
+                            borderColor: 'info.light',
+                            boxShadow: (theme) => `0 0 0 2px ${alpha(theme.palette.info.main, 0.25)}`,
+                          },
+                        }}
+                      />
+                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, justifyContent: 'flex-end' }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', flex: 1 }}>
+                          Enter to save, Esc to cancel
+                        </Typography>
+                        <Tooltip title="Cancel (Esc)">
+                          <IconButton
+                            size="small"
+                            onClick={handleCancelEdit}
+                            sx={{ p: 0.25 }}
+                          >
+                            <CloseIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Save (Enter)">
+                          <IconButton
+                            size="small"
+                            onClick={handleSaveEdit}
+                            color="primary"
+                            sx={{ p: 0.25 }}
+                          >
+                            <CheckIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
                       sx={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: isFailed ? 'error.main' : 'text.primary',
+                        flex: 1,
+                        minWidth: 0,
+                        cursor: isSending ? 'default' : 'pointer',
+                        '&:hover': !isSending ? {
+                          '& .edit-hint': { opacity: 1 },
+                        } : undefined,
                       }}
+                      onClick={() => !isSending && handleStartEdit(entry)}
                     >
-                      {truncateContent(entry.content, 50)}
-                    </Typography>
-                    {isFailed && (
-                      <Typography variant="caption" sx={{ color: 'error.main' }}>
-                        Failed to send - will retry
-                      </Typography>
-                    )}
-                  </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: isFailed ? 'error.main' : 'text.primary',
+                            flex: 1,
+                          }}
+                        >
+                          {truncateContent(entry.content, 50)}
+                        </Typography>
+                        {!isSending && (
+                          <EditIcon
+                            className="edit-hint"
+                            sx={{
+                              fontSize: 14,
+                              color: 'text.secondary',
+                              opacity: 0,
+                              transition: 'opacity 0.15s',
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                      </Box>
+                      {isFailed && (
+                        <Typography variant="caption" sx={{ color: 'error.main' }}>
+                          Failed to send - will retry
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
 
-                  {/* Actions */}
-                  {!isSending && (
+                  {/* Actions - only show when not editing */}
+                  {!isEditing && !isSending && (
                     <Tooltip title="Remove from queue">
                       <IconButton
                         size="small"
-                        onClick={() => handleRemoveFromQueue(entry.id)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRemoveFromQueue(entry.id)
+                        }}
                         sx={{ p: 0.5 }}
                       >
                         <DeleteOutlineIcon sx={{ fontSize: 16 }} />

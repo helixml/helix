@@ -61,6 +61,8 @@ interface UsePromptHistoryReturn {
   markAsSent: (id: string) => void
   markAsFailed: (id: string) => void
   retryFailed: (id: string) => string | null  // Returns content to retry
+  updateContent: (id: string, content: string) => void  // Update content of queued message
+  removeFromQueue: (id: string) => void  // Remove a message from queue
 
   // Pending/failed prompts
   pendingPrompts: PromptHistoryEntry[]
@@ -430,6 +432,26 @@ export function usePromptHistory({
     return null
   }, [history, specTaskId])
 
+  // Update content of a queued message
+  const updateContent = useCallback((id: string, content: string) => {
+    setHistory(prev => {
+      const updated = prev.map(h =>
+        h.id === id ? { ...h, content } : h
+      )
+      saveHistory(updated, specTaskId)
+      return updated
+    })
+  }, [specTaskId])
+
+  // Remove a message from queue entirely
+  const removeFromQueue = useCallback((id: string) => {
+    setHistory(prev => {
+      const updated = prev.filter(h => h.id !== id)
+      saveHistory(updated, specTaskId)
+      return updated
+    })
+  }, [specTaskId])
+
   // Clear current draft
   const clearDraft = useCallback(() => {
     setDraftState('')
@@ -460,6 +482,8 @@ export function usePromptHistory({
     markAsSent,
     markAsFailed,
     retryFailed,
+    updateContent,
+    removeFromQueue,
     pendingPrompts,
     failedPrompts,
     clearDraft,
