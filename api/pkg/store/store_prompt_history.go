@@ -347,7 +347,39 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 				Order("updated_at DESC")
 
 			if err := query.Find(&tasks).Error; err == nil {
+				// Collect project IDs to fetch names
+				projectIDs := make([]string, 0)
 				for _, t := range tasks {
+					if t.ProjectID != "" {
+						projectIDs = append(projectIDs, t.ProjectID)
+					}
+				}
+
+				// Fetch project names in bulk
+				projectNames := make(map[string]string)
+				if len(projectIDs) > 0 {
+					var projects []types.Project
+					if err := s.gdb.WithContext(ctx).
+						Select("id", "name").
+						Where("id IN ?", projectIDs).
+						Find(&projects).Error; err == nil {
+						for _, p := range projects {
+							projectNames[p.ID] = p.Name
+						}
+					}
+				}
+
+				for _, t := range tasks {
+					meta := map[string]string{
+						"status": string(t.Status),
+					}
+					if t.ProjectID != "" {
+						meta["projectId"] = t.ProjectID
+						if name, ok := projectNames[t.ProjectID]; ok {
+							meta["projectName"] = name
+						}
+					}
+
 					results = append(results, types.UnifiedSearchResult{
 						Type:        "task",
 						ID:          t.ID,
@@ -355,12 +387,9 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 						Description: truncateText(t.OriginalPrompt, 150),
 						URL:         "/tasks/" + t.ID,
 						Icon:        "task",
-						Metadata: map[string]string{
-							"status":    string(t.Status),
-							"projectId": t.ProjectID,
-						},
-						CreatedAt: t.CreatedAt.Format(time.RFC3339),
-						UpdatedAt: t.UpdatedAt.Format(time.RFC3339),
+						Metadata:    meta,
+						CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+						UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
 					})
 				}
 			}
@@ -377,11 +406,50 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 				Order("updated DESC")
 
 			if err := query.Find(&sessions).Error; err == nil {
+				// Collect task IDs to fetch names
+				taskIDs := make([]string, 0)
+				for _, sess := range sessions {
+					if sess.Metadata.SpecTaskID != "" {
+						taskIDs = append(taskIDs, sess.Metadata.SpecTaskID)
+					}
+				}
+
+				// Fetch task names in bulk
+				taskNames := make(map[string]string)
+				if len(taskIDs) > 0 {
+					var tasks []types.SpecTask
+					if err := s.gdb.WithContext(ctx).
+						Select("id", "name").
+						Where("id IN ?", taskIDs).
+						Find(&tasks).Error; err == nil {
+						for _, t := range tasks {
+							taskNames[t.ID] = t.Name
+						}
+					}
+				}
+
 				for _, sess := range sessions {
 					var desc string
 					if len(sess.Interactions) > 0 {
 						desc = truncateText(sess.Interactions[0].PromptMessage, 150)
 					}
+
+					meta := map[string]string{
+						"mode": string(sess.Mode),
+					}
+					if sess.ParentApp != "" {
+						meta["appId"] = sess.ParentApp
+					}
+					if sess.Metadata.SpecTaskID != "" {
+						meta["taskId"] = sess.Metadata.SpecTaskID
+						if name, ok := taskNames[sess.Metadata.SpecTaskID]; ok {
+							meta["taskName"] = name
+						}
+					}
+					if sess.Metadata.ProjectID != "" {
+						meta["projectId"] = sess.Metadata.ProjectID
+					}
+
 					results = append(results, types.UnifiedSearchResult{
 						Type:        "session",
 						ID:          sess.ID,
@@ -389,12 +457,9 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 						Description: desc,
 						URL:         "/session/" + sess.ID,
 						Icon:        "chat",
-						Metadata: map[string]string{
-							"mode":  string(sess.Mode),
-							"appId": sess.ParentApp,
-						},
-						CreatedAt: sess.Created.Format(time.RFC3339),
-						UpdatedAt: sess.Updated.Format(time.RFC3339),
+						Metadata:    meta,
+						CreatedAt:   sess.Created.Format(time.RFC3339),
+						UpdatedAt:   sess.Updated.Format(time.RFC3339),
 					})
 				}
 			}
