@@ -303,7 +303,7 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 	// Determine which types to search
 	searchTypes := req.Types
 	if len(searchTypes) == 0 {
-		searchTypes = []string{"projects", "tasks", "sessions", "prompts", "knowledge"}
+		searchTypes = []string{"projects", "tasks", "sessions", "prompts", "knowledge", "repositories", "agents"}
 	}
 
 	for _, searchType := range searchTypes {
@@ -470,6 +470,67 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 						Metadata:    meta,
 						CreatedAt:   k.Created.Format(time.RFC3339),
 						UpdatedAt:   k.Updated.Format(time.RFC3339),
+					})
+				}
+			}
+
+		case "repositories":
+			// Search git repositories
+			var repos []types.GitRepository
+			query := s.gdb.WithContext(ctx).
+				Where("owner_id = ? AND (name ILIKE ? OR description ILIKE ?)", userID, searchQuery, searchQuery).
+				Limit(req.Limit).
+				Order("updated_at DESC")
+
+			if err := query.Find(&repos).Error; err == nil {
+				for _, r := range repos {
+					meta := map[string]string{}
+					if r.ExternalURL != "" {
+						meta["externalUrl"] = r.ExternalURL
+					}
+					if r.KoditIndexing {
+						meta["koditIndexing"] = "true"
+					}
+
+					results = append(results, types.UnifiedSearchResult{
+						Type:        "repository",
+						ID:          r.ID,
+						Title:       r.Name,
+						Description: truncateText(r.Description, 150),
+						URL:         "/repositories/" + r.ID,
+						Icon:        "repository",
+						Metadata:    meta,
+						CreatedAt:   r.CreatedAt.Format(time.RFC3339),
+						UpdatedAt:   r.UpdatedAt.Format(time.RFC3339),
+					})
+				}
+			}
+
+		case "agents":
+			// Search apps/agents - name and description are in the JSONB config field
+			var apps []types.App
+			query := s.gdb.WithContext(ctx).
+				Where("owner = ? AND (config->'helix'->>'name' ILIKE ? OR config->'helix'->>'description' ILIKE ?)",
+					userID, searchQuery, searchQuery).
+				Limit(req.Limit).
+				Order("updated DESC")
+
+			if err := query.Find(&apps).Error; err == nil {
+				for _, a := range apps {
+					name := a.Config.Helix.Name
+					if name == "" {
+						name = "Untitled Agent"
+					}
+
+					results = append(results, types.UnifiedSearchResult{
+						Type:        "agent",
+						ID:          a.ID,
+						Title:       name,
+						Description: truncateText(a.Config.Helix.Description, 150),
+						URL:         "/app/" + a.ID,
+						Icon:        "agent",
+						CreatedAt:   a.Created.Format(time.RFC3339),
+						UpdatedAt:   a.Updated.Format(time.RFC3339),
 					})
 				}
 			}
