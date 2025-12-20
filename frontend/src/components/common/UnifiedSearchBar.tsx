@@ -42,7 +42,6 @@ import CloseIcon from '@mui/icons-material/Close'
 import KeyboardIcon from '@mui/icons-material/Keyboard'
 import { useUnifiedSearch, groupResultsByType, getSearchResultTypeLabel } from '../../services/searchService'
 import { TypesUnifiedSearchResult } from '../../api/api'
-import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 
 interface UnifiedSearchBarProps {
@@ -68,7 +67,6 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>('all')
   const inputRef = useRef<HTMLInputElement>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
   const account = useAccount()
 
   // Debounced search
@@ -120,19 +118,23 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
   const handleResultClick = useCallback((result: TypesUnifiedSearchResult) => {
     if (onResultClick) {
       onResultClick(result)
-    } else if (result.url) {
+    } else {
       // Navigate based on type
       if (result.type === 'project') {
         account.orgNavigate('project-specs', { id: result.id })
       } else if (result.type === 'task') {
-        account.orgNavigate('spec-task', { id: result.id })
+        // Navigate to project kanban with task highlighted
+        const projectId = result.metadata?.projectId
+        if (projectId) {
+          account.orgNavigate('project-specs', { id: projectId, highlight: result.id })
+        }
       } else if (result.type === 'session') {
-        router.navigate('session', { id: result.id })
+        account.orgNavigate('session', { session_id: result.id })
       } else if (result.type === 'code') {
         // For code results, navigate to the repository
         const repoId = result.metadata?.repoId
         if (repoId) {
-          account.orgNavigate('repository', { repository_id: repoId })
+          account.orgNavigate('git-repo-detail', { repoId: repoId })
         }
       } else if (result.type === 'knowledge') {
         // For knowledge, navigate to the app if available
@@ -141,20 +143,21 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
           account.orgNavigate('app', { app_id: appId })
         }
       } else if (result.type === 'repository') {
-        account.orgNavigate('repository', { repository_id: result.id })
+        account.orgNavigate('git-repo-detail', { repoId: result.id })
       } else if (result.type === 'agent') {
         account.orgNavigate('app', { app_id: result.id })
-      } else {
-        // For prompts, navigate to the task if available
+      } else if (result.type === 'prompt') {
+        // For prompts, navigate to the task in the project kanban
         const taskId = result.metadata?.taskId
-        if (taskId) {
-          account.orgNavigate('spec-task', { id: taskId })
+        const projectId = result.metadata?.projectId
+        if (taskId && projectId) {
+          account.orgNavigate('project-specs', { id: projectId, highlight: taskId })
         }
       }
     }
     setOpen(false)
     setQuery('')
-  }, [onResultClick, router, account])
+  }, [onResultClick, account])
 
   const getIcon = (type: string) => {
     switch (type) {
