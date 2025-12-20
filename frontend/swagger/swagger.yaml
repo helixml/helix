@@ -1073,6 +1073,22 @@ definitions:
       status:
         type: string
     type: object
+  server.PromptPinRequest:
+    properties:
+      pinned:
+        type: boolean
+    type: object
+  server.PromptTagsRequest:
+    properties:
+      tags:
+        description: JSON array of tags
+        type: string
+    type: object
+  server.PromptTemplateRequest:
+    properties:
+      is_template:
+        type: boolean
+    type: object
   server.PushPullResponse:
     properties:
       branch:
@@ -5703,9 +5719,28 @@ definitions:
         description: 'Composite primary key: ID is globally unique, but we also index
           by user+spec_task'
         type: string
+      interrupt:
+        description: |-
+          Interrupt indicates this message should interrupt the current conversation
+          When false, message waits until current conversation completes
+        type: boolean
+      is_template:
+        description: Saved as a reusable template
+        type: boolean
+      last_used_at:
+        description: Last time reused
+        type: string
+      pinned:
+        description: Library features for prompt reuse
+        type: boolean
       project_id:
         description: For reference, but primary grouping is by spec_task
         type: string
+      queue_position:
+        description: |-
+          QueuePosition tracks ordering for drag-and-drop reordering
+          Lower values = earlier in queue. Null for sent messages.
+        type: integer
       session_id:
         description: Optional - which session this was sent to
         type: string
@@ -5716,8 +5751,14 @@ definitions:
           Status tracks whether this was successfully sent
           Values: "pending", "sent", "failed"
         type: string
+      tags:
+        description: JSON array of user-defined tags
+        type: string
       updated_at:
         type: string
+      usage_count:
+        description: How many times reused
+        type: integer
       user_id:
         type: string
     type: object
@@ -5727,9 +5768,24 @@ definitions:
         type: string
       id:
         type: string
+      interrupt:
+        description: If true, interrupts current conversation
+        type: boolean
+      is_template:
+        description: If true, saved as template
+        type: boolean
+      pinned:
+        description: If true, pinned by user
+        type: boolean
+      queue_position:
+        description: Position in queue for drag-and-drop ordering
+        type: integer
       session_id:
         type: string
       status:
+        type: string
+      tags:
+        description: JSON array of tags
         type: string
       timestamp:
         description: Unix timestamp in milliseconds
@@ -8332,6 +8388,54 @@ definitions:
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+  types.UnifiedSearchResponse:
+    properties:
+      query:
+        description: Echo back query
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/types.UnifiedSearchResult'
+        type: array
+      total:
+        description: Total results across all types
+        type: integer
+    type: object
+  types.UnifiedSearchResult:
+    properties:
+      created_at:
+        description: ISO timestamp
+        type: string
+      description:
+        description: Brief description/content preview
+        type: string
+      icon:
+        description: Icon hint for UI
+        type: string
+      id:
+        description: Entity ID
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        description: Additional context (status, owner, etc)
+        type: object
+      score:
+        description: Relevance score
+        type: number
+      title:
+        description: Display title
+        type: string
+      type:
+        description: '"project", "task", "session", "prompt"'
+        type: string
+      updated_at:
+        description: ISO timestamp
+        type: string
+      url:
+        description: Frontend URL to navigate to
+        type: string
+    type: object
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -13232,6 +13336,245 @@ paths:
       summary: List prompt history
       tags:
       - PromptHistory
+  /api/v1/prompt-history/{id}/pin:
+    put:
+      consumes:
+      - application/json
+      description: Pin or unpin a prompt for quick access
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pin status
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PromptPinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update prompt pin status
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}/tags:
+    put:
+      consumes:
+      - application/json
+      description: Update tags for a prompt
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Tags (JSON array)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PromptTagsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update prompt tags
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}/template:
+    put:
+      consumes:
+      - application/json
+      description: Mark or unmark a prompt as a reusable template
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Template status
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PromptTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update prompt template status
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}/use:
+    post:
+      consumes:
+      - application/json
+      description: Increment usage count when a prompt is reused
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Increment prompt usage
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/pinned:
+    get:
+      consumes:
+      - application/json
+      description: Get all pinned prompts for the current user
+      parameters:
+      - description: Filter by spec task ID
+        in: query
+        name: spec_task_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PromptHistoryEntry'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List pinned prompts
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/search:
+    get:
+      consumes:
+      - application/json
+      description: Search prompts by content
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Max results (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PromptHistoryEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Search prompts
+      tags:
+      - PromptHistory
   /api/v1/prompt-history/sync:
     post:
       consumes:
@@ -13267,6 +13610,33 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Sync prompt history
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/templates:
+    get:
+      consumes:
+      - application/json
+      description: Get all prompt templates for the current user (across all projects)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PromptHistoryEntry'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List prompt templates
       tags:
       - PromptHistory
   /api/v1/provider-endpoints:
@@ -13942,34 +14312,54 @@ paths:
       - dashboard
   /api/v1/search:
     get:
-      description: Search knowledges for a given app and prompt
+      consumes:
+      - application/json
+      description: Search across projects, tasks, sessions, and prompts
       parameters:
-      - description: App ID
+      - description: Search query
         in: query
-        name: app_id
+        name: q
         required: true
         type: string
-      - description: Knowledge ID
+      - collectionFormat: csv
+        description: 'Entity types to search: projects, tasks, sessions, prompts'
         in: query
-        name: knowledge_id
-        type: string
-      - description: Search prompt
+        items:
+          type: string
+        name: types
+        type: array
+      - description: Max results per type (default 10)
         in: query
-        name: prompt
-        required: true
+        name: limit
+        type: integer
+      - description: Filter by organization ID
+        in: query
+        name: org_id
         type: string
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.KnowledgeSearchResult'
-            type: array
+            $ref: '#/definitions/types.UnifiedSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
-      - BearerAuth: []
-      summary: Search knowledges
+      - ApiKeyAuth: []
+      summary: Unified search across Helix entities
       tags:
-      - knowledge
+      - Search
   /api/v1/secrets:
     get:
       description: List secrets for the user.

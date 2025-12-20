@@ -862,7 +862,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
-            {activeSessionId && <Tab label="Active Session" />}
+            {activeSessionId && <Tab label="Desktop + IDE" />}
             <Tab label="Details" />
           </Tabs>
         </Box>

@@ -21,6 +21,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import { Kanban } from 'lucide-react'
 
 import CreateProjectButton from './CreateProjectButton'
+import UnifiedSearchBar from '../common/UnifiedSearchBar'
 import { TypesProject } from '../../services'
 import type { ServerSampleProject } from '../../api/api'
 
@@ -73,11 +74,18 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Alert>
       )}
 
-      {/* Search bar */}
+      {/* Unified search bar - searches across all entities */}
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
+        <UnifiedSearchBar
+          placeholder="Search everything... (Cmd/Ctrl+K)"
+        />
+      </Box>
+
+      {/* Local project filter */}
       {projects.length > 0 && (
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
           <TextField
-            placeholder="Search projects..."
+            placeholder="Filter projects..."
             size="small"
             value={searchQuery}
             onChange={(e) => {
@@ -87,14 +95,14 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon />
+                  <SearchIcon sx={{ fontSize: 18 }} />
                 </InputAdornment>
               ),
             }}
-            sx={{ maxWidth: 400 }}
+            sx={{ maxWidth: 300 }}
           />
           {searchQuery && (
-            <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+            <Typography variant="caption" color="text.secondary">
               {filteredProjects.length} of {projects.length} projects
             </Typography>
           )}

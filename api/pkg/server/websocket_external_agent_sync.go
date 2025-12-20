@@ -1616,7 +1616,115 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
+	// Process next non-interrupt prompt from queue (if any)
+	go apiServer.processPromptQueue(context.Background(), helixSessionID)
+
 	return nil
+}
+
+// processPromptQueue checks for pending non-interrupt prompts and sends the next one
+// This is called after a message is completed to process queued non-interrupt messages
+func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Get the next pending non-interrupt prompt for this session
+	nextPrompt, err := apiServer.Store.GetNextPendingPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get next pending prompt")
+		return
+	}
+
+	if nextPrompt == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No pending non-interrupt prompts in queue")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
+
+	// Send the prompt to the session
+	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("prompt_id", nextPrompt.ID).
+			Msg("Failed to send queued prompt to session")
+
+		// Mark as failed
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+		}
+		return
+	}
+
+	// Mark as sent
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Msg("✅ [QUEUE] Successfully sent queued prompt to session")
+}
+
+// sendQueuedPromptToSession sends a queued prompt to an external agent session
+func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, sessionID string, prompt *types.PromptHistoryEntry) error {
+	// Get the session to retrieve the ZedThreadID
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Determine agent name
+	agentName := apiServer.getAgentNameForSession(ctx, session)
+
+	// Generate request ID
+	requestID := fmt.Sprintf("queue_%s_%d", prompt.ID, time.Now().UnixNano())
+
+	// Create the command to send to the external agent
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"acp_thread_id": session.Metadata.ZedThreadID,
+			"message":       prompt.Content,
+			"request_id":    requestID,
+			"agent_name":    agentName,
+			"from_queue":    true, // Indicate this came from the queue
+		},
+	}
+
+	// Get the WebSocket connection for this session
+	apiServer.externalAgentWSManager.mu.RLock()
+	wsConn, exists := apiServer.externalAgentWSManager.connections[sessionID]
+	apiServer.externalAgentWSManager.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	// Send the command
+	select {
+	case wsConn.SendChan <- command:
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Queued prompt command sent to WebSocket channel")
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout sending command to WebSocket channel")
+	}
+
+	return nil
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // handleThreadLoadError handles thread load failures from Zed
