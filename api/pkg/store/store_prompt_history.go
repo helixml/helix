@@ -303,7 +303,7 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 	// Determine which types to search
 	searchTypes := req.Types
 	if len(searchTypes) == 0 {
-		searchTypes = []string{"projects", "tasks", "sessions", "prompts"}
+		searchTypes = []string{"projects", "tasks", "sessions", "prompts", "knowledge"}
 	}
 
 	for _, searchType := range searchTypes {
@@ -434,6 +434,45 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 					})
 				}
 			}
+
+		case "knowledge":
+			// Search knowledge sources (RAG)
+			var knowledgeList []*types.Knowledge
+			query := s.gdb.WithContext(ctx).
+				Where("owner = ? AND (name ILIKE ? OR description ILIKE ?)", userID, searchQuery, searchQuery).
+				Limit(req.Limit).
+				Order("updated DESC")
+
+			if err := query.Find(&knowledgeList).Error; err == nil {
+				for _, k := range knowledgeList {
+					sourceType := getKnowledgeSourceType(k)
+					meta := map[string]string{
+						"state":      string(k.State),
+						"sourceType": sourceType,
+					}
+					if k.AppID != "" {
+						meta["appId"] = k.AppID
+					}
+
+					// Navigate to the app that contains this knowledge
+					url := "/knowledge/" + k.ID
+					if k.AppID != "" {
+						url = "/app/" + k.AppID + "/knowledge"
+					}
+
+					results = append(results, types.UnifiedSearchResult{
+						Type:        "knowledge",
+						ID:          k.ID,
+						Title:       k.Name,
+						Description: truncateText(k.Description, 150),
+						URL:         url,
+						Icon:        "knowledge",
+						Metadata:    meta,
+						CreatedAt:   k.Created.Format(time.RFC3339),
+						UpdatedAt:   k.Updated.Format(time.RFC3339),
+					})
+				}
+			}
 		}
 	}
 
@@ -450,4 +489,27 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen-3] + "..."
+}
+
+// getKnowledgeSourceType returns a human-readable source type for knowledge
+func getKnowledgeSourceType(k *types.Knowledge) string {
+	if k.Source.Web != nil {
+		return "web"
+	}
+	if k.Source.Filestore != nil {
+		return "files"
+	}
+	if k.Source.S3 != nil {
+		return "s3"
+	}
+	if k.Source.GCS != nil {
+		return "gcs"
+	}
+	if k.Source.SharePoint != nil {
+		return "sharepoint"
+	}
+	if k.Source.Text != nil {
+		return "text"
+	}
+	return "unknown"
 }
