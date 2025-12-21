@@ -37,6 +37,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -54,6 +55,8 @@ import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/window
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import RobustPromptInput from '../common/RobustPromptInput'
 import EmbeddedSessionView from '../session/EmbeddedSessionView'
+import PromptLibrarySidebar from '../common/PromptLibrarySidebar'
+import { usePromptHistory } from '../../hooks/usePromptHistory'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -197,6 +200,9 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
 
+  // Prompt library sidebar state
+  const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+
   // Just Do It mode state (initialized from task, synced via API)
   const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
@@ -231,6 +237,14 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const gpuVendor = sessionData?.config?.gpu_vendor
   const renderNode = sessionData?.config?.render_node
   const wolfLobbyId = sessionData?.config?.wolf_lobby_id
+
+  // Initialize prompt history for the session
+  const promptHistory = usePromptHistory({
+    sessionId: activeSessionId || 'default',
+    specTaskId: displayTask?.id,
+    projectId: displayTask?.project_id,
+    apiClient: api.getApiClient(),
+  })
 
   // Debug logging
   useEffect(() => {
@@ -873,28 +887,63 @@ I'll give you feedback and we can iterate on any changes needed.`
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {/* Tab 0: Session - Chat thread (only if session exists) */}
           {activeSessionId && currentTab === 0 && (
-            <>
-              {/* EmbeddedSessionView - shows the chat message thread */}
-              <EmbeddedSessionView sessionId={activeSessionId} />
+            <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+              {/* Main content area */}
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* EmbeddedSessionView - shows the chat message thread */}
+                <EmbeddedSessionView sessionId={activeSessionId} />
 
-              {/* Message input box */}
-              <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-                <RobustPromptInput
-                  sessionId={activeSessionId}
-                  specTaskId={displayTask.id}
-                  projectId={displayTask.project_id}
-                  apiClient={api.getApiClient()}
-                  onSend={async (message: string) => {
-                    await streaming.NewInference({
-                      type: SESSION_TYPE_TEXT,
-                      message,
-                      sessionId: activeSessionId,
-                    })
-                  }}
-                  placeholder="Send message to agent..."
-                />
+                {/* Message input box with prompt library toggle */}
+                <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <RobustPromptInput
+                      sessionId={activeSessionId}
+                      specTaskId={displayTask.id}
+                      projectId={displayTask.project_id}
+                      apiClient={api.getApiClient()}
+                      onSend={async (message: string) => {
+                        await streaming.NewInference({
+                          type: SESSION_TYPE_TEXT,
+                          message,
+                          sessionId: activeSessionId,
+                        })
+                      }}
+                      placeholder="Send message to agent..."
+                    />
+                  </Box>
+                  <Tooltip title={showPromptLibrary ? 'Hide prompt library' : 'Show prompt library'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowPromptLibrary(!showPromptLibrary)}
+                      sx={{
+                        mt: 0.5,
+                        color: showPromptLibrary ? 'primary.main' : 'text.secondary',
+                      }}
+                    >
+                      <MenuBookIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
-            </>
+
+              {/* Prompt Library Sidebar */}
+              {showPromptLibrary && (
+                <Box sx={{ width: 320, flexShrink: 0 }}>
+                  <PromptLibrarySidebar
+                    pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
+                    templates={promptHistory.history.filter(h => h.isTemplate)}
+                    recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
+                    onSelectPrompt={(content) => {
+                      promptHistory.setDraft(content)
+                    }}
+                    onPinPrompt={promptHistory.pinPrompt}
+                    onSetTemplate={promptHistory.setTemplate}
+                    onSearch={promptHistory.searchHistory}
+                    onClose={() => setShowPromptLibrary(false)}
+                  />
+                </Box>
+              )}
+            </Box>
           )}
 
           {/* Tab 1: Desktop + IDE (only if session exists) */}
