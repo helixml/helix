@@ -31,7 +31,6 @@ import {
   ContentCopy as CopyIcon,
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
-  Flag as FlagIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
@@ -85,9 +84,13 @@ const isAgentActive = (sessionUpdatedAt?: string, _tick?: number): boolean => {
   return diffSeconds < 10 // Active if updated within last 10 seconds
 }
 
-// Hook to periodically check agent activity status
-const useAgentActivityCheck = (sessionUpdatedAt?: string, enabled: boolean = true): boolean => {
+// Hook to periodically check agent activity status and manage attention state
+const useAgentActivityCheck = (
+  sessionUpdatedAt?: string,
+  enabled: boolean = true
+): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
   const [tick, setTick] = useState(0)
+  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(null)
 
   useEffect(() => {
     if (!enabled || !sessionUpdatedAt) return
@@ -100,7 +103,29 @@ const useAgentActivityCheck = (sessionUpdatedAt?: string, enabled: boolean = tru
     return () => clearInterval(interval)
   }, [enabled, sessionUpdatedAt])
 
-  return isAgentActive(sessionUpdatedAt, tick)
+  const isActive = isAgentActive(sessionUpdatedAt, tick)
+
+  // Agent needs attention if:
+  // 1. It's idle (not active)
+  // 2. User hasn't marked the current idle state as seen
+  //    (lastSeenTimestamp tracks which session_updated_at they acknowledged)
+  const needsAttention = !isActive && sessionUpdatedAt !== lastSeenTimestamp
+
+  const markAsSeen = () => {
+    if (sessionUpdatedAt) {
+      setLastSeenTimestamp(sessionUpdatedAt)
+    }
+  }
+
+  // Reset seen state when agent becomes active again
+  // (so if it goes idle again later, attention dot reappears)
+  useEffect(() => {
+    if (isActive && lastSeenTimestamp) {
+      setLastSeenTimestamp(null)
+    }
+  }, [isActive, lastSeenTimestamp])
+
+  return { isActive, needsAttention, markAsSeen }
 }
 
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'
@@ -480,7 +505,7 @@ export default function TaskCard({
   })
 
   // Check agent activity status (periodically re-evaluates)
-  const isActive = useAgentActivityCheck(
+  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
     task.session_updated_at,
     showProgress && !!task.planning_session_id
   )
@@ -529,6 +554,8 @@ export default function TaskCard({
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
+    // Mark attention dot as seen when user clicks to view the task
+    markAsSeen()
     if (onTaskClick) {
       onTaskClick(task)
     }
@@ -699,49 +726,38 @@ export default function TaskCard({
                 • {runningDuration}
               </Typography>
             )}
-            {/* Active/Idle indicator for tasks with sessions */}
+            {/* Attention indicator for tasks with sessions */}
             {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
-              <Tooltip title={isActive ? 'Agent is working' : 'Agent waiting for input'}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    ml: 0.5,
-                  }}
-                >
-                  {isActive ? (
-                    // Active: pulsing green dot
+              <>
+                {isActive ? (
+                  // Active: pulsing green dot
+                  <Tooltip title="Agent is working">
                     <Box
                       sx={{
-                        width: 6,
-                        height: 6,
+                        width: 8,
+                        height: 8,
                         borderRadius: '50%',
                         backgroundColor: '#22c55e',
                         animation: `${activePulse} 1.5s ease-in-out infinite`,
+                        ml: 0.5,
                       }}
                     />
-                  ) : (
-                    // Idle: amber flag icon to indicate needs attention
-                    <FlagIcon
+                  </Tooltip>
+                ) : needsAttention ? (
+                  // Needs attention: amber dot (dismissed when card is clicked)
+                  <Tooltip title="Agent finished - click card to dismiss">
+                    <Box
                       sx={{
-                        fontSize: 14,
-                        color: '#f59e0b',
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: '#f59e0b',
+                        ml: 0.5,
                       }}
                     />
-                  )}
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontSize: '0.65rem',
-                      color: isActive ? '#22c55e' : '#f59e0b',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {isActive ? 'Active' : 'Needs input'}
-                  </Typography>
-                </Box>
-              </Tooltip>
+                  </Tooltip>
+                ) : null}
+              </>
             )}
           </Box>
         </Box>
