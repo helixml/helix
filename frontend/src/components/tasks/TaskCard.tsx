@@ -63,6 +63,45 @@ const spin = keyframes`
   }
 `
 
+// Pulse animation for active agent indicator
+const activePulse = keyframes`
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.7;
+  }
+`
+
+// Helper to check if agent is active (session updated within last 10 seconds)
+const isAgentActive = (sessionUpdatedAt?: string, _tick?: number): boolean => {
+  if (!sessionUpdatedAt) return false
+  const updatedTime = new Date(sessionUpdatedAt).getTime()
+  const now = Date.now()
+  const diffSeconds = (now - updatedTime) / 1000
+  return diffSeconds < 10 // Active if updated within last 10 seconds
+}
+
+// Hook to periodically check agent activity status
+const useAgentActivityCheck = (sessionUpdatedAt?: string, enabled: boolean = true): boolean => {
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!enabled || !sessionUpdatedAt) return
+
+    // Re-check every 3 seconds
+    const interval = setInterval(() => {
+      setTick(t => t + 1)
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [enabled, sessionUpdatedAt])
+
+  return isAgentActive(sessionUpdatedAt, tick)
+}
+
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'
 
 interface SpecTaskWithExtras {
@@ -85,6 +124,8 @@ interface SpecTaskWithExtras {
   // Branch tracking for direct-push detection
   base_branch?: string
   branch_name?: string
+  // Agent activity tracking
+  session_updated_at?: string
 }
 
 interface KanbanColumn {
@@ -437,6 +478,12 @@ export default function TaskCard({
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
   })
 
+  // Check agent activity status (periodically re-evaluates)
+  const isActive = useAgentActivityCheck(
+    task.session_updated_at,
+    showProgress && !!task.planning_session_id
+  )
+
   const runningDuration = useRunningDuration(
     task.started_at,
     task.status === 'implementation'
@@ -650,6 +697,39 @@ export default function TaskCard({
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
                 • {runningDuration}
               </Typography>
+            )}
+            {/* Active/Idle indicator for tasks with sessions */}
+            {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
+              <Tooltip title={isActive ? 'Agent is active' : 'Agent is idle'}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    ml: 0.5,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      backgroundColor: isActive ? '#22c55e' : '#9ca3af',
+                      animation: isActive ? `${activePulse} 1.5s ease-in-out infinite` : 'none',
+                    }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: '0.65rem',
+                      color: isActive ? '#22c55e' : 'text.disabled',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {isActive ? 'Active' : 'Idle'}
+                  </Typography>
+                </Box>
+              </Tooltip>
             )}
           </Box>
         </Box>
