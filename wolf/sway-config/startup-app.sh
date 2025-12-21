@@ -452,6 +452,8 @@ EOF
     echo "assign [app_id=\"kitty\"] workspace number 2" >> $HOME/.config/sway/config
     echo "assign [app_id=\"ghostty\"] workspace number 2" >> $HOME/.config/sway/config
     echo "assign [app_id=\"foot\"] workspace number 2" >> $HOME/.config/sway/config
+    # Debug terminals on workspace 2 (ACP log viewer launched with --class)
+    echo "assign [app_id=\"acp-log-viewer\"] workspace number 2" >> $HOME/.config/sway/config
     # Firefox on workspace 3
     echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
