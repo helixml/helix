@@ -31,6 +31,7 @@ import {
   ContentCopy as CopyIcon,
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
+  Flag as FlagIcon,
 } from '@mui/icons-material'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
@@ -700,7 +701,7 @@ export default function TaskCard({
             )}
             {/* Active/Idle indicator for tasks with sessions */}
             {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
-              <Tooltip title={isActive ? 'Agent is active' : 'Agent is idle'}>
+              <Tooltip title={isActive ? 'Agent is working' : 'Agent waiting for input'}>
                 <Box
                   sx={{
                     display: 'flex',
@@ -709,24 +710,35 @@ export default function TaskCard({
                     ml: 0.5,
                   }}
                 >
-                  <Box
-                    sx={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: isActive ? '#22c55e' : '#9ca3af',
-                      animation: isActive ? `${activePulse} 1.5s ease-in-out infinite` : 'none',
-                    }}
-                  />
+                  {isActive ? (
+                    // Active: pulsing green dot
+                    <Box
+                      sx={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        backgroundColor: '#22c55e',
+                        animation: `${activePulse} 1.5s ease-in-out infinite`,
+                      }}
+                    />
+                  ) : (
+                    // Idle: amber flag icon to indicate needs attention
+                    <FlagIcon
+                      sx={{
+                        fontSize: 14,
+                        color: '#f59e0b',
+                      }}
+                    />
+                  )}
                   <Typography
                     variant="caption"
                     sx={{
                       fontSize: '0.65rem',
-                      color: isActive ? '#22c55e' : 'text.disabled',
+                      color: isActive ? '#22c55e' : '#f59e0b',
                       fontWeight: 500,
                     }}
                   >
-                    {isActive ? 'Active' : 'Idle'}
+                    {isActive ? 'Active' : 'Needs input'}
                   </Typography>
                 </Box>
               </Tooltip>
