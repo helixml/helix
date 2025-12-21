@@ -822,40 +822,12 @@ Follow these guidelines when making changes:
 		}
 	}
 
-	// Build git instructions based on branch mode
-	var gitInstructions string
-	if task.BranchMode == types.BranchModeExisting {
-		// Continuing work on existing branch
-		gitInstructions = fmt.Sprintf(`**If making code changes:**
-1. git checkout %s  (continue on existing branch)
-2. Make your changes
-3. git push origin %s`, branchName, branchName)
-	} else {
-		// Creating new branch from base
-		baseBranch := task.BaseBranch
-		if baseBranch == "" {
-			// Use the primary repo's default branch as fallback
-			for _, repo := range projectRepos {
-				if repo.ID == primaryRepoID && repo.DefaultBranch != "" {
-					baseBranch = repo.DefaultBranch
-					break
-				}
-			}
-		}
-		if baseBranch == "" {
-			// Last resort: use "main" but log a warning
-			baseBranch = "main"
-			log.Warn().
-				Str("task_id", task.ID).
-				Str("project_id", task.ProjectID).
-				Msg("No base branch or default branch configured, falling back to 'main'")
-		}
-		gitInstructions = fmt.Sprintf(`**If making code changes:**
-1. git fetch origin && git checkout %s && git pull origin %s
-2. git checkout -b %s  (create new branch from %s)
-3. Make your changes
-4. git push origin %s`, baseBranch, baseBranch, branchName, baseBranch, branchName)
-	}
+	// Build git instructions - branch is already checked out by startup script (start-zed-helix.sh)
+	// Just tell agent to verify and push when done
+	gitInstructions := fmt.Sprintf(`**Branch already checked out:**
+- Verify: `+"`git branch --show-current`"+` should show %s
+- Make your changes
+- Push: `+"`git push origin %s`", branchName, branchName)
 
 	promptWithBranch := fmt.Sprintf(`%s
 %s
