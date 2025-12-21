@@ -2291,6 +2291,26 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
             framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
           },
+          // Input buffer stats (detects TCP send buffer congestion)
+          input: {
+            bufferBytes: wsStats.inputBufferBytes,
+            maxBufferBytes: wsStats.maxInputBufferBytes,
+            avgBufferBytes: wsStats.avgInputBufferBytes,
+            inputsSent: wsStats.inputsSent,
+            inputsDropped: wsStats.inputsDroppedDueToCongestion,
+            congested: wsStats.inputCongested,
+            // Send latency (should be ~0 if ws.send is truly non-blocking)
+            lastSendMs: wsStats.lastSendDurationMs,
+            maxSendMs: wsStats.maxSendDurationMs,
+            avgSendMs: wsStats.avgSendDurationMs,
+            bufferBeforeSend: wsStats.bufferedAmountBeforeSend,
+            bufferAfterSend: wsStats.bufferedAmountAfterSend,
+            bufferStaleMs: wsStats.bufferStaleMs,
+            // Event loop latency (detects main thread blocking)
+            eventLoopLatencyMs: wsStats.eventLoopLatencyMs,
+            maxEventLoopLatencyMs: wsStats.maxEventLoopLatencyMs,
+            avgEventLoopLatencyMs: wsStats.avgEventLoopLatencyMs,
+          },
           connection: {
             transport: isForcedLow
               ? 'Screenshot + WebSocket Input'
@@ -3560,6 +3580,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   </>
                 )}
               </>
+            )}
+            {/* Input stats (WebSocket mode) - detects TCP send buffer congestion */}
+            {streamingMode === 'websocket' && stats?.input && (
+              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                <strong style={{ color: '#00ff00' }}>⌨️ Input</strong>
+                <div>
+                  <strong>Send Buffer:</strong> {stats.input.bufferBytes} bytes
+                  {stats.input.maxBufferBytes > 1000 && (
+                    <span style={{ color: '#888' }}> (peak: {(stats.input.maxBufferBytes / 1024).toFixed(1)}KB)</span>
+                  )}
+                  {stats.input.congested && (
+                    <span style={{ color: '#ff6b6b' }}> ⚠️ Stale {stats.input.bufferStaleMs?.toFixed(0)}ms</span>
+                  )}
+                </div>
+                <div>
+                  <strong>Sent:</strong> {stats.input.inputsSent}
+                  {stats.input.inputsDropped > 0 && (
+                    <span style={{ color: '#ff9800' }}> (skipped: {stats.input.inputsDropped})</span>
+                  )}
+                </div>
+                {stats.input.maxSendMs > 1 && (
+                  <div>
+                    <strong>Send Latency:</strong> {stats.input.avgSendMs.toFixed(2)}ms
+                    <span style={{ color: '#888' }}> (peak: {stats.input.maxSendMs.toFixed(1)}ms)</span>
+                    {stats.input.maxSendMs > 5 && <span style={{ color: '#ff6b6b' }}> ⚠️ Blocking</span>}
+                  </div>
+                )}
+                <div>
+                  <strong>Event Loop:</strong> {stats.input.avgEventLoopLatencyMs?.toFixed(1) || 0}ms
+                  {stats.input.maxEventLoopLatencyMs > 10 && (
+                    <span style={{ color: '#888' }}> (peak: {stats.input.maxEventLoopLatencyMs?.toFixed(0)}ms)</span>
+                  )}
+                  {stats.input.maxEventLoopLatencyMs > 50 && <span style={{ color: '#ff6b6b' }}> ⚠️ Main thread blocked</span>}
+                </div>
+              </div>
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
             {/* Screenshot mode stats */}
