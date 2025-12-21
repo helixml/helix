@@ -149,3 +149,15 @@ func (t *OAuthRequestToken) BeforeCreate(_ *gorm.DB) error {
 	}
 	return nil
 }
+
+// BrowseRemoteRepositoriesRequest is the request body for browsing remote repositories using PAT
+type BrowseRemoteRepositoriesRequest struct {
+	// Provider type: "github", "gitlab", "ado"
+	ProviderType ExternalRepositoryType `json:"provider_type"`
+	// Personal Access Token for authentication
+	Token string `json:"token"`
+	// Organization URL (required for Azure DevOps)
+	OrganizationURL string `json:"organization_url,omitempty"`
+	// Base URL for self-hosted instances (optional, for GitLab)
+	BaseURL string `json:"base_url,omitempty"`
+}

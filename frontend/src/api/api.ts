@@ -1813,6 +1813,17 @@ export enum TypesBranchMode {
   BranchModeExisting = "existing",
 }
 
+export interface TypesBrowseRemoteRepositoriesRequest {
+  /** Base URL for self-hosted instances (optional, for GitLab) */
+  base_url?: string;
+  /** Organization URL (required for Azure DevOps) */
+  organization_url?: string;
+  /** Provider type: "github", "gitlab", "ado" */
+  provider_type?: TypesExternalRepositoryType;
+  /** Personal Access Token for authentication */
+  token?: string;
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -4949,12 +4960,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -6979,6 +6990,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials
+     *
+     * @tags git-repositories
+     * @name V1GitBrowseRemoteCreate
+     * @summary Browse remote repositories
+     * @request POST:/api/v1/git/browse-remote
+     * @secure
+     */
+    v1GitBrowseRemoteCreate: (request: TypesBrowseRemoteRepositoriesRequest, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/git/browse-remote`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

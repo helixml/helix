@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/sharepoint"
@@ -831,6 +832,74 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 				Description:   project.Description,
 				Private:       project.Visibility != "public",
 				DefaultBranch: project.DefaultBranch,
+			})
+		}
+
+	case types.OAuthProviderTypeAzureDevOps:
+		// Azure DevOps OAuth uses the access token directly
+		// The organization URL needs to be stored in the provider metadata or derived
+		// For now, we'll try to get it from the provider's AuthURL
+		// AuthURL format: https://app.vssps.visualstudio.com/oauth2/authorize
+		// We need the organization URL which should be stored elsewhere
+
+		// Azure DevOps doesn't store org URL in AuthURL - we need it from connection metadata
+		// For OAuth connections, the organization is typically in the token's audience
+		// As a workaround, we'll return an error for now until we have proper org URL storage
+		if connection.Metadata == "" {
+			return nil, fmt.Errorf("Azure DevOps OAuth connection requires organization URL in metadata")
+		}
+
+		// Try to parse organization URL from metadata (expected format: {"organization_url": "https://dev.azure.com/org"})
+		var metadata map[string]string
+		if err := json.Unmarshal([]byte(connection.Metadata), &metadata); err != nil {
+			return nil, fmt.Errorf("failed to parse connection metadata: %w", err)
+		}
+
+		orgURL, ok := metadata["organization_url"]
+		if !ok || orgURL == "" {
+			return nil, fmt.Errorf("Azure DevOps OAuth connection requires organization_url in metadata")
+		}
+
+		// Create ADO client with OAuth token
+		adoClient := azuredevops.NewAzureDevOpsClient(orgURL, connection.AccessToken)
+
+		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
+		if err != nil {
+			return nil, fmt.Errorf("failed to list Azure DevOps repositories: %w", err)
+		}
+
+		for _, repo := range adoRepos {
+			name := ""
+			fullName := ""
+			cloneURL := ""
+			htmlURL := ""
+			defaultBranch := ""
+
+			if repo.Name != nil {
+				name = *repo.Name
+			}
+			if repo.Project != nil && repo.Project.Name != nil {
+				fullName = *repo.Project.Name + "/" + name
+			} else {
+				fullName = name
+			}
+			if repo.RemoteUrl != nil {
+				cloneURL = *repo.RemoteUrl
+				htmlURL = *repo.RemoteUrl
+			}
+			if repo.DefaultBranch != nil {
+				// ADO returns "refs/heads/main", we want just "main"
+				defaultBranch = strings.TrimPrefix(*repo.DefaultBranch, "refs/heads/")
+			}
+
+			repos = append(repos, types.RepositoryInfo{
+				Name:          name,
+				FullName:      fullName,
+				CloneURL:      cloneURL,
+				HTMLURL:       htmlURL,
+				Description:   "", // ADO repos don't have description in the basic response
+				Private:       true, // ADO repos are private by default
+				DefaultBranch: defaultBranch,
 			})
 		}
 

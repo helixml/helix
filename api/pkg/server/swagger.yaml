@@ -3102,6 +3102,22 @@ definitions:
     x-enum-varnames:
     - BranchModeNew
     - BranchModeExisting
+  types.BrowseRemoteRepositoriesRequest:
+    properties:
+      base_url:
+        description: Base URL for self-hosted instances (optional, for GitLab)
+        type: string
+      organization_url:
+        description: Organization URL (required for Azure DevOps)
+        type: string
+      provider_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: 'Provider type: "github", "gitlab", "ado"'
+      token:
+        description: Personal Access Token for authentication
+        type: string
+    type: object
   types.ChatCompletionMessage:
     properties:
       content:
@@ -8450,20 +8466,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:
@@ -10800,6 +10816,39 @@ paths:
       summary: View filestore files
       tags:
       - filestore
+  /api/v1/git/browse-remote:
+    post:
+      consumes:
+      - application/json
+      description: List repositories from a remote provider (GitHub, GitLab, Azure
+        DevOps) using PAT credentials
+      parameters:
+      - description: Browse request with credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.BrowseRemoteRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Browse remote repositories
+      tags:
+      - git-repositories
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner and type
