@@ -1,89 +1,4 @@
 # ====================================================================
-# Build Mesa from source with LLVM 18 for AMD MxGPU compatibility
-# ====================================================================
-# Ubuntu 25.04's Mesa 25.0.7 packages use LLVM 20, which generates code
-# that causes "Illegal opcode" crashes on AMD Radeon Pro V710 MxGPU.
-# Building Mesa with LLVM 18 produces more conservative codegen that
-# works on virtualized RDNA 3 GPUs.
-#
-# See: design/2025-12-17-zed-gpu-crash-amd-vm-version-mismatch.md
-FROM ubuntu:25.04 AS mesa-build
-
-ARG LIBDRM_VERSION=2.4.124
-ARG MESA_VERSION=25.0.7
-
-# Add LLVM 18 repository (Ubuntu 25.04 has LLVM 20 by default)
-RUN apt-get update && apt-get install -y wget gnupg && \
-    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
-    echo "deb http://apt.llvm.org/plucky/ llvm-toolchain-plucky-18 main" > /etc/apt/sources.list.d/llvm-18.list && \
-    apt-get update && rm -rf /var/lib/apt/lists/*
-
-# Install build dependencies with LLVM 18
-RUN apt-get update && apt-get install -y \
-    meson ninja-build cmake pkg-config python3 python3-pip python3-setuptools \
-    python3-mako flex bison git curl \
-    # libdrm build dependencies
-    libpciaccess-dev \
-    # Mesa dependencies
-    libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
-    libxcb-sync-dev libxcb-xfixes0-dev libxcb-shm0-dev libxcb-randr0-dev \
-    libxcb-glx0-dev libxshmfence-dev libx11-xcb-dev libx11-dev libxext-dev \
-    libxfixes-dev libxxf86vm-dev libxrandr-dev \
-    libwayland-dev libwayland-egl-backend-dev wayland-protocols \
-    libelf-dev zlib1g-dev libzstd-dev libexpat1-dev \
-    # LLVM 18 from apt.llvm.org (not LLVM 20 from Ubuntu 25.04)
-    llvm-18-dev libclang-18-dev libclang-cpp18-dev clang-18 libclc-18-dev \
-    libvulkan-dev glslang-dev glslang-tools \
-    libva-dev libvdpau-dev libglvnd-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Build libdrm 2.4.124 (source build to match Mesa)
-RUN cd /tmp && \
-    curl -L https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz -o libdrm.tar.xz && \
-    tar xf libdrm.tar.xz && \
-    cd libdrm-${LIBDRM_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Damdgpu=enabled \
-        -Dradeon=enabled \
-        -Dintel=enabled \
-        -Dnouveau=disabled \
-        -Dvmwgfx=disabled && \
-    ninja -C build -j$(nproc) && \
-    DESTDIR=/mesa-install ninja -C build install && \
-    cd / && rm -rf /tmp/libdrm*
-
-# Build Mesa 25.0.7 with LLVM 18 (AMD + Intel + software rendering)
-RUN cd /tmp && \
-    curl -L https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz -o mesa.tar.xz && \
-    tar xf mesa.tar.xz && \
-    cd mesa-${MESA_VERSION} && \
-    meson setup build \
-        --prefix=/usr \
-        --libdir=/usr/lib/x86_64-linux-gnu \
-        --buildtype=release \
-        -Dplatforms=x11,wayland \
-        -Dgallium-drivers=radeonsi,llvmpipe,softpipe,zink \
-        -Dvulkan-drivers=amd \
-        -Dglx=dri \
-        -Degl=enabled \
-        -Dgbm=enabled \
-        -Dglvnd=enabled \
-        -Dgles1=disabled \
-        -Dgles2=enabled \
-        -Dvalgrind=disabled \
-        -Dlibunwind=disabled \
-        -Dllvm=enabled \
-        -Dshared-llvm=enabled \
-        -Dgallium-opencl=disabled \
-        -Dgallium-rusticl=false && \
-    ninja -C build -j$(nproc) && \
-    DESTDIR=/mesa-install ninja -C build install && \
-    cd / && rm -rf /tmp/mesa*
-
-# ====================================================================
 # Build grim from source with JPEG support
 # ====================================================================
 # Ubuntu's grim package is compiled without libjpeg, so we build from source
@@ -179,27 +94,6 @@ RUN dpkg -i /tmp/wlroots/libwlroots12*.deb && rm -rf /tmp/wlroots
 # Enable the keyboard layout fix - this tells wlroots to preserve Sway's
 # own keyboard layout instead of syncing to the parent compositor's layout.
 ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
-
-# ====================================================================
-# Install source-built Mesa with LLVM 18 for AMD MxGPU compatibility
-# ====================================================================
-# This replaces the packaged Mesa (built with LLVM 20) with our source
-# build (LLVM 18) that generates code compatible with V710 MxGPU.
-# See: design/2025-12-17-zed-gpu-crash-amd-vm-version-mismatch.md
-
-# First install LLVM 18 runtime (Mesa is linked against shared LLVM)
-RUN apt-get update && \
-    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
-    echo "deb http://apt.llvm.org/plucky/ llvm-toolchain-plucky-18 main" > /etc/apt/sources.list.d/llvm-18.list && \
-    apt-get update && \
-    apt-get install -y libllvm18 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy source-built Mesa and libdrm
-COPY --from=mesa-build /mesa-install/usr /usr
-
-# Run ldconfig to update library cache with new Mesa libraries
-RUN ldconfig
 
 # RADV debug options for AMD MxGPU crash prevention
 # hang: Enables syncshaders internally, which serializes GPU commands
