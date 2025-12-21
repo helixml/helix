@@ -201,8 +201,18 @@ func (s *HelixAPIServer) handleStartOAuthFlow(_ http.ResponseWriter, r *http.Req
 		log.Debug().Str("redirect_url", redirectURL).Msg("Using provided redirect URL")
 	}
 
+	// Get optional metadata for provider-specific data (e.g., organization_url for Azure DevOps)
+	organizationURL := r.URL.Query().Get("organization_url")
+	var metadata string
+	if organizationURL != "" {
+		metadataMap := map[string]string{"organization_url": organizationURL}
+		metadataBytes, _ := json.Marshal(metadataMap)
+		metadata = string(metadataBytes)
+		log.Debug().Str("organization_url", organizationURL).Msg("Using provided organization URL for OAuth")
+	}
+
 	// Start the OAuth flow
-	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL)
+	authURL, err := s.oauthManager.StartOAuthFlow(r.Context(), user.ID, providerID, redirectURL, metadata)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", user.ID).Msg("Failed to start OAuth flow")
 		return nil, fmt.Errorf("error starting OAuth flow: %w", err)
