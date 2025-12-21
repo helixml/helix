@@ -2709,6 +2709,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/browse-remote": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Browse remote repositories",
+                "parameters": [
+                    {
+                        "description": "Browse request with credentials",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.BrowseRemoteRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories": {
             "get": {
                 "security": [
@@ -18565,6 +18616,31 @@ const docTemplate = `{
                 "BranchModeExisting"
             ]
         },
+        "types.BrowseRemoteRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "description": "Base URL for self-hosted instances (optional, for GitLab)",
+                    "type": "string"
+                },
+                "organization_url": {
+                    "description": "Organization URL (required for Azure DevOps)",
+                    "type": "string"
+                },
+                "provider_type": {
+                    "description": "Provider type: \"github\", \"gitlab\", \"ado\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "token": {
+                    "description": "Personal Access Token for authentication",
+                    "type": "string"
+                }
+            }
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -26186,20 +26262,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {
