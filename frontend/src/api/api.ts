@@ -2391,6 +2391,10 @@ export interface TypesGPUStatus {
   used_memory?: number;
 }
 
+export interface TypesGitHub {
+  personal_access_token?: string;
+}
+
 export interface TypesGitHubWorkConfig {
   access_token?: string;
   /** Comment when starting work */
@@ -2404,7 +2408,14 @@ export interface TypesGitHubWorkConfig {
   repo_owner?: string;
 }
 
+export interface TypesGitLab {
+  /** For self-hosted GitLab instances (empty for gitlab.com) */
+  base_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesGitRepository {
+  /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
@@ -2416,6 +2427,8 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   id?: string;
   /** External repository fields */
   is_external?: boolean;
@@ -2427,6 +2440,11 @@ export interface TypesGitRepository {
   /** Stores Metadata as JSON */
   metadata?: Record<string, any>;
   name?: string;
+  /**
+   * OAuth connection ID - references an OAuthConnection for authentication
+   * When set, uses the OAuth access token instead of username/password or PAT
+   */
+  oauth_connection_id?: string;
   /** Organization ID - will be backfilled for existing repos */
   organization_id?: string;
   owner_id?: string;
@@ -2446,6 +2464,7 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
+  /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
   default_branch?: string;
   description?: string;
@@ -2453,6 +2472,8 @@ export interface TypesGitRepositoryCreateRequest {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
   /** True for GitHub/GitLab/ADO, false for Helix-hosted */
   is_external?: boolean;
@@ -2460,6 +2481,8 @@ export interface TypesGitRepositoryCreateRequest {
   kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** OAuth connection ID - references an OAuthConnection for authentication */
+  oauth_connection_id?: string;
   /** Organization ID - required for access control */
   organization_id?: string;
   owner_id?: string;
@@ -2499,10 +2522,14 @@ export interface TypesGitRepositoryUpdateRequest {
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   /** Enable Kodit code intelligence indexing (pointer to distinguish unset from false) */
   kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** OAuth connection for authentication */
+  oauth_connection_id?: string;
   password?: string;
   username?: string;
 }
@@ -2893,6 +2920,10 @@ export interface TypesListCommitsResponse {
   external_status?: TypesExternalStatus;
 }
 
+export interface TypesListOAuthRepositoriesResponse {
+  repositories?: TypesRepositoryInfo[];
+}
+
 export interface TypesLoginRequest {
   email?: string;
   password?: string;
@@ -3073,6 +3104,8 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeGoogle = "google",
   OAuthProviderTypeMicrosoft = "microsoft",
   OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeGitLab = "gitlab",
+  OAuthProviderTypeAzureDevOps = "azure_devops",
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
   OAuthProviderTypeHubSpot = "hubspot",
@@ -3610,6 +3643,19 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepositoryInfo {
+  /** HTTPS clone URL */
+  clone_url?: string;
+  default_branch?: string;
+  description?: string;
+  /** e.g., "owner/repo" for GitHub or "group/project" for GitLab */
+  full_name?: string;
+  /** Web URL to view the repository */
+  html_url?: string;
+  name?: string;
+  private?: boolean;
 }
 
 export enum TypesResource {
@@ -4214,6 +4260,8 @@ export interface TypesSpecTask {
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** Agent activity tracking (computed from session.updated, not stored) */
+  session_updated_at?: string;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;
@@ -8039,6 +8087,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsRepositoriesDetail
+     * @summary List repositories from an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}/repositories
+     * @secure
+     */
+    v1OauthConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, any>({
+        path: `/api/v1/oauth/connections/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List OAuth providers for the user.
      *
      * @tags oauth
@@ -9528,7 +9594,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Search across projects, tasks, sessions, and prompts
+     * @description Search across projects, tasks, sessions, prompts, and code
      *
      * @tags Search
      * @name V1SearchList
@@ -9540,7 +9606,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query: {
         /** Search query */
         q: string;
-        /** Entity types to search: projects, tasks, sessions, prompts */
+        /** Entity types to search: projects, tasks, sessions, prompts, code */
         types?: string[];
         /** Max results per type (default 10) */
         limit?: number;

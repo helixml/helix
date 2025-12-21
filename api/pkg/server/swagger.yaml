@@ -4058,6 +4058,11 @@ definitions:
         description: Used memory in bytes
         type: integer
     type: object
+  types.GitHub:
+    properties:
+      personal_access_token:
+        type: string
+    type: object
   types.GitHubWorkConfig:
     properties:
       access_token:
@@ -4082,10 +4087,20 @@ definitions:
       repo_owner:
         type: string
     type: object
+  types.GitLab:
+    properties:
+      base_url:
+        description: For self-hosted GitLab instances (empty for gitlab.com)
+        type: string
+      personal_access_token:
+        type: string
+    type: object
   types.GitRepository:
     properties:
       azure_devops:
-        $ref: '#/definitions/types.AzureDevOps'
+        allOf:
+        - $ref: '#/definitions/types.AzureDevOps'
+        description: Provider-specific settings
       branches:
         items:
           type: string
@@ -4106,6 +4121,10 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       id:
         type: string
       is_external:
@@ -4124,6 +4143,11 @@ definitions:
         description: Stores Metadata as JSON
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: |-
+          OAuth connection ID - references an OAuthConnection for authentication
+          When set, uses the OAuth access token instead of username/password or PAT
         type: string
       organization_id:
         description: Organization ID - will be backfilled for existing repos
@@ -4152,7 +4176,9 @@ definitions:
   types.GitRepositoryCreateRequest:
     properties:
       azure_devops:
-        $ref: '#/definitions/types.AzureDevOps'
+        allOf:
+        - $ref: '#/definitions/types.AzureDevOps'
+        description: Provider-specific settings
       default_branch:
         type: string
       description:
@@ -4164,6 +4190,10 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       initial_files:
         additionalProperties:
           type: string
@@ -4178,6 +4208,9 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: OAuth connection ID - references an OAuthConnection for authentication
         type: string
       organization_id:
         description: Organization ID - required for access control
@@ -4246,6 +4279,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       kodit_indexing:
         description: Enable Kodit code intelligence indexing (pointer to distinguish
           unset from false)
@@ -4254,6 +4291,9 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: OAuth connection for authentication
         type: string
       password:
         type: string
@@ -4917,6 +4957,13 @@ definitions:
       external_status:
         $ref: '#/definitions/types.ExternalStatus'
     type: object
+  types.ListOAuthRepositoriesResponse:
+    properties:
+      repositories:
+        items:
+          $ref: '#/definitions/types.RepositoryInfo'
+        type: array
+    type: object
   types.LoginRequest:
     properties:
       email:
@@ -5212,6 +5259,8 @@ definitions:
     - google
     - microsoft
     - github
+    - gitlab
+    - azure_devops
     - slack
     - linkedin
     - hubspot
@@ -5223,6 +5272,8 @@ definitions:
     - OAuthProviderTypeGoogle
     - OAuthProviderTypeMicrosoft
     - OAuthProviderTypeGitHub
+    - OAuthProviderTypeGitLab
+    - OAuthProviderTypeAzureDevOps
     - OAuthProviderTypeSlack
     - OAuthProviderTypeLinkedIn
     - OAuthProviderTypeHubSpot
@@ -6126,6 +6177,26 @@ definitions:
         type: string
       password_confirm:
         type: string
+    type: object
+  types.RepositoryInfo:
+    properties:
+      clone_url:
+        description: HTTPS clone URL
+        type: string
+      default_branch:
+        type: string
+      description:
+        type: string
+      full_name:
+        description: e.g., "owner/repo" for GitHub or "group/project" for GitLab
+        type: string
+      html_url:
+        description: Web URL to view the repository
+        type: string
+      name:
+        type: string
+      private:
+        type: boolean
     type: object
   types.Resource:
     enum:
@@ -7154,6 +7225,9 @@ definitions:
         type: string
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
+        type: string
+      session_updated_at:
+        description: Agent activity tracking (computed from session.updated, not stored)
         type: string
       spec_approved_at:
         type: string
@@ -12280,6 +12354,28 @@ paths:
       summary: Refresh an OAuth connection
       tags:
       - oauth
+  /api/v1/oauth/connections/{id}/repositories:
+    get:
+      description: List repositories accessible via an OAuth connection (GitHub repos,
+        GitLab projects, etc.)
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+      security:
+      - BearerAuth: []
+      summary: List repositories from an OAuth connection
+      tags:
+      - oauth
   /api/v1/oauth/providers:
     get:
       description: List OAuth providers for the user.
@@ -14316,7 +14412,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: Search across projects, tasks, sessions, and prompts
+      description: Search across projects, tasks, sessions, prompts, and code
       parameters:
       - description: Search query
         in: query
@@ -14324,7 +14420,8 @@ paths:
         required: true
         type: string
       - collectionFormat: csv
-        description: 'Entity types to search: projects, tasks, sessions, prompts'
+        description: 'Entity types to search: projects, tasks, sessions, prompts,
+          code'
         in: query
         items:
           type: string
