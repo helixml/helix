@@ -34,7 +34,7 @@ import {
   TypesProject,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
-import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps } from '../api/api'
+import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps, TypesGitHub, TypesGitLab } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
@@ -308,7 +308,7 @@ const Projects: FC = () => {
     }
   }
 
-  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string) => {
+  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string, gitlabBaseUrl?: string) => {
     if (!url.trim() || !ownerId) return
 
     setCreating(true)
@@ -323,14 +323,31 @@ const Projects: FC = () => {
         repoName = match ? match[1] : 'external-repo'
       }
 
+      // Build provider-specific config objects
       let azureDevOps: TypesAzureDevOps | undefined
+      let github: TypesGitHub | undefined
+      let gitlab: TypesGitLab | undefined
+
       if (type === 'ado' && organizationUrl && token) {
         azureDevOps = {
           organization_url: organizationUrl,
           personal_access_token: token,
         }
       }
-      
+
+      if (type === 'github' && token) {
+        github = {
+          personal_access_token: token,
+        }
+      }
+
+      if (type === 'gitlab' && (token || gitlabBaseUrl)) {
+        gitlab = {
+          personal_access_token: token,
+          base_url: gitlabBaseUrl,
+        }
+      }
+
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: `External ${type} repository`,
@@ -345,8 +362,10 @@ const Projects: FC = () => {
         // Auth details
         username: username,
         password: password,
-        // Azure DevOps specific
+        // Provider-specific config
         azure_devops: azureDevOps,
+        github: github,
+        gitlab: gitlab,
         // Code intelligence
         kodit_indexing: koditIndexing,
       })

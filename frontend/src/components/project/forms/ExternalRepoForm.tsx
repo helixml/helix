@@ -27,6 +27,8 @@ interface ExternalRepoFormProps {
   onOrganizationUrlChange?: (url: string) => void
   token?: string
   onTokenChange?: (token: string) => void
+  gitlabBaseUrl?: string
+  onGitlabBaseUrlChange?: (url: string) => void
   size?: 'small' | 'medium'
 }
 
@@ -81,6 +83,8 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
   onOrganizationUrlChange,
   token = '',
   onTokenChange,
+  gitlabBaseUrl = '',
+  onGitlabBaseUrlChange,
   size = 'small',
 }) => {
   // Handle URL change with auto-fill for ADO repos
@@ -111,9 +115,9 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
           label="Repository Type"
           onChange={(e) => onTypeChange(e.target.value as TypesExternalRepositoryType)}
         >
+          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub</MenuItem>
+          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab</MenuItem>
           <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeADO}>Azure DevOps</MenuItem>
-          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub (coming soon)</MenuItem>
-          <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab (coming soon)</MenuItem>
           <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket}>Bitbucket (coming soon)</MenuItem>
         </Select>
       </FormControl>
@@ -127,11 +131,19 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
         placeholder={
           type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
             ? "https://dev.azure.com/organization/project/_git/repository"
-            : "https://github.com/org/repo.git"
+            : type === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
+            ? "https://github.com/owner/repository"
+            : type === TypesExternalRepositoryType.ExternalRepositoryTypeGitLab
+            ? "https://gitlab.com/group/project"
+            : "https://bitbucket.org/owner/repository"
         }
         helperText={
           type === TypesExternalRepositoryType.ExternalRepositoryTypeADO
             ? "Paste the full URL - organization and name will be auto-filled"
+            : type === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub
+            ? "HTTPS URL to the GitHub repository"
+            : type === TypesExternalRepositoryType.ExternalRepositoryTypeGitLab
+            ? "HTTPS URL to the GitLab project"
             : undefined
         }
         required
@@ -146,7 +158,7 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
         helperText="Name shown in Helix. Leave empty to use the repository name from the URL."
       />
 
-      {type === TypesExternalRepositoryType.ExternalRepositoryTypeADO ? (
+      {type === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (
         <>
           <TextField
             label="Organization URL"
@@ -184,7 +196,80 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
             }
           />
         </>
-      ) : (
+      )}
+
+      {type === TypesExternalRepositoryType.ExternalRepositoryTypeGitHub && (
+        <TextField
+          label="Personal Access Token"
+          fullWidth
+          size={size}
+          type="password"
+          value={token}
+          onChange={(e) => onTokenChange?.(e.target.value)}
+          placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+          helperText={
+            <Box>
+              <Typography variant="caption" component="span">
+                Personal Access Token for private repos.{' '}
+              </Typography>
+              <Link
+                href="https://github.com/settings/tokens"
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="caption"
+              >
+                Create a token
+              </Link>
+              <Typography variant="caption" component="span">
+                {' '}(needs repo scope for private repos)
+              </Typography>
+            </Box>
+          }
+        />
+      )}
+
+      {type === TypesExternalRepositoryType.ExternalRepositoryTypeGitLab && (
+        <>
+          <TextField
+            label="Base URL (for self-hosted)"
+            fullWidth
+            size={size}
+            value={gitlabBaseUrl}
+            onChange={(e) => onGitlabBaseUrlChange?.(e.target.value)}
+            placeholder="https://gitlab.example.com"
+            helperText="Leave empty for gitlab.com, or enter your self-hosted GitLab URL"
+          />
+          <TextField
+            label="Personal Access Token"
+            fullWidth
+            size={size}
+            type="password"
+            value={token}
+            onChange={(e) => onTokenChange?.(e.target.value)}
+            placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+            helperText={
+              <Box>
+                <Typography variant="caption" component="span">
+                  Personal Access Token for private repos.{' '}
+                </Typography>
+                <Link
+                  href="https://gitlab.com/-/user_settings/personal_access_tokens"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="caption"
+                >
+                  Create a token
+                </Link>
+                <Typography variant="caption" component="span">
+                  {' '}(needs read_repository scope)
+                </Typography>
+              </Box>
+            }
+          />
+        </>
+      )}
+
+      {type === TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket && (
         <>
           <TextField
             label="Username (for private repos)"
@@ -194,12 +279,13 @@ const ExternalRepoForm: FC<ExternalRepoFormProps> = ({
             onChange={(e) => onUsernameChange(e.target.value)}
           />
           <TextField
-            label="Password/Token (for private repos)"
+            label="App Password (for private repos)"
             fullWidth
             size={size}
             type="password"
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
+            helperText="Bitbucket support coming soon"
           />
         </>
       )}
