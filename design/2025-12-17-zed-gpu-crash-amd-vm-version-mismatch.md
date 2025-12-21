@@ -1415,6 +1415,31 @@ that uses LLVM 18. However, this would miss security updates.
 3. Test streaming without RADV_DEBUG=hang
 4. If stable, we've confirmed LLVM 20 is the issue
 
+### ❌ THEORY DISPROVEN (2025-12-21)
+
+**The LLVM version theory was WRONG.**
+
+RADV's ACO shader compiler does **NOT** use LLVM for Vulkan shader compilation.
+ACO is Mesa's own compiler that directly converts SPIR-V to AMD ISA. The libLLVM
+dependency is only for:
+- RadeonSI (OpenGL driver)
+- OpenCL/compute
+- Build tools
+
+The same Mesa 25.0.7 + ACO should generate identical Vulkan shaders regardless
+of LLVM version. The Mesa source build for Sway was removed as unnecessary
+overhead (~10-15 min extra build time) based on this flawed theory.
+
+**Current workaround:** RADV_DEBUG=hang (syncshaders) remains enabled in both
+Sway and Ubuntu containers. This serializes GPU commands and helps with
+timing-sensitive race conditions, though it has a performance cost.
+
+**Root cause still unknown.** The crashes may be related to:
+- Race conditions in GPU command submission
+- AMD MxGPU SR-IOV timing differences from bare metal
+- Vulkan resource lifetime issues
+- Something specific to how Xwayland/Sway interacts with MxGPU
+
 ## References
 
 ### Azure & AMD Official Documentation
