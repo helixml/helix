@@ -5140,6 +5140,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/oauth/connections/{id}/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "List repositories from an OAuth connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/providers": {
             "get": {
                 "security": [
@@ -8358,7 +8392,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Search across projects, tasks, sessions, and prompts",
+                "description": "Search across projects, tasks, sessions, prompts, and code",
                 "consumes": [
                     "application/json"
                 ],
@@ -8383,7 +8417,7 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "csv",
-                        "description": "Entity types to search: projects, tasks, sessions, prompts",
+                        "description": "Entity types to search: projects, tasks, sessions, prompts, code",
                         "name": "types",
                         "in": "query"
                     },
@@ -19942,6 +19976,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitHub": {
+            "type": "object",
+            "properties": {
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.GitHubWorkConfig": {
             "type": "object",
             "properties": {
@@ -19977,11 +20019,28 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitLab": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "description": "For self-hosted GitLab instances (empty for gitlab.com)",
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.GitRepository": {
             "type": "object",
             "properties": {
                 "azure_devops": {
-                    "$ref": "#/definitions/types.AzureDevOps"
+                    "description": "Provider-specific settings",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AzureDevOps"
+                        }
+                    ]
                 },
                 "branches": {
                     "type": "array",
@@ -20014,6 +20073,12 @@ const docTemplate = `{
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -20038,6 +20103,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection ID - references an OAuthConnection for authentication\nWhen set, uses the OAuth access token instead of username/password or PAT",
                     "type": "string"
                 },
                 "organization_id": {
@@ -20074,7 +20143,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "azure_devops": {
-                    "$ref": "#/definitions/types.AzureDevOps"
+                    "description": "Provider-specific settings",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AzureDevOps"
+                        }
+                    ]
                 },
                 "default_branch": {
                     "type": "string"
@@ -20093,6 +20167,12 @@ const docTemplate = `{
                 "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
+                },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
                 },
                 "initial_files": {
                     "type": "object",
@@ -20113,6 +20193,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection ID - references an OAuthConnection for authentication",
                     "type": "string"
                 },
                 "organization_id": {
@@ -20214,6 +20298,12 @@ const docTemplate = `{
                 "external_url": {
                     "type": "string"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
+                },
                 "kodit_indexing": {
                     "description": "Enable Kodit code intelligence indexing (pointer to distinguish unset from false)",
                     "type": "boolean"
@@ -20223,6 +20313,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection for authentication",
                     "type": "string"
                 },
                 "password": {
@@ -21153,6 +21247,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ListOAuthRepositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepositoryInfo"
+                    }
+                }
+            }
+        },
         "types.LoginRequest": {
             "type": "object",
             "properties": {
@@ -21575,6 +21680,8 @@ const docTemplate = `{
                 "google",
                 "microsoft",
                 "github",
+                "gitlab",
+                "azure_devops",
                 "slack",
                 "linkedin",
                 "hubspot",
@@ -21586,6 +21693,8 @@ const docTemplate = `{
                 "OAuthProviderTypeGoogle",
                 "OAuthProviderTypeMicrosoft",
                 "OAuthProviderTypeGitHub",
+                "OAuthProviderTypeGitLab",
+                "OAuthProviderTypeAzureDevOps",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
                 "OAuthProviderTypeHubSpot",
@@ -22874,6 +22983,35 @@ const docTemplate = `{
                 },
                 "password_confirm": {
                     "type": "string"
+                }
+            }
+        },
+        "types.RepositoryInfo": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "description": "HTTPS clone URL",
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "description": "e.g., \"owner/repo\" for GitHub or \"group/project\" for GitLab",
+                    "type": "string"
+                },
+                "html_url": {
+                    "description": "Web URL to view the repository",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "private": {
+                    "type": "boolean"
                 }
             }
         },
@@ -24317,6 +24455,10 @@ const docTemplate = `{
                 },
                 "requirements_spec": {
                     "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "session_updated_at": {
+                    "description": "Agent activity tracking (computed from session.updated, not stored)",
                     "type": "string"
                 },
                 "spec_approved_at": {
