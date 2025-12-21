@@ -1355,6 +1355,66 @@ synchronization - we don't know.
 
 If crashes return, check `/tmp/radv_dump_*` for RADV hang dumps.
 
+## Update: LLVM Version Mismatch Discovery (2025-12-19)
+
+### New Finding: LLVM 20 vs LLVM 18
+
+GPU crashes returned on Sway, which had been stable for weeks. Investigation revealed:
+
+| Container | Mesa Version | LLVM Version | Status |
+|-----------|-------------|--------------|--------|
+| helix-ubuntu (source build) | 25.0.7 | **LLVM 18** | More stable |
+| helix-sway (GOW base image) | 25.0.7 | **LLVM 20** | Crashing |
+
+The GOW base image (`ghcr.io/games-on-whales/base-app:edge`) uses Ubuntu 25.04 which has:
+- Mesa 25.0.7-0ubuntu0.25.04.2 (same version as our source build)
+- **libllvm20** (LLVM 20.1.2) - very different from our LLVM 18 source build
+
+### Why LLVM Version Matters
+
+RADV's ACO shader compiler uses LLVM for code generation. Different LLVM versions can:
+1. Generate different instruction sequences for the same shader
+2. Enable/disable different optimizations
+3. Use different register allocation strategies
+
+LLVM 20 is very new (2025) and may generate code using instructions that:
+- Work on consumer RDNA 3 GPUs
+- Are disabled or restricted on V710 MxGPU (SR-IOV virtual function)
+
+### This Explains Why:
+
+1. **Ubuntu source build was more stable** - Uses LLVM 18, older and more conservative codegen
+2. **Sway started crashing** - GOW updated to Ubuntu 25.04 with LLVM 20
+3. **RADV_DEBUG=hang doesn't help** - It's not a synchronization issue, it's illegal opcodes
+4. **Same Mesa version behaves differently** - The LLVM backend matters more than Mesa version
+
+### Proposed Fix: Build Mesa from Source for Sway Too
+
+Modify `Dockerfile.sway-helix` to build Mesa 25.0.7 from source with LLVM 18,
+matching the Ubuntu container's configuration:
+
+```dockerfile
+# Add LLVM 18 repository (same as Ubuntu container)
+RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    echo "deb http://apt.llvm.org/oracular/ llvm-toolchain-oracular-18 main" > /etc/apt/sources.list.d/llvm-18.list && \
+    apt-get update
+
+# Build Mesa with LLVM 18 (not the system LLVM 20)
+# ... same build process as Dockerfile.ubuntu-helix
+```
+
+### Alternative: Pin GOW Base Image
+
+Instead of building Mesa from source, we could pin to an older GOW base image
+that uses LLVM 18. However, this would miss security updates.
+
+### Test Plan
+
+1. Build helix-sway with Mesa source build (LLVM 18)
+2. Deploy to AMD MxGPU VM
+3. Test streaming without RADV_DEBUG=hang
+4. If stable, we've confirmed LLVM 20 is the issue
+
 ## References
 
 ### Azure & AMD Official Documentation

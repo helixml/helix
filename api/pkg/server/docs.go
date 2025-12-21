@@ -18855,6 +18855,9 @@ const docTemplate = `{
                 "project_id": {
                     "type": "string"
                 },
+                "project_name": {
+                    "type": "string"
+                },
                 "status": {
                     "description": "\"created\", \"started\", \"failed\"",
                     "type": "string"

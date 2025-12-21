@@ -21,11 +21,12 @@ import {
   Collapse,
   IconButton,
 } from '@mui/material';
-import { Copy, ChevronDown, ChevronRight, FolderGit2, Check } from 'lucide-react';
+import { Copy, ChevronDown, ChevronRight, FolderGit2, Check, ExternalLink } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import useApi from '../../hooks/useApi';
 import { useCloneTask, useReposWithoutProjects, CloneTaskResponse } from '../../services/specTaskService';
 import { TypesProject, TypesGitRepository } from '../../api/api';
+import CloneGroupProgressFull from './CloneGroupProgress';
 
 interface CloneTaskDialogProps {
   open: boolean;
@@ -63,6 +64,7 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
   // Result state
   const [cloneResult, setCloneResult] = useState<CloneTaskResponse | null>(null);
   const [cloneError, setCloneError] = useState<string | null>(null);
+  const [showCloneProgress, setShowCloneProgress] = useState(false);
 
   // Fetch projects
   const { data: projectsData, isLoading: loadingProjects } = useQuery({
@@ -153,12 +155,46 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
     setCloneError(null);
     setProjectSearch('');
     setRepoSearch('');
+    setShowCloneProgress(false);
     onClose();
   };
 
   const totalTargets = selectedProjects.length + selectedRepos.length;
 
   if (cloneResult) {
+    // Handle task click to navigate to the project's kanban board
+    const handleTaskClick = (taskId: string, projectId: string) => {
+      handleClose();
+      // Navigate to the project's kanban board - the task will be visible there
+      window.location.href = `/projects/${projectId}`;
+    };
+
+    // Show clone group progress view
+    if (showCloneProgress && cloneResult.clone_group_id) {
+      return (
+        <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth onClick={(e) => e.stopPropagation()}>
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Copy size={24} />
+            Clone Group Progress
+          </DialogTitle>
+          <DialogContent>
+            <CloneGroupProgressFull
+              groupId={cloneResult.clone_group_id}
+              onTaskClick={handleTaskClick}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowCloneProgress(false)}>
+              Back
+            </Button>
+            <Button onClick={handleClose} variant="contained">
+              Done
+            </Button>
+          </DialogActions>
+        </Dialog>
+      );
+    }
+
     return (
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth onClick={(e) => e.stopPropagation()}>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -178,14 +214,34 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
                 </Typography>
                 <List dense>
                   {cloneResult.cloned_tasks.map((task) => (
-                    <ListItem key={task.task_id}>
+                    <ListItem
+                      key={task.task_id}
+                      onClick={() => handleTaskClick(task.task_id!, task.project_id!)}
+                      sx={{
+                        cursor: 'pointer',
+                        borderRadius: 1,
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
                       <ListItemIcon>
                         <Check size={16} color="green" />
                       </ListItemIcon>
                       <ListItemText
-                        primary={`Task: ${task.task_id}`}
-                        secondary={`Status: ${task.status}`}
+                        primary={task.project_name || task.project_id}
+                        secondary={
+                          <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip
+                              label={task.status}
+                              size="small"
+                              color={task.status === 'started' ? 'primary' : 'default'}
+                              sx={{ height: 20, fontSize: '0.7rem' }}
+                            />
+                          </Box>
+                        }
                       />
+                      <IconButton size="small">
+                        <ExternalLink size={16} />
+                      </IconButton>
                     </ListItem>
                   ))}
                 </List>
@@ -206,9 +262,15 @@ const CloneTaskDialog: React.FC<CloneTaskDialogProps> = ({
             )}
 
             {cloneResult.clone_group_id && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-                Clone Group ID: {cloneResult.clone_group_id}
-              </Typography>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<Copy size={14} />}
+                onClick={() => setShowCloneProgress(true)}
+                sx={{ mt: 2 }}
+              >
+                View Clone Group Progress
+              </Button>
             )}
           </Box>
         </DialogContent>
