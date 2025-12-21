@@ -10,15 +10,17 @@ import (
 type OAuthProviderType string
 
 const (
-	OAuthProviderTypeUnknown   OAuthProviderType = ""
-	OAuthProviderTypeAtlassian OAuthProviderType = "atlassian"
-	OAuthProviderTypeGoogle    OAuthProviderType = "google"
-	OAuthProviderTypeMicrosoft OAuthProviderType = "microsoft"
-	OAuthProviderTypeGitHub    OAuthProviderType = "github"
-	OAuthProviderTypeSlack     OAuthProviderType = "slack"
-	OAuthProviderTypeLinkedIn  OAuthProviderType = "linkedin"
-	OAuthProviderTypeHubSpot   OAuthProviderType = "hubspot"
-	OAuthProviderTypeCustom    OAuthProviderType = "custom"
+	OAuthProviderTypeUnknown      OAuthProviderType = ""
+	OAuthProviderTypeAtlassian    OAuthProviderType = "atlassian"
+	OAuthProviderTypeGoogle       OAuthProviderType = "google"
+	OAuthProviderTypeMicrosoft    OAuthProviderType = "microsoft"
+	OAuthProviderTypeGitHub       OAuthProviderType = "github"
+	OAuthProviderTypeGitLab       OAuthProviderType = "gitlab"
+	OAuthProviderTypeAzureDevOps  OAuthProviderType = "azure_devops"
+	OAuthProviderTypeSlack        OAuthProviderType = "slack"
+	OAuthProviderTypeLinkedIn     OAuthProviderType = "linkedin"
+	OAuthProviderTypeHubSpot      OAuthProviderType = "hubspot"
+	OAuthProviderTypeCustom       OAuthProviderType = "custom"
 )
 
 // OAuthProvider represents an OAuth provider configuration
