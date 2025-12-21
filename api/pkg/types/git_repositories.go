@@ -53,10 +53,16 @@ type GitRepository struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
-	// TODO: OAuth support using our providers
-	// TODO: SSH key
-
+	// Provider-specific settings
 	AzureDevOps *AzureDevOps `gorm:"type:jsonb;serializer:json" json:"azure_devops"`
+	GitHub      *GitHub      `gorm:"type:jsonb;serializer:json" json:"github"`
+	GitLab      *GitLab      `gorm:"type:jsonb;serializer:json" json:"gitlab"`
+
+	// OAuth connection ID - references an OAuthConnection for authentication
+	// When set, uses the OAuth access token instead of username/password or PAT
+	OAuthConnectionID string `gorm:"index" json:"oauth_connection_id"`
+
+	// TODO: SSH key support
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
@@ -111,7 +117,13 @@ type GitRepositoryCreateRequest struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
+	// Provider-specific settings
 	AzureDevOps *AzureDevOps `json:"azure_devops,omitempty"`
+	GitHub      *GitHub      `json:"github,omitempty"`
+	GitLab      *GitLab      `json:"gitlab,omitempty"`
+
+	// OAuth connection ID - references an OAuthConnection for authentication
+	OAuthConnectionID string `json:"oauth_connection_id,omitempty"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 
@@ -134,6 +146,9 @@ type GitRepositoryUpdateRequest struct {
 	ExternalURL   string                 `json:"external_url,omitempty"`
 	ExternalType  ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
 	AzureDevOps   *AzureDevOps           `json:"azure_devops,omitempty"`
+	GitHub        *GitHub                `json:"github,omitempty"`
+	GitLab        *GitLab                `json:"gitlab,omitempty"`
+	OAuthConnectionID *string            `json:"oauth_connection_id,omitempty"` // OAuth connection for authentication
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 	KoditIndexing *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)
 }
