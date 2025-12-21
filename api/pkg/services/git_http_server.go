@@ -649,9 +649,16 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// Write status code and stream body
 	w.WriteHeader(statusCode)
 
-	// Stream the body directly to the response writer
+	// CRITICAL: Flush headers immediately to start the HTTP response
+	// Without this, Go may buffer the response and git client times out waiting
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	// Stream the body directly to the response writer with periodic flushing
 	// This handles large packfiles without buffering in memory
-	bytesWritten, err := io.Copy(w, reader)
+	// Use flushingCopy to ensure data flows continuously to git client
+	bytesWritten, err := flushingCopy(w, reader)
 	if err != nil {
 		// Get stderr immediately to capture any error output from git-http-backend
 		stderrStr := stderrBuf.String()
@@ -1878,4 +1885,58 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// flushingCopy copies from src to dst while flushing periodically
+// This ensures git clients receive data continuously without buffering delays
+// which would otherwise cause "expected packfile" errors
+func flushingCopy(dst io.Writer, src io.Reader) (int64, error) {
+	// Get flusher if available
+	flusher, canFlush := dst.(http.Flusher)
+
+	// Use 32KB buffer for efficient copying
+	buf := make([]byte, 32*1024)
+	var totalWritten int64
+	var bytesSinceFlush int64
+
+	// Flush every 64KB to balance efficiency with responsiveness
+	const flushThreshold = 64 * 1024
+
+	for {
+		nr, readErr := src.Read(buf)
+		if nr > 0 {
+			nw, writeErr := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if writeErr == nil {
+					writeErr = io.ErrShortWrite
+				}
+			}
+			totalWritten += int64(nw)
+			bytesSinceFlush += int64(nw)
+
+			if writeErr != nil {
+				return totalWritten, writeErr
+			}
+			if nr != nw {
+				return totalWritten, io.ErrShortWrite
+			}
+
+			// Flush periodically to ensure data flows to client
+			if canFlush && bytesSinceFlush >= flushThreshold {
+				flusher.Flush()
+				bytesSinceFlush = 0
+			}
+		}
+		if readErr != nil {
+			// Final flush before returning
+			if canFlush && bytesSinceFlush > 0 {
+				flusher.Flush()
+			}
+			if readErr == io.EOF {
+				return totalWritten, nil
+			}
+			return totalWritten, readErr
+		}
+	}
 }
