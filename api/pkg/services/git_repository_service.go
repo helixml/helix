@@ -2319,11 +2319,41 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 }
 
 // GetAuthConfig returns the authentication configuration for the repository
+// Deprecated: Use GetAuthConfigWithContext for OAuth support
 func (s *GitRepositoryService) GetAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
+	return s.GetAuthConfigWithContext(context.Background(), gitRepo)
+}
+
+// GetAuthConfigWithContext returns the authentication configuration for the repository
+// Supports OAuth connections, provider-specific PATs, and username/password authentication
+func (s *GitRepositoryService) GetAuthConfigWithContext(ctx context.Context, gitRepo *types.GitRepository) transport.AuthMethod {
+	// First, check for OAuth connection
+	if gitRepo.OAuthConnectionID != "" {
+		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
+		if err == nil && conn.AccessToken != "" {
+			// Return appropriate auth based on provider type
+			switch gitRepo.ExternalType {
+			case types.ExternalRepositoryTypeGitHub:
+				// GitHub uses "x-access-token" as username for OAuth tokens
+				return &http.BasicAuth{Username: "x-access-token", Password: conn.AccessToken}
+			case types.ExternalRepositoryTypeGitLab:
+				// GitLab uses "oauth2" as username for OAuth tokens
+				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+			case types.ExternalRepositoryTypeADO:
+				// Azure DevOps uses Bearer token for OAuth
+				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+			default:
+				// Generic OAuth fallback
+				return &http.BasicAuth{Username: "oauth2", Password: conn.AccessToken}
+			}
+		}
+	}
+
+	// Fall back to provider-specific PAT or username/password
 	switch gitRepo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		// If we have a PAT, use it
-		if gitRepo.AzureDevOps.PersonalAccessToken != "" {
+		if gitRepo.AzureDevOps != nil && gitRepo.AzureDevOps.PersonalAccessToken != "" {
 			return &http.BasicAuth{Username: "PAT", Password: gitRepo.AzureDevOps.PersonalAccessToken}
 		}
 		// If we have a username and password, use it
@@ -2333,11 +2363,30 @@ func (s *GitRepositoryService) GetAuthConfig(gitRepo *types.GitRepository) trans
 		// No auth config found
 		return nil
 	case types.ExternalRepositoryTypeGitHub:
-		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		// Check for GitHub-specific PAT first
+		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
+			return &http.BasicAuth{Username: "x-access-token", Password: gitRepo.GitHub.PersonalAccessToken}
+		}
+		// Fall back to username/password (password is typically a PAT)
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		}
+		return nil
 	case types.ExternalRepositoryTypeGitLab:
-		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		// Check for GitLab-specific PAT first
+		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
+			return &http.BasicAuth{Username: "oauth2", Password: gitRepo.GitLab.PersonalAccessToken}
+		}
+		// Fall back to username/password
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		}
+		return nil
 	case types.ExternalRepositoryTypeBitbucket:
-		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		}
+		return nil
 	default:
 		return nil
 	}
