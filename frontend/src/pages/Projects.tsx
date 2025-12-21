@@ -21,6 +21,7 @@ import AgentSelectionModal from '../components/project/AgentSelectionModal'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
 import GuidelinesView from '../components/project/GuidelinesView'
+import PromptsListView from '../components/project/PromptsListView'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -393,6 +394,8 @@ const Projects: FC = () => {
         return 'Repositories'
       case 'guidelines':
         return 'Guidelines'
+      case 'prompts':
+        return 'Prompts'
       default:
         return 'Projects'
     }
@@ -480,6 +483,11 @@ const Projects: FC = () => {
         {/* Guidelines View */}
         {currentView === 'guidelines' && (
           <GuidelinesView organization={currentOrg} isPersonalWorkspace={!currentOrg} />
+        )}
+
+        {/* Prompts View */}
+        {currentView === 'prompts' && (
+          <PromptsListView />
         )}
       </Container>
 
