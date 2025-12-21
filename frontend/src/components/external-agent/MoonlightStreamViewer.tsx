@@ -2912,7 +2912,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   return (
     <Box
       ref={containerRef}
-      className={className}
+      className={`${className} moonlight-stream-viewer`}
+      data-video-container="true"
       tabIndex={0}
       onClick={handleContainerClick}
       sx={{

@@ -355,6 +355,55 @@ export function usePromptHistory({
     return () => window.removeEventListener('online', handleOnline)
   }, [syncToBackend])
 
+  // Poll for status updates from backend when there are pending messages
+  // This ensures we know when the backend has processed messages and marked them as 'sent'
+  useEffect(() => {
+    if (!apiClient || !specTaskId || !projectId) return
+    if (!navigator.onLine) return
+
+    // Only poll if there are pending/failed messages that need status updates
+    const hasPendingMessages = pendingPrompts.length > 0 || failedPrompts.length > 0
+    if (!hasPendingMessages) return
+
+    const pollInterval = setInterval(async () => {
+      if (!navigator.onLine) return
+
+      try {
+        const response = await listPromptHistory(apiClient, specTaskId, { projectId })
+
+        if (response.entries && response.entries.length > 0) {
+          const backendEntries = response.entries.map(backendToLocal)
+          // Create a map for quick lookup
+          const backendEntriesMap = new Map(backendEntries.map(e => [e.id, e]))
+
+          // Update status of pending messages from backend
+          setHistory(prev => {
+            let updated = false
+            const newHistory = prev.map(h => {
+              const backendEntry = backendEntriesMap.get(h.id)
+              if (backendEntry && h.status !== backendEntry.status) {
+                updated = true
+                return { ...h, status: backendEntry.status, syncedToBackend: true }
+              }
+              return h
+            })
+
+            if (updated) {
+              saveHistory(newHistory, specTaskId)
+              return newHistory
+            }
+            return prev
+          })
+        }
+      } catch (e) {
+        // Silently ignore polling errors - not critical
+        console.debug('[PromptHistory] Poll failed:', e)
+      }
+    }, 2000) // Poll every 2 seconds while there are pending messages
+
+    return () => clearInterval(pollInterval)
+  }, [apiClient, specTaskId, projectId, pendingPrompts.length, failedPrompts.length])
+
   // Debounced draft save
   const setDraft = useCallback((value: string) => {
     setDraftState(value)

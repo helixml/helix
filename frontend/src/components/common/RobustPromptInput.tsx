@@ -644,7 +644,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const hasHistory = sentHistory.length > 0
 
   return (
-    <Box sx={{ position: 'relative' }}>
+    <Box
+      className="prompt-input-container"
+      data-prompt-input="true"
+      sx={{ position: 'relative' }}
+    >
       {/* Queued messages display */}
       <Collapse in={showQueue && queuedMessages.length > 0}>
         <Box
