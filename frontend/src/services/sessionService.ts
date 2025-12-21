@@ -35,14 +35,15 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: GET_SESSION_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsDetail(sessionId),
-    enabled: options?.enabled ?? true
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   })
 }
 
