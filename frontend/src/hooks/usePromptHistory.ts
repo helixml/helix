@@ -254,14 +254,21 @@ export function usePromptHistory({
 
       // Mark synced entries and merge any from backend
       if (response.entries && response.entries.length > 0) {
-        const backendIds = new Set(response.entries.map(e => e.id))
         const backendEntries = response.entries.map(backendToLocal)
+        // Create a map for quick lookup of backend entries by ID
+        const backendEntriesMap = new Map(backendEntries.map(e => [e.id, e]))
 
-        // Mark our entries as synced if they exist in backend response
+        // Merge backend entry status into local entries (especially important for 'sent' status)
         setHistory(prev => {
-          const updated = prev.map(h =>
-            backendIds.has(h.id) ? { ...h, syncedToBackend: true } : h
-          )
+          const updated = prev.map(h => {
+            const backendEntry = backendEntriesMap.get(h.id)
+            if (backendEntry) {
+              // Merge status from backend - this is critical for queue items to disappear
+              // when the backend marks them as 'sent' after processing
+              return { ...h, status: backendEntry.status, syncedToBackend: true }
+            }
+            return h
+          })
 
           // Also merge any new entries from backend
           const existingIds = new Set(updated.map(e => e.id))
