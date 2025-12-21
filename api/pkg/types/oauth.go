@@ -95,6 +95,7 @@ type OAuthRequestToken struct {
 	Token       string    `json:"token"` // For compatibility with existing records
 	State       string    `json:"state" gorm:"index"`
 	RedirectURL string    `json:"redirect_url" gorm:"type:text"`
+	Metadata    string    `json:"metadata" gorm:"type:text"` // JSON metadata (e.g., organization_url for ADO)
 	ExpiresAt   time.Time `json:"expires_at" gorm:"not null;index"`
 }
 
