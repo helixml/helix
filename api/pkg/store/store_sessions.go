@@ -107,6 +107,22 @@ func (s *PostgresStore) GetSession(ctx context.Context, sessionID string) (*type
 	return &session, nil
 }
 
+// GetSessionsByIDs retrieves multiple sessions by their IDs in a single query
+// Used for batch operations like populating SessionUpdatedAt for task lists
+func (s *PostgresStore) GetSessionsByIDs(ctx context.Context, sessionIDs []string) ([]*types.Session, error) {
+	if len(sessionIDs) == 0 {
+		return []*types.Session{}, nil
+	}
+
+	var sessions []*types.Session
+	err := s.gdb.WithContext(ctx).Where("id IN ?", sessionIDs).Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
 // GetSessionIncludingDeleted retrieves a session including soft-deleted ones
 // Used by cleanup code to get lobby credentials even after session deletion
 func (s *PostgresStore) GetSessionIncludingDeleted(ctx context.Context, sessionID string) (*types.Session, error) {

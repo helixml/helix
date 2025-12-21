@@ -203,6 +203,31 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Populate SessionUpdatedAt for agent activity detection (active vs idle)
+	// Collect all session IDs and batch query for efficiency
+	sessionIDs := make([]string, 0)
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			sessionIDs = append(sessionIDs, task.PlanningSessionID)
+		}
+	}
+	if len(sessionIDs) > 0 {
+		sessions, err := s.Store.GetSessionsByIDs(ctx, sessionIDs)
+		if err == nil {
+			// Build a map for quick lookup
+			sessionMap := make(map[string]*types.Session)
+			for _, session := range sessions {
+				sessionMap[session.ID] = session
+			}
+			// Populate SessionUpdatedAt on each task
+			for _, task := range tasks {
+				if session, ok := sessionMap[task.PlanningSessionID]; ok {
+					task.SessionUpdatedAt = &session.Updated
+				}
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }

@@ -67,6 +67,17 @@ type AzureDevOps struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 }
 
+// GitHub contains GitHub-specific authentication settings
+type GitHub struct {
+	PersonalAccessToken string `json:"personal_access_token"`
+}
+
+// GitLab contains GitLab-specific authentication settings
+type GitLab struct {
+	PersonalAccessToken string `json:"personal_access_token"`
+	BaseURL             string `json:"base_url"` // For self-hosted GitLab instances (empty for gitlab.com)
+}
+
 // TableName overrides the table name
 func (GitRepository) TableName() string {
 	return "git_repositories"

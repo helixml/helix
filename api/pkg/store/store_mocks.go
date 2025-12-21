@@ -2765,6 +2765,21 @@ func (mr *MockStoreMockRecorder) GetSessionIncludingDeleted(ctx, id any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionIncludingDeleted", reflect.TypeOf((*MockStore)(nil).GetSessionIncludingDeleted), ctx, id)
 }
 
+// GetSessionsByIDs mocks base method.
+func (m *MockStore) GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSessionsByIDs", ctx, ids)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessionsByIDs indicates an expected call of GetSessionsByIDs.
+func (mr *MockStoreMockRecorder) GetSessionsByIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsByIDs", reflect.TypeOf((*MockStore)(nil).GetSessionsByIDs), ctx, ids)
+}
+
 // GetSessionsNeedingHelp mocks base method.
 func (m *MockStore) GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentSession, error) {
 	m.ctrl.T.Helper()
