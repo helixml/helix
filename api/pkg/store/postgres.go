@@ -179,6 +179,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},
 		&types.GlobalCounter{},
+		&types.CloneGroup{},
 	)
 	if err != nil {
 		return err
