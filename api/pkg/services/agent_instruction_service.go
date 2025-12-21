@@ -118,7 +118,7 @@ git add -A && git commit -m "Progress update" && git push origin helix-specs
 ## Steps
 
 1. Read design docs: /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
-2. In the CODE repo, create feature branch: ` + "`git checkout -b {{.BranchName}}`" + `
+2. Verify branch: ` + "`cd /home/retro/work/{{.PrimaryRepoName}} && git branch --show-current`" + ` (should be {{.BranchName}})
 3. For each task in tasks.md: mark [x], push helix-specs, then do the work
 4. When all tasks done, push code: ` + "`git push origin {{.BranchName}}`" + `
 

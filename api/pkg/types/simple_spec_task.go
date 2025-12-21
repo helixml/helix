@@ -99,6 +99,9 @@ type SpecTask struct {
 	PullRequestID  string `json:"pull_request_id"`
 	PullRequestURL string `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
 
+	// Agent activity tracking (computed from session.updated, not stored)
+	SessionUpdatedAt *time.Time `json:"session_updated_at,omitempty" gorm:"-"` // When the session was last updated (for active/idle detection)
+
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
 	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`
