@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/github"
+	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -27,7 +29,10 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
-
+	case types.ExternalRepositoryTypeGitHub:
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+	case types.ExternalRepositoryTypeGitLab:
+		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	default:
 		return "", fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -93,7 +98,10 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		return s.listAzureDevOpsPullRequests(ctx, repo)
-
+	case types.ExternalRepositoryTypeGitHub:
+		return s.listGitHubPullRequests(ctx, repo)
+	case types.ExternalRepositoryTypeGitLab:
+		return s.listGitLabMergeRequests(ctx, repo)
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -199,7 +207,18 @@ func (s *GitRepositoryService) GetPullRequest(ctx context.Context, repoID, id st
 			return nil, fmt.Errorf("invalid pull request ID: %w (Azure DevOps ID is an integer)", err)
 		}
 		return s.getAzureDevOpsPullRequest(ctx, repo, prID)
-
+	case types.ExternalRepositoryTypeGitHub:
+		prNumber, err := strconv.Atoi(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pull request number: %w", err)
+		}
+		return s.getGitHubPullRequest(ctx, repo, prNumber)
+	case types.ExternalRepositoryTypeGitLab:
+		mrIID, err := strconv.Atoi(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid merge request IID: %w", err)
+		}
+		return s.getGitLabMergeRequest(ctx, repo, mrIID)
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -324,4 +343,307 @@ func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepos
 	}
 
 	return "", fmt.Errorf("could not parse repository name from URL: %s", repo.ExternalURL)
+}
+
+// GitHub Pull Request Operations
+
+func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+	// First check for OAuth connection
+	if repo.OAuthConnectionID != "" {
+		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
+		if err == nil && conn.AccessToken != "" {
+			return github.NewClientWithOAuth(conn.AccessToken), nil
+		}
+	}
+
+	// Check for GitHub-specific PAT
+	if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
+		return github.NewClientWithPAT(repo.GitHub.PersonalAccessToken), nil
+	}
+
+	// Fall back to username/password (password is typically a PAT)
+	if repo.Password != "" {
+		return github.NewClientWithPAT(repo.Password), nil
+	}
+
+	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token or connect via OAuth")
+}
+
+func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+	client, err := s.getGitHubClient(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	pr, err := client.CreatePullRequest(ctx, owner, repoName, title, description, sourceBranch, targetBranch)
+	if err != nil {
+		log.Error().Err(err).
+			Str("owner", owner).
+			Str("repo", repoName).
+			Str("title", title).
+			Str("source_branch", sourceBranch).
+			Str("target_branch", targetBranch).
+			Msg("failed to create GitHub pull request")
+		return "", fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	return strconv.Itoa(pr.GetNumber()), nil
+}
+
+func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
+	client, err := s.getGitHubClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	ghPRs, err := client.ListPullRequests(ctx, owner, repoName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pull requests: %w", err)
+	}
+
+	prs := make([]*types.PullRequest, 0, len(ghPRs))
+	for _, ghPR := range ghPRs {
+		pr := &types.PullRequest{
+			ID:           strconv.Itoa(ghPR.GetNumber()),
+			Number:       ghPR.GetNumber(),
+			Title:        ghPR.GetTitle(),
+			Description:  ghPR.GetBody(),
+			State:        ghPR.GetState(),
+			SourceBranch: ghPR.GetHead().GetRef(),
+			TargetBranch: ghPR.GetBase().GetRef(),
+			URL:          ghPR.GetHTMLURL(),
+		}
+
+		if ghPR.GetUser() != nil {
+			pr.Author = ghPR.GetUser().GetLogin()
+		}
+
+		if ghPR.CreatedAt != nil {
+			pr.CreatedAt = ghPR.CreatedAt.Time
+		}
+
+		if ghPR.UpdatedAt != nil {
+			pr.UpdatedAt = ghPR.UpdatedAt.Time
+		}
+
+		prs = append(prs, pr)
+	}
+
+	return prs, nil
+}
+
+func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
+	client, err := s.getGitHubClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	owner, repoName, err := github.ParseGitHubURL(repo.ExternalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub URL: %w", err)
+	}
+
+	ghPR, err := client.GetPullRequest(ctx, owner, repoName, number)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pull request: %w", err)
+	}
+
+	pr := &types.PullRequest{
+		ID:           strconv.Itoa(ghPR.GetNumber()),
+		Number:       ghPR.GetNumber(),
+		Title:        ghPR.GetTitle(),
+		Description:  ghPR.GetBody(),
+		State:        ghPR.GetState(),
+		SourceBranch: ghPR.GetHead().GetRef(),
+		TargetBranch: ghPR.GetBase().GetRef(),
+		URL:          ghPR.GetHTMLURL(),
+	}
+
+	if ghPR.GetUser() != nil {
+		pr.Author = ghPR.GetUser().GetLogin()
+	}
+
+	if ghPR.CreatedAt != nil {
+		pr.CreatedAt = ghPR.CreatedAt.Time
+	}
+
+	if ghPR.UpdatedAt != nil {
+		pr.UpdatedAt = ghPR.UpdatedAt.Time
+	}
+
+	return pr, nil
+}
+
+// GitLab Merge Request Operations
+
+func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.GitRepository) (*gitlab.Client, error) {
+	// Determine base URL (empty for gitlab.com, custom for self-hosted)
+	var baseURL string
+	if repo.GitLab != nil && repo.GitLab.BaseURL != "" {
+		baseURL = repo.GitLab.BaseURL
+	} else {
+		// Try to extract from ExternalURL if it's not gitlab.com
+		parsedBaseURL, _, err := gitlab.ParseGitLabURL(repo.ExternalURL)
+		if err == nil && parsedBaseURL != "" {
+			baseURL = parsedBaseURL
+		}
+	}
+
+	// First check for OAuth connection
+	if repo.OAuthConnectionID != "" {
+		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
+		if err == nil && conn.AccessToken != "" {
+			return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
+		}
+	}
+
+	// Check for GitLab-specific PAT
+	if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
+		return gitlab.NewClientWithPAT(baseURL, repo.GitLab.PersonalAccessToken)
+	}
+
+	// Fall back to username/password (password is typically a PAT)
+	if repo.Password != "" {
+		return gitlab.NewClientWithPAT(baseURL, repo.Password)
+	}
+
+	return nil, fmt.Errorf("no GitLab authentication configured - provide a Personal Access Token or connect via OAuth")
+}
+
+func (s *GitRepositoryService) getGitLabProjectID(ctx context.Context, client *gitlab.Client, repo *types.GitRepository) (int, error) {
+	_, projectPath, err := gitlab.ParseGitLabURL(repo.ExternalURL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse GitLab URL: %w", err)
+	}
+
+	project, err := client.GetProjectByPath(ctx, projectPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get project: %w", err)
+	}
+
+	return project.ID, nil
+}
+
+func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+	client, err := s.getGitLabClient(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+
+	projectID, err := s.getGitLabProjectID(ctx, client, repo)
+	if err != nil {
+		return "", err
+	}
+
+	mr, err := client.CreateMergeRequest(ctx, projectID, title, description, sourceBranch, targetBranch)
+	if err != nil {
+		log.Error().Err(err).
+			Int("project_id", projectID).
+			Str("title", title).
+			Str("source_branch", sourceBranch).
+			Str("target_branch", targetBranch).
+			Msg("failed to create GitLab merge request")
+		return "", fmt.Errorf("failed to create merge request: %w", err)
+	}
+
+	return strconv.Itoa(mr.IID), nil
+}
+
+func (s *GitRepositoryService) listGitLabMergeRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
+	client, err := s.getGitLabClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	projectID, err := s.getGitLabProjectID(ctx, client, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	glMRs, err := client.ListMergeRequests(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list merge requests: %w", err)
+	}
+
+	prs := make([]*types.PullRequest, 0, len(glMRs))
+	for _, glMR := range glMRs {
+		pr := &types.PullRequest{
+			ID:           strconv.Itoa(glMR.IID),
+			Number:       glMR.IID,
+			Title:        glMR.Title,
+			Description:  glMR.Description,
+			State:        glMR.State,
+			SourceBranch: glMR.SourceBranch,
+			TargetBranch: glMR.TargetBranch,
+			URL:          glMR.WebURL,
+		}
+
+		if glMR.Author != nil {
+			pr.Author = glMR.Author.Username
+		}
+
+		if glMR.CreatedAt != nil {
+			pr.CreatedAt = *glMR.CreatedAt
+		}
+
+		if glMR.UpdatedAt != nil {
+			pr.UpdatedAt = *glMR.UpdatedAt
+		}
+
+		prs = append(prs, pr)
+	}
+
+	return prs, nil
+}
+
+func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, mrIID int) (*types.PullRequest, error) {
+	client, err := s.getGitLabClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	projectID, err := s.getGitLabProjectID(ctx, client, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	glMR, err := client.GetMergeRequest(ctx, projectID, mrIID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merge request: %w", err)
+	}
+
+	pr := &types.PullRequest{
+		ID:           strconv.Itoa(glMR.IID),
+		Number:       glMR.IID,
+		Title:        glMR.Title,
+		Description:  glMR.Description,
+		State:        glMR.State,
+		SourceBranch: glMR.SourceBranch,
+		TargetBranch: glMR.TargetBranch,
+		URL:          glMR.WebURL,
+	}
+
+	if glMR.Author != nil {
+		pr.Author = glMR.Author.Username
+	}
+
+	if glMR.CreatedAt != nil {
+		pr.CreatedAt = *glMR.CreatedAt
+	}
+
+	if glMR.UpdatedAt != nil {
+		pr.UpdatedAt = *glMR.UpdatedAt
+	}
+
+	return pr, nil
 }
