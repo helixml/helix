@@ -455,10 +455,15 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	}
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
-		WriteTimeout:      time.Minute * 30,
-		ReadTimeout:       time.Minute * 30,
-		ReadHeaderTimeout: time.Minute * 30,
+		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
+		// WriteTimeout and ReadTimeout set to 0 (no timeout) to support:
+		// - Large git clone/push operations that can take a long time
+		// - Long-running streaming responses (SSE, WebSocket upgrades)
+		// - LLM inference streaming that can take minutes
+		// Note: ReadHeaderTimeout is kept to prevent slowloris attacks
+		WriteTimeout:      0,
+		ReadTimeout:       0,
+		ReadHeaderTimeout: time.Second * 60,
 		IdleTimeout:       time.Minute * 60,
 		Handler:           apiServer.router,
 	}
@@ -1331,8 +1336,8 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Create HTTP server
 	srv := &http.Server{
 		Handler:      router,
-		ReadTimeout:  time.Minute * 30, // Increased from 15 to 30 minutes
-		WriteTimeout: time.Minute * 30, // Increased from 15 to 30 minutes
+		ReadTimeout:  0, // No timeout for long-running operations
+		WriteTimeout: 0, // No timeout for streaming responses
 	}
 
 	log.Info().Str("socket", socketPath).Msg("starting embeddings socket server")
