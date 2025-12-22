@@ -704,11 +704,14 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	}
 
 	// Look up user to get git user name and email
+	// CRITICAL: User credentials are REQUIRED for git commits in repositories
+	// Enterprise ADO deployments reject pushes containing commits from non-corporate email addresses
 	var gitUserName, gitUserEmail string
 	if agent.UserID != "" {
 		user, err := w.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
 		if err != nil {
-			log.Warn().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+			log.Error().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+			return nil, fmt.Errorf("failed to get user for git config: %w", err)
 		} else if user != nil {
 			gitUserName = user.FullName
 			gitUserEmail = user.Email
@@ -717,6 +720,17 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 				gitUserName = user.Username
 			}
 		}
+	}
+
+	// ALWAYS require user email for git commits
+	// Even if no repos are pre-configured, user might clone repos manually or create new ones
+	// Enterprise ADO deployments reject commits from non-corporate email addresses
+	if gitUserEmail == "" {
+		log.Error().
+			Str("session_id", agent.SessionID).
+			Str("user_id", agent.UserID).
+			Msg("Cannot start agent without user email - required for git commits")
+		return nil, fmt.Errorf("user email is required for git commits")
 	}
 
 	extraEnv := []string{
@@ -765,6 +779,18 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	}
 	if gitUserEmail != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
+
+	// Pass branch configuration for startup script to checkout correct branch
+	// This ensures the agent starts on the right branch without relying on prompts
+	if agent.BranchMode != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_BRANCH_MODE=%s", agent.BranchMode))
+	}
+	if agent.BaseBranch != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_BASE_BRANCH=%s", agent.BaseBranch))
+	}
+	if agent.WorkingBranch != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_WORKING_BRANCH=%s", agent.WorkingBranch))
 	}
 
 	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)

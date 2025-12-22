@@ -1,4 +1,5 @@
-import React, { FC } from 'react'
+import React, { FC, useMemo } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import {
   Box,
   Typography,
@@ -34,11 +35,19 @@ import {
   ExternalLink,
   ArrowUp,
   ArrowDown,
+  Brain,
+  Database,
+  ArrowRight,
 } from 'lucide-react'
 import {
-  getEnrichmentTypeIcon,
-  getEnrichmentTypeName,
+  koditEnrichmentDetailQueryKey,
+  KODIT_SUBTYPE_PHYSICAL,
+  KODIT_SUBTYPE_ARCHITECTURE,
+  KODIT_SUBTYPE_DATABASE_SCHEMA,
 } from '../../services/koditService'
+import MermaidDiagram, { extractMermaidDiagrams, hasMermaidDiagram } from '../widgets/MermaidDiagram'
+import useRouter from '../../hooks/useRouter'
+import useApi from '../../hooks/useApi'
 import {
   useCreateGitRepositoryPullRequest,
   useListRepositoryPullRequests,
@@ -131,22 +140,93 @@ const CodeTab: FC<CodeTabProps> = ({
   handleNavigateToDirectory,
   handleSelectFile,
   handleNavigateUp,
-  handlePushPull,  
-  getPathBreadcrumbs,  
-  setCreateBranchDialogOpen,  
+  handlePushPull,
+  getPathBreadcrumbs,
+  setCreateBranchDialogOpen,
   setNewBranchName,
-  setNewBranchBase,  
-  setCreateFileDialogOpen,  
+  setNewBranchBase,
+  setCreateFileDialogOpen,
   setNewFilePath,
   setNewFileContent,
-  setIsEditingFile,  
+  setIsEditingFile,
 }) => {
+  const router = useRouter()
+  const api = useApi()
+  const apiClient = api.getApiClient()
   const createPullRequestMutation = useCreateGitRepositoryPullRequest()
   const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
   const pushToRemoteMutation = usePushToRemote()
   const pullFromRemoteMutation = usePullFromRemote()
   const snackbar = useSnackbar()
   const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
+  const repoId = repository?.id || ''
+
+  // Find enrichments that might contain Mermaid diagrams (physical, architecture, database_schema)
+  // Prioritize physical first
+  const diagramEnrichmentIds = useMemo(() => {
+    const DIAGRAM_SUBTYPES = [KODIT_SUBTYPE_PHYSICAL, KODIT_SUBTYPE_ARCHITECTURE, KODIT_SUBTYPE_DATABASE_SCHEMA]
+
+    // Sort by priority (physical first)
+    const sorted = [...(enrichments || [])].sort((a, b) => {
+      const aSubtype = a?.attributes?.subtype || ''
+      const bSubtype = b?.attributes?.subtype || ''
+      const aIndex = DIAGRAM_SUBTYPES.indexOf(aSubtype)
+      const bIndex = DIAGRAM_SUBTYPES.indexOf(bSubtype)
+      if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex
+      if (aIndex >= 0) return -1
+      if (bIndex >= 0) return 1
+      return 0
+    })
+
+    return sorted
+      .filter(e => {
+        const subtype = e?.attributes?.subtype
+        return DIAGRAM_SUBTYPES.includes(subtype)
+      })
+      .map(e => e.id)
+      .filter(Boolean)
+      .slice(0, 1) // Only fetch the first one for the CTA preview
+  }, [enrichments])
+
+  // Fetch full details for the first diagram enrichment
+  const diagramEnrichmentQueries = useQueries({
+    queries: diagramEnrichmentIds.map(enrichmentId => ({
+      queryKey: koditEnrichmentDetailQueryKey(repoId, enrichmentId),
+      queryFn: async () => {
+        const response = await apiClient.v1GitRepositoriesEnrichmentsDetail2(repoId, enrichmentId)
+        return response.data
+      },
+      enabled: !!repoId && !!enrichmentId && repository?.kodit_indexing,
+      staleTime: 5 * 60 * 1000,
+    })),
+  })
+
+  // Extract first Mermaid diagram for preview CTA from full content
+  const firstMermaidDiagram = useMemo(() => {
+    for (const query of diagramEnrichmentQueries) {
+      if (query.data?.attributes) {
+        const content = query.data?.attributes?.content || ''
+        if (hasMermaidDiagram(content)) {
+          const diagrams = extractMermaidDiagrams(content)
+          if (diagrams.length > 0) {
+            const isERD = diagrams[0].toLowerCase().includes('erdiagram')
+            return {
+              diagram: diagrams[0],
+              type: isERD ? 'erd' : 'graph',
+            }
+          }
+        }
+      }
+    }
+    return null
+  }, [diagramEnrichmentQueries])
+
+  // Check if diagrams are still loading
+  const diagramsLoading = diagramEnrichmentQueries.some(q => q.isLoading) && diagramEnrichmentIds.length > 0
+
+  const handleNavigateToCodeIntelligence = () => {
+    router.mergeParams({ tab: 'code-intelligence' })
+  }
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const openMenu = Boolean(anchorEl)
@@ -225,7 +305,7 @@ const CodeTab: FC<CodeTabProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {enrichments?.length > 0 && groupedEnrichments?.['architecture'] && (
+      {enrichments?.length > 0 && groupedEnrichments?.['architecture'] && !firstMermaidDiagram && (
         <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, fontWeight: 600 }}>
             {getEnrichmentTypeIcon('architecture')} {getEnrichmentTypeName('architecture')} Insights
@@ -557,6 +637,55 @@ const CodeTab: FC<CodeTabProps> = ({
         </Box>
 
         <Box sx={{ width: 300, flexShrink: 0 }}>
+          {/* Architecture Diagram Preview */}
+          {diagramsLoading && (
+            <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, mb: 2, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                <Brain size={18} color="#00d5ff" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#00d5ff' }}>
+                  Loading Diagram...
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={24} sx={{ color: '#00d5ff' }} />
+              </Box>
+            </Paper>
+          )}
+          {firstMermaidDiagram && !diagramsLoading && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                mb: 2,
+                bgcolor: 'rgba(0, 213, 255, 0.04)',
+                borderColor: 'rgba(0, 213, 255, 0.2)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  borderColor: 'rgba(0, 213, 255, 0.5)',
+                  boxShadow: '0 4px 20px rgba(0, 213, 255, 0.15)',
+                },
+              }}
+              onClick={handleNavigateToCodeIntelligence}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                {firstMermaidDiagram.type === 'erd' ? (
+                  <Database size={18} color="#00d5ff" />
+                ) : (
+                  <Brain size={18} color="#00d5ff" />
+                )}
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#00d5ff' }}>
+                  {firstMermaidDiagram.type === 'erd' ? 'Database Schema' : 'Architecture'}
+                </Typography>
+                <ArrowRight size={14} color="#00d5ff" style={{ marginLeft: 'auto' }} />
+              </Box>
+              <Box sx={{ minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <MermaidDiagram code={firstMermaidDiagram.diagram} compact enableFullscreen={false} onClick={handleNavigateToCodeIntelligence} />
+              </Box>
+            </Paper>
+          )}
+
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
             <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
               About
@@ -601,7 +730,12 @@ const CodeTab: FC<CodeTabProps> = ({
                     Upstream URL
                   </Typography>
                   <Typography variant="body2">
-                    <a href={repository.external_url} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={repository.external_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#00d5ff', textDecoration: 'none' }}
+                    >
                       {repository.external_url}
                     </a>
                   </Typography>
@@ -646,7 +780,7 @@ const CodeTab: FC<CodeTabProps> = ({
               </Typography>
               <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 {existingPR?.url ? (
-                    <a href={existingPR.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <a href={existingPR.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: '#00d5ff', display: 'flex', alignItems: 'center', gap: 8 }}>
                        <GitPullRequest size={16} /> #{existingPR?.number} {existingPR?.title} <ExternalLink size={14} />
                     </a>
                 ) : (

@@ -114,6 +114,10 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		if filters.DesignDocPath != "" {
 			db = db.Where("design_doc_path = ?", filters.DesignDocPath)
 		}
+		// BranchName filter - used for uniqueness check across projects
+		if filters.BranchName != "" {
+			db = db.Where("branch_name = ?", filters.BranchName)
+		}
 
 		if filters.Limit > 0 {
 			db = db.Limit(filters.Limit)

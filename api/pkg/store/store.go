@@ -574,7 +574,16 @@ type Store interface {
 	GetRepositoriesForProject(ctx context.Context, projectID string) ([]string, error)
 	// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
 	// Used to assign unique task numbers for human-readable design doc paths
+	// DEPRECATED: Use IncrementGlobalTaskNumber for new tasks
 	IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error)
+
+	// IncrementGlobalTaskNumber atomically increments the global task counter and returns the new value
+	// Task numbers are unique across the entire deployment (not per-project)
+	IncrementGlobalTaskNumber(ctx context.Context) (int, error)
+
+	// Project Audit Log methods - append-only audit trail for project activity
+	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
+	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
@@ -636,6 +645,10 @@ type Store interface {
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
 	GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error)
 	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Prompt history methods (for cross-device sync)
+	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
+	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 }
 
 type EmbeddingsStore interface {

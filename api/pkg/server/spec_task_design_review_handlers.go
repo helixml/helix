@@ -279,8 +279,12 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			baseBranch = "main"
 		}
 
-		// Generate feature branch name using task number (e.g., feature/install-uv-123)
-		branchName := services.GenerateFeatureBranchName(specTask)
+		// Generate unique feature branch name (checks for collisions across all projects)
+		branchName, err := services.GenerateUniqueBranchName(ctx, s.Store, specTask)
+		if err != nil {
+			log.Error().Err(err).Str("task_id", specTask.ID).Msg("Failed to generate unique branch name, using fallback")
+			branchName = services.GenerateFeatureBranchName(specTask)
+		}
 
 		// Move to implementation status
 		specTask.Status = types.TaskStatusImplementation
@@ -1054,7 +1058,9 @@ func (s *HelixAPIServer) finalizeCommentResponse(
 		Str("completed_comment", comment.ID).
 		Msg("Comment response complete, checking for next in queue")
 
-	go s.processNextCommentInQueue(ctx, sessionID)
+	// Call synchronously - we're already in a goroutine from handleMessageCompleted
+	// No need for another async hop which adds latency
+	s.processNextCommentInQueue(ctx, sessionID)
 
 	return nil
 }

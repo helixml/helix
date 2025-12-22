@@ -417,9 +417,10 @@ type WebServer struct {
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:""`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
-	// Set to "all" to make all users admins (development mode).
-	// Otherwise, admin status is determined by the user's admin field in the database.
-	AdminUsers string `envconfig:"ADMIN_USERS" description:"Set to 'all' for dev mode where everyone is admin. Otherwise uses database admin field."`
+	// Comma-separated list of user IDs that should be admins, or "all" for dev mode.
+	// If empty, admin status is determined by the user's admin field in the database.
+	// Examples: "all", "user-123,user-456", ""
+	AdminUserIDs []string `envconfig:"ADMIN_USER_IDS" description:"Comma-separated list of admin user IDs, or 'all' for dev mode. Empty uses database admin field."`
 	// if this is specified then we provide the option to clone entire
 	// sessions into this user without having to logout and login
 	EvalUserID string `envconfig:"EVAL_USER_ID" description:""`
@@ -445,7 +446,7 @@ type WebServer struct {
 	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
 }
 
-// AdminAllUsers is the special value for ADMIN_USERS that makes all users admins
+// AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
 const AdminAllUsers = "all"
 
 type SubscriptionQuotas struct {

@@ -340,11 +340,20 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		commitMessage = fmt.Sprintf("Update %s", path)
 	}
 
-	if authorName == "" {
-		authorName = s.gitUserName
-	}
-	if authorEmail == "" {
-		authorEmail = s.gitUserEmail
+	// External repos MUST have author credentials to avoid commits with non-corporate emails
+	// Enterprise ADO deployments reject pushes containing commits from non-corporate email addresses
+	if repo.IsExternal {
+		if authorName == "" || authorEmail == "" {
+			return "", fmt.Errorf("author name and email are required for external repositories")
+		}
+	} else {
+		// Only allow fallback for internal repos
+		if authorName == "" {
+			authorName = s.gitUserName
+		}
+		if authorEmail == "" {
+			authorEmail = s.gitUserEmail
+		}
 	}
 
 	wc, err := s.getWorkingCopy(repo.LocalPath, branch, nil)

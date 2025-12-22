@@ -148,6 +148,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Transaction{},
 		&types.TopUp{},
 		&types.Project{},
+		&types.ProjectAuditLog{}, // Audit trail for project activity
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -176,6 +177,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.WolfInstance{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
+		&types.PromptHistoryEntry{},
+		&types.GlobalCounter{},
 	)
 	if err != nil {
 		return err
@@ -563,18 +566,37 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 	return nil
 }
 
-// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the new value
+// IncrementProjectTaskNumber atomically increments NextTaskNumber and returns the current value
 // Uses raw SQL with RETURNING for database-level atomicity - no race conditions
+// Returns the value BEFORE incrementing (so first task gets 1, second gets 2, etc.)
 func (s *PostgresStore) IncrementProjectTaskNumber(ctx context.Context, projectID string) (int, error) {
-	var newNumber int
+	var currentNumber int
 	err := s.gdb.WithContext(ctx).Raw(`
 		UPDATE projects
 		SET next_task_number = next_task_number + 1
 		WHERE id = ?
-		RETURNING next_task_number
-	`, projectID).Scan(&newNumber).Error
+		RETURNING next_task_number - 1
+	`, projectID).Scan(&currentNumber).Error
 	if err != nil {
 		return 0, fmt.Errorf("error incrementing project task number: %w", err)
+	}
+	return currentNumber, nil
+}
+
+// IncrementGlobalTaskNumber atomically increments the global task counter and returns the new value
+// Uses INSERT ON CONFLICT (upsert) to handle first-time creation, then UPDATE RETURNING for atomicity
+// Returns the value AFTER incrementing (so first task gets 1, second gets 2, etc.)
+func (s *PostgresStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
+	var newNumber int
+	err := s.gdb.WithContext(ctx).Raw(`
+		INSERT INTO global_counters (name, value, updated_at)
+		VALUES ('task_number', 1, NOW())
+		ON CONFLICT (name) DO UPDATE
+		SET value = global_counters.value + 1, updated_at = NOW()
+		RETURNING value
+	`).Scan(&newNumber).Error
+	if err != nil {
+		return 0, fmt.Errorf("error incrementing global task number: %w", err)
 	}
 	return newNumber, nil
 }

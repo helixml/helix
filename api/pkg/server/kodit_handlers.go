@@ -305,6 +305,8 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		return // Error already written to response
 	}
 
+	log.Debug().Str("query", query).Int("limit", limit).Str("commit_sha", commitSHA).Str("kodit_repo_id", koditRepoID).Msg("Searching snippets in Kodit")
+
 	// Search snippets from Kodit
 	snippets, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit, commitSHA)
 	if err != nil {

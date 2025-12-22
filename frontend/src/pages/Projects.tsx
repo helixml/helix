@@ -417,20 +417,20 @@ const Projects: FC = () => {
           <Button
             variant="outlined"
             size="small"
-            startIcon={<Link size={16} />}
-            onClick={() => setLinkRepoDialogOpen(true)}
+            startIcon={<Plus size={16} />}
+            onClick={() => setCreateRepoDialogOpen(true)}
             sx={{ textTransform: 'none', mr: 1 }}
           >
-            Link External
+            New Repository
           </Button>
           <Button
             variant="contained"
             color="secondary"
             size="small"
-            startIcon={<Plus size={16} />}
-            onClick={() => setCreateRepoDialogOpen(true)}
+            startIcon={<Link size={16} />}
+            onClick={() => setLinkRepoDialogOpen(true)}
           >
-            New
+            Link External Repository
           </Button>
         </>
       ) : null}
@@ -472,6 +472,8 @@ const Projects: FC = () => {
             paginatedRepositories={paginatedRepositories}
             totalPages={reposTotalPages}
             onViewRepository={handleViewRepository}
+            onCreateRepo={() => setCreateRepoDialogOpen(true)}
+            onLinkExternalRepo={() => setLinkRepoDialogOpen(true)}
           />
         )}
 

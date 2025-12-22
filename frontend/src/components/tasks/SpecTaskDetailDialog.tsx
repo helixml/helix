@@ -36,6 +36,7 @@ import Send from '@mui/icons-material/Send'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import LaunchIcon from '@mui/icons-material/Launch'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -51,6 +52,7 @@ import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useResize } from '../../hooks/useResize'
 import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import RobustPromptInput from '../common/RobustPromptInput'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -152,7 +154,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
   const nodeRef = useRef(null)
 
@@ -406,22 +407,6 @@ I'll give you feedback and we can iterate on any changes needed.`
         || err?.message
         || 'Failed to start planning. Please try again.'
       snackbar.error(errorMessage)
-    }
-  }
-
-  const handleSendMessage = async () => {
-    if (!message.trim() || !activeSessionId) return
-
-    try {
-      await streaming.NewInference({
-        type: SESSION_TYPE_TEXT,
-        message: message.trim(),
-        sessionId: activeSessionId,
-      })
-      setMessage('')
-    } catch (err) {
-      console.error('Failed to send message:', err)
-      snackbar.error('Failed to send message')
     }
   }
 
@@ -777,8 +762,8 @@ I'll give you feedback and we can iterate on any changes needed.`
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="subtitle1">
-                {displayTask.name}
+              <Typography variant="subtitle1" noWrap sx={{ maxWidth: 400 }}>
+                {displayTask.description || displayTask.name || 'Unnamed task'}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
                 <Chip
@@ -900,30 +885,20 @@ I'll give you feedback and we can iterate on any changes needed.`
 
               {/* Message input box */}
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder="Send message to agent..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage()
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="contained"
-                    size="small"
-                    endIcon={<Send />}
-                    onClick={handleSendMessage}
-                    disabled={!message.trim()}
-                  >
-                    Send
-                  </Button>
-                </Box>
+                <RobustPromptInput
+                  sessionId={activeSessionId}
+                  specTaskId={displayTask.id}
+                  projectId={displayTask.project_id}
+                  apiClient={api.getApiClient()}
+                  onSend={async (message: string) => {
+                    await streaming.NewInference({
+                      type: SESSION_TYPE_TEXT,
+                      message,
+                      sessionId: activeSessionId,
+                    })
+                  }}
+                  placeholder="Send message to agent..."
+                />
               </Box>
             </>
           )}
@@ -1006,31 +981,21 @@ I'll give you feedback and we can iterate on any changes needed.`
                     Review Spec
                   </Button>
                 )}
+                {displayTask.pull_request_url && (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<LaunchIcon />}
+                    onClick={() => window.open(displayTask.pull_request_url, '_blank')}
+                  >
+                    View Pull Request
+                  </Button>
+                )}
               </Box>
 
               <Divider sx={{ mb: 3 }} />
 
-              {/* Task Name - Editable */}
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Name
-                </Typography>
-                {isEditMode ? (
-                  <TextField
-                    fullWidth
-                    size="small"
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Task name"
-                  />
-                ) : (
-                  <Typography variant="body1">
-                    {displayTask.name || 'Unnamed task'}
-                  </Typography>
-                )}
-              </Box>
-
-              {/* Full Description/Prompt - Editable */}
+              {/* Description - always show (name is derived from description) */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                   Description
@@ -1186,6 +1151,20 @@ I'll give you feedback and we can iterate on any changes needed.`
                 {displayTask.branch_name && (
                   <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                     Branch: {displayTask.branch_name}
+                  </Typography>
+                )}
+                {displayTask.pull_request_url && (
+                  <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    Pull Request:{' '}
+                    <a
+                      href={displayTask.pull_request_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#4caf50', textDecoration: 'underline', fontWeight: 600 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      #{displayTask.pull_request_id}
+                    </a>
                   </Typography>
                 )}
                 {activeSessionId && (

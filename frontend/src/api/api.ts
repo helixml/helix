@@ -1713,6 +1713,65 @@ export interface TypesAssistantZapier {
   name?: string;
 }
 
+export enum TypesAuditEventType {
+  AuditEventTaskCreated = "task_created",
+  AuditEventTaskCloned = "task_cloned",
+  AuditEventTaskApproved = "task_approved",
+  AuditEventTaskCompleted = "task_completed",
+  AuditEventTaskArchived = "task_archived",
+  AuditEventTaskUnarchived = "task_unarchived",
+  AuditEventAgentPrompt = "agent_prompt",
+  AuditEventUserMessage = "user_message",
+  AuditEventAgentStarted = "agent_started",
+  AuditEventSpecGenerated = "spec_generated",
+  AuditEventSpecUpdated = "spec_updated",
+  AuditEventReviewComment = "review_comment",
+  AuditEventReviewCommentReply = "review_comment_reply",
+  AuditEventPRCreated = "pr_created",
+  AuditEventPRMerged = "pr_merged",
+  AuditEventGitPush = "git_push",
+  AuditEventProjectCreated = "project_created",
+  AuditEventProjectDeleted = "project_deleted",
+  AuditEventProjectSettingsUpdated = "project_settings_updated",
+  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+}
+
+export interface TypesAuditMetadata {
+  branch_name?: string;
+  /** Group ID linking related cloned tasks */
+  clone_group_id?: string;
+  /** Clone tracking (matches SpecTask fields) */
+  cloned_from_id?: string;
+  /** Source project ID if cloned from another project */
+  cloned_from_project_id?: string;
+  comment_id?: string;
+  /** Design review tracking */
+  design_review_id?: string;
+  /** External system tracking (e.g., Azure DevOps) */
+  external_task_id?: string;
+  external_task_url?: string;
+  /** Hash of implementation plan content */
+  implementation_plan_hash?: string;
+  /** For scrolling to specific interaction in session view */
+  interaction_id?: string;
+  /** Project information */
+  project_name?: string;
+  /** Pull request information */
+  pull_request_id?: string;
+  pull_request_url?: string;
+  /** Hash of requirements spec content */
+  requirements_spec_hash?: string;
+  /** Helix session/interaction linking */
+  session_id?: string;
+  /** Spec versioning - capture spec state at time of event */
+  spec_version?: number;
+  task_name?: string;
+  /** Task information */
+  task_number?: number;
+  /** Hash of technical design content */
+  technical_design_hash?: string;
+}
+
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
   AuthProviderKeycloak = "keycloak",
@@ -2014,6 +2073,8 @@ export interface TypesCreateTaskRequest {
   type?: string;
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Optional: User email for audit trail */
+  user_email?: string;
   user_id?: string;
   /** For existing mode: branch to continue working on */
   working_branch?: string;
@@ -2357,6 +2418,11 @@ export interface TypesGitRepository {
   owner_id?: string;
   /** Password for the repository */
   password?: string;
+  /**
+   * Deprecated: ProjectID is maintained for backward compatibility only.
+   * Use the project_repositories junction table for many-to-many project-repo relationships.
+   * This column is kept in the database for rollback compatibility but reads should use the junction table.
+   */
   project_id?: string;
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
@@ -3224,6 +3290,25 @@ export interface TypesProject {
   user_id?: string;
 }
 
+export interface TypesProjectAuditLog {
+  created_at?: string;
+  event_type?: TypesAuditEventType;
+  id?: string;
+  metadata?: TypesAuditMetadata;
+  project_id?: string;
+  prompt_text?: string;
+  spec_task_id?: string;
+  user_email?: string;
+  user_id?: string;
+}
+
+export interface TypesProjectAuditLogResponse {
+  limit?: number;
+  logs?: TypesProjectAuditLog[];
+  offset?: number;
+  total?: number;
+}
+
 export interface TypesProjectCreateRequest {
   default_branch?: string;
   /** Default agent for spec tasks */
@@ -3258,6 +3343,56 @@ export interface TypesProjectUpdateRequest {
   startup_script?: string;
   status?: string;
   technologies?: string[];
+}
+
+export interface TypesPromptHistoryEntry {
+  /** Content */
+  content?: string;
+  /** Timestamps */
+  created_at?: string;
+  /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
+  id?: string;
+  /** For reference, but primary grouping is by spec_task */
+  project_id?: string;
+  /** Optional - which session this was sent to */
+  session_id?: string;
+  spec_task_id?: string;
+  /**
+   * Status tracks whether this was successfully sent
+   * Values: "pending", "sent", "failed"
+   */
+  status?: string;
+  updated_at?: string;
+  user_id?: string;
+}
+
+export interface TypesPromptHistoryEntrySync {
+  content?: string;
+  id?: string;
+  session_id?: string;
+  status?: string;
+  /** Unix timestamp in milliseconds */
+  timestamp?: number;
+}
+
+export interface TypesPromptHistoryListResponse {
+  entries?: TypesPromptHistoryEntry[];
+  total?: number;
+}
+
+export interface TypesPromptHistorySyncRequest {
+  entries?: TypesPromptHistoryEntrySync[];
+  project_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesPromptHistorySyncResponse {
+  /** All entries for this user+project (for client merge) */
+  entries?: TypesPromptHistoryEntry[];
+  /** Number that already existed */
+  existing?: number;
+  /** Number of entries synced */
+  synced?: number;
 }
 
 export enum TypesProvider {
@@ -4031,6 +4166,8 @@ export interface TypesSpecTask {
   project_id?: string;
   project_path?: string;
   pull_request_id?: string;
+  /** Computed field, not stored */
+  pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
   spec_approved_at?: string;
@@ -4295,6 +4432,7 @@ export enum TypesSpecTaskStatus {
   TaskStatusImplementationQueued = "implementation_queued",
   TaskStatusImplementation = "implementation",
   TaskStatusImplementationReview = "implementation_review",
+  TaskStatusPullRequest = "pull_request",
   TaskStatusDone = "done",
   TaskStatusSpecFailed = "spec_failed",
   TaskStatusImplementationFailed = "implementation_failed",
@@ -8356,6 +8494,47 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get paginated audit logs for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsAuditLogsDetail
+     * @summary List project audit logs
+     * @request GET:/api/v1/projects/{id}/audit-logs
+     * @secure
+     */
+    v1ProjectsAuditLogsDetail: (
+      id: string,
+      query?: {
+        /** Filter by event type */
+        event_type?: string;
+        /** Filter by user ID */
+        user_id?: string;
+        /** Filter by spec task ID */
+        spec_task_id?: string;
+        /** Filter by start date (RFC3339) */
+        start_date?: string;
+        /** Filter by end date (RFC3339) */
+        end_date?: string;
+        /** Search prompt text */
+        search?: string;
+        /** Page size (default 50, max 100) */
+        limit?: number;
+        /** Pagination offset */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProjectAuditLogResponse, TypesAPIError>({
+        path: `/api/v1/projects/${id}/audit-logs`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
      *
      * @tags Projects
@@ -8533,6 +8712,60 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ProjectsQuickCreateCreate: (request: ServerQuickCreateProjectRequest, params: RequestParams = {}) =>
       this.request<TypesProject, TypesAPIError>({
         path: `/api/v1/projects/quick-create`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get prompt history entries for the current user
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryList
+     * @summary List prompt history
+     * @request GET:/api/v1/prompt-history
+     * @secure
+     */
+    v1PromptHistoryList: (
+      query: {
+        /** Spec Task ID (required) */
+        spec_task_id: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
+        /** Session ID (optional filter) */
+        session_id?: string;
+        /** Only entries after this timestamp (Unix milliseconds) */
+        since?: number;
+        /** Max entries to return (default 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryListResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sync prompt history entries from the frontend (union merge - no deletes)
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistorySyncCreate
+     * @summary Sync prompt history
+     * @request POST:/api/v1/prompt-history/sync
+     * @secure
+     */
+    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
+      this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history/sync`,
         method: "POST",
         body: request,
         secure: true,
@@ -10330,10 +10563,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
      * @secure
      */
-    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksStartPlanningCreate: (
+      taskId: string,
+      query?: {
+        /** XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection */
+        keyboard?: string;
+        /** IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection */
+        timezone?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/start-planning`,
         method: "POST",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",

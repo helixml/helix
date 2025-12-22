@@ -67,6 +67,8 @@ interface CreateProjectDialogProps {
   onCreateRepo?: (name: string, description: string) => Promise<TypesGitRepository | null>
   // For linking external repos
   onLinkRepo?: (url: string, name: string, type: TypesExternalRepositoryType, username?: string, password?: string, azureDevOps?: TypesAzureDevOps) => Promise<TypesGitRepository | null>
+  // Preselect an existing repo (used when creating project from repo detail page)
+  preselectedRepoId?: string
 }
 
 const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
@@ -77,6 +79,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   reposLoading,
   onCreateRepo,
   onLinkRepo,
+  preselectedRepoId,
 }) => {
   const account = useAccount()
   const snackbar = useSnackbar()
@@ -95,7 +98,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   // External repo linking fields
   const [externalUrl, setExternalUrl] = useState('')
   const [externalName, setExternalName] = useState('')
-  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+  const [externalType, setExternalType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
   const [externalUsername, setExternalUsername] = useState('')
   const [externalPassword, setExternalPassword] = useState('')
   const [externalOrgUrl, setExternalOrgUrl] = useState('')
@@ -168,7 +171,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
     }
   }, [open, loadApps])
 
-  // Reset form when dialog closes
+  // Reset form when dialog closes or initialize with preselected repo
   useEffect(() => {
     if (!open) {
       setName('')
@@ -180,7 +183,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setUserModifiedRepoName(false)
       setExternalUrl('')
       setExternalName('')
-      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
+      setExternalType(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
       setExternalUsername('')
       setExternalPassword('')
       setExternalOrgUrl('')
@@ -195,8 +198,12 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
       setSelectedModel('')
       setCodeAgentRuntime('zed_agent')
       setAgentError('')
+    } else if (preselectedRepoId) {
+      // When opening with a preselected repo, switch to select mode
+      setRepoMode('select')
+      setSelectedRepoId(preselectedRepoId)
     }
-  }, [open])
+  }, [open, preselectedRepoId])
 
   // Auto-select first repo if available
   useEffect(() => {
@@ -445,12 +452,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
             value={repoMode}
             exclusive
             onChange={(_, v) => {
-              if (v) {
+              if (v && !preselectedRepoId) {
                 setRepoMode(v)
               }
             }}
             size="small"
             fullWidth
+            disabled={!!preselectedRepoId}
           >
             <ToggleButton value="create">
               <Plus size={16} style={{ marginRight: 4 }} />
@@ -473,7 +481,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                 value={selectedRepoId}
                 label="Select Repository"
                 onChange={(e) => setSelectedRepoId(e.target.value)}
-                disabled={reposLoading}
+                disabled={reposLoading || !!preselectedRepoId}
               >
                 {codeRepos.map((repo) => (
                   <MenuItem key={repo.id} value={repo.id}>

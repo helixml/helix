@@ -72,6 +72,11 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// Set creator credentials for git commits
+	// Enterprise ADO deployments reject commits with non-corporate email addresses
+	request.CreatorName = user.FullName
+	request.CreatorEmail = user.Email
+
 	// Create repository
 	repository, err := s.gitRepositoryService.CreateRepository(r.Context(), &request)
 	if err != nil {
@@ -164,10 +169,10 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get API key for Kodit to clone local repos (non-external repos)
-	// Only needed when enabling KoditIndexing for a local repository
+	// Get API key for Kodit to clone repos via Helix's git server
+	// Needed when enabling KoditIndexing for ANY repository (external repos are mirrored to Helix)
 	var koditAPIKey string
-	if request.KoditIndexing != nil && *request.KoditIndexing && !existing.KoditIndexing && !existing.IsExternal {
+	if request.KoditIndexing != nil && *request.KoditIndexing && !existing.KoditIndexing {
 		if user.TokenType == types.TokenTypeAPIKey {
 			// User authenticated with API key - use it directly
 			koditAPIKey = user.Token
@@ -332,6 +337,11 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Set creator credentials for git commits
+	// Enterprise ADO deployments reject commits with non-corporate email addresses
+	request.CreatorName = user.FullName
+	request.CreatorEmail = user.Email
+
 	repository, err := s.gitRepositoryService.CreateSampleRepository(
 		r.Context(),
 		&request,
@@ -404,6 +414,8 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 // @Router /api/v1/samples/initialize [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+
 	var request InitializeSampleRepositoriesRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
@@ -463,6 +475,8 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 				OwnerID:        request.OwnerID,
 				OrganizationID: request.OrganizationID,
 				SampleType:     sample.SampleType,
+				CreatorName:    user.FullName,
+				CreatorEmail:   user.Email,
 			},
 		)
 		if err != nil {
