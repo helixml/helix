@@ -97,6 +97,19 @@ const EmbeddedSessionView: FC<EmbeddedSessionViewProps> = ({
     }
   }, [session?.interactions?.length, scrollToBottom])
 
+  // Scroll to bottom on initial mount (with slight delay to ensure DOM is ready)
+  const hasInitiallyScrolledRef = useRef(false)
+  useEffect(() => {
+    if (session?.interactions && session.interactions.length > 0 && !hasInitiallyScrolledRef.current) {
+      hasInitiallyScrolledRef.current = true
+      // Use a small timeout to ensure the container and content are fully rendered
+      const timeoutId = setTimeout(() => {
+        scrollToBottom()
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [session?.interactions, scrollToBottom])
+
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
     await refetchSession()
