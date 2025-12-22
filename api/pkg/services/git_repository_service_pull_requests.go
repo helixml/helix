@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/types"
@@ -33,6 +34,8 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeGitLab:
 		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+	case types.ExternalRepositoryTypeBitbucket:
+		return s.createBitbucketPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	default:
 		return "", fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -102,6 +105,8 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 		return s.listGitHubPullRequests(ctx, repo)
 	case types.ExternalRepositoryTypeGitLab:
 		return s.listGitLabMergeRequests(ctx, repo)
+	case types.ExternalRepositoryTypeBitbucket:
+		return s.listBitbucketPullRequests(ctx, repo)
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -219,6 +224,12 @@ func (s *GitRepositoryService) GetPullRequest(ctx context.Context, repoID, id st
 			return nil, fmt.Errorf("invalid merge request IID: %w", err)
 		}
 		return s.getGitLabMergeRequest(ctx, repo, mrIID)
+	case types.ExternalRepositoryTypeBitbucket:
+		prID, err := strconv.Atoi(id)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pull request ID: %w", err)
+		}
+		return s.getBitbucketPullRequest(ctx, repo, prID)
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
@@ -652,4 +663,128 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 	}
 
 	return pr, nil
+}
+
+// Bitbucket Pull Request Operations
+
+func (s *GitRepositoryService) getBitbucketClient(ctx context.Context, repo *types.GitRepository) (*bitbucket.Client, error) {
+	// Determine base URL (empty for bitbucket.org, custom for Bitbucket Server)
+	var baseURL string
+	var username string
+	var appPassword string
+
+	if repo.Bitbucket != nil {
+		baseURL = repo.Bitbucket.BaseURL
+		username = repo.Bitbucket.Username
+		appPassword = repo.Bitbucket.AppPassword
+	}
+
+	// Fall back to generic username/password if Bitbucket-specific settings not available
+	if username == "" {
+		username = repo.Username
+	}
+	if appPassword == "" {
+		appPassword = repo.Password
+	}
+
+	if username == "" || appPassword == "" {
+		return nil, fmt.Errorf("no Bitbucket authentication configured - provide username and app password")
+	}
+
+	return bitbucket.NewClient(username, appPassword, baseURL), nil
+}
+
+func (s *GitRepositoryService) createBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+	client, err := s.getBitbucketClient(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+
+	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse Bitbucket URL: %w", err)
+	}
+
+	pr, err := client.CreatePullRequest(ctx, workspace, repoSlug, title, description, sourceBranch, targetBranch)
+	if err != nil {
+		log.Error().Err(err).
+			Str("workspace", workspace).
+			Str("repo_slug", repoSlug).
+			Str("title", title).
+			Str("source_branch", sourceBranch).
+			Str("target_branch", targetBranch).
+			Msg("failed to create Bitbucket pull request")
+		return "", fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	return strconv.Itoa(pr.ID), nil
+}
+
+func (s *GitRepositoryService) listBitbucketPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
+	client, err := s.getBitbucketClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Bitbucket URL: %w", err)
+	}
+
+	bbPRs, err := client.ListPullRequests(ctx, workspace, repoSlug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pull requests: %w", err)
+	}
+
+	prs := make([]*types.PullRequest, 0, len(bbPRs))
+	for _, bbPR := range bbPRs {
+		pr := &types.PullRequest{
+			ID:           strconv.Itoa(bbPR.ID),
+			Number:       bbPR.ID,
+			Title:        bbPR.Title,
+			Description:  bbPR.Description,
+			State:        bbPR.State,
+			SourceBranch: bbPR.SourceBranch,
+			TargetBranch: bbPR.TargetBranch,
+			Author:       bbPR.Author,
+			URL:          bbPR.HTMLURL,
+			CreatedAt:    bbPR.CreatedAt,
+			UpdatedAt:    bbPR.UpdatedAt,
+		}
+
+		prs = append(prs, pr)
+	}
+
+	return prs, nil
+}
+
+func (s *GitRepositoryService) getBitbucketPullRequest(ctx context.Context, repo *types.GitRepository, prID int) (*types.PullRequest, error) {
+	client, err := s.getBitbucketClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	workspace, repoSlug, _, err := bitbucket.ParseBitbucketURL(repo.ExternalURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Bitbucket URL: %w", err)
+	}
+
+	bbPR, err := client.GetPullRequest(ctx, workspace, repoSlug, prID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pull request: %w", err)
+	}
+
+	return &types.PullRequest{
+		ID:           strconv.Itoa(bbPR.ID),
+		Number:       bbPR.ID,
+		Title:        bbPR.Title,
+		Description:  bbPR.Description,
+		State:        bbPR.State,
+		SourceBranch: bbPR.SourceBranch,
+		TargetBranch: bbPR.TargetBranch,
+		Author:       bbPR.Author,
+		URL:          bbPR.HTMLURL,
+		CreatedAt:    bbPR.CreatedAt,
+		UpdatedAt:    bbPR.UpdatedAt,
+	}, nil
 }

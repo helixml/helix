@@ -18686,6 +18686,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Bitbucket": {
+            "type": "object",
+            "properties": {
+                "app_password": {
+                    "description": "Bitbucket App Password (recommended over regular password)",
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "For Bitbucket Server/Data Center (empty for bitbucket.org)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Bitbucket username (required for API auth)",
+                    "type": "string"
+                }
+            }
+        },
         "types.BoardSettings": {
             "type": "object",
             "properties": {
@@ -18713,7 +18730,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "base_url": {
-                    "description": "Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise)",
+                    "description": "Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server)",
                     "type": "string"
                 },
                 "organization_url": {
@@ -18721,7 +18738,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider_type": {
-                    "description": "Provider type: \"github\", \"gitlab\", \"ado\"",
+                    "description": "Provider type: \"github\", \"gitlab\", \"ado\", \"bitbucket\"",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.ExternalRepositoryType"
@@ -18729,7 +18746,11 @@ const docTemplate = `{
                     ]
                 },
                 "token": {
-                    "description": "Personal Access Token for authentication",
+                    "description": "Personal Access Token or App Password for authentication",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Username for authentication (required for Bitbucket)",
                     "type": "string"
                 }
             }
@@ -20262,6 +20283,10 @@ const docTemplate = `{
         "types.GitProviderConnectionCreateRequest": {
             "type": "object",
             "properties": {
+                "auth_username": {
+                    "description": "Username for authentication (required for Bitbucket)",
+                    "type": "string"
+                },
                 "base_url": {
                     "type": "string"
                 },
@@ -20289,6 +20314,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.AzureDevOps"
                         }
                     ]
+                },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
                 },
                 "branches": {
                     "type": "array",
@@ -20397,6 +20425,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.AzureDevOps"
                         }
                     ]
+                },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
                 },
                 "default_branch": {
                     "type": "string"
@@ -20528,6 +20559,9 @@ const docTemplate = `{
             "properties": {
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOps"
+                },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
                 },
                 "default_branch": {
                     "type": "string"
@@ -26476,20 +26510,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {

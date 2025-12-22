@@ -1806,6 +1806,15 @@ export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
 
+export interface TypesBitbucket {
+  /** Bitbucket App Password (recommended over regular password) */
+  app_password?: string;
+  /** For Bitbucket Server/Data Center (empty for bitbucket.org) */
+  base_url?: string;
+  /** Bitbucket username (required for API auth) */
+  username?: string;
+}
+
 export interface TypesBoardSettings {
   wip_limits?: TypesWIPLimits;
 }
@@ -1816,14 +1825,16 @@ export enum TypesBranchMode {
 }
 
 export interface TypesBrowseRemoteRepositoriesRequest {
-  /** Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise) */
+  /** Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server) */
   base_url?: string;
   /** Organization URL (required for Azure DevOps) */
   organization_url?: string;
-  /** Provider type: "github", "gitlab", "ado" */
+  /** Provider type: "github", "gitlab", "ado", "bitbucket" */
   provider_type?: TypesExternalRepositoryType;
-  /** Personal Access Token for authentication */
+  /** Personal Access Token or App Password for authentication */
   token?: string;
+  /** Username for authentication (required for Bitbucket) */
+  username?: string;
 }
 
 export interface TypesChatCompletionMessage {
@@ -2453,6 +2464,8 @@ export interface TypesGitProviderConnection {
 }
 
 export interface TypesGitProviderConnectionCreateRequest {
+  /** Username for authentication (required for Bitbucket) */
+  auth_username?: string;
   base_url?: string;
   name?: string;
   organization_url?: string;
@@ -2463,6 +2476,7 @@ export interface TypesGitProviderConnectionCreateRequest {
 export interface TypesGitRepository {
   /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
@@ -2512,6 +2526,7 @@ export interface TypesGitRepository {
 export interface TypesGitRepositoryCreateRequest {
   /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -2563,6 +2578,7 @@ export enum TypesGitRepositoryType {
 
 export interface TypesGitRepositoryUpdateRequest {
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -5016,12 +5032,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {

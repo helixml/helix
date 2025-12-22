@@ -154,13 +154,15 @@ func (t *OAuthRequestToken) BeforeCreate(_ *gorm.DB) error {
 
 // BrowseRemoteRepositoriesRequest is the request body for browsing remote repositories using PAT
 type BrowseRemoteRepositoriesRequest struct {
-	// Provider type: "github", "gitlab", "ado"
+	// Provider type: "github", "gitlab", "ado", "bitbucket"
 	ProviderType ExternalRepositoryType `json:"provider_type"`
-	// Personal Access Token for authentication
+	// Personal Access Token or App Password for authentication
 	Token string `json:"token"`
+	// Username for authentication (required for Bitbucket)
+	Username string `json:"username,omitempty"`
 	// Organization URL (required for Azure DevOps)
 	OrganizationURL string `json:"organization_url,omitempty"`
-	// Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise)
+	// Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server)
 	BaseURL string `json:"base_url,omitempty"`
 }
 
@@ -184,6 +186,9 @@ type GitProviderConnection struct {
 	// Personal Access Token (encrypted at rest)
 	Token string `json:"-" gorm:"not null;type:text"`
 
+	// Username for authentication (required for Bitbucket, stored encrypted)
+	AuthUsername string `json:"-" gorm:"type:text"`
+
 	// For Azure DevOps: organization URL
 	OrganizationURL string `json:"organization_url,omitempty"`
 
@@ -204,6 +209,8 @@ type GitProviderConnectionCreateRequest struct {
 	ProviderType    ExternalRepositoryType `json:"provider_type"`
 	Name            string                 `json:"name,omitempty"`
 	Token           string                 `json:"token"`
+	// Username for authentication (required for Bitbucket)
+	AuthUsername    string                 `json:"auth_username,omitempty"`
 	OrganizationURL string                 `json:"organization_url,omitempty"`
 	BaseURL         string                 `json:"base_url,omitempty"`
 }

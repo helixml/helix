@@ -3095,6 +3095,18 @@ definitions:
       enabled:
         type: boolean
     type: object
+  types.Bitbucket:
+    properties:
+      app_password:
+        description: Bitbucket App Password (recommended over regular password)
+        type: string
+      base_url:
+        description: For Bitbucket Server/Data Center (empty for bitbucket.org)
+        type: string
+      username:
+        description: Bitbucket username (required for API auth)
+        type: string
+    type: object
   types.BoardSettings:
     properties:
       wip_limits:
@@ -3114,8 +3126,8 @@ definitions:
   types.BrowseRemoteRepositoriesRequest:
     properties:
       base_url:
-        description: Base URL for self-hosted instances (for GitHub Enterprise or
-          GitLab Enterprise)
+        description: Base URL for self-hosted instances (for GitHub Enterprise, GitLab
+          Enterprise, or Bitbucket Server)
         type: string
       organization_url:
         description: Organization URL (required for Azure DevOps)
@@ -3123,9 +3135,12 @@ definitions:
       provider_type:
         allOf:
         - $ref: '#/definitions/types.ExternalRepositoryType'
-        description: 'Provider type: "github", "gitlab", "ado"'
+        description: 'Provider type: "github", "gitlab", "ado", "bitbucket"'
       token:
-        description: Personal Access Token for authentication
+        description: Personal Access Token or App Password for authentication
+        type: string
+      username:
+        description: Username for authentication (required for Bitbucket)
         type: string
     type: object
   types.ChatCompletionMessage:
@@ -4164,6 +4179,9 @@ definitions:
     type: object
   types.GitProviderConnectionCreateRequest:
     properties:
+      auth_username:
+        description: Username for authentication (required for Bitbucket)
+        type: string
       base_url:
         type: string
       name:
@@ -4181,6 +4199,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.AzureDevOps'
         description: Provider-specific settings
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       branches:
         items:
           type: string
@@ -4259,6 +4279,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.AzureDevOps'
         description: Provider-specific settings
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       default_branch:
         type: string
       description:
@@ -4349,6 +4371,8 @@ definitions:
     properties:
       azure_devops:
         $ref: '#/definitions/types.AzureDevOps'
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       default_branch:
         type: string
       description:
@@ -8563,20 +8587,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:

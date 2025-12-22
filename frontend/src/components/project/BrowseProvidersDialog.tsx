@@ -24,7 +24,7 @@ import {
 } from '@mui/material'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import { Search, Brain, ExternalLink, CheckCircle, Cloud, Key } from 'lucide-react'
-import { SiGitlab } from 'react-icons/si'
+import { SiGitlab, SiBitbucket } from 'react-icons/si'
 
 import {
   useListOAuthConnections,
@@ -39,6 +39,8 @@ import {
 import { TypesRepositoryInfo, TypesExternalRepositoryType } from '../../api/api'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import useAccount from '../../hooks/useAccount'
+import useRouter from '../../hooks/useRouter'
 
 interface BrowseProvidersDialogProps {
   open: boolean
@@ -49,8 +51,8 @@ interface BrowseProvidersDialogProps {
   organizationName?: string
 }
 
-type ProviderType = 'github' | 'gitlab' | 'azure-devops'
-type ViewMode = 'providers' | 'pat-entry' | 'browse-repos' | 'browse-pat-repos'
+type ProviderType = 'github' | 'gitlab' | 'azure-devops' | 'bitbucket'
+type ViewMode = 'providers' | 'choose-method' | 'pat-entry' | 'browse-repos' | 'browse-pat-repos'
 
 interface ProviderConfig {
   id: ProviderType
@@ -61,15 +63,18 @@ interface ProviderConfig {
 
 interface PatCredentials {
   pat: string
+  username?: string // For Bitbucket
   orgUrl?: string
   gitlabBaseUrl?: string
   githubBaseUrl?: string
+  bitbucketBaseUrl?: string
 }
 
 const PROVIDERS: ProviderConfig[] = [
   { id: 'github', name: 'GitHub', icon: <GitHubIcon />, color: '#f0f0f0' },
   { id: 'gitlab', name: 'GitLab', icon: <SiGitlab size={24} />, color: '#FC6D26' },
   { id: 'azure-devops', name: 'Azure DevOps', icon: <Cloud size={24} />, color: '#0078D7' },
+  { id: 'bitbucket', name: 'Bitbucket', icon: <SiBitbucket size={24} />, color: '#0052CC' },
 ]
 
 const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
@@ -81,6 +86,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
+  const account = useAccount()
+  const router = useRouter()
   const [viewMode, setViewMode] = useState<ViewMode>('providers')
   const [selectedProvider, setSelectedProvider] = useState<ProviderType | null>(null)
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
@@ -94,6 +101,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const [orgUrl, setOrgUrl] = useState('') // For Azure DevOps
   const [gitlabBaseUrl, setGitlabBaseUrl] = useState('') // For self-hosted GitLab
   const [githubBaseUrl, setGithubBaseUrl] = useState('') // For GitHub Enterprise
+  const [bitbucketUsername, setBitbucketUsername] = useState('') // For Bitbucket
+  const [bitbucketBaseUrl, setBitbucketBaseUrl] = useState('') // For Bitbucket Server
   const [patCredentials, setPatCredentials] = useState<PatCredentials | null>(null)
   const [saveConnection, setSaveConnection] = useState(true) // Save PAT for future use
 
@@ -130,6 +139,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setOrgUrl('')
       setGitlabBaseUrl('')
       setGithubBaseUrl('')
+      setBitbucketUsername('')
+      setBitbucketBaseUrl('')
       setPatCredentials(null)
       setPatRepos([])
       setPatReposError(null)
@@ -144,6 +155,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       if (providerType === 'azure-devops') {
         return connType === 'azure-devops' || connType === 'ado'
       }
+      if (providerType === 'bitbucket') {
+        return connType === 'bitbucket'
+      }
       return connType === providerType
     })
   }
@@ -154,6 +168,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       const connType = conn.provider_type?.toLowerCase()
       if (providerType === 'azure-devops') {
         return connType === 'azure-devops' || connType === 'ado'
+      }
+      if (providerType === 'bitbucket') {
+        return connType === 'bitbucket'
       }
       return connType === providerType
     })
@@ -185,6 +202,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         return 'gitlab' as TypesExternalRepositoryType
       case 'azure-devops':
         return 'ado' as TypesExternalRepositoryType
+      case 'bitbucket':
+        return 'bitbucket' as TypesExternalRepositoryType
     }
   }
 
@@ -199,8 +218,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       const response = await apiClient.v1GitBrowseRemoteCreate({
         provider_type: mapProviderType(provider),
         token: creds.pat,
+        username: creds.username,
         organization_url: creds.orgUrl,
-        base_url: creds.gitlabBaseUrl || creds.githubBaseUrl,
+        base_url: creds.gitlabBaseUrl || creds.githubBaseUrl || creds.bitbucketBaseUrl,
       })
 
       const repos = response.data?.repositories || []
@@ -233,32 +253,43 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   }
 
   const handleProviderClick = (providerType: ProviderType) => {
-    const oauthConnection = getOAuthConnectionForProvider(providerType)
-    const patConnection = getPatConnectionForProvider(providerType)
+    // Always show the choose-method screen so users can pick OAuth or PAT
+    setSelectedProvider(providerType)
+    setViewMode('choose-method')
+  }
 
+  // Handle choosing OAuth connection method
+  const handleChooseOAuth = () => {
+    if (!selectedProvider) return
+
+    const oauthConnection = getOAuthConnectionForProvider(selectedProvider)
     if (oauthConnection) {
-      // OAuth connected - browse repos
-      setSelectedProvider(providerType)
+      // Already connected - browse repos
       setSelectedConnectionId(oauthConnection.id || null)
       setViewMode('browse-repos')
-    } else if (patConnection) {
-      // PAT connected - browse repos using saved connection
-      setSelectedProvider(providerType)
+    } else {
+      // Start OAuth flow
+      const providerId = getProviderIdForType(selectedProvider)
+      if (providerId) {
+        sessionStorage.setItem('oauth_return_url', window.location.href)
+        window.location.href = `/api/v1/oauth/flow/start/${providerId}`
+      }
+    }
+  }
+
+  // Handle choosing PAT connection method
+  const handleChoosePat = () => {
+    if (!selectedProvider) return
+
+    const patConnection = getPatConnectionForProvider(selectedProvider)
+    if (patConnection) {
+      // Already have saved PAT - browse repos
       setSelectedPatConnectionId(patConnection.id || null)
       setViewMode('browse-pat-repos')
       fetchReposForSavedConnection(patConnection.id || '')
     } else {
-      // Check if OAuth is available
-      const providerId = getProviderIdForType(providerType)
-      if (providerId) {
-        // OAuth available - start flow
-        sessionStorage.setItem('oauth_return_url', window.location.href)
-        window.location.href = `/api/v1/oauth/flow/start/${providerId}`
-      } else {
-        // No OAuth - show PAT entry
-        setSelectedProvider(providerType)
-        setViewMode('pat-entry')
-      }
+      // Show PAT entry form
+      setViewMode('pat-entry')
     }
   }
 
@@ -267,9 +298,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
 
     const creds: PatCredentials = {
       pat,
+      username: selectedProvider === 'bitbucket' ? bitbucketUsername : undefined,
       orgUrl: selectedProvider === 'azure-devops' ? orgUrl : undefined,
       gitlabBaseUrl: selectedProvider === 'gitlab' ? gitlabBaseUrl : undefined,
       githubBaseUrl: selectedProvider === 'github' ? githubBaseUrl : undefined,
+      bitbucketBaseUrl: selectedProvider === 'bitbucket' ? bitbucketBaseUrl : undefined,
     }
     setPatCredentials(creds)
     setViewMode('browse-pat-repos')
@@ -283,8 +316,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         await createPatConnection.mutateAsync({
           provider_type: mapProviderType(selectedProvider) as any,
           token: pat,
+          auth_username: creds.username,
           organization_url: creds.orgUrl,
-          base_url: creds.gitlabBaseUrl || creds.githubBaseUrl,
+          base_url: creds.gitlabBaseUrl || creds.githubBaseUrl || creds.bitbucketBaseUrl,
         })
         snackbar.success('Connection saved for future use')
       } catch (err) {
@@ -302,9 +336,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       const providerWithCreds = JSON.stringify({
         type: selectedProvider,
         pat: patCredentials.pat,
+        username: patCredentials.username,
         orgUrl: patCredentials.orgUrl,
         gitlabBaseUrl: patCredentials.gitlabBaseUrl,
         githubBaseUrl: patCredentials.githubBaseUrl,
+        bitbucketBaseUrl: patCredentials.bitbucketBaseUrl,
       })
       onSelectRepository(selectedRepo, providerWithCreds)
     } else {
@@ -320,8 +356,30 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPatRepos([])
       setPatReposError(null)
       setSelectedRepo(null)
+    } else if (viewMode === 'browse-pat-repos' || viewMode === 'browse-repos') {
+      // Coming from repo browser - go back to choose-method
+      setViewMode('choose-method')
+      setSelectedConnectionId(null)
+      setSelectedPatConnectionId(null)
+      setSearchQuery('')
+      setSelectedRepo(null)
+      setPatRepos([])
+      setPatReposError(null)
+    } else if (viewMode === 'pat-entry') {
+      // Coming from PAT entry - go back to choose-method
+      setViewMode('choose-method')
+      setPat('')
+      setOrgUrl('')
+      setGitlabBaseUrl('')
+      setGithubBaseUrl('')
+      setBitbucketUsername('')
+      setBitbucketBaseUrl('')
+    } else if (viewMode === 'choose-method') {
+      // Coming from choose-method - go back to providers list
+      setViewMode('providers')
+      setSelectedProvider(null)
     } else {
-      // Go back to providers list
+      // Default: go back to providers list
       setViewMode('providers')
       setSelectedProvider(null)
       setSelectedConnectionId(null)
@@ -332,6 +390,8 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setOrgUrl('')
       setGitlabBaseUrl('')
       setGithubBaseUrl('')
+      setBitbucketUsername('')
+      setBitbucketBaseUrl('')
       setPatCredentials(null)
       setPatRepos([])
       setPatReposError(null)
@@ -445,6 +505,128 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
     )
   }
 
+  // Choose connection method view
+  if (viewMode === 'choose-method') {
+    const oauthConnection = selectedProvider ? getOAuthConnectionForProvider(selectedProvider) : null
+    const patConnection = selectedProvider ? getPatConnectionForProvider(selectedProvider) : null
+    const hasOAuth = selectedProvider ? !!getProviderIdForType(selectedProvider) : false
+
+    return (
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ color: currentProvider?.color }}>{currentProvider?.icon}</Box>
+          Connect to {currentProvider?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Choose how you want to connect to {currentProvider?.name}.
+          </Typography>
+
+          <List>
+            {/* OAuth option */}
+            <ListItem disablePadding sx={{ mb: 1 }}>
+              <ListItemButton
+                onClick={handleChooseOAuth}
+                disabled={!hasOAuth}
+                sx={{
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  opacity: hasOAuth ? 1 : 0.5,
+                }}
+              >
+                <ListItemIcon>
+                  <ExternalLink size={24} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Connect via OAuth"
+                  secondary={
+                    oauthConnection
+                      ? `Connected as ${oauthConnection.profile?.name || oauthConnection.profile?.email || 'user'}`
+                      : hasOAuth
+                        ? 'Securely authorize access through your browser'
+                        : 'OAuth not configured by administrator'
+                  }
+                />
+                {oauthConnection && (
+                  <Chip
+                    icon={<CheckCircle size={14} />}
+                    label="Connected"
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                  />
+                )}
+              </ListItemButton>
+            </ListItem>
+
+            {/* PAT option */}
+            <ListItem disablePadding>
+              <ListItemButton
+                onClick={handleChoosePat}
+                sx={{
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                }}
+              >
+                <ListItemIcon>
+                  <Key size={24} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Use Personal Access Token"
+                  secondary={
+                    patConnection
+                      ? `Saved token for ${patConnection.username || patConnection.email || 'user'}`
+                      : 'Enter a token manually for authentication'
+                  }
+                />
+                {patConnection && (
+                  <Chip
+                    icon={<CheckCircle size={14} />}
+                    label="Saved"
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                  />
+                )}
+              </ListItemButton>
+            </ListItem>
+          </List>
+
+          {/* Help text when OAuth is not available */}
+          {!hasOAuth && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              OAuth is not configured for {currentProvider?.name}.
+              {account.admin ? (
+                <>
+                  {' '}You can{' '}
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      onClose()
+                      router.navigate('dashboard', { tab: 'oauth_providers' })
+                    }}
+                    sx={{ textTransform: 'none', p: 0, minWidth: 'auto', verticalAlign: 'baseline' }}
+                  >
+                    configure OAuth providers
+                  </Button>
+                  {' '}in the admin dashboard, or use a Personal Access Token.
+                </>
+              ) : (
+                ' Contact your administrator to enable OAuth integration, or use a Personal Access Token.'
+              )}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleBack}>Back</Button>
+          <Button onClick={onClose}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+    )
+  }
+
   // PAT entry view
   if (viewMode === 'pat-entry') {
     return (
@@ -492,8 +674,29 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               />
             )}
 
+            {selectedProvider === 'bitbucket' && (
+              <>
+                <TextField
+                  label="Username"
+                  fullWidth
+                  value={bitbucketUsername}
+                  onChange={(e) => setBitbucketUsername(e.target.value)}
+                  placeholder="your-bitbucket-username"
+                  helperText="Your Bitbucket username (required for authentication)"
+                />
+                <TextField
+                  label="Bitbucket Server URL (optional)"
+                  fullWidth
+                  value={bitbucketBaseUrl}
+                  onChange={(e) => setBitbucketBaseUrl(e.target.value)}
+                  placeholder="https://bitbucket.mycompany.com"
+                  helperText="Leave empty for bitbucket.org, or enter your Bitbucket Server URL"
+                />
+              </>
+            )}
+
             <TextField
-              label="Personal Access Token"
+              label={selectedProvider === 'bitbucket' ? 'App Password' : 'Personal Access Token'}
               fullWidth
               type="password"
               value={pat}
@@ -503,7 +706,9 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                   ? 'Create a token at GitHub → Settings → Developer settings → Personal access tokens'
                   : selectedProvider === 'gitlab'
                     ? 'Create a token at GitLab → Preferences → Access Tokens'
-                    : 'Create a token at Azure DevOps → User settings → Personal access tokens'
+                    : selectedProvider === 'bitbucket'
+                      ? 'Create an App Password at Bitbucket → Personal settings → App passwords'
+                      : 'Create a token at Azure DevOps → User settings → Personal access tokens'
               }
             />
 
@@ -531,7 +736,11 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
             variant="contained"
             color="secondary"
             onClick={handlePatSubmit}
-            disabled={!pat.trim() || (selectedProvider === 'azure-devops' && !orgUrl.trim())}
+            disabled={
+              !pat.trim() ||
+              (selectedProvider === 'azure-devops' && !orgUrl.trim()) ||
+              (selectedProvider === 'bitbucket' && !bitbucketUsername.trim())
+            }
           >
             Browse Repositories
           </Button>
