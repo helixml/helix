@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react';
+import React, { FC, useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Button, Typography, CircularProgress, IconButton, Tooltip, Collapse } from '@mui/material';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -107,13 +107,38 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     try {
       await api.post(`/api/v1/sessions/${sessionId}/resume`);
       snackbar.success('External agent started successfully');
+      // Success - don't reset isResuming here
+      // The useEffect below will reset it when container state changes
     } catch (error: any) {
       console.error('Failed to resume agent:', error);
       snackbar.error(error?.message || 'Failed to start agent');
-    } finally {
+      // Error - reset so user can retry
       setIsResuming(false);
     }
   };
+
+  // Reset resuming state when container state changes
+  // This handles both success (isStarting/isRunning) and failure (isPaused after attempt)
+  useEffect(() => {
+    // Only reset if we were resuming and state has resolved
+    if (isResuming && (isRunning || isStarting)) {
+      // Container started successfully - button will disappear anyway
+      setIsResuming(false);
+    }
+  }, [isRunning, isStarting, isResuming]);
+
+  // Also reset if container goes back to paused (failed to start)
+  // Use a ref to track if we were in a non-paused state
+  const wasNotPausedRef = useRef(false);
+  useEffect(() => {
+    if (!isPaused) {
+      wasNotPausedRef.current = true;
+    } else if (wasNotPausedRef.current && isPaused) {
+      // Transitioned from non-paused back to paused (container failed)
+      setIsResuming(false);
+      wasNotPausedRef.current = false;
+    }
+  }, [isPaused]);
 
   // Handler for sending messages from the session panel
   // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
