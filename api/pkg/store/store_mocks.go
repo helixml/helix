@@ -4372,6 +4372,20 @@ func (mr *MockStoreMockRecorder) MarkPromptAsFailed(ctx, promptID any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsFailed", reflect.TypeOf((*MockStore)(nil).MarkPromptAsFailed), ctx, promptID)
 }
 
+// MarkPromptAsPending mocks base method.
+func (m *MockStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkPromptAsPending", ctx, promptID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkPromptAsPending indicates an expected call of MarkPromptAsPending.
+func (mr *MockStoreMockRecorder) MarkPromptAsPending(ctx, promptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPromptAsPending", reflect.TypeOf((*MockStore)(nil).MarkPromptAsPending), ctx, promptID)
+}
+
 // MarkPromptAsSent mocks base method.
 func (m *MockStore) MarkPromptAsSent(ctx context.Context, promptID string) error {
 	m.ctrl.T.Helper()
