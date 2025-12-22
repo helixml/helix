@@ -18,6 +18,7 @@ import {
   Button,
   CircularProgress,
   Chip,
+  Alert,
 } from '@mui/material'
 import {
   Close as CloseIcon,
@@ -41,6 +42,7 @@ import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
+import ArchiveConfirmDialog from './ArchiveConfirmDialog'
 
 // Pulse animation for active agent indicator
 const activePulse = keyframes`
@@ -301,6 +303,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const [designReviewOpen, setDesignReviewOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
 
+  // Archive/reject confirmation dialog state
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
   const unopenedTasks = tasks.filter(t => !panel.tabs.some(tab => tab.id === t.id))
 
@@ -444,14 +449,23 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
     }
   }
 
-  // Handle rejecting task (archive)
-  const handleRejectTask = async () => {
+  // Handle rejecting task - show confirmation dialog
+  const handleRejectTask = () => {
+    if (!activeTask?.id) return
+    setArchiveConfirmOpen(true)
+  }
+
+  // Actually perform the archive operation (called after confirmation)
+  const performArchive = async () => {
     if (!activeTask?.id) return
 
+    setArchiveConfirmOpen(false)
     setIsActioning(true)
     try {
-      await api.getApiClient().v1SpecTasksUpdate(activeTask.id, { archived: true })
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(activeTask.id, { archived: true })
       snackbar.success('Task rejected and archived')
+      // Close the tab after archiving
+      onTabClose(panel.id, activeTask.id)
     } catch (err: any) {
       console.error('Failed to reject task:', err)
       snackbar.error(err?.response?.data?.message || 'Failed to reject task')
@@ -836,6 +850,15 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           reviewId={activeReviewId}
         />
       )}
+
+      {/* Archive Confirmation Dialog */}
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => setArchiveConfirmOpen(false)}
+        onConfirm={performArchive}
+        taskName={activeTask?.name || activeTask?.description}
+        isArchiving={isActioning}
+      />
     </Box>
   )
 }
