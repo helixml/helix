@@ -2283,9 +2283,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [audioEnabled]);
 
-  // Poll WebRTC stats when stats overlay is visible
+  // Poll WebRTC stats when stats overlay or charts are visible
   useEffect(() => {
-    if (!showStats || !streamRef.current) {
+    if ((!showStats && !showCharts) || !streamRef.current) {
       return;
     }
 
@@ -2467,7 +2467,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats, streamingMode, width, height, qualityMode]);
+  }, [showStats, showCharts, streamingMode, width, height, qualityMode]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
@@ -3863,10 +3863,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               </Box>
             </Box>
           </Box>
-
-          <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#666', fontStyle: 'italic' }}>
-            Test with Chrome DevTools → Network → Throttling → "Fast 4G" or "Slow 4G" to see adaptive behavior
-          </Typography>
         </Box>
         );
       })()}
