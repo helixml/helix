@@ -57,6 +57,7 @@ const ServiceConnectionsTable: FC = () => {
   const [adoClientSecret, setAdoClientSecret] = useState('')
 
   const [testingId, setTestingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // Fetch service connections
   const { data: connections, isLoading, error, refetch } = useQuery({
@@ -86,14 +87,17 @@ const ServiceConnectionsTable: FC = () => {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      setDeletingId(id)
       await apiClient.v1ServiceConnectionsDelete(id)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-connections'] })
       snackbar.success('Service connection deleted')
+      setDeletingId(null)
     },
     onError: () => {
       snackbar.error('Failed to delete connection')
+      setDeletingId(null)
     },
   })
 
@@ -160,9 +164,14 @@ const ServiceConnectionsTable: FC = () => {
     if (!name.trim()) return false
 
     if (connectionType === 'github_app') {
-      return !!githubAppId && !!githubInstallationId && !!githubPrivateKey
+      // Validate GitHub App ID and Installation ID are valid numbers
+      const appIdNum = parseInt(githubAppId, 10)
+      const installIdNum = parseInt(githubInstallationId, 10)
+      if (isNaN(appIdNum) || appIdNum <= 0) return false
+      if (isNaN(installIdNum) || installIdNum <= 0) return false
+      return !!githubPrivateKey.trim()
     } else {
-      return !!adoOrgUrl && !!adoTenantId && !!adoClientId && !!adoClientSecret
+      return !!adoOrgUrl.trim() && !!adoTenantId.trim() && !!adoClientId.trim() && !!adoClientSecret
     }
   }
 
@@ -294,13 +303,14 @@ const ServiceConnectionsTable: FC = () => {
                       <IconButton
                         size="small"
                         color="error"
+                        disabled={deletingId === conn.id}
                         onClick={() => {
                           if (window.confirm('Delete this service connection?')) {
                             deleteMutation.mutate(conn.id!)
                           }
                         }}
                       >
-                        <Delete fontSize="small" />
+                        {deletingId === conn.id ? <CircularProgress size={16} /> : <Delete fontSize="small" />}
                       </IconButton>
                     </TableCell>
                   </TableRow>

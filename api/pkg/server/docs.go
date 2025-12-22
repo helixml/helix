@@ -27032,20 +27032,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {
