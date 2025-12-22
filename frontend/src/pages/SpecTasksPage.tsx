@@ -110,19 +110,6 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
-  // Fetch tasks for TabsView
-  const { data: tasksData } = useQuery({
-    queryKey: ['spec-tasks', projectId, refreshTrigger],
-    queryFn: async () => {
-      const response = await api.getApiClient().v1SpecTasksList({
-        project_id: projectId || 'default',
-      });
-      return response.data || [];
-    },
-    enabled: !!projectId && viewMode === 'tabs',
-    refetchInterval: 3000, // Refresh every 3 seconds for live updates
-  });
-
   // Query wolf instances to check for privileged mode availability
   const { data: wolfInstances } = useQuery({
     queryKey: ['wolf-instances'],
@@ -153,6 +140,19 @@ const SpecTasksPage: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Fetch tasks for TabsView
+  const { data: tasksData } = useQuery({
+    queryKey: ['spec-tasks', projectId, refreshTrigger],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      return response.data || [];
+    },
+    enabled: !!projectId && viewMode === 'tabs',
+    refetchInterval: 3000, // Refresh every 3 seconds for live updates
+  });
 
   // Create task form state (SIMPLIFIED)
   const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything

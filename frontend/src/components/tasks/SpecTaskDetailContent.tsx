@@ -32,9 +32,9 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
-import ChatIcon from '@mui/icons-material/Chat'
-import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
+import ComputerIcon from '@mui/icons-material/Computer'
+import TuneIcon from '@mui/icons-material/Tune'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -428,20 +428,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           {activeSessionId && (
             <ToggleButton value="session" aria-label="Session view">
               <Tooltip title="Session">
-                <ChatIcon sx={{ fontSize: 18 }} />
+                <ForumOutlinedIcon sx={{ fontSize: 18 }} />
               </Tooltip>
             </ToggleButton>
           )}
           {activeSessionId && (
             <ToggleButton value="desktop" aria-label="Desktop view">
               <Tooltip title="Desktop">
-                <DesktopWindowsIcon sx={{ fontSize: 18 }} />
+                <ComputerIcon sx={{ fontSize: 18 }} />
               </Tooltip>
             </ToggleButton>
           )}
           <ToggleButton value="details" aria-label="Details view">
             <Tooltip title="Details">
-              <InfoOutlinedIcon sx={{ fontSize: 18 }} />
+              <TuneIcon sx={{ fontSize: 18 }} />
             </Tooltip>
           </ToggleButton>
         </ToggleButtonGroup>
