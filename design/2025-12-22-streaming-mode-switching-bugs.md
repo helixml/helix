@@ -298,6 +298,59 @@ The fixes ensure that:
 2. Closed streams cannot render to the canvas (double-checked via `this.closed` AND cleared canvas refs)
 3. SSE decoders verify they're still the active decoder before rendering
 
+## Connection Registry Debug Tool
+
+Added a debug registry to track all active streaming connections. This helps developers verify that connections are being properly created and destroyed.
+
+### Connection Types Tracked
+
+| Type | Description |
+|------|-------------|
+| `websocket-stream` | WebSocket connection for input and signaling |
+| `websocket-video-enabled` | WebSocket video stream is active |
+| `sse-video` | SSE EventSource for video frames |
+| `screenshot-polling` | HTTP polling for screenshots |
+| `webrtc-stream` | WebRTC peer connection |
+
+### Valid Connection Combinations
+
+- `[websocket-stream, websocket-video-enabled]` - WebSocket high quality mode
+- `[websocket-stream, sse-video]` - WebSocket + SSE video mode
+- `[websocket-stream, screenshot-polling]` - WebSocket + screenshot mode
+- `[webrtc-stream]` - WebRTC mode
+
+### Registration Points
+
+1. **websocket-stream**: `connectionComplete` event in info listener
+2. **websocket-video-enabled**: `videoStarted` event in info listener
+3. **sse-video**: First keyframe received in SSE video handler
+4. **screenshot-polling**: Screenshot polling effect start
+5. **webrtc-stream**: `onCanPlay` event on video element
+
+### Unregistration Points
+
+1. **disconnect()**: Calls `clearAllConnections()` to clear all registrations
+2. **connect()**: Calls `clearAllConnections()` at start (belt-and-suspenders)
+3. **Hot-switch teardown**: Unregisters old video source before enabling new one
+4. **SSE stop event**: Unregisters SSE video connection
+5. **SSE decoder error**: Unregisters SSE video connection before reconnect
+6. **Screenshot polling cleanup**: Effect cleanup unregisters connection
+
+### Validation
+
+The `validateConnectionState()` function checks for invalid combinations:
+- Both WebSocket and WebRTC streams active simultaneously
+- Multiple video sources active simultaneously
+- Video source without transport layer
+
+Invalid states are logged to console with `[StreamRegistry] INVALID:` prefix.
+
+### Display
+
+The registry is visible in "Stats for Nerds" panel with:
+- List of active connection types
+- Warning indicator (⚠️ TOO MANY!) if more than 2 connections active
+
 ## Conclusion
 
 The core issues stem from `qualityMode` not being properly scoped to `websocket` streaming mode. The fixes ensure:
@@ -307,3 +360,4 @@ The core issues stem from `qualityMode` not being properly scoped to `websocket`
 4. State guards prevent cross-mode pollution
 5. **Duplicate streams are prevented by closing old resources before creating new ones**
 6. **Rendering is blocked after close() is called via multiple guard checks**
+7. **Connection registry provides visibility into active connections for debugging**
