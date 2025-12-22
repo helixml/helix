@@ -47,6 +47,23 @@ typesense:
     selector: {}
     dataSource: {}
 
+qdrant:
+  enabled: false
+  apiKey: ""
+  image:
+    repository: qdrant/qdrant
+    tag: "v1.16.1"
+  persistence:
+    enabled: true
+    storageClass: ""
+    annotations: {}
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    existingClaim: ""
+    selector: {}
+    dataSource: {}
+
 pgvector:
   enabled: true
   auth:
