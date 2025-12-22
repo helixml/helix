@@ -663,18 +663,23 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		}
 	}
 
-	// Get spec directory name for git hooks (Spec-Ref trailer)
+	// Get spec directory name and task number for git hooks (Spec-Ref trailer)
 	var specDirName string
+	var taskNumber int
 	if agent.SpecTaskID != "" {
 		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
 		if err != nil {
 			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get spec task for design doc path")
-		} else if specTask != nil && specTask.DesignDocPath != "" {
-			specDirName = specTask.DesignDocPath
+		} else if specTask != nil {
+			taskNumber = specTask.TaskNumber
+			if specTask.DesignDocPath != "" {
+				specDirName = specTask.DesignDocPath
+			}
 			log.Debug().
 				Str("spec_task_id", agent.SpecTaskID).
 				Str("spec_dir_name", specDirName).
-				Msg("Spec directory name for git hooks")
+				Int("task_number", taskNumber).
+				Msg("Spec task info for git hooks and docker compose project naming")
 		}
 	}
 
@@ -769,6 +774,11 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	// Add spec directory name for git hooks (Spec-Ref trailer includes this)
 	if specDirName != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_SPEC_DIR_NAME=%s", specDirName))
+	}
+
+	// Add task number for docker compose project naming (human-readable isolation)
+	if taskNumber > 0 {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_TASK_NUMBER=%d", taskNumber))
 	}
 
 	// Pass repository information for startup script to clone
