@@ -63,6 +63,7 @@ interface PatCredentials {
   pat: string
   orgUrl?: string
   gitlabBaseUrl?: string
+  githubBaseUrl?: string
 }
 
 const PROVIDERS: ProviderConfig[] = [
@@ -92,6 +93,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
   const [pat, setPat] = useState('')
   const [orgUrl, setOrgUrl] = useState('') // For Azure DevOps
   const [gitlabBaseUrl, setGitlabBaseUrl] = useState('') // For self-hosted GitLab
+  const [githubBaseUrl, setGithubBaseUrl] = useState('') // For GitHub Enterprise
   const [patCredentials, setPatCredentials] = useState<PatCredentials | null>(null)
   const [saveConnection, setSaveConnection] = useState(true) // Save PAT for future use
 
@@ -127,6 +129,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPat('')
       setOrgUrl('')
       setGitlabBaseUrl('')
+      setGithubBaseUrl('')
       setPatCredentials(null)
       setPatRepos([])
       setPatReposError(null)
@@ -197,7 +200,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         provider_type: mapProviderType(provider),
         token: creds.pat,
         organization_url: creds.orgUrl,
-        base_url: creds.gitlabBaseUrl,
+        base_url: creds.gitlabBaseUrl || creds.githubBaseUrl,
       })
 
       const repos = response.data?.repositories || []
@@ -266,6 +269,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       pat,
       orgUrl: selectedProvider === 'azure-devops' ? orgUrl : undefined,
       gitlabBaseUrl: selectedProvider === 'gitlab' ? gitlabBaseUrl : undefined,
+      githubBaseUrl: selectedProvider === 'github' ? githubBaseUrl : undefined,
     }
     setPatCredentials(creds)
     setViewMode('browse-pat-repos')
@@ -280,7 +284,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
           provider_type: mapProviderType(selectedProvider) as any,
           token: pat,
           organization_url: creds.orgUrl,
-          base_url: creds.gitlabBaseUrl,
+          base_url: creds.gitlabBaseUrl || creds.githubBaseUrl,
         })
         snackbar.success('Connection saved for future use')
       } catch (err) {
@@ -300,6 +304,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
         pat: patCredentials.pat,
         orgUrl: patCredentials.orgUrl,
         gitlabBaseUrl: patCredentials.gitlabBaseUrl,
+        githubBaseUrl: patCredentials.githubBaseUrl,
       })
       onSelectRepository(selectedRepo, providerWithCreds)
     } else {
@@ -326,6 +331,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       setPat('')
       setOrgUrl('')
       setGitlabBaseUrl('')
+      setGithubBaseUrl('')
       setPatCredentials(null)
       setPatRepos([])
       setPatReposError(null)
@@ -461,6 +467,17 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
                 onChange={(e) => setOrgUrl(e.target.value)}
                 placeholder="https://dev.azure.com/your-org"
                 helperText="Your Azure DevOps organization URL"
+              />
+            )}
+
+            {selectedProvider === 'github' && (
+              <TextField
+                label="GitHub Enterprise URL (optional)"
+                fullWidth
+                value={githubBaseUrl}
+                onChange={(e) => setGithubBaseUrl(e.target.value)}
+                placeholder="https://github.mycompany.com"
+                helperText="Leave empty for github.com, or enter your GitHub Enterprise URL"
               />
             )}
 
