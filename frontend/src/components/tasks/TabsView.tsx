@@ -770,7 +770,6 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           <SpecTaskDetailContent
             key={activeTab.id}
             taskId={activeTab.id}
-            onClose={() => onTabClose(panel.id, activeTab.id)}
           />
         ) : (
           <Box

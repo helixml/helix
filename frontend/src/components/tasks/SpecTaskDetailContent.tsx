@@ -178,12 +178,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Get the active session ID
   const activeSessionId = task?.planning_session_id
 
-  // Default to details view when no active session
+  // Default to appropriate view based on session state
   useEffect(() => {
-    if (!activeSessionId && currentView !== 'details') {
+    if (activeSessionId && currentView === 'details') {
+      // If there's an active session and we're on details, switch to session view
+      setCurrentView('session')
+    } else if (!activeSessionId && currentView !== 'details') {
+      // If no active session, switch to details view
       setCurrentView('details')
     }
-  }, [activeSessionId, currentView])
+  }, [activeSessionId])
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
@@ -391,23 +395,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           px: 1.5,
-          py: 1,
+          py: 0.75,
           borderBottom: '1px solid',
           borderColor: 'divider',
           backgroundColor: 'background.paper',
           gap: 1,
         }}
       >
-        {/* Left: Task info */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" noWrap sx={{ fontWeight: 500, flex: 1 }}>
-            {task.name || task.description || 'Unnamed task'}
-          </Typography>
-          <Chip label={formatStatus(task.status)} color={getStatusColor(task.status)} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-          <Chip label={task.priority || 'Medium'} color={getPriorityColor(task.priority)} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
-        </Box>
-
-        {/* Center: View toggle icons */}
+        {/* Left: View toggle icons */}
         <ToggleButtonGroup
           value={currentView}
           exclusive
@@ -445,6 +440,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             </Tooltip>
           </ToggleButton>
         </ToggleButtonGroup>
+
+        {/* Spacer */}
+        <Box sx={{ flex: 1 }} />
 
         {/* Right: Action buttons */}
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
