@@ -246,3 +246,21 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 
 	return &session, nil
 }
+
+// ListSessionsWithDesiredState returns sessions where metadata.desired_state matches
+// Used by the reconciler to find sessions that should be running
+func (s *PostgresStore) ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) {
+	var sessions []*types.Session
+
+	// PostgreSQL JSONB query for metadata.desired_state
+	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
+	err := s.gdb.WithContext(ctx).
+		Where("config->>'desired_state' = ?", desiredState).
+		Find(&sessions).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}

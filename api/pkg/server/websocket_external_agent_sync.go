@@ -323,6 +323,9 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Msg("🔧 [HELIX] Restored contextMappings from session metadata (ensures message routing after restart)")
 			}
 
+			// Check if agent needs a continue prompt after container restart
+			apiServer.sendContinuePromptIfNeeded(ctx, helixSessionID, wsConn)
+
 			// Find the waiting interaction
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 				SessionID:    helixSessionID,
@@ -384,6 +387,13 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 									Str("request_id", requestID).
 									Str("helix_session_id", helixSessionID).
 									Msg("✅ [HELIX] Sent initial chat_message to Zed")
+								// Update agent work state to working
+								if activity, actErr := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID); actErr == nil && activity != nil {
+									activity.AgentWorkState = types.AgentWorkStateWorking
+									activity.LastPromptContent = fullMessage
+									activity.LastInteraction = time.Now()
+									apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+								}
 							default:
 								log.Warn().
 									Str("agent_session_id", agentID).
@@ -1201,6 +1211,22 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 			Str("session_id", sessionID).
 			Str("command_type", command.Type).
 			Msg("✅ Sent command to specific external Zed agent")
+
+		// Update agent work state to working when sending chat messages
+		if command.Type == "chat_message" {
+			msg, _ := command.Data["message"].(string) // Safe type assertion
+			go func(sid string, promptContent string) {
+				activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sid)
+				if err == nil && activity != nil {
+					activity.AgentWorkState = types.AgentWorkStateWorking
+					if promptContent != "" {
+						activity.LastPromptContent = promptContent
+					}
+					activity.LastInteraction = time.Now()
+					apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+				}
+			}(sessionID, msg)
+		}
 		return nil
 	default:
 		return fmt.Errorf("external agent send channel full for session %s", sessionID)
@@ -1532,6 +1558,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Int("final_response_length", len(targetInteraction.ResponseMessage)).
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
+
+	// Update agent work state to idle (agent is done working on this message)
+	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID)
+	if err == nil && activity != nil {
+		activity.AgentWorkState = types.AgentWorkStateIdle
+		activity.LastInteraction = time.Now()
+		if updateErr := apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity); updateErr != nil {
+			log.Warn().Err(updateErr).Str("session_id", helixSessionID).Msg("Failed to update agent work state to idle")
+		} else {
+			log.Debug().Str("session_id", helixSessionID).Msg("Updated agent work state to idle")
+		}
+	}
 
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
@@ -2110,4 +2148,70 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 	}
 
 	return nil
+}
+
+// sendContinuePromptIfNeeded checks agent work state and sends continue prompt if agent was working
+// Called when WebSocket reconnects after container restart
+func (apiServer *HelixAPIServer) sendContinuePromptIfNeeded(ctx context.Context, sessionID string, wsConn *ExternalAgentWSConnection) {
+	// Get activity record to check work state
+	activity, err := apiServer.Store.GetExternalAgentActivity(ctx, sessionID)
+	if err != nil || activity == nil {
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("No activity record found, skipping continue prompt")
+		return
+	}
+
+	// Only send continue prompt if agent was actively working
+	if activity.AgentWorkState != types.AgentWorkStateWorking {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("work_state", string(activity.AgentWorkState)).
+			Msg("Agent was not working, no continue prompt needed")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("spec_task_id", activity.SpecTaskID).
+		Msg("Agent was working before disconnect, sending continue prompt")
+
+	// Get session for thread ID and agent config
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for continue prompt")
+		return
+	}
+
+	// Determine agent name from session config
+	agentName := apiServer.getAgentNameForSession(ctx, session)
+
+	// Build continue prompt
+	continueMessage := `The sandbox was restarted. Please continue working on your current task.
+
+If you were in the middle of something, please resume from where you left off.
+If you need to verify the current state, check the git status and any running processes.`
+
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":       continueMessage,
+			"request_id":    system.GenerateRequestID(),
+			"acp_thread_id": session.Metadata.ZedThreadID,
+			"agent_name":    agentName,
+			"is_continue":   true, // Flag so agent knows this is a recovery prompt
+		},
+	}
+
+	// Send via channel
+	select {
+	case wsConn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("Sent continue prompt to agent after reconnect")
+	default:
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("Failed to send continue prompt - channel full")
+	}
 }

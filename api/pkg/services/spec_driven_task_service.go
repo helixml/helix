@@ -369,8 +369,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,           // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
+		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime,           // For open_thread on resume
+		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
 	session := &types.Session{
@@ -723,8 +724,9 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,              // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
+		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI,        // For open_thread on resume
+		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
 	session := &types.Session{
@@ -1541,4 +1543,99 @@ func (s *SpecDrivenTaskService) getCodeAgentRuntimeForTask(ctx context.Context, 
 		Str("helix_app_id", task.HelixAppID).
 		Msg("No code agent runtime configured in app, defaulting to zed_agent")
 	return types.CodeAgentRuntimeZedAgent
+}
+
+// ResumeSession restarts a desktop container for an existing session
+// Used by the reconciler to restart sessions after Wolf crash or sandbox restart
+func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.SpecTask, session *types.Session) error {
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Msg("Resuming session after container loss")
+
+	// Get project for repository IDs
+	var repositoryIDs []string
+	var primaryRepoID string
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for resume")
+		} else if project != nil {
+			repoIDs, err := s.store.GetRepositoriesForProject(ctx, project.ID)
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", project.ID).Msg("Failed to get project repositories")
+			} else {
+				repositoryIDs = repoIDs
+				// Set primary repo ID
+				if project.DefaultRepoID != "" {
+					primaryRepoID = project.DefaultRepoID
+				} else if len(repositoryIDs) > 0 {
+					primaryRepoID = repositoryIDs[0]
+				}
+			}
+		}
+	}
+
+	// Get or create API key for the user
+	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+		UserID:     task.CreatedBy,
+		SpecTaskID: task.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get API key for resume: %w", err)
+	}
+
+	// Use display settings from session metadata or defaults
+	displayWidth := session.Metadata.AgentVideoWidth
+	displayHeight := session.Metadata.AgentVideoHeight
+	displayRefreshRate := session.Metadata.AgentVideoRefreshRate
+	if displayWidth == 0 {
+		displayWidth = 2560
+	}
+	if displayHeight == 0 {
+		displayHeight = 1600
+	}
+	if displayRefreshRate == 0 {
+		displayRefreshRate = 60
+	}
+
+	// Build the ZedAgent for restart
+	zedAgent := &types.ZedAgent{
+		SessionID:           session.ID,
+		HelixSessionID:      session.ID,
+		UserID:              task.CreatedBy,
+		Input:               "Resuming Zed development environment after container restart",
+		ProjectPath:         "workspace",
+		SpecTaskID:          task.ID,
+		PrimaryRepositoryID: primaryRepoID,
+		RepositoryIDs:       repositoryIDs,
+		UseHostDocker:       task.UseHostDocker,
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
+		ZoomLevel:           1.0,
+		DesktopType:         "sway", // Default to Sway
+		Env: []string{
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		},
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName,
+	}
+
+	// Start the desktop container
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
+	if err != nil {
+		return fmt.Errorf("failed to start desktop for resume: %w", err)
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("container_name", agentResp.ContainerName).
+		Msg("Successfully resumed session with new container")
+
+	return nil
 }

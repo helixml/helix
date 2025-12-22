@@ -28,6 +28,9 @@ type Executor interface {
 
 	GetWolfClientForSession(wolfInstanceID string) WolfClientInterface
 	FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error)
+
+	// Reconciliation support
+	HasRunningContainer(ctx context.Context, sessionID string) bool
 }
 
 // Shared types used by all executor implementations

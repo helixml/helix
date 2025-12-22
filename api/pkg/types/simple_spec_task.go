@@ -287,6 +287,16 @@ type SpecTaskExternalAgent struct {
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 }
 
+// AgentWorkState tracks whether the agent was actively working
+// Used to decide whether to send a continue prompt after restart
+type AgentWorkState string
+
+const (
+	AgentWorkStateIdle    AgentWorkState = "idle"    // Agent connected but not actively working
+	AgentWorkStateWorking AgentWorkState = "working" // Agent actively processing a prompt
+	AgentWorkStateDone    AgentWorkState = "done"    // Agent finished its assigned task
+)
+
 // ExternalAgentActivity tracks activity for idle detection (per-agent, not per-session)
 type ExternalAgentActivity struct {
 	ExternalAgentID string    `json:"external_agent_id" gorm:"primaryKey;size:255"` // e.g., "zed-spectask-abc123"
@@ -298,6 +308,10 @@ type ExternalAgentActivity struct {
 	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"`  // Wolf lobby PIN for cleanup
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
+
+	// Work state tracking for reconciliation
+	AgentWorkState    AgentWorkState `json:"agent_work_state" gorm:"size:50;default:'idle'"` // idle, working, done
+	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"type:text"` // Last prompt sent (for context on continue)
 }
 
 // Table names
