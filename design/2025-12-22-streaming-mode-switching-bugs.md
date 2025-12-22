@@ -218,6 +218,86 @@ useEffect(() => {
    - [ ] Closing one tab doesn't affect other
    - [ ] Stats are tab-specific
 
+## Additional Hardening: Preventing Duplicate Streams
+
+A second round of fixes addressed the root cause of "out-of-order frames" - duplicate streams writing to the same canvas.
+
+### Fix 5: Prevent Rendering After WebSocketStream.close()
+
+Added `this.closed` check in `renderVideoFrame()`:
+```typescript
+private renderVideoFrame(frame: VideoFrame) {
+  // CRITICAL: Prevent rendering after stream is closed
+  if (this.closed) {
+    frame.close()
+    return
+  }
+  // ... rest of rendering
+}
+```
+
+### Fix 6: Clear Canvas References in WebSocketStream.close()
+
+Clear canvas references FIRST in `close()` before any async cleanup:
+```typescript
+close() {
+  this.closed = true
+  // CRITICAL: Clear canvas references FIRST
+  this.canvas = null
+  this.canvasCtx = null
+  // ... rest of cleanup
+}
+```
+
+### Fix 7: Stream Cleanup at Start of connect()
+
+Added belt-and-suspenders cleanup at the START of `connect()`:
+```typescript
+const connect = useCallback(async () => {
+  // CRITICAL: Close any existing stream FIRST
+  if (streamRef.current) {
+    streamRef.current.close();
+    streamRef.current = null;
+  }
+  // Also clean up SSE resources...
+  // ... rest of connect
+})
+```
+
+### Fix 8: SSE Decoder Output Guards
+
+Added decoder identity check to SSE video decoder output callbacks:
+```typescript
+const decoder = new VideoDecoder({
+  output: (frame: VideoFrame) => {
+    // CRITICAL: Check if this decoder is still the active one
+    if (sseVideoDecoderRef.current !== decoder) {
+      frame.close();
+      return;
+    }
+    // ... render frame
+  }
+})
+```
+
+## Root Cause: Duplicate Stream Race Conditions
+
+The "out-of-order frames" issue was caused by:
+1. Old stream's decoder having frames queued
+2. New stream created and starts rendering
+3. Old decoder's output callback fires and renders to same canvas
+4. Frames from two different streams interleaved on same canvas
+
+This could happen during:
+- Reconnections
+- Quality mode switches
+- Streaming mode switches (WebSocket ↔ WebRTC)
+
+The fixes ensure that:
+1. Old streams are always closed before new ones are created
+2. Closed streams cannot render to the canvas (double-checked via `this.closed` AND cleared canvas refs)
+3. SSE decoders verify they're still the active decoder before rendering
+
 ## Conclusion
 
 The core issues stem from `qualityMode` not being properly scoped to `websocket` streaming mode. The fixes ensure:
@@ -225,3 +305,5 @@ The core issues stem from `qualityMode` not being properly scoped to `websocket`
 2. Resources (SSE, screenshots) are properly cleaned up
 3. User gets visual feedback during mode transitions
 4. State guards prevent cross-mode pollution
+5. **Duplicate streams are prevented by closing old resources before creating new ones**
+6. **Rendering is blocked after close() is called via multiple guard checks**

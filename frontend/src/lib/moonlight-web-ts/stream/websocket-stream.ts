@@ -726,6 +726,13 @@ export class WebSocketStream {
   }
 
   private renderVideoFrame(frame: VideoFrame) {
+    // CRITICAL: Prevent rendering after stream is closed
+    // This prevents duplicate streams from writing to the same canvas
+    if (this.closed) {
+      frame.close()
+      return
+    }
+
     if (!this.canvas || !this.canvasCtx) {
       frame.close()
       this.framesDropped++
@@ -1858,8 +1865,14 @@ export class WebSocketStream {
   close() {
     console.log("[WebSocketStream] Closing")
 
-    // Mark as explicitly closed to prevent reconnection
+    // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true
+
+    // CRITICAL: Clear canvas references FIRST to prevent any further rendering
+    // This must happen before decoder cleanup to ensure no frames are drawn
+    // after close() is called (even if decoder has frames in queue)
+    this.canvas = null
+    this.canvasCtx = null
 
     // Cancel any pending reconnection
     if (this.reconnectTimeoutId) {
