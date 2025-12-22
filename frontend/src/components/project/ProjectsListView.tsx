@@ -74,6 +74,16 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
         </Alert>
       )}
 
+      {/* Header with description */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+          Project Workspaces
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Each project has a workspace where multiple AI agents can work in parallel to complete tasks.
+        </Typography>
+      </Box>
+
       {/* Unified search bar - searches across all entities */}
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
         <UnifiedSearchBar

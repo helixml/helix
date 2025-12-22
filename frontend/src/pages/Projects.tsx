@@ -416,7 +416,7 @@ const Projects: FC = () => {
       case 'prompts':
         return 'Prompts'
       default:
-        return 'Projects'
+        return 'Workspaces'
     }
   }
 
