@@ -959,8 +959,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setPendingAutoJoin(false); // Reset auto-join state on disconnect
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
+
+    // Clear all connection registrations
+    clearAllConnections();
+    currentWebSocketStreamIdRef.current = null;
+    currentWebSocketVideoIdRef.current = null;
+    currentSseVideoIdRef.current = null;
+    currentScreenshotVideoIdRef.current = null;
+    currentWebRtcStreamIdRef.current = null;
+
     console.log('[MoonlightStreamViewer] disconnect() completed');
-  }, []);
+  }, [clearAllConnections]);
 
   // Ref to connect function for use in setTimeout (avoids stale closure issues)
   const connectRef = useRef(connect);
@@ -1257,6 +1266,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 }
                 sseVideoDecoderRef.current = null;
                 sseReceivedFirstKeyframeRef.current = false;
+                // Unregister SSE video connection
+                if (currentSseVideoIdRef.current) {
+                  unregisterConnection(currentSseVideoIdRef.current);
+                  currentSseVideoIdRef.current = null;
+                }
                 // Reconnect with the same mode (reconnect preserves qualityMode)
                 setTimeout(() => reconnectRef.current(1000), 500);
               },
@@ -1373,6 +1387,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               }
             }
             sseVideoDecoderRef.current = null;
+          }
+          // Unregister SSE video connection
+          if (currentSseVideoIdRef.current) {
+            unregisterConnection(currentSseVideoIdRef.current);
+            currentSseVideoIdRef.current = null;
           }
         });
 
@@ -1499,6 +1518,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               sseVideoDecoderRef.current = null;
               sseReceivedFirstKeyframeRef.current = false;
               hasInitializedSseRef.current = false; // Allow re-initialization
+              // Unregister SSE video connection
+              if (currentSseVideoIdRef.current) {
+                unregisterConnection(currentSseVideoIdRef.current);
+                currentSseVideoIdRef.current = null;
+              }
               // Reconnect with the same mode (reconnect preserves qualityMode)
               setTimeout(() => reconnectRef.current(1000), 500);
             },
@@ -1615,6 +1639,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
           }
           sseVideoDecoderRef.current = null;
+        }
+        // Unregister SSE video connection
+        if (currentSseVideoIdRef.current) {
+          unregisterConnection(currentSseVideoIdRef.current);
+          currentSseVideoIdRef.current = null;
         }
       });
 
@@ -3613,6 +3642,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               clearTimeout(videoStartTimeoutRef.current);
               videoStartTimeoutRef.current = null;
             }
+            // Register WebRTC stream connection (unregister any previous)
+            if (currentWebRtcStreamIdRef.current) {
+              unregisterConnection(currentWebRtcStreamIdRef.current);
+            }
+            currentWebRtcStreamIdRef.current = registerConnection('webrtc-stream');
             setIsConnecting(false);
             setStatus('Streaming active');
           }
