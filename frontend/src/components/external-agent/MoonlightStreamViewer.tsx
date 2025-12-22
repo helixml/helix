@@ -1120,12 +1120,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }
         sseVideoDecoderRef.current = null;
       }
+      // Unregister SSE video connection
+      if (currentSseVideoIdRef.current) {
+        unregisterConnection(currentSseVideoIdRef.current);
+        currentSseVideoIdRef.current = null;
+      }
     } else if (prevMode === 'high') {
       // Disable WS video (will be re-enabled if switching back to 'high')
       console.log('[MoonlightStreamViewer] Disabling WS video for quality mode switch');
       wsStream.setVideoEnabled(false);
+      // Unregister WebSocket video connection
+      if (currentWebSocketVideoIdRef.current) {
+        unregisterConnection(currentWebSocketVideoIdRef.current);
+        currentWebSocketVideoIdRef.current = null;
+      }
     }
     // 'low' mode: screenshot polling will auto-stop via shouldPollScreenshots becoming false
+    // (the screenshot polling effect's cleanup will unregister the connection)
 
     // Step 2: Setup new mode's video source
     if (newMode === 'high') {
