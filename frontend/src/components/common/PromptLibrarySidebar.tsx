@@ -3,10 +3,9 @@
  *
  * Features:
  * - Pinned prompts section for quick access
- * - Templates section for reusable prompts
  * - Recent prompts with search
  * - Click to copy/use prompt
- * - Pin/unpin and template management
+ * - Pin/unpin management
  */
 
 import React, { FC, useState, useEffect, useCallback } from 'react'
@@ -31,8 +30,6 @@ import {
 import SearchIcon from '@mui/icons-material/Search'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import DescriptionIcon from '@mui/icons-material/Description'
-import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -44,12 +41,10 @@ import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 interface PromptLibrarySidebarProps {
   // Library data
   pinnedPrompts: PromptHistoryEntry[]
-  templates: PromptHistoryEntry[]
   recentPrompts: PromptHistoryEntry[]
   // Actions
   onSelectPrompt: (content: string) => void
   onPinPrompt: (id: string, pinned: boolean) => Promise<void>
-  onSetTemplate: (id: string, isTemplate: boolean) => Promise<void>
   onSearch: (query: string) => Promise<PromptHistoryEntry[]>
   // Loading states
   loading?: boolean
@@ -61,20 +56,15 @@ interface PromptItemProps {
   entry: PromptHistoryEntry
   onSelect: () => void
   onPin: () => void
-  onToggleTemplate: () => void
-  showTemplateAction?: boolean
 }
 
 const PromptItem: FC<PromptItemProps> = ({
   entry,
   onSelect,
   onPin,
-  onToggleTemplate,
-  showTemplateAction = true,
 }) => {
   const [copied, setCopied] = useState(false)
   const isPinned = entry.pinned
-  const isTemplate = entry.isTemplate
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -117,25 +107,6 @@ const PromptItem: FC<PromptItemProps> = ({
               {copied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
             </IconButton>
           </Tooltip>
-          {/* Template toggle */}
-          {showTemplateAction && (
-            <Tooltip title={isTemplate ? 'Remove from templates' : 'Save as template'}>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggleTemplate()
-                }}
-                sx={{ color: isTemplate ? 'info.main' : 'text.secondary', opacity: isTemplate ? 0.9 : 0.6 }}
-              >
-                {isTemplate ? (
-                  <DescriptionIcon sx={{ fontSize: 16 }} />
-                ) : (
-                  <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
-                )}
-              </IconButton>
-            </Tooltip>
-          )}
           {/* Pin toggle */}
           <Tooltip title={isPinned ? 'Unpin' : 'Pin'}>
             <IconButton
@@ -173,9 +144,7 @@ const PromptItem: FC<PromptItemProps> = ({
           borderColor: isPinned ? 'warning.main' : 'transparent',
           bgcolor: isPinned
             ? (theme) => alpha(theme.palette.warning.main, 0.04)
-            : isTemplate
-              ? (theme) => alpha(theme.palette.info.main, 0.04)
-              : 'transparent',
+            : 'transparent',
         }}
       >
         <ListItemText
@@ -208,11 +177,9 @@ const PromptItem: FC<PromptItemProps> = ({
 
 const PromptLibrarySidebar: FC<PromptLibrarySidebarProps> = ({
   pinnedPrompts,
-  templates,
   recentPrompts,
   onSelectPrompt,
   onPinPrompt,
-  onSetTemplate,
   onSearch,
   loading = false,
   onClose,
@@ -222,7 +189,6 @@ const PromptLibrarySidebar: FC<PromptLibrarySidebarProps> = ({
   const [searching, setSearching] = useState(false)
   const [expandedSections, setExpandedSections] = useState({
     pinned: true,
-    templates: true,
     recent: true,
   })
 
@@ -302,7 +268,6 @@ const PromptLibrarySidebar: FC<PromptLibrarySidebarProps> = ({
                 entry={entry}
                 onSelect={() => onSelectPrompt(entry.content)}
                 onPin={() => onPinPrompt(entry.id, !entry.pinned)}
-                onToggleTemplate={() => onSetTemplate(entry.id, !entry.isTemplate)}
               />
             ))}
           </List>
@@ -413,7 +378,6 @@ const PromptLibrarySidebar: FC<PromptLibrarySidebarProps> = ({
                     entry={entry}
                     onSelect={() => onSelectPrompt(entry.content)}
                     onPin={() => onPinPrompt(entry.id, !entry.pinned)}
-                    onToggleTemplate={() => onSetTemplate(entry.id, !entry.isTemplate)}
                   />
                 ))}
               </>
@@ -430,20 +394,13 @@ const PromptLibrarySidebar: FC<PromptLibrarySidebarProps> = ({
               'warning.main'
             )}
             {renderSection(
-              'Templates',
-              <DescriptionIcon sx={{ fontSize: 18 }} />,
-              templates,
-              'templates',
-              'info.main'
-            )}
-            {renderSection(
               'Recent',
               <HistoryIcon sx={{ fontSize: 18 }} />,
               recentPrompts,
               'recent',
               'text.secondary'
             )}
-            {pinnedPrompts.length === 0 && templates.length === 0 && recentPrompts.length === 0 && (
+            {pinnedPrompts.length === 0 && recentPrompts.length === 0 && (
               <ListItem>
                 <ListItemText
                   primary="No prompts yet"

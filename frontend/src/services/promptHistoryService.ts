@@ -22,7 +22,6 @@ export interface LocalPromptHistoryEntry {
   usageCount?: number       // How many times this prompt was reused
   lastUsedAt?: number       // Timestamp when last reused
   tags?: string[]           // User-defined tags
-  isTemplate?: boolean      // Saved as a reusable template
 }
 
 /**
@@ -92,7 +91,6 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     usageCount: entry.usage_count ?? 0,
     lastUsedAt: entry.last_used_at ? new Date(entry.last_used_at).getTime() : undefined,
     tags: entry.tags ? JSON.parse(entry.tags) : [],
-    isTemplate: entry.is_template ?? false,
   }
 }
 
@@ -121,18 +119,6 @@ export async function updatePromptTags(
 }
 
 /**
- * Update prompt template status
- */
-export async function updatePromptTemplate(
-  apiClient: Api<unknown>['api'],
-  promptId: string,
-  isTemplate: boolean
-): Promise<{ is_template: boolean }> {
-  const response = await apiClient.v1PromptHistoryTemplateUpdate(promptId, { is_template: isTemplate })
-  return response.data as { is_template: boolean }
-}
-
-/**
  * Increment prompt usage count (called when reusing a prompt)
  */
 export async function incrementPromptUsage(
@@ -151,16 +137,6 @@ export async function listPinnedPrompts(
   specTaskId?: string
 ): Promise<TypesPromptHistoryEntry[]> {
   const response = await apiClient.v1PromptHistoryPinnedList({ spec_task_id: specTaskId })
-  return response.data
-}
-
-/**
- * List prompt templates (across all projects)
- */
-export async function listPromptTemplates(
-  apiClient: Api<unknown>['api']
-): Promise<TypesPromptHistoryEntry[]> {
-  const response = await apiClient.v1PromptHistoryTemplatesList()
   return response.data
 }
 

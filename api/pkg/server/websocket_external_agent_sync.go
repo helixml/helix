@@ -1905,19 +1905,110 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 		Msg("✅ [QUEUE] Successfully sent queued prompt to session")
 }
 
+// processAnyPendingPrompt checks for any pending prompt (interrupt or non-interrupt) and sends it
+// This is used when the session is idle to process ALL pending prompts, not just non-interrupt ones
+func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, sessionID string) {
+	// Get the next pending prompt (any type)
+	nextPrompt, err := apiServer.Store.GetAnyPendingPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get any pending prompt")
+		return
+	}
+
+	if nextPrompt == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No pending prompts in queue")
+		return
+	}
+
+	isRetry := nextPrompt.Status == "failed"
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Bool("interrupt", nextPrompt.Interrupt).
+		Bool("is_retry", isRetry).
+		Msg("📤 [QUEUE] Processing pending prompt")
+
+	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
+	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	}
+
+	// Send the prompt to the session
+	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("prompt_id", nextPrompt.ID).
+			Msg("Failed to send pending prompt to session")
+
+		// Mark as failed
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+		}
+		return
+	}
+
+	// Mark as sent
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Bool("interrupt", nextPrompt.Interrupt).
+		Msg("✅ [QUEUE] Successfully sent pending prompt to session")
+}
+
 // sendQueuedPromptToSession sends a queued prompt to an external agent session
+// CRITICAL: Creates an interaction BEFORE sending so that agent responses have somewhere to go
 func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, sessionID string, prompt *types.PromptHistoryEntry) error {
-	// Get the session to retrieve the ZedThreadID
+	// Get the session to retrieve the ZedThreadID and owner
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
+	// CRITICAL: Create an interaction BEFORE sending the message
+	// This ensures that when the agent responds, handleMessageAdded has an interaction to update
+	interaction := &types.Interaction{
+		ID:            "", // Will be generated
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Scheduled:     time.Now(),
+		SessionID:     sessionID,
+		UserID:        session.Owner,
+		Mode:          types.SessionModeInference,
+		PromptMessage: prompt.Content,
+		State:         types.InteractionStateWaiting,
+	}
+
+	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		return fmt.Errorf("failed to create interaction for queue prompt: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
+		Str("content_preview", truncateString(prompt.Content, 30)).
+		Msg("✅ [QUEUE] Created interaction for queue prompt")
+
+	// CRITICAL: Store the mapping so handleMessageAdded can find this interaction
+	apiServer.contextMappingsMutex.Lock()
+	if apiServer.sessionToWaitingInteraction == nil {
+		apiServer.sessionToWaitingInteraction = make(map[string]string)
+	}
+	apiServer.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	apiServer.contextMappingsMutex.Unlock()
+
 	// Determine agent name
 	agentName := apiServer.getAgentNameForSession(ctx, session)
 
-	// Generate request ID
-	requestID := fmt.Sprintf("queue_%s_%d", prompt.ID, time.Now().UnixNano())
+	// Use interaction ID as request ID for better tracing
+	requestID := createdInteraction.ID
 
 	// Create the command to send to the external agent
 	command := types.ExternalAgentCommand{
@@ -1931,27 +2022,17 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		},
 	}
 
-	// Get the WebSocket connection for this session
-	apiServer.externalAgentWSManager.mu.RLock()
-	wsConn, exists := apiServer.externalAgentWSManager.connections[sessionID]
-	apiServer.externalAgentWSManager.mu.RUnlock()
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("interaction_id", createdInteraction.ID).
+		Str("acp_thread_id", session.Metadata.ZedThreadID).
+		Str("content_preview", truncateString(prompt.Content, 30)).
+		Msg("📤 [QUEUE] Sending queued prompt via sendCommandToExternalAgent")
 
-	if !exists {
-		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
-	}
-
-	// Send the command
-	select {
-	case wsConn.SendChan <- command:
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("request_id", requestID).
-			Msg("Queued prompt command sent to WebSocket channel")
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("timeout sending command to WebSocket channel")
-	}
-
-	return nil
+	// Use the unified sendCommandToExternalAgent which handles connection lookup,
+	// adds session_id to data, and updates agent work state
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
 }
 
 // truncateString truncates a string to maxLen characters
@@ -2137,9 +2218,9 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
-	// Also process any pending queue prompts (non-interrupt prompts that were waiting)
-	// This handles the case where the agent was restarted with queued messages
-	go apiServer.processPromptQueue(context.Background(), sessionID)
+	// Process any pending prompts (including interrupt=true ones)
+	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones
+	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
 }

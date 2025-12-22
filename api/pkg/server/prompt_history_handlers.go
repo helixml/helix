@@ -59,129 +59,69 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		Int("total_entries", len(response.Entries)).
 		Msg("Synced prompt history")
 
-	// Process any new interrupt prompts that were just synced
-	// This runs in the background so the sync response is returned immediately
-	if response.Synced > 0 {
-		go apiServer.processNewInterruptPrompts(context.Background(), syncReq.Entries)
-	}
-
-	// Also check if there are pending queue prompts for idle sessions
-	// This handles the case where queue prompts are synced but the agent is already idle
-	go apiServer.processPendingQueuePromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+	// Process pending prompts in the background
+	// This runs on EVERY sync to catch prompts that may have been missed
+	go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
 
 	return response, nil
 }
 
-// processNewInterruptPrompts sends any new interrupt prompts to their sessions
-// This is called after syncing to handle interrupt=true prompts immediately
-func (apiServer *HelixAPIServer) processNewInterruptPrompts(ctx context.Context, entries []types.PromptHistoryEntrySync) {
-	for _, entry := range entries {
-		// Skip non-interrupt prompts (they wait for message_completed)
-		if entry.Interrupt == nil || !*entry.Interrupt {
-			continue
-		}
-
-		// Skip already-sent prompts
-		if entry.Status != "pending" {
-			continue
-		}
-
-		// Skip if no session ID
-		if entry.SessionID == "" {
-			log.Debug().
-				Str("prompt_id", entry.ID).
-				Msg("Skipping interrupt prompt with no session ID")
-			continue
-		}
-
-		log.Info().
-			Str("prompt_id", entry.ID).
-			Str("session_id", entry.SessionID).
-			Str("content_preview", truncateString(entry.Content, 50)).
-			Msg("⚡ [QUEUE] Processing interrupt prompt immediately")
-
-		// Get the prompt from the database (it was just synced)
-		prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, entry.ID)
-		if err != nil {
-			log.Error().Err(err).Str("prompt_id", entry.ID).Msg("Failed to get synced prompt")
-			continue
-		}
-
-		if prompt == nil {
-			log.Debug().Str("prompt_id", entry.ID).Msg("Prompt not found in database (may have been existing)")
-			continue
-		}
-
-		// Send to session
-		err = apiServer.sendQueuedPromptToSession(ctx, entry.SessionID, prompt)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("prompt_id", entry.ID).
-				Str("session_id", entry.SessionID).
-				Msg("Failed to send interrupt prompt to session")
-
-			// Mark as failed
-			if markErr := apiServer.Store.MarkPromptAsFailed(ctx, entry.ID); markErr != nil {
-				log.Error().Err(markErr).Str("prompt_id", entry.ID).Msg("Failed to mark prompt as failed")
-			}
-			continue
-		}
-
-		// Mark as sent
-		if err := apiServer.Store.MarkPromptAsSent(ctx, entry.ID); err != nil {
-			log.Error().Err(err).Str("prompt_id", entry.ID).Msg("Failed to mark prompt as sent")
-		}
-
-		log.Info().
-			Str("prompt_id", entry.ID).
-			Str("session_id", entry.SessionID).
-			Msg("✅ [QUEUE] Successfully sent interrupt prompt to session")
-	}
-}
-
-// processPendingQueuePromptsForIdleSessions checks the database for any pending
-// queue prompts and triggers processing if the session is idle
-// This handles the case where queue prompts were synced previously but the agent was busy
-func (apiServer *HelixAPIServer) processPendingQueuePromptsForIdleSessions(ctx context.Context, specTaskID string) {
+// processPendingPromptsForIdleSessions checks the database for any pending prompts
+// (both interrupt and queue) and processes them if the session is idle
+// This handles prompts that may have been synced but never processed
+func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx context.Context, specTaskID string) {
 	if specTaskID == "" {
 		return
 	}
 
-	// Query the database for ALL pending queue prompts for this spec task
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Msg("🔍 [QUEUE] Processing pending prompts for spec task")
+
+	// Query the database for ALL pending prompts for this spec task
 	entries, err := apiServer.Store.ListPromptHistoryBySpecTask(ctx, specTaskID)
 	if err != nil {
 		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to list prompt history for queue processing")
 		return
 	}
 
-	// Collect unique session IDs that have pending queue prompts
-	sessionIDs := make(map[string]bool)
+	// Collect pending prompts per session
+	type sessionPending struct {
+		interruptCount int
+		queueCount     int
+	}
+	sessionPrompts := make(map[string]*sessionPending)
+
 	for _, entry := range entries {
-		// Only interested in queue prompts (interrupt=false) that are pending
-		if entry.Interrupt {
-			continue // Skip interrupt prompts (handled separately)
-		}
-		if entry.Status != "pending" {
+		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
 		}
 		if entry.SessionID == "" {
 			continue
 		}
-		sessionIDs[entry.SessionID] = true
+
+		if sessionPrompts[entry.SessionID] == nil {
+			sessionPrompts[entry.SessionID] = &sessionPending{}
+		}
+
+		if entry.Interrupt {
+			sessionPrompts[entry.SessionID].interruptCount++
+		} else {
+			sessionPrompts[entry.SessionID].queueCount++
+		}
 	}
 
-	if len(sessionIDs) == 0 {
+	if len(sessionPrompts) == 0 {
 		return
 	}
 
 	log.Debug().
 		Str("spec_task_id", specTaskID).
-		Int("session_count", len(sessionIDs)).
-		Msg("🔍 [QUEUE] Found sessions with pending queue prompts")
+		Int("session_count", len(sessionPrompts)).
+		Msg("🔍 [QUEUE] Found sessions with pending prompts")
 
-	// For each session with pending queue prompts, check if idle and process
-	for sessionID := range sessionIDs {
+	// Process pending prompts for idle sessions
+	for sessionID, pending := range sessionPrompts {
 		session, err := apiServer.Store.GetSession(ctx, sessionID)
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
@@ -192,10 +132,21 @@ func (apiServer *HelixAPIServer) processPendingQueuePromptsForIdleSessions(ctx c
 			continue
 		}
 
+		// Load interactions for this session (GetSession doesn't load them)
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      100,
+		})
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+			continue
+		}
+
 		// Check if session is idle (no interactions, or last interaction is complete)
 		isIdle := true
-		if len(session.Interactions) > 0 {
-			lastInteraction := session.Interactions[len(session.Interactions)-1]
+		if len(interactions) > 0 {
+			lastInteraction := interactions[len(interactions)-1]
 			if lastInteraction.State == types.InteractionStateWaiting {
 				isIdle = false
 			}
@@ -204,14 +155,80 @@ func (apiServer *HelixAPIServer) processPendingQueuePromptsForIdleSessions(ctx c
 		if isIdle {
 			log.Info().
 				Str("session_id", sessionID).
-				Msg("📤 [QUEUE] Session is idle, processing pending queue prompts")
-			apiServer.processPromptQueue(ctx, sessionID)
+				Int("interrupt_count", pending.interruptCount).
+				Int("queue_count", pending.queueCount).
+				Msg("📤 [QUEUE] Session is idle, processing pending prompts")
+			// When session is idle from sync/list, process ALL pending (interrupt first)
+			apiServer.processAnyPendingPrompt(ctx, sessionID)
+		} else if pending.interruptCount > 0 {
+			// Session is busy but there are interrupt prompts - these should interrupt the agent
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", pending.interruptCount).
+				Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
+			apiServer.processInterruptPrompt(ctx, sessionID)
 		} else {
 			log.Debug().
 				Str("session_id", sessionID).
+				Int("queue_count", pending.queueCount).
 				Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
 		}
 	}
+}
+
+// processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)
+// Used when the session is busy but user sent an interrupt message
+func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, sessionID string) {
+	// Get the next interrupt prompt for this session
+	nextPrompt, err := apiServer.Store.GetNextInterruptPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get next interrupt prompt")
+		return
+	}
+
+	if nextPrompt == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No pending interrupt prompts")
+		return
+	}
+
+	isRetry := nextPrompt.Status == "failed"
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Bool("is_retry", isRetry).
+		Msg("📤 [INTERRUPT] Processing interrupt prompt")
+
+	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
+	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	}
+
+	// Send the prompt to the session
+	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("prompt_id", nextPrompt.ID).
+			Msg("Failed to send interrupt prompt to session")
+
+		// Mark as failed
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+		}
+		return
+	}
+
+	// Mark as sent
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Msg("✅ [INTERRUPT] Successfully sent interrupt prompt to session")
 }
 
 // @Summary List prompt history
@@ -275,6 +292,11 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list prompt history: %v", err))
 	}
 
+	// Process pending prompts in the background
+	// This runs on EVERY list call (which the frontend polls every 2s when there are pending messages)
+	// to catch prompts that may have been synced but never processed
+	go apiServer.processPendingPromptsForIdleSessions(context.Background(), specTaskID)
+
 	return response, nil
 }
 
@@ -286,11 +308,6 @@ type PromptPinRequest struct {
 // PromptTagsRequest is the request body for updating prompt tags
 type PromptTagsRequest struct {
 	Tags string `json:"tags"` // JSON array of tags
-}
-
-// PromptTemplateRequest is the request body for setting template status
-type PromptTemplateRequest struct {
-	IsTemplate bool `json:"is_template"`
 }
 
 // @Summary Update prompt pin status
@@ -393,56 +410,6 @@ func (apiServer *HelixAPIServer) updatePromptTags(_ http.ResponseWriter, req *ht
 	return map[string]string{"tags": tagsReq.Tags}, nil
 }
 
-// @Summary Update prompt template status
-// @Description Mark or unmark a prompt as a reusable template
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Param id path string true "Prompt ID"
-// @Param request body PromptTemplateRequest true "Template status"
-// @Success 200 {object} map[string]bool
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/{id}/template [put]
-func (apiServer *HelixAPIServer) updatePromptTemplate(_ http.ResponseWriter, req *http.Request) (map[string]bool, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	promptID := mux.Vars(req)["id"]
-	if promptID == "" {
-		return nil, system.NewHTTPError400("prompt id is required")
-	}
-
-	var templateReq PromptTemplateRequest
-	if err := json.NewDecoder(req.Body).Decode(&templateReq); err != nil {
-		return nil, system.NewHTTPError400("invalid request body")
-	}
-
-	// Verify user owns this prompt
-	prompt, err := apiServer.Store.GetPromptHistoryEntry(ctx, promptID)
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get prompt: %v", err))
-	}
-	if prompt == nil {
-		return nil, system.NewHTTPError404("prompt not found")
-	}
-	if prompt.UserID != user.ID {
-		return nil, system.NewHTTPError403("you don't have permission to modify this prompt")
-	}
-
-	if err := apiServer.Store.UpdatePromptTemplate(ctx, promptID, templateReq.IsTemplate); err != nil {
-		log.Error().Err(err).Str("prompt_id", promptID).Msg("Failed to update prompt template status")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update template status: %v", err))
-	}
-
-	return map[string]bool{"is_template": templateReq.IsTemplate}, nil
-}
-
 // @Summary List pinned prompts
 // @Description Get all pinned prompts for the current user
 // @Tags PromptHistory
@@ -467,32 +434,6 @@ func (apiServer *HelixAPIServer) listPinnedPrompts(_ http.ResponseWriter, req *h
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list pinned prompts")
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list pinned prompts: %v", err))
-	}
-
-	return entries, nil
-}
-
-// @Summary List prompt templates
-// @Description Get all prompt templates for the current user (across all projects)
-// @Tags PromptHistory
-// @Accept json
-// @Produce json
-// @Success 200 {array} types.PromptHistoryEntry
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/prompt-history/templates [get]
-func (apiServer *HelixAPIServer) listPromptTemplates(_ http.ResponseWriter, req *http.Request) ([]*types.PromptHistoryEntry, *system.HTTPError) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	if user == nil {
-		return nil, system.NewHTTPError401("user not found")
-	}
-
-	entries, err := apiServer.Store.ListPromptTemplates(ctx, user.ID)
-	if err != nil {
-		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list prompt templates")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list prompt templates: %v", err))
 	}
 
 	return entries, nil

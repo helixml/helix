@@ -18,10 +18,8 @@ import {
   backendToLocal,
   updatePromptPin as apiUpdatePromptPin,
   updatePromptTags as apiUpdatePromptTags,
-  updatePromptTemplate as apiUpdatePromptTemplate,
   incrementPromptUsage as apiIncrementPromptUsage,
   listPinnedPrompts as apiListPinnedPrompts,
-  listPromptTemplates as apiListPromptTemplates,
   searchPrompts as apiSearchPrompts,
 } from '../services/promptHistoryService'
 
@@ -45,7 +43,6 @@ export interface PromptHistoryEntry {
   usageCount?: number       // How many times this prompt was reused
   lastUsedAt?: number       // Timestamp when last reused
   tags?: string[]           // User-defined tags
-  isTemplate?: boolean      // Saved as a reusable template
 }
 
 interface PromptDraft {
@@ -89,10 +86,8 @@ interface UsePromptHistoryReturn {
   // Library features
   pinPrompt: (id: string, pinned: boolean) => Promise<void>  // Pin/unpin a prompt
   setTags: (id: string, tags: string[]) => Promise<void>  // Set tags on a prompt
-  setTemplate: (id: string, isTemplate: boolean) => Promise<void>  // Mark as template
   reusePrompt: (id: string) => Promise<string | null>  // Reuse prompt and increment usage
   getPinnedPrompts: () => Promise<PromptHistoryEntry[]>  // List pinned prompts
-  getTemplates: () => Promise<PromptHistoryEntry[]>  // List templates
   searchHistory: (query: string, limit?: number) => Promise<PromptHistoryEntry[]>  // Search prompts
 
   // Pending/failed prompts
@@ -682,27 +677,6 @@ export function usePromptHistory({
     }
   }, [apiClient, specTaskId])
 
-  // Mark prompt as template (library feature)
-  const setTemplate = useCallback(async (id: string, isTemplate: boolean): Promise<void> => {
-    if (!apiClient) {
-      console.warn('[PromptHistory] Cannot set template without API client')
-      return
-    }
-    try {
-      await apiUpdatePromptTemplate(apiClient, id, isTemplate)
-      // Update local state
-      setHistory(prev => {
-        const updated = prev.map(h =>
-          h.id === id ? { ...h, isTemplate } : h
-        )
-        saveHistory(updated, specTaskId)
-        return updated
-      })
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to set template:', e)
-    }
-  }, [apiClient, specTaskId])
-
   // Reuse a prompt (increments usage count, returns content)
   const reusePrompt = useCallback(async (id: string): Promise<string | null> => {
     const entry = history.find(h => h.id === id)
@@ -746,21 +720,6 @@ export function usePromptHistory({
     }
   }, [apiClient, specTaskId, history])
 
-  // List templates (library feature)
-  const getTemplates = useCallback(async (): Promise<PromptHistoryEntry[]> => {
-    if (!apiClient) {
-      // Fall back to local filter
-      return history.filter(h => h.isTemplate)
-    }
-    try {
-      const entries = await apiListPromptTemplates(apiClient)
-      return entries.map(backendToLocal)
-    } catch (e) {
-      console.warn('[PromptHistory] Failed to get templates:', e)
-      return history.filter(h => h.isTemplate)
-    }
-  }, [apiClient, history])
-
   // Search prompts by content (library feature)
   const searchHistory = useCallback(async (query: string, limit?: number): Promise<PromptHistoryEntry[]> => {
     if (!apiClient) {
@@ -802,10 +761,8 @@ export function usePromptHistory({
     // Library features
     pinPrompt,
     setTags,
-    setTemplate,
     reusePrompt,
     getPinnedPrompts,
-    getTemplates,
     searchHistory,
     // Status
     pendingPrompts,

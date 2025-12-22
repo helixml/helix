@@ -543,11 +543,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               <Box sx={{ width: 320, flexShrink: 0 }}>
                 <PromptLibrarySidebar
                   pinnedPrompts={promptHistory.history.filter(h => h.pinned)}
-                  templates={promptHistory.history.filter(h => h.isTemplate)}
                   recentPrompts={promptHistory.history.filter(h => h.status === 'sent').slice(-20).reverse()}
                   onSelectPrompt={(content) => promptHistory.setDraft(content)}
                   onPinPrompt={promptHistory.pinPrompt}
-                  onSetTemplate={promptHistory.setTemplate}
                   onSearch={promptHistory.searchHistory}
                   onClose={() => setShowPromptLibrary(false)}
                 />

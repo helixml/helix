@@ -5,7 +5,6 @@
  * - View full prompt content with proper formatting
  * - Copy to clipboard
  * - Pin/unpin for quick access
- * - Save as template
  * - Use prompt (insert into input)
  * - View usage stats and metadata
  */
@@ -30,8 +29,6 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import DescriptionIcon from '@mui/icons-material/Description'
-import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import SendIcon from '@mui/icons-material/Send'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import RepeatIcon from '@mui/icons-material/Repeat'
@@ -43,7 +40,6 @@ interface PromptViewerModalProps {
   prompt: PromptHistoryEntry | null
   onUsePrompt: (content: string) => void
   onPinPrompt: (id: string, pinned: boolean) => Promise<void>
-  onSetTemplate: (id: string, isTemplate: boolean) => Promise<void>
 }
 
 const PromptViewerModal: FC<PromptViewerModalProps> = ({
@@ -52,14 +48,12 @@ const PromptViewerModal: FC<PromptViewerModalProps> = ({
   prompt,
   onUsePrompt,
   onPinPrompt,
-  onSetTemplate,
 }) => {
   const [copied, setCopied] = useState(false)
 
   if (!prompt) return null
 
   const isPinned = prompt.pinned
-  const isTemplate = prompt.isTemplate
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(prompt.content)
@@ -69,10 +63,6 @@ const PromptViewerModal: FC<PromptViewerModalProps> = ({
 
   const handlePin = async () => {
     await onPinPrompt(prompt.id, !isPinned)
-  }
-
-  const handleTemplate = async () => {
-    await onSetTemplate(prompt.id, !isTemplate)
   }
 
   const handleUse = () => {
@@ -132,16 +122,6 @@ const PromptViewerModal: FC<PromptViewerModalProps> = ({
               sx={{ height: 24 }}
             />
           )}
-          {isTemplate && (
-            <Chip
-              icon={<DescriptionIcon sx={{ fontSize: 14 }} />}
-              label="Template"
-              size="small"
-              color="info"
-              variant="outlined"
-              sx={{ height: 24 }}
-            />
-          )}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {/* Copy button */}
@@ -161,16 +141,6 @@ const PromptViewerModal: FC<PromptViewerModalProps> = ({
                 <PushPinIcon sx={{ color: 'warning.main' }} />
               ) : (
                 <PushPinOutlinedIcon />
-              )}
-            </IconButton>
-          </Tooltip>
-          {/* Template button */}
-          <Tooltip title={isTemplate ? 'Remove from templates' : 'Save as template'}>
-            <IconButton size="small" onClick={handleTemplate}>
-              {isTemplate ? (
-                <DescriptionIcon sx={{ color: 'info.main' }} />
-              ) : (
-                <DescriptionOutlinedIcon />
               )}
             </IconButton>
           </Tooltip>

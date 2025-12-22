@@ -32,11 +32,11 @@ type PromptHistoryEntry struct {
 	QueuePosition *int `json:"queue_position,omitempty" gorm:"index"`
 
 	// Library features for prompt reuse
-	Pinned     bool       `json:"pinned" gorm:"not null;default:false;index"` // User pinned this prompt
-	UsageCount int        `json:"usage_count" gorm:"not null;default:0"`       // How many times reused
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`                      // Last time reused
-	Tags       string     `json:"tags,omitempty" gorm:"type:text"`             // JSON array of user-defined tags
-	IsTemplate bool       `json:"is_template" gorm:"not null;default:false"`   // Saved as a reusable template
+	Pinned     bool       `json:"pinned" gorm:"not null;default:false;index"`      // User pinned this prompt
+	UsageCount int        `json:"usage_count" gorm:"not null;default:0"`            // How many times reused
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`                           // Last time reused
+	Tags       string     `json:"tags,omitempty" gorm:"type:text"`                  // JSON array of user-defined tags
+	IsTemplate bool       `json:"is_template" gorm:"not null;default:false;index"` // Saved as a reusable template
 
 	// Timestamps
 	CreatedAt time.Time `json:"created_at" gorm:"not null;index"`
@@ -76,7 +76,7 @@ type PromptHistoryEntrySync struct {
 	QueuePosition *int   `json:"queue_position,omitempty"` // Position in queue for drag-and-drop ordering
 	Pinned        *bool  `json:"pinned,omitempty"`         // If true, pinned by user
 	Tags          string `json:"tags,omitempty"`           // JSON array of tags
-	IsTemplate    *bool  `json:"is_template,omitempty"`    // If true, saved as template
+	IsTemplate    *bool  `json:"is_template,omitempty"`    // If true, saved as a reusable template
 }
 
 // PromptHistoryListRequest is the query parameters for listing history
