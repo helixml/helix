@@ -211,6 +211,7 @@ const GitRepos: FC = () => {
         'github': 'github' as TypesExternalRepositoryType,
         'gitlab': 'gitlab' as TypesExternalRepositoryType,
         'azure-devops': 'ado' as TypesExternalRepositoryType,
+        'bitbucket': 'bitbucket' as TypesExternalRepositoryType,
       }
 
       // Parse provider credentials if providerType is JSON (PAT-based auth)
@@ -218,9 +219,11 @@ const GitRepos: FC = () => {
       let providerCreds: {
         type?: string
         pat?: string
+        username?: string
         orgUrl?: string
         gitlabBaseUrl?: string
         githubBaseUrl?: string
+        bitbucketBaseUrl?: string
       } | null = null
 
       try {
@@ -248,6 +251,12 @@ const GitRepos: FC = () => {
         personal_access_token: providerCreds.pat,
       } : undefined
 
+      const bitbucketSettings = actualProviderType === 'bitbucket' && providerCreds ? {
+        username: providerCreds.username,
+        app_password: providerCreds.pat,
+        base_url: providerCreds.bitbucketBaseUrl,
+      } : undefined
+
       await apiClient.v1GitRepositoriesCreate({
         name: repo.name || 'repository',
         description: repo.description || `${actualProviderType} repository`,
@@ -261,6 +270,7 @@ const GitRepos: FC = () => {
         github: githubSettings,
         gitlab: gitlabSettings,
         azure_devops: azureDevOpsSettings,
+        bitbucket: bitbucketSettings,
       })
 
       // Invalidate and refetch git repositories query

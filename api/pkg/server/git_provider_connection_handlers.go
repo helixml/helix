@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/crypto"
@@ -86,8 +87,13 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 		return
 	}
 
+	if req.ProviderType == types.ExternalRepositoryTypeBitbucket && req.AuthUsername == "" {
+		http.Error(w, "Username is required for Bitbucket", http.StatusBadRequest)
+		return
+	}
+
 	// Validate the token by fetching user info
-	userInfo, err := s.validateAndFetchUserInfo(r.Context(), req.ProviderType, req.Token, req.OrganizationURL, req.BaseURL)
+	userInfo, err := s.validateAndFetchUserInfo(r.Context(), req.ProviderType, req.Token, req.AuthUsername, req.OrganizationURL, req.BaseURL)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Invalid token or failed to connect: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -114,6 +120,17 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 		return
 	}
 
+	// Encrypt auth username for Bitbucket if provided
+	var encryptedAuthUsername string
+	if req.AuthUsername != "" {
+		encryptedAuthUsername, err = crypto.EncryptAES256GCM([]byte(req.AuthUsername), encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encrypt auth username")
+			http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	now := time.Now()
 	connection := &types.GitProviderConnection{
 		ID:              uuid.New().String(),
@@ -121,6 +138,7 @@ func (s *HelixAPIServer) createGitProviderConnection(w http.ResponseWriter, r *h
 		ProviderType:    req.ProviderType,
 		Name:            name,
 		Token:           encryptedToken,
+		AuthUsername:    encryptedAuthUsername,
 		OrganizationURL: req.OrganizationURL,
 		BaseURL:         req.BaseURL,
 		Username:        userInfo.Username,
@@ -236,10 +254,23 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 		return
 	}
 
+	// Decrypt auth username for Bitbucket if present
+	var decryptedAuthUsername string
+	if connection.AuthUsername != "" {
+		decryptedAuthUsernameBytes, err := crypto.DecryptAES256GCM(connection.AuthUsername, encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decrypt auth username")
+			http.Error(w, "Failed to decrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		decryptedAuthUsername = string(decryptedAuthUsernameBytes)
+	}
+
 	// Use the existing browse logic
 	req := types.BrowseRemoteRepositoriesRequest{
 		ProviderType:    connection.ProviderType,
 		Token:           string(decryptedToken),
+		Username:        decryptedAuthUsername,
 		OrganizationURL: connection.OrganizationURL,
 		BaseURL:         connection.BaseURL,
 	}
@@ -257,7 +288,7 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 }
 
 // validateAndFetchUserInfo validates a PAT and fetches user info from the provider
-func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerType types.ExternalRepositoryType, token, orgURL, baseURL string) (*types.OAuthUserInfo, error) {
+func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerType types.ExternalRepositoryType, token, authUsername, orgURL, baseURL string) (*types.OAuthUserInfo, error) {
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
 		client := github.NewClientWithPATAndBaseURL(token, baseURL)
@@ -304,6 +335,22 @@ func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerT
 			Email:    profile.EmailAddress,
 			Name:     profile.DisplayName,
 			Username: profile.DisplayName, // ADO doesn't have a separate username
+		}, nil
+
+	case types.ExternalRepositoryTypeBitbucket:
+		if authUsername == "" {
+			return nil, fmt.Errorf("username is required for Bitbucket")
+		}
+		client := bitbucket.NewClient(authUsername, token, baseURL)
+		user, err := client.GetCurrentUser(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate Bitbucket credentials: %w", err)
+		}
+		return &types.OAuthUserInfo{
+			ID:       user.UUID,
+			Email:    user.Email,
+			Name:     user.DisplayName,
+			Username: user.Username,
 		}, nil
 
 	default:
@@ -390,6 +437,27 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 				HTMLURL:       htmlURL,
 				Private:       true,
 				DefaultBranch: defaultBranch,
+			})
+		}
+
+	case types.ExternalRepositoryTypeBitbucket:
+		if req.Username == "" {
+			return nil, fmt.Errorf("username is required for Bitbucket")
+		}
+		bbClient := bitbucket.NewClient(req.Username, req.Token, req.BaseURL)
+		bbRepos, err := bbClient.ListRepositories(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list Bitbucket repositories: %w", err)
+		}
+		for _, repo := range bbRepos {
+			repos = append(repos, types.RepositoryInfo{
+				Name:          repo.Name,
+				FullName:      repo.FullName,
+				CloneURL:      repo.CloneURL,
+				HTMLURL:       repo.HTMLURL,
+				Description:   repo.Description,
+				Private:       repo.IsPrivate,
+				DefaultBranch: repo.MainBranch,
 			})
 		}
 

@@ -57,6 +57,7 @@ type GitRepository struct {
 	AzureDevOps *AzureDevOps `gorm:"type:jsonb;serializer:json" json:"azure_devops"`
 	GitHub      *GitHub      `gorm:"type:jsonb;serializer:json" json:"github"`
 	GitLab      *GitLab      `gorm:"type:jsonb;serializer:json" json:"gitlab"`
+	Bitbucket   *Bitbucket   `gorm:"type:jsonb;serializer:json" json:"bitbucket"`
 
 	// OAuth connection ID - references an OAuthConnection for authentication
 	// When set, uses the OAuth access token instead of username/password or PAT
@@ -83,6 +84,13 @@ type GitHub struct {
 type GitLab struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 	BaseURL             string `json:"base_url"` // For self-hosted GitLab instances (empty for gitlab.com)
+}
+
+// Bitbucket contains Bitbucket-specific authentication settings
+type Bitbucket struct {
+	Username string `json:"username"`            // Bitbucket username (required for API auth)
+	AppPassword string `json:"app_password"`     // Bitbucket App Password (recommended over regular password)
+	BaseURL  string `json:"base_url"`            // For Bitbucket Server/Data Center (empty for bitbucket.org)
 }
 
 // TableName overrides the table name
@@ -122,6 +130,7 @@ type GitRepositoryCreateRequest struct {
 	AzureDevOps *AzureDevOps `json:"azure_devops,omitempty"`
 	GitHub      *GitHub      `json:"github,omitempty"`
 	GitLab      *GitLab      `json:"gitlab,omitempty"`
+	Bitbucket   *Bitbucket   `json:"bitbucket,omitempty"`
 
 	// OAuth connection ID - references an OAuthConnection for authentication
 	OAuthConnectionID string `json:"oauth_connection_id,omitempty"`
@@ -149,6 +158,7 @@ type GitRepositoryUpdateRequest struct {
 	AzureDevOps   *AzureDevOps           `json:"azure_devops,omitempty"`
 	GitHub        *GitHub                `json:"github,omitempty"`
 	GitLab        *GitLab                `json:"gitlab,omitempty"`
+	Bitbucket     *Bitbucket             `json:"bitbucket,omitempty"`
 	OAuthConnectionID *string            `json:"oauth_connection_id,omitempty"` // OAuth connection for authentication
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 	KoditIndexing *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)

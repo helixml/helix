@@ -35,7 +35,7 @@ import {
   TypesProject,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
-import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps, TypesGitHub, TypesGitLab, TypesRepositoryInfo } from '../api/api'
+import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps, TypesGitHub, TypesGitLab, TypesBitbucket, TypesRepositoryInfo } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
@@ -406,16 +406,18 @@ const Projects: FC = () => {
 
       // Check if providerTypeOrCreds is JSON (PAT credentials) or plain provider type
       let providerType: string
-      let patCredentials: { pat?: string; orgUrl?: string; gitlabBaseUrl?: string; githubBaseUrl?: string } | null = null
+      let patCredentials: { pat?: string; username?: string; orgUrl?: string; gitlabBaseUrl?: string; githubBaseUrl?: string; bitbucketBaseUrl?: string } | null = null
 
       try {
         const parsed = JSON.parse(providerTypeOrCreds)
         providerType = parsed.type
         patCredentials = {
           pat: parsed.pat,
+          username: parsed.username,
           orgUrl: parsed.orgUrl,
           gitlabBaseUrl: parsed.gitlabBaseUrl,
           githubBaseUrl: parsed.githubBaseUrl,
+          bitbucketBaseUrl: parsed.bitbucketBaseUrl,
         }
       } catch {
         // Not JSON, it's a plain provider type (OAuth flow)
@@ -427,12 +429,14 @@ const Projects: FC = () => {
         'github': 'github' as TypesExternalRepositoryType,
         'gitlab': 'gitlab' as TypesExternalRepositoryType,
         'azure-devops': 'ado' as TypesExternalRepositoryType,
+        'bitbucket': 'bitbucket' as TypesExternalRepositoryType,
       }
 
       // Build provider-specific config if using PAT
       let github: TypesGitHub | undefined
       let gitlab: TypesGitLab | undefined
       let azureDevOps: TypesAzureDevOps | undefined
+      let bitbucket: TypesBitbucket | undefined
 
       if (patCredentials?.pat) {
         if (providerType === 'github') {
@@ -449,6 +453,12 @@ const Projects: FC = () => {
           azureDevOps = {
             organization_url: patCredentials.orgUrl || '',
             personal_access_token: patCredentials.pat,
+          }
+        } else if (providerType === 'bitbucket') {
+          bitbucket = {
+            username: patCredentials.username || '',
+            app_password: patCredentials.pat,
+            base_url: patCredentials.bitbucketBaseUrl,
           }
         }
       }
@@ -467,6 +477,7 @@ const Projects: FC = () => {
         github,
         gitlab,
         azure_devops: azureDevOps,
+        bitbucket,
       })
 
       // Invalidate and refetch git repositories query
