@@ -72,12 +72,24 @@ type GitRepository struct {
 type AzureDevOps struct {
 	OrganizationURL     string `json:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token"`
+
+	// Service Principal authentication (service-to-service via Azure AD/Entra ID)
+	// Uses OAuth 2.0 client credentials flow for automated system access
+	TenantID     string `json:"tenant_id,omitempty"`     // Azure AD tenant ID
+	ClientID     string `json:"client_id,omitempty"`     // App registration client ID
+	ClientSecret string `json:"client_secret,omitempty"` // App registration client secret
 }
 
 // GitHub contains GitHub-specific authentication settings
 type GitHub struct {
 	PersonalAccessToken string `json:"personal_access_token"`
 	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
+
+	// GitHub App authentication (service-to-service)
+	// When AppID and PrivateKey are set, uses GitHub App installation tokens
+	AppID          int64  `json:"app_id,omitempty"`          // GitHub App ID
+	InstallationID int64  `json:"installation_id,omitempty"` // Installation ID for the app on the org/repo
+	PrivateKey     string `json:"private_key,omitempty"`     // PEM-encoded private key for JWT signing
 }
 
 // GitLab contains GitLab-specific authentication settings
