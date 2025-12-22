@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
@@ -56,8 +57,18 @@ func NewAzureDevOpsClient(organizationURL string, personalAccessToken string) *A
 
 // GetUserProfile fetches the authenticated user's profile from Azure DevOps
 func (c *AzureDevOpsClient) GetUserProfile(ctx context.Context) (*ADOUserProfile, error) {
-	// Azure DevOps profile API endpoint
-	profileURL := "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1-preview.3"
+	// Determine the profile API URL based on organization URL
+	// For Azure DevOps Services (cloud): use vssps.visualstudio.com
+	// For Azure DevOps Server (self-hosted): use the organization URL with connection data API
+	var profileURL string
+	if strings.Contains(c.organizationURL, "dev.azure.com") || strings.Contains(c.organizationURL, "visualstudio.com") {
+		// Azure DevOps Services (cloud)
+		profileURL = "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1-preview.3"
+	} else {
+		// Azure DevOps Server (self-hosted) - use connection data API
+		// This returns authenticated user info including display name and email
+		profileURL = strings.TrimSuffix(c.organizationURL, "/") + "/_apis/connectionData?api-version=7.1-preview.1"
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", profileURL, nil)
 	if err != nil {
@@ -78,12 +89,37 @@ func (c *AzureDevOpsClient) GetUserProfile(ctx context.Context) (*ADOUserProfile
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var profile ADOUserProfile
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// For cloud, response is ADOUserProfile directly
+	// For self-hosted, response is ConnectionData with authenticatedUser field
+	if strings.Contains(c.organizationURL, "dev.azure.com") || strings.Contains(c.organizationURL, "visualstudio.com") {
+		var profile ADOUserProfile
+		if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+		return &profile, nil
 	}
 
-	return &profile, nil
+	// Parse self-hosted connection data response
+	var connectionData struct {
+		AuthenticatedUser struct {
+			ID              string `json:"id"`
+			DisplayName     string `json:"customDisplayName"`
+			ProviderDisplay string `json:"providerDisplayName"`
+		} `json:"authenticatedUser"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&connectionData); err != nil {
+		return nil, fmt.Errorf("failed to decode connection data response: %w", err)
+	}
+
+	displayName := connectionData.AuthenticatedUser.DisplayName
+	if displayName == "" {
+		displayName = connectionData.AuthenticatedUser.ProviderDisplay
+	}
+
+	return &ADOUserProfile{
+		ID:          connectionData.AuthenticatedUser.ID,
+		DisplayName: displayName,
+	}, nil
 }
 
 func (c *AzureDevOpsClient) GetComments(ctx context.Context, repositoryID string, pullRequestID int, threadID int) ([]git.Comment, error) {
