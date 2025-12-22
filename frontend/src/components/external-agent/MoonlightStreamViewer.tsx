@@ -1999,21 +1999,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Preload image before displaying
         const img = new Image();
         img.onload = () => {
-          setScreenshotUrl((oldUrl) => {
-            // Hide connecting overlay on first screenshot after entering screenshot mode
-            // Use ref instead of !oldUrl to handle rapid mode switching correctly
-            // (oldUrl might still exist from previous session)
-            if (waitingForFirstScreenshotRef.current) {
-              console.log('[Screenshot] First screenshot received - hiding connecting overlay');
-              // Clear video start timeout - screenshot arrived successfully
-              if (videoStartTimeoutRef.current) {
-                clearTimeout(videoStartTimeoutRef.current);
-                videoStartTimeoutRef.current = null;
-              }
-              waitingForFirstScreenshotRef.current = false;
-              setIsConnecting(false);
-              setStatus('Streaming active');
+          // Hide connecting overlay on first screenshot after entering screenshot mode
+          // IMPORTANT: Do this OUTSIDE setScreenshotUrl callback to avoid nested state update issues
+          if (waitingForFirstScreenshotRef.current) {
+            console.log('[Screenshot] First screenshot received - hiding connecting overlay');
+            // Clear video start timeout - screenshot arrived successfully
+            if (videoStartTimeoutRef.current) {
+              clearTimeout(videoStartTimeoutRef.current);
+              videoStartTimeoutRef.current = null;
             }
+            waitingForFirstScreenshotRef.current = false;
+            setIsConnecting(false);
+            setStatus('Streaming active');
+          }
+
+          setScreenshotUrl((oldUrl) => {
             if (oldUrl) URL.revokeObjectURL(oldUrl);
             return newUrl;
           });
