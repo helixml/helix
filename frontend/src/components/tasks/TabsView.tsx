@@ -10,6 +10,14 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  CircularProgress,
+  Chip,
 } from '@mui/material'
 import {
   Close as CloseIcon,
@@ -18,13 +26,21 @@ import {
   SplitscreenOutlined as SplitHorizontalIcon,
   ViewColumn as SplitVerticalIcon,
   MoreVert as MoreIcon,
+  Create as CreateIcon,
+  PlayArrow as PlayIcon,
+  Description as SpecIcon,
+  CheckCircle as ApproveIcon,
+  Launch as LaunchIcon,
 } from '@mui/icons-material'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
-import { TypesSpecTask } from '../../api/api'
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
+import useApi from '../../hooks/useApi'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
+import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 
 // Pulse animation for active agent indicator
 const activePulse = keyframes`
@@ -244,10 +260,12 @@ const PanelTab: React.FC<PanelTabProps> = ({
 interface TaskPanelProps {
   panel: PanelData
   tasks: TypesSpecTask[]
+  projectId?: string
   onTabSelect: (panelId: string, tabId: string) => void
   onTabClose: (panelId: string, tabId: string) => void
   onTabRename: (tabId: string, newTitle: string) => void
   onAddTab: (panelId: string, task: TypesSpecTask) => void
+  onTaskCreated: (panelId: string, task: TypesSpecTask) => void
   onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
   onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
   onClosePanel: (panelId: string) => void
@@ -257,22 +275,190 @@ interface TaskPanelProps {
 const TaskPanel: React.FC<TaskPanelProps> = ({
   panel,
   tasks,
+  projectId,
   onTabSelect,
   onTabClose,
   onTabRename,
   onAddTab,
+  onTaskCreated,
   onSplitPanel,
   onDropTab,
   onClosePanel,
   panelCount,
 }) => {
+  const api = useApi()
+  const snackbar = useSnackbar()
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createPrompt, setCreatePrompt] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [isActioning, setIsActioning] = useState(false)
   const [dragOverEdge, setDragOverEdge] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [draggedFromPanelId, setDraggedFromPanelId] = useState<string | null>(null)
 
+  // Design review viewer state
+  const [designReviewOpen, setDesignReviewOpen] = useState(false)
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
+
   const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
   const unopenedTasks = tasks.filter(t => !panel.tabs.some(tab => tab.id === t.id))
+
+  // Get refreshed task data for the active tab (from the tasks prop which is periodically refetched)
+  const activeTask = activeTab ? tasks.find(t => t.id === activeTab.id) || activeTab.task : null
+
+  // Helper to get status display info
+  const getStatusInfo = (task: TypesSpecTask) => {
+    const status = task.status || ''
+    switch (status) {
+      case 'backlog':
+        return { label: 'Backlog', color: 'default' as const }
+      case 'spec_generation':
+        return { label: 'Planning', color: 'warning' as const }
+      case 'spec_review':
+        return { label: 'Review Spec', color: 'info' as const }
+      case 'implementation':
+        return { label: 'In Progress', color: 'success' as const }
+      case 'implementation_review':
+        return { label: 'Review Code', color: 'info' as const }
+      case 'pull_request':
+        return { label: 'Pull Request', color: 'secondary' as const }
+      case 'done':
+        return { label: 'Complete', color: 'success' as const }
+      default:
+        return { label: status, color: 'default' as const }
+    }
+  }
+
+  // Handle creating a new task
+  const handleCreateTask = async () => {
+    if (!createPrompt.trim()) {
+      snackbar.error('Please describe what you want to get done')
+      return
+    }
+
+    if (!projectId) {
+      snackbar.error('No project selected')
+      return
+    }
+
+    setIsCreating(true)
+    try {
+      const createTaskRequest: TypesCreateTaskRequest = {
+        prompt: createPrompt.trim(),
+        priority: TypesSpecTaskPriority.SpecTaskPriorityMedium,
+        project_id: projectId,
+      }
+
+      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest)
+
+      if (response.data) {
+        snackbar.success('Task created!')
+        setCreateDialogOpen(false)
+        setCreatePrompt('')
+        // Add the new task to this panel
+        onTaskCreated(panel.id, response.data)
+      }
+    } catch (err: any) {
+      console.error('Failed to create task:', err)
+      snackbar.error(err?.message || 'Failed to create task')
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  // Handle starting planning for a task
+  const handleStartPlanning = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const { keyboardLayout, timezone } = getBrowserLocale()
+      const queryParams = new URLSearchParams()
+      if (keyboardLayout) queryParams.set('keyboard', keyboardLayout)
+      if (timezone) queryParams.set('timezone', timezone)
+      const queryString = queryParams.toString()
+      const url = `/api/v1/spec-tasks/${activeTask.id}/start-planning${queryString ? `?${queryString}` : ''}`
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.message || `Failed to start planning: ${response.statusText}`)
+      }
+
+      snackbar.success('Planning started! Agent session will begin shortly.')
+    } catch (err: any) {
+      console.error('Failed to start planning:', err)
+      snackbar.error(err?.message || 'Failed to start planning. Please try again.')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle reviewing spec - opens design review viewer
+  const handleReviewSpec = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(activeTask.id)
+      const reviews = response.data?.reviews || []
+      if (reviews.length > 0) {
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+        setActiveReviewId(latestReview.id)
+        setDesignReviewOpen(true)
+      } else {
+        snackbar.error('No design review found')
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error)
+      snackbar.error('Failed to load design review')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle approving implementation
+  const handleApproveImplementation = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const response = await api.getApiClient().v1SpecTasksApproveImplementationCreate(activeTask.id)
+      if (response.data?.pull_request_url) {
+        snackbar.success(`Pull request opened! View PR: ${response.data.pull_request_url}`)
+      } else if (response.data?.pull_request_id) {
+        snackbar.success('Pull request #' + response.data.pull_request_id + ' opened - awaiting merge')
+      } else {
+        snackbar.success('Implementation approved! Agent will merge to your primary branch...')
+      }
+    } catch (err: any) {
+      console.error('Failed to approve implementation:', err)
+      snackbar.error(err?.response?.data?.message || 'Failed to approve implementation')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle rejecting task (archive)
+  const handleRejectTask = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      await api.getApiClient().v1SpecTasksUpdate(activeTask.id, { archived: true })
+      snackbar.success('Task rejected and archived')
+    } catch (err: any) {
+      console.error('Failed to reject task:', err)
+      snackbar.error(err?.response?.data?.message || 'Failed to reject task')
+    } finally {
+      setIsActioning(false)
+    }
+  }
 
   const handleDragStart = (e: React.DragEvent, tabId: string) => {
     e.dataTransfer.setData('tabId', tabId)
@@ -409,8 +595,29 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           anchorEl={menuAnchor}
           open={Boolean(menuAnchor)}
           onClose={() => setMenuAnchor(null)}
-          slotProps={{ paper: { sx: { maxHeight: 300, width: 250 } } }}
+          slotProps={{ paper: { sx: { maxHeight: 350, width: 250 } } }}
         >
+          {/* Create new task option */}
+          {projectId && (
+            <>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchor(null)
+                  setCreateDialogOpen(true)
+                }}
+                sx={{ color: 'primary.main' }}
+              >
+                <ListItemIcon>
+                  <CreateIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Create New Task"
+                  primaryTypographyProps={{ fontWeight: 500, fontSize: '0.875rem' }}
+                />
+              </MenuItem>
+              <Divider />
+            </>
+          )}
           {unopenedTasks.length === 0 ? (
             <MenuItem disabled>
               <ListItemText primary="All tasks are open" />
@@ -447,6 +654,102 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
         </Menu>
       </Box>
 
+      {/* Action bar - shows state and action buttons for active task */}
+      {activeTask && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            px: 1.5,
+            py: 0.75,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            flexWrap: 'wrap',
+          }}
+        >
+          {/* Status chip */}
+          <Chip
+            label={getStatusInfo(activeTask).label}
+            color={getStatusInfo(activeTask).color}
+            size="small"
+            sx={{ height: 22, fontSize: '0.7rem' }}
+          />
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Action buttons based on state */}
+          {activeTask.status === 'backlog' && (
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <PlayIcon />}
+              disabled={isActioning}
+              onClick={handleStartPlanning}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              Start Planning
+            </Button>
+          )}
+
+          {activeTask.status === 'spec_review' && (
+            <Button
+              size="small"
+              variant="contained"
+              color="info"
+              startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <SpecIcon />}
+              disabled={isActioning}
+              onClick={handleReviewSpec}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              Review Spec
+            </Button>
+          )}
+
+          {activeTask.status === 'implementation' && (
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                disabled={isActioning}
+                onClick={handleRejectTask}
+                sx={{ height: 26, fontSize: '0.75rem' }}
+              >
+                Reject
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
+                disabled={isActioning}
+                onClick={handleApproveImplementation}
+                sx={{ height: 26, fontSize: '0.75rem' }}
+              >
+                Accept
+              </Button>
+            </>
+          )}
+
+          {activeTask.status === 'pull_request' && activeTask.pull_request_url && (
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<LaunchIcon />}
+              onClick={() => window.open(activeTask.pull_request_url, '_blank')}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              View PR
+            </Button>
+          )}
+        </Box>
+      )}
+
       {/* Content area */}
       <Box sx={{ flex: 1, overflow: 'hidden' }}>
         {activeTab ? (
@@ -475,6 +778,64 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           </Box>
         )}
       </Box>
+
+      {/* Create task dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => !isCreating && setCreateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Task</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            rows={3}
+            placeholder="Describe what you want to get done..."
+            value={createPrompt}
+            onChange={(e) => setCreatePrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.metaKey) {
+                e.preventDefault()
+                handleCreateTask()
+              }
+            }}
+            disabled={isCreating}
+            sx={{ mt: 1 }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            Press ⌘+Enter to create
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)} disabled={isCreating}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateTask}
+            variant="contained"
+            disabled={isCreating || !createPrompt.trim()}
+            startIcon={isCreating ? <CircularProgress size={16} /> : undefined}
+          >
+            {isCreating ? 'Creating...' : 'Create Task'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Design Review Viewer */}
+      {designReviewOpen && activeTask && activeReviewId && (
+        <DesignReviewViewer
+          open={designReviewOpen}
+          onClose={() => {
+            setDesignReviewOpen(false)
+            setActiveReviewId(null)
+          }}
+          specTaskId={activeTask.id!}
+          reviewId={activeReviewId}
+        />
+      )}
     </Box>
   )
 }
@@ -696,6 +1057,20 @@ const TabsView: React.FC<TabsViewProps> = ({
     })
   }, [])
 
+  // Handle task created - add it to the specified panel
+  const handleTaskCreated = useCallback((panelId: string, task: TypesSpecTask) => {
+    if (!task.id) return
+    setPanels(prev => prev.map(p => {
+      if (p.id !== panelId) return p
+      // Add new task as a tab and make it active
+      return {
+        ...p,
+        tabs: [...p.tabs, { id: task.id!, task }],
+        activeTabId: task.id!,
+      }
+    }))
+  }, [])
+
   if (panels.length === 0) {
     return (
       <Box
@@ -728,10 +1103,12 @@ const TabsView: React.FC<TabsViewProps> = ({
               <TaskPanel
                 panel={panel}
                 tasks={tasks}
+                projectId={projectId}
                 onTabSelect={handleTabSelect}
                 onTabClose={handleTabClose}
                 onTabRename={handleTabRename}
                 onAddTab={handleAddTab}
+                onTaskCreated={handleTaskCreated}
                 onSplitPanel={handleSplitPanel}
                 onDropTab={handleDropTab}
                 onClosePanel={handleClosePanel}
