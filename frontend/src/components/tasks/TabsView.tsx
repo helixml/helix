@@ -19,7 +19,7 @@ import {
   ViewColumn as SplitVerticalIcon,
   MoreVert as MoreIcon,
 } from '@mui/icons-material'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
 import { TypesSpecTask } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -720,7 +720,7 @@ const TabsView: React.FC<TabsViewProps> = ({
 
   return (
     <Box sx={{ height: '100%', overflow: 'hidden' }}>
-      <PanelGroup direction={layoutDirection} style={{ height: '100%' }}>
+      <PanelGroup orientation={layoutDirection} style={{ height: '100%' }}>
         {panels.map((panel, index) => (
           <React.Fragment key={panel.id}>
             {index > 0 && <ResizeHandle direction={layoutDirection} />}
