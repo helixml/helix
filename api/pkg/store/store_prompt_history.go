@@ -101,15 +101,17 @@ func (s *PostgresStore) GetPromptHistoryEntry(ctx context.Context, id string) (*
 	return &entry, nil
 }
 
-// GetNextPendingPrompt returns the next pending non-interrupt prompt for a session
+// GetNextPendingPrompt returns the next pending or failed non-interrupt prompt for a session
 // Used by the queue processor to send non-interrupt messages after the current conversation completes
+// Failed prompts are also included for automatic retry
 func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
 
-	// Find the oldest pending prompt for this session with interrupt=false
+	// Find the oldest pending or failed prompt for this session with interrupt=false
 	// Order by queue_position (if set) then by created_at
+	// Include 'failed' status for automatic retry
 	result := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND status = ? AND interrupt = ?", sessionID, "pending", false).
+		Where("session_id = ? AND status IN (?, ?) AND interrupt = ?", sessionID, "pending", "failed", false).
 		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
 		First(&entry)
 
@@ -121,6 +123,15 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 	}
 
 	return &entry, nil
+}
+
+// MarkPromptAsPending marks a prompt as pending (used before retry)
+func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.PromptHistoryEntry{}).
+		Where("id = ?", promptID).
+		Update("status", "pending").
+		Error
 }
 
 // MarkPromptAsSent marks a prompt as sent
