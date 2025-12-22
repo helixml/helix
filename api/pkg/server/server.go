@@ -121,6 +121,7 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              *services.KoditService
+	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	moonlightProxy            *moonlight.MoonlightProxy
 	moonlightServer           *moonlight.MoonlightServer
@@ -344,6 +345,17 @@ func NewServer(
 		apiServer.koditService = services.NewKoditService("", "") // Disabled instance
 		log.Info().Msg("Kodit code intelligence service disabled")
 	}
+
+	// Initialize MCP Gateway for authenticated MCP proxying
+	apiServer.mcpGateway = NewMCPGateway()
+
+	// Register Kodit MCP backend (code intelligence)
+	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
+
+	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
+	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, controller))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit and Helix backends")
 
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
@@ -1120,8 +1132,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
 
-	// Kodit MCP proxy routes - expose Kodit's MCP server through Helix API with user auth
+	// MCP Gateway routes - unified endpoint for all MCP backends (Kodit, Helix native, etc.)
 	// Supports both streamable HTTP and SSE transports for MCP protocol
+	// Route: /api/v1/mcp/{server}/{path...} where server is "kodit", "helix", etc.
+	authRouter.HandleFunc("/mcp/{server}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/mcp/{server}/{path:.*}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+
+	// Legacy Kodit MCP routes (redirect to gateway) - keep for backwards compatibility
 	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 

@@ -93,10 +93,19 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		log.Warn().Msg("RUNNER_TOKEN not configured")
 	}
 
+	// Determine if Kodit should be enabled for this session
+	// 1. Must be globally enabled via Kodit.Enabled config
+	// 2. For SpecTask sessions, also check if project repos have Kodit indexing enabled
+	koditEnabled := apiServer.Cfg.Kodit.Enabled
+	if koditEnabled && session.Metadata.SpecTaskID != "" {
+		// This is a SpecTask session - check if project repos have Kodit indexing
+		koditEnabled = apiServer.checkSpecTaskKoditIndexing(ctx, session.Metadata.SpecTaskID)
+	}
+
 	// Use sandboxAPIURL for Zed config - this is the URL Zed uses to call the Helix API
 	// In dev mode (SANDBOX_API_URL set): uses internal Docker network (http://api:8080)
 	// In production (SANDBOX_API_URL not set): uses external URL (SERVER_URL)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -506,4 +515,47 @@ func buildCodeAgentConfigFromAssistant(assistant *types.AssistantConfig, helixUR
 		APIType:   apiType,
 		Runtime:   runtime,
 	}
+}
+
+// checkSpecTaskKoditIndexing checks if a SpecTask's project has any repositories with Kodit indexing enabled.
+// Returns true if any repository in the project has KoditIndexing enabled, false otherwise.
+func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context, specTaskID string) bool {
+	// Get the SpecTask
+	specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get SpecTask for Kodit indexing check")
+		return false
+	}
+
+	// Check if the SpecTask has a project
+	if specTask.ProjectID == "" {
+		log.Debug().Str("spec_task_id", specTaskID).Msg("SpecTask has no project, Kodit disabled")
+		return false
+	}
+
+	// Get all repositories for the project
+	repos, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: specTask.ProjectID})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", specTask.ProjectID).Msg("Failed to list project repositories for Kodit indexing check")
+		return false
+	}
+
+	// Check if any repository has Kodit indexing enabled
+	for _, repo := range repos {
+		if repo.KoditIndexing {
+			log.Debug().
+				Str("spec_task_id", specTaskID).
+				Str("project_id", specTask.ProjectID).
+				Str("repo_id", repo.ID).
+				Msg("Found repository with Kodit indexing enabled")
+			return true
+		}
+	}
+
+	log.Debug().
+		Str("spec_task_id", specTaskID).
+		Str("project_id", specTask.ProjectID).
+		Int("repo_count", len(repos)).
+		Msg("No repositories with Kodit indexing enabled")
+	return false
 }
