@@ -57,6 +57,7 @@ func (s *HelixAPIServer) listServiceConnections(w http.ResponseWriter, r *http.R
 		responses[i] = conn.ToResponse()
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(responses)
 }
 
@@ -96,6 +97,7 @@ func (s *HelixAPIServer) getServiceConnection(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connection.ToResponse())
 }
 
@@ -247,6 +249,7 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(connection.ToResponse())
 }
@@ -358,6 +361,7 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connection.ToResponse())
 }
 
@@ -493,6 +497,7 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 	}
 	_ = s.Store.UpdateServiceConnection(r.Context(), connection)
 
+	w.Header().Set("Content-Type", "application/json")
 	if testErr != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
