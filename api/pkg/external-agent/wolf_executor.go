@@ -2025,6 +2025,33 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
 }
 
+// HasRunningContainer checks if Wolf has a running container for this session
+// Used by the reconciler to determine if a session needs to be restarted
+func (w *WolfExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
+	// Try in-memory cache first (fast path)
+	w.mutex.RLock()
+	for _, session := range w.sessions {
+		if session.HelixSessionID == sessionID || session.SessionID == sessionID {
+			w.mutex.RUnlock()
+			return true
+		}
+	}
+	w.mutex.RUnlock()
+
+	// In-memory cache miss - try to find container by session ID
+	// This handles API restarts where in-memory map is cleared but containers are still running
+	containerName, err := w.FindContainerBySessionID(ctx, sessionID)
+	if err != nil {
+		log.Trace().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("HasRunningContainer: container not found")
+		return false
+	}
+
+	return containerName != ""
+}
+
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
 // Terminates external agents after 1min of inactivity (for testing, will be 30min in production)
 // Timeout is database-based (checks LastInteraction timestamp), so it survives API restarts

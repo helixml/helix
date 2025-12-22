@@ -199,6 +199,7 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
 
 	// interactions
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
