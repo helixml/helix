@@ -1816,7 +1816,7 @@ export enum TypesBranchMode {
 }
 
 export interface TypesBrowseRemoteRepositoriesRequest {
-  /** Base URL for self-hosted instances (optional, for GitLab) */
+  /** Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise) */
   base_url?: string;
   /** Organization URL (required for Azure DevOps) */
   organization_url?: string;
@@ -2405,6 +2405,8 @@ export interface TypesGPUStatus {
 }
 
 export interface TypesGitHub {
+  /** For GitHub Enterprise instances (empty for github.com) */
+  base_url?: string;
   personal_access_token?: string;
 }
 
@@ -2429,7 +2431,7 @@ export interface TypesGitLab {
 
 export interface TypesGitProviderConnection {
   avatar_url?: string;
-  /** For GitLab Enterprise: base URL (empty = gitlab.com) */
+  /** For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com) */
   base_url?: string;
   created_at?: string;
   deleted_at?: GormDeletedAt;
@@ -5014,12 +5016,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {

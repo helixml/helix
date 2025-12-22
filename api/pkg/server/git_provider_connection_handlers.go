@@ -260,7 +260,7 @@ func (s *HelixAPIServer) browseGitProviderConnectionRepositories(w http.Response
 func (s *HelixAPIServer) validateAndFetchUserInfo(ctx context.Context, providerType types.ExternalRepositoryType, token, orgURL, baseURL string) (*types.OAuthUserInfo, error) {
 	switch providerType {
 	case types.ExternalRepositoryTypeGitHub:
-		client := github.NewClientWithPAT(token)
+		client := github.NewClientWithPATAndBaseURL(token, baseURL)
 		user, err := client.GetAuthenticatedUser(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate GitHub token: %w", err)
@@ -317,7 +317,7 @@ func (s *HelixAPIServer) fetchRepositoriesWithPAT(ctx context.Context, req types
 
 	switch req.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
-		ghClient := github.NewClientWithPAT(req.Token)
+		ghClient := github.NewClientWithPATAndBaseURL(req.Token, req.BaseURL)
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)

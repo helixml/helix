@@ -160,7 +160,7 @@ type BrowseRemoteRepositoriesRequest struct {
 	Token string `json:"token"`
 	// Organization URL (required for Azure DevOps)
 	OrganizationURL string `json:"organization_url,omitempty"`
-	// Base URL for self-hosted instances (optional, for GitLab)
+	// Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise)
 	BaseURL string `json:"base_url,omitempty"`
 }
 
@@ -187,7 +187,7 @@ type GitProviderConnection struct {
 	// For Azure DevOps: organization URL
 	OrganizationURL string `json:"organization_url,omitempty"`
 
-	// For GitLab Enterprise: base URL (empty = gitlab.com)
+	// For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com)
 	BaseURL string `json:"base_url,omitempty"`
 
 	// User info from the provider (cached from last successful auth)

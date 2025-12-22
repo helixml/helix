@@ -76,6 +76,7 @@ type AzureDevOps struct {
 // GitHub contains GitHub-specific authentication settings
 type GitHub struct {
 	PersonalAccessToken string `json:"personal_access_token"`
+	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
 }
 
 // GitLab contains GitLab-specific authentication settings

@@ -16,13 +16,33 @@ type Client struct {
 }
 
 // NewClientWithPAT creates a new GitHub client using a Personal Access Token
+// For github.com - use NewClientWithPATAndBaseURL for GitHub Enterprise
 func NewClientWithPAT(token string) *Client {
+	return NewClientWithPATAndBaseURL(token, "")
+}
+
+// NewClientWithPATAndBaseURL creates a new GitHub client using a Personal Access Token
+// with an optional base URL for GitHub Enterprise instances.
+// If baseURL is empty, uses github.com.
+func NewClientWithPATAndBaseURL(token, baseURL string) *Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
+
+	// Configure for GitHub Enterprise if base URL is provided
+	if baseURL != "" {
+		// WithEnterpriseURLs sets the base and upload URLs for GitHub Enterprise
+		// The upload URL is typically the same as the base URL for GHE
+		enterpriseClient, err := client.WithEnterpriseURLs(baseURL, baseURL)
+		if err == nil {
+			client = enterpriseClient
+		}
+		// If there's an error, fall back to the standard client
+		// This shouldn't happen with valid URLs but provides a safe fallback
+	}
 
 	return &Client{
 		client: client,
@@ -32,8 +52,16 @@ func NewClientWithPAT(token string) *Client {
 
 // NewClientWithOAuth creates a new GitHub client using an OAuth access token
 // OAuth tokens and PATs use the same authentication mechanism for GitHub API
+// For github.com - use NewClientWithOAuthAndBaseURL for GitHub Enterprise
 func NewClientWithOAuth(accessToken string) *Client {
-	return NewClientWithPAT(accessToken)
+	return NewClientWithOAuthAndBaseURL(accessToken, "")
+}
+
+// NewClientWithOAuthAndBaseURL creates a new GitHub client using an OAuth access token
+// with an optional base URL for GitHub Enterprise instances.
+// If baseURL is empty, uses github.com.
+func NewClientWithOAuthAndBaseURL(accessToken, baseURL string) *Client {
+	return NewClientWithPATAndBaseURL(accessToken, baseURL)
 }
 
 // ListRepositories lists all repositories accessible to the authenticated user
@@ -131,23 +159,32 @@ func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error)
 //   - https://github.com/owner/repo
 //   - https://github.com/owner/repo.git
 //   - git@github.com:owner/repo.git
+//   - https://github.enterprise.com/owner/repo (GitHub Enterprise)
+//   - git@github.enterprise.com:owner/repo.git (GitHub Enterprise SSH)
 func ParseGitHubURL(url string) (owner, repo string, err error) {
 	// Remove trailing .git
 	url = strings.TrimSuffix(url, ".git")
 
-	// Handle SSH format
-	if strings.HasPrefix(url, "git@github.com:") {
-		parts := strings.Split(strings.TrimPrefix(url, "git@github.com:"), "/")
-		if len(parts) == 2 {
-			return parts[0], parts[1], nil
+	// Handle SSH format (git@host:owner/repo)
+	if strings.HasPrefix(url, "git@") {
+		// Extract the path part after the colon
+		colonIdx := strings.Index(url, ":")
+		if colonIdx != -1 {
+			path := url[colonIdx+1:]
+			parts := strings.Split(path, "/")
+			if len(parts) == 2 {
+				return parts[0], parts[1], nil
+			}
 		}
 		return "", "", fmt.Errorf("invalid GitHub SSH URL: %s", url)
 	}
 
-	// Handle HTTPS format
-	if strings.Contains(url, "github.com") {
-		// Extract path after github.com
-		parts := strings.Split(url, "github.com/")
+	// Handle HTTPS format (https://host/owner/repo)
+	if strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://") {
+		// Remove the protocol prefix
+		withoutProtocol := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+		// Split by / to get host and path parts
+		parts := strings.SplitN(withoutProtocol, "/", 2)
 		if len(parts) == 2 {
 			pathParts := strings.Split(parts[1], "/")
 			if len(pathParts) >= 2 {

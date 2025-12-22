@@ -796,7 +796,15 @@ func (s *HelixAPIServer) handleListOAuthConnectionRepositories(_ http.ResponseWr
 
 	switch provider.Type {
 	case types.OAuthProviderTypeGitHub:
-		ghClient := github.NewClientWithOAuth(connection.AccessToken)
+		// For GitHub Enterprise, extract base URL from AuthURL
+		// AuthURL format: https://github.example.com/login/oauth/authorize
+		baseURL := ""
+		if provider.AuthURL != "" && !strings.Contains(provider.AuthURL, "github.com") {
+			// Extract base URL from AuthURL (remove /login/oauth/authorize path)
+			baseURL = strings.TrimSuffix(provider.AuthURL, "/login/oauth/authorize")
+		}
+
+		ghClient := github.NewClientWithOAuthAndBaseURL(connection.AccessToken, baseURL)
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)

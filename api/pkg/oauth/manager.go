@@ -568,11 +568,20 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 		client.Transport = transport
 	}
 
+	// Determine the API URL - use provider's AuthURL for GitHub Enterprise detection
+	// AuthURL format: https://github.example.com/login/oauth/authorize
+	apiURL := "https://api.github.com/user/repos?sort=updated&per_page=10"
+	if connection.Provider.AuthURL != "" && !strings.Contains(connection.Provider.AuthURL, "github.com") {
+		// GitHub Enterprise - extract base URL and construct API URL
+		baseURL := strings.TrimSuffix(connection.Provider.AuthURL, "/login/oauth/authorize")
+		apiURL = baseURL + "/api/v3/user/repos?sort=updated&per_page=10"
+	}
+
 	// Create the request
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://api.github.com/user/repos?sort=updated&per_page=10",
+		apiURL,
 		nil,
 	)
 	if err != nil {

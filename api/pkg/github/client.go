@@ -8,8 +8,9 @@ import (
 )
 
 type ClientOptions struct {
-	Ctx   context.Context
-	Token string
+	Ctx     context.Context
+	Token   string
+	BaseURL string // For GitHub Enterprise instances (empty for github.com)
 }
 
 type Client struct {
@@ -18,14 +19,30 @@ type Client struct {
 }
 
 func NewGithubClient(options ClientOptions) (*Client, error) {
-	client := github.NewClient(oauth2.NewClient(
+	httpClient := oauth2.NewClient(
 		options.Ctx,
 		oauth2.StaticTokenSource(
 			&oauth2.Token{
 				AccessToken: options.Token,
 			},
 		),
-	))
+	)
+
+	var client *github.Client
+
+	if options.BaseURL != "" {
+		// GitHub Enterprise - use custom base URL
+		// The upload URL is typically the same as the base URL for GHE
+		var err error
+		client, err = github.NewClient(httpClient).WithEnterpriseURLs(options.BaseURL, options.BaseURL)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Standard github.com
+		client = github.NewClient(httpClient)
+	}
+
 	return &Client{
 		ctx:    options.Ctx,
 		client: client,

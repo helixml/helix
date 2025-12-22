@@ -348,22 +348,28 @@ func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepos
 // GitHub Pull Request Operations
 
 func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+	// Get GitHub Enterprise base URL if configured
+	var baseURL string
+	if repo.GitHub != nil {
+		baseURL = repo.GitHub.BaseURL
+	}
+
 	// First check for OAuth connection
 	if repo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			return github.NewClientWithOAuth(conn.AccessToken), nil
+			return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
 		}
 	}
 
 	// Check for GitHub-specific PAT
 	if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
-		return github.NewClientWithPAT(repo.GitHub.PersonalAccessToken), nil
+		return github.NewClientWithPATAndBaseURL(repo.GitHub.PersonalAccessToken, baseURL), nil
 	}
 
 	// Fall back to username/password (password is typically a PAT)
 	if repo.Password != "" {
-		return github.NewClientWithPAT(repo.Password), nil
+		return github.NewClientWithPATAndBaseURL(repo.Password, baseURL), nil
 	}
 
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token or connect via OAuth")

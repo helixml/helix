@@ -18713,7 +18713,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "base_url": {
-                    "description": "Base URL for self-hosted instances (optional, for GitLab)",
+                    "description": "Base URL for self-hosted instances (for GitHub Enterprise or GitLab Enterprise)",
                     "type": "string"
                 },
                 "organization_url": {
@@ -20148,6 +20148,10 @@ const docTemplate = `{
         "types.GitHub": {
             "type": "object",
             "properties": {
+                "base_url": {
+                    "description": "For GitHub Enterprise instances (empty for github.com)",
+                    "type": "string"
+                },
                 "personal_access_token": {
                     "type": "string"
                 }
@@ -20207,7 +20211,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "base_url": {
-                    "description": "For GitLab Enterprise: base URL (empty = gitlab.com)",
+                    "description": "For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com)",
                     "type": "string"
                 },
                 "created_at": {
@@ -26472,20 +26476,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {
