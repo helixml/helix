@@ -115,6 +115,20 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     }
   };
 
+  // Handler for sending messages from the session panel
+  // IMPORTANT: This hook must be before any early returns to satisfy React's rules of hooks
+  const handleSendMessage = useCallback(async (message: string, interrupt?: boolean) => {
+    await streaming.NewInference({
+      type: SESSION_TYPE_TEXT,
+      message,
+      sessionId,
+      interrupt: interrupt ?? true,
+    });
+  }, [streaming, sessionId]);
+
+  // Session panel width
+  const SESSION_PANEL_WIDTH = 400;
+
   // For screenshot mode (Kanban cards), use traditional early-return rendering
   // For stream mode (floating window), keep stream mounted to prevent fullscreen exit on hiccups
 
@@ -332,18 +346,6 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
-  // Handler for sending messages from the session panel
-  const handleSendMessage = useCallback(async (message: string) => {
-    await streaming.NewInference({
-      type: SESSION_TYPE_TEXT,
-      message,
-      sessionId,
-    });
-  }, [streaming, sessionId]);
-
-  // Session panel width
-  const SESSION_PANEL_WIDTH = 400;
-
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
       {/* Main desktop viewer */}
@@ -365,6 +367,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               console.error('Stream viewer error:', error);
             }}
             onClientIdCalculated={onClientIdCalculated}
+            // Suppress MoonlightStreamViewer's overlay when we're showing our own reconnecting overlay
+            // This prevents double spinners when Wolf container state changes
+            suppressOverlay={showReconnectingOverlay}
           />
 
           {/* Reconnecting overlay - shown when state changes but stream stays mounted */}
