@@ -82,6 +82,8 @@ interface RobustPromptInputProps {
   specTaskId?: string
   projectId?: string
   apiClient?: Api<unknown>['api']
+  // Called when the input component height changes (queue added, textarea resized)
+  onHeightChange?: () => void
 }
 
 // Props for sortable queue item
@@ -365,6 +367,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   specTaskId,
   projectId,
   apiClient,
+  onHeightChange,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -508,14 +511,30 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     const textarea = textareaRef.current
     if (!textarea) return
 
+    const oldHeight = textarea.offsetHeight
     textarea.style.height = 'auto'
     const newHeight = Math.min(Math.max(textarea.scrollHeight, 40), maxHeight)
     textarea.style.height = `${newHeight}px`
-  }, [maxHeight])
+
+    // Notify parent if height changed
+    if (oldHeight !== newHeight && onHeightChange) {
+      onHeightChange()
+    }
+  }, [maxHeight, onHeightChange])
 
   useEffect(() => {
     adjustHeight()
   }, [draft, adjustHeight])
+
+  // Notify parent when queue changes (affects overall height)
+  const queueLength = pendingPrompts.length + failedPrompts.length
+  useEffect(() => {
+    if (onHeightChange) {
+      // Small delay to allow Collapse animation to start
+      const timer = setTimeout(onHeightChange, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [queueLength, onHeightChange])
 
   // Queue a new message
   const handleSend = useCallback(async () => {

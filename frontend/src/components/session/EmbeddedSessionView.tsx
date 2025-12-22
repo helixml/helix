@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -19,6 +19,10 @@ interface EmbeddedSessionViewProps {
   onScrollToBottom?: () => void
 }
 
+export interface EmbeddedSessionViewHandle {
+  scrollToBottom: () => void
+}
+
 /**
  * EmbeddedSessionView - A lightweight session message thread viewer
  *
@@ -31,10 +35,10 @@ interface EmbeddedSessionViewProps {
  * - Uses simpler virtualization (shows last N interactions)
  * - Auto-scrolls to bottom on new messages
  */
-const EmbeddedSessionView: FC<EmbeddedSessionViewProps> = ({
+const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessionViewProps>(({
   sessionId,
   onScrollToBottom,
-}) => {
+}, ref) => {
   const account = useAccount()
   const lightTheme = useLightTheme()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,6 +93,11 @@ const EmbeddedSessionView: FC<EmbeddedSessionViewProps> = ({
 
     onScrollToBottom?.()
   }, [onScrollToBottom])
+
+  // Expose scrollToBottom via ref for parent components
+  useImperativeHandle(ref, () => ({
+    scrollToBottom,
+  }), [scrollToBottom])
 
   // Scroll to bottom when interactions change
   useEffect(() => {
@@ -231,6 +240,6 @@ const EmbeddedSessionView: FC<EmbeddedSessionViewProps> = ({
       </Box>
     </Box>
   )
-}
+})
 
 export default EmbeddedSessionView
