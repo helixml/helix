@@ -5,8 +5,6 @@ import {
   Chip,
   Divider,
   IconButton,
-  Tabs,
-  Tab,
   TextField,
   Button,
   Checkbox,
@@ -22,6 +20,8 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
@@ -32,6 +32,9 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LaunchIcon from '@mui/icons-material/Launch'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import ChatIcon from '@mui/icons-material/Chat'
+import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { TypesSpecTask, TypesSpecTaskPriority, TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import DesignDocViewer from './DesignDocViewer'
@@ -141,7 +144,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     apps.loadApps()
   }, [])
 
-  const [currentTab, setCurrentTab] = useState(0)
+  const [currentView, setCurrentView] = useState<'session' | 'desktop' | 'details'>('session')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
 
   // Design review state
@@ -174,6 +177,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get the active session ID
   const activeSessionId = task?.planning_session_id
+
+  // Default to details view when no active session
+  useEffect(() => {
+    if (!activeSessionId && currentView !== 'details') {
+      setCurrentView('details')
+    }
+  }, [activeSessionId, currentView])
 
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || '', { enabled: !!activeSessionId })
@@ -374,29 +384,73 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
+      {/* Header with view toggles */}
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          p: 1.5,
+          px: 1.5,
+          py: 1,
           borderBottom: '1px solid',
           borderColor: 'divider',
           backgroundColor: 'background.paper',
+          gap: 1,
         }}
       >
+        {/* Left: Task info */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
-          <Typography variant="subtitle1" noWrap sx={{ flex: 1 }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 500, flex: 1 }}>
             {task.name || task.description || 'Unnamed task'}
           </Typography>
-          <Chip label={formatStatus(task.status)} color={getStatusColor(task.status)} size="small" />
-          <Chip label={task.priority || 'Medium'} color={getPriorityColor(task.priority)} size="small" />
+          <Chip label={formatStatus(task.status)} color={getStatusColor(task.status)} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+          <Chip label={task.priority || 'Medium'} color={getPriorityColor(task.priority)} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
         </Box>
+
+        {/* Center: View toggle icons */}
+        <ToggleButtonGroup
+          value={currentView}
+          exclusive
+          onChange={(_, newView) => newView && setCurrentView(newView)}
+          size="small"
+          sx={{
+            '& .MuiToggleButton-root': {
+              py: 0.25,
+              px: 1,
+              border: 'none',
+              borderRadius: '4px !important',
+              '&.Mui-selected': {
+                backgroundColor: 'action.selected',
+              },
+            },
+          }}
+        >
+          {activeSessionId && (
+            <ToggleButton value="session" aria-label="Session view">
+              <Tooltip title="Session">
+                <ChatIcon sx={{ fontSize: 18 }} />
+              </Tooltip>
+            </ToggleButton>
+          )}
+          {activeSessionId && (
+            <ToggleButton value="desktop" aria-label="Desktop view">
+              <Tooltip title="Desktop">
+                <DesktopWindowsIcon sx={{ fontSize: 18 }} />
+              </Tooltip>
+            </ToggleButton>
+          )}
+          <ToggleButton value="details" aria-label="Details view">
+            <Tooltip title="Details">
+              <InfoOutlinedIcon sx={{ fontSize: 18 }} />
+            </Tooltip>
+          </ToggleButton>
+        </ToggleButtonGroup>
+
+        {/* Right: Action buttons */}
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
           {isEditMode ? (
             <>
-              <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit}>
+              <Button size="small" startIcon={<CancelIcon />} onClick={handleCancelEdit} sx={{ fontSize: '0.75rem' }}>
                 Cancel
               </Button>
               <Button
@@ -405,6 +459,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 startIcon={<SaveIcon />}
                 onClick={handleSaveEdit}
                 disabled={updateSpecTask.isPending}
+                sx={{ fontSize: '0.75rem' }}
               >
                 Save
               </Button>
@@ -412,9 +467,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           ) : (
             <>
               {task.status === TypesSpecTaskStatus.TaskStatusBacklog && (
-                <IconButton size="small" onClick={handleEditToggle} title="Edit task">
-                  <EditIcon fontSize="small" />
-                </IconButton>
+                <Tooltip title="Edit task">
+                  <IconButton size="small" onClick={handleEditToggle}>
+                    <EditIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
               )}
               {activeSessionId && (
                 <Tooltip title="Restart agent session">
@@ -424,7 +481,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     disabled={isRestarting}
                     color="warning"
                   >
-                    {isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon fontSize="small" />}
+                    {isRestarting ? <CircularProgress size={16} /> : <RestartAltIcon sx={{ fontSize: 18 }} />}
                   </IconButton>
                 </Tooltip>
               )}
@@ -432,47 +489,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           )}
           {onClose && (
             <IconButton size="small" onClick={onClose}>
-              <CloseIcon fontSize="small" />
+              <CloseIcon sx={{ fontSize: 18 }} />
             </IconButton>
           )}
         </Box>
       </Box>
 
-      {/* Inner Tabs - compact style to differentiate from panel tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', backgroundColor: 'action.hover', px: 1 }}>
-        <Tabs
-          value={currentTab}
-          onChange={(_, newValue) => setCurrentTab(newValue)}
-          sx={{
-            minHeight: 32,
-            '& .MuiTabs-indicator': {
-              height: 2,
-            },
-          }}
-        >
-          {activeSessionId && (
-            <Tab
-              label="Session"
-              sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
-            />
-          )}
-          {activeSessionId && (
-            <Tab
-              label="Desktop"
-              sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
-            />
-          )}
-          <Tab
-            label="Details"
-            sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
-          />
-        </Tabs>
-      </Box>
-
       {/* Tab Content */}
       <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* Session Tab */}
-        {activeSessionId && currentTab === 0 && (
+        {/* Session View */}
+        {activeSessionId && currentView === 'session' && (
           <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <EmbeddedSessionView sessionId={activeSessionId} />
@@ -521,8 +547,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Box>
         )}
 
-        {/* Desktop + IDE Tab */}
-        {activeSessionId && currentTab === 1 && (
+        {/* Desktop View */}
+        {activeSessionId && currentView === 'desktop' && (
           <>
             <ExternalAgentDesktopViewer
               sessionId={activeSessionId}
@@ -552,8 +578,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </>
         )}
 
-        {/* Details Tab */}
-        {((activeSessionId && currentTab === 2) || (!activeSessionId && currentTab === 0)) && (
+        {/* Details View */}
+        {currentView === 'details' && (
           <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
             {/* Action Buttons */}
             <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
