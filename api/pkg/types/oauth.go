@@ -326,8 +326,8 @@ type ServiceConnectionCreateRequest struct {
 
 // ServiceConnectionUpdateRequest is the request body for updating a service connection
 type ServiceConnectionUpdateRequest struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
 
 	// GitHub App fields (only update if provided)
 	GitHubAppID          *int64  `json:"github_app_id,omitempty"`

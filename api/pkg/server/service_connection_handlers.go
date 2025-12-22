@@ -301,11 +301,11 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 	}
 
 	// Update fields if provided
-	if req.Name != "" {
-		connection.Name = req.Name
+	if req.Name != nil {
+		connection.Name = *req.Name
 	}
-	if req.Description != "" {
-		connection.Description = req.Description
+	if req.Description != nil {
+		connection.Description = *req.Description
 	}
 	if req.BaseURL != nil {
 		connection.BaseURL = *req.BaseURL
@@ -495,7 +495,9 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 	} else {
 		connection.LastError = ""
 	}
-	_ = s.Store.UpdateServiceConnection(r.Context(), connection)
+	if err := s.Store.UpdateServiceConnection(r.Context(), connection); err != nil {
+		log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to update connection status after test")
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if testErr != nil {
