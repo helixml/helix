@@ -231,3 +231,166 @@ func (c *GitProviderConnection) BeforeUpdate(_ *gorm.DB) error {
 	c.UpdatedAt = time.Now()
 	return nil
 }
+
+// ServiceConnectionType represents the type of service connection
+type ServiceConnectionType string
+
+const (
+	ServiceConnectionTypeGitHubApp            ServiceConnectionType = "github_app"
+	ServiceConnectionTypeADOServicePrincipal  ServiceConnectionType = "ado_service_principal"
+)
+
+// ServiceConnection represents a service-to-service authentication configuration
+// These are admin-configured connections that can be used across multiple repositories
+// Examples: GitHub Apps, Azure DevOps Service Principals
+type ServiceConnection struct {
+	ID        string         `json:"id" gorm:"primaryKey;type:uuid"`
+	CreatedAt time.Time      `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+
+	// Organization that owns this connection (admin-only, org-scoped)
+	OrganizationID string `json:"organization_id" gorm:"index"`
+
+	// Display name for the connection
+	Name        string `json:"name" gorm:"not null"`
+	Description string `json:"description"`
+
+	// Connection type determines which credentials are used
+	Type ServiceConnectionType `json:"type" gorm:"not null;type:text;index"`
+
+	// Provider type for filtering (github, ado, etc.)
+	ProviderType ExternalRepositoryType `json:"provider_type" gorm:"not null;type:text;index"`
+
+	// GitHub App credentials (encrypted at rest)
+	GitHubAppID          int64  `json:"github_app_id,omitempty"`
+	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
+	GitHubPrivateKey     string `json:"-" gorm:"type:text"` // PEM-encoded, sensitive
+
+	// Azure DevOps Service Principal credentials (encrypted at rest)
+	ADOOrganizationURL string `json:"ado_organization_url,omitempty"`
+	ADOTenantID        string `json:"ado_tenant_id,omitempty"`
+	ADOClientID        string `json:"ado_client_id,omitempty"`
+	ADOClientSecret    string `json:"-" gorm:"type:text"` // Sensitive
+
+	// Base URL for enterprise/self-hosted instances
+	BaseURL string `json:"base_url,omitempty"`
+
+	// Connection status
+	LastTestedAt *time.Time `json:"last_tested_at,omitempty"`
+	LastError    string     `json:"last_error,omitempty"`
+}
+
+// TableName returns the table name for ServiceConnection
+func (ServiceConnection) TableName() string {
+	return "service_connections"
+}
+
+// BeforeCreate sets default values for new service connections
+func (c *ServiceConnection) BeforeCreate(_ *gorm.DB) error {
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	if c.UpdatedAt.IsZero() {
+		c.UpdatedAt = time.Now()
+	}
+	return nil
+}
+
+// BeforeUpdate sets updated_at before updating service connections
+func (c *ServiceConnection) BeforeUpdate(_ *gorm.DB) error {
+	c.UpdatedAt = time.Now()
+	return nil
+}
+
+// ServiceConnectionCreateRequest is the request body for creating a service connection
+type ServiceConnectionCreateRequest struct {
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Type        ServiceConnectionType `json:"type"`
+
+	// GitHub App fields
+	GitHubAppID          int64  `json:"github_app_id,omitempty"`
+	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
+	GitHubPrivateKey     string `json:"github_private_key,omitempty"`
+
+	// Azure DevOps Service Principal fields
+	ADOOrganizationURL string `json:"ado_organization_url,omitempty"`
+	ADOTenantID        string `json:"ado_tenant_id,omitempty"`
+	ADOClientID        string `json:"ado_client_id,omitempty"`
+	ADOClientSecret    string `json:"ado_client_secret,omitempty"`
+
+	// Base URL for enterprise/self-hosted instances
+	BaseURL string `json:"base_url,omitempty"`
+}
+
+// ServiceConnectionUpdateRequest is the request body for updating a service connection
+type ServiceConnectionUpdateRequest struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+
+	// GitHub App fields (only update if provided)
+	GitHubAppID          *int64  `json:"github_app_id,omitempty"`
+	GitHubInstallationID *int64  `json:"github_installation_id,omitempty"`
+	GitHubPrivateKey     *string `json:"github_private_key,omitempty"`
+
+	// Azure DevOps Service Principal fields (only update if provided)
+	ADOOrganizationURL *string `json:"ado_organization_url,omitempty"`
+	ADOTenantID        *string `json:"ado_tenant_id,omitempty"`
+	ADOClientID        *string `json:"ado_client_id,omitempty"`
+	ADOClientSecret    *string `json:"ado_client_secret,omitempty"`
+
+	// Base URL for enterprise/self-hosted instances
+	BaseURL *string `json:"base_url,omitempty"`
+}
+
+// ServiceConnectionResponse is the API response for a service connection (hides sensitive fields)
+type ServiceConnectionResponse struct {
+	ID             string                 `json:"id"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	OrganizationID string                 `json:"organization_id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	Type           ServiceConnectionType  `json:"type"`
+	ProviderType   ExternalRepositoryType `json:"provider_type"`
+
+	// GitHub App (non-sensitive fields only)
+	GitHubAppID          int64 `json:"github_app_id,omitempty"`
+	GitHubInstallationID int64 `json:"github_installation_id,omitempty"`
+	HasGitHubPrivateKey  bool  `json:"has_github_private_key,omitempty"`
+
+	// Azure DevOps Service Principal (non-sensitive fields only)
+	ADOOrganizationURL string `json:"ado_organization_url,omitempty"`
+	ADOTenantID        string `json:"ado_tenant_id,omitempty"`
+	ADOClientID        string `json:"ado_client_id,omitempty"`
+	HasADOClientSecret bool   `json:"has_ado_client_secret,omitempty"`
+
+	BaseURL      string     `json:"base_url,omitempty"`
+	LastTestedAt *time.Time `json:"last_tested_at,omitempty"`
+	LastError    string     `json:"last_error,omitempty"`
+}
+
+// ToResponse converts a ServiceConnection to a ServiceConnectionResponse (hiding sensitive fields)
+func (c *ServiceConnection) ToResponse() *ServiceConnectionResponse {
+	return &ServiceConnectionResponse{
+		ID:                   c.ID,
+		CreatedAt:            c.CreatedAt,
+		UpdatedAt:            c.UpdatedAt,
+		OrganizationID:       c.OrganizationID,
+		Name:                 c.Name,
+		Description:          c.Description,
+		Type:                 c.Type,
+		ProviderType:         c.ProviderType,
+		GitHubAppID:          c.GitHubAppID,
+		GitHubInstallationID: c.GitHubInstallationID,
+		HasGitHubPrivateKey:  c.GitHubPrivateKey != "",
+		ADOOrganizationURL:   c.ADOOrganizationURL,
+		ADOTenantID:          c.ADOTenantID,
+		ADOClientID:          c.ADOClientID,
+		HasADOClientSecret:   c.ADOClientSecret != "",
+		BaseURL:              c.BaseURL,
+		LastTestedAt:         c.LastTestedAt,
+		LastError:            c.LastError,
+	}
+}

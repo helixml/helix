@@ -1798,8 +1798,17 @@ export interface TypesAuthenticatedResponse {
 }
 
 export interface TypesAzureDevOps {
+  /** App registration client ID */
+  client_id?: string;
+  /** App registration client secret */
+  client_secret?: string;
   organization_url?: string;
   personal_access_token?: string;
+  /**
+   * Service Principal authentication (service-to-service via Azure AD/Entra ID)
+   * Uses OAuth 2.0 client credentials flow for automated system access
+   */
+  tenant_id?: string;
 }
 
 export interface TypesAzureDevOpsTrigger {
@@ -2416,9 +2425,18 @@ export interface TypesGPUStatus {
 }
 
 export interface TypesGitHub {
+  /**
+   * GitHub App authentication (service-to-service)
+   * When AppID and PrivateKey are set, uses GitHub App installation tokens
+   */
+  app_id?: number;
   /** For GitHub Enterprise instances (empty for github.com) */
   base_url?: string;
+  /** Installation ID for the app on the org/repo */
+  installation_id?: number;
   personal_access_token?: string;
+  /** PEM-encoded private key for JWT signing */
+  private_key?: string;
 }
 
 export interface TypesGitHubWorkConfig {
@@ -3958,6 +3976,67 @@ export interface TypesServerConfigForFrontend {
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
   version?: string;
+}
+
+export interface TypesServiceConnectionCreateRequest {
+  ado_client_id?: string;
+  ado_client_secret?: string;
+  /** Azure DevOps Service Principal fields */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  /** Base URL for enterprise/self-hosted instances */
+  base_url?: string;
+  description?: string;
+  /** GitHub App fields */
+  github_app_id?: number;
+  github_installation_id?: number;
+  github_private_key?: string;
+  name?: string;
+  type?: TypesServiceConnectionType;
+}
+
+export interface TypesServiceConnectionResponse {
+  ado_client_id?: string;
+  /** Azure DevOps Service Principal (non-sensitive fields only) */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  base_url?: string;
+  created_at?: string;
+  description?: string;
+  /** GitHub App (non-sensitive fields only) */
+  github_app_id?: number;
+  github_installation_id?: number;
+  has_ado_client_secret?: boolean;
+  has_github_private_key?: boolean;
+  id?: string;
+  last_error?: string;
+  last_tested_at?: string;
+  name?: string;
+  organization_id?: string;
+  provider_type?: TypesExternalRepositoryType;
+  type?: TypesServiceConnectionType;
+  updated_at?: string;
+}
+
+export enum TypesServiceConnectionType {
+  ServiceConnectionTypeGitHubApp = "github_app",
+  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
+}
+
+export interface TypesServiceConnectionUpdateRequest {
+  ado_client_id?: string;
+  ado_client_secret?: string;
+  /** Azure DevOps Service Principal fields (only update if provided) */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  /** Base URL for enterprise/self-hosted instances */
+  base_url?: string;
+  description?: string;
+  /** GitHub App fields (only update if provided) */
+  github_app_id?: number;
+  github_installation_id?: number;
+  github_private_key?: string;
+  name?: string;
 }
 
 export interface TypesSession {
@@ -9831,6 +9910,127 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all service connections (GitHub Apps, ADO Service Principals) for the organization
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsList
+     * @summary List service connections
+     * @request GET:/api/v1/service-connections
+     * @secure
+     */
+    v1ServiceConnectionsList: (
+      query?: {
+        /** Organization ID (optional, defaults to user's org) */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse[], TypesAPIError>({
+        path: `/api/v1/service-connections`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new service connection (GitHub App or ADO Service Principal)
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsCreate
+     * @summary Create service connection
+     * @request POST:/api/v1/service-connections
+     * @secure
+     */
+    v1ServiceConnectionsCreate: (request: TypesServiceConnectionCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDelete
+     * @summary Delete service connection
+     * @request DELETE:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific service connection by ID
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDetail
+     * @summary Get service connection
+     * @request GET:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsUpdate
+     * @summary Update service connection
+     * @request PUT:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsUpdate: (
+      id: string,
+      request: TypesServiceConnectionUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Test a service connection by attempting to authenticate
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsTestCreate
+     * @summary Test service connection
+     * @request POST:/api/v1/service-connections/{id}/test
+     * @secure
+     */
+    v1ServiceConnectionsTestCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}/test`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 

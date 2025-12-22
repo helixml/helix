@@ -8717,6 +8717,353 @@
                 }
             }
         },
+        "/api/v1/service-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all service connections (GitHub Apps, ADO Service Principals) for the organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "List service connections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID (optional, defaults to user's org)",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new service connection (GitHub App or ADO Service Principal)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Create service connection",
+                "parameters": [
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-connections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific service connection by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Get service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a service connection",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Update service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a service connection",
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Delete service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-connections/{id}/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Test a service connection by attempting to authenticate",
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Test service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions": {
             "get": {
                 "security": [
@@ -18666,10 +19013,22 @@
         "types.AzureDevOps": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "description": "App registration client ID",
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "App registration client secret",
+                    "type": "string"
+                },
                 "organization_url": {
                     "type": "string"
                 },
                 "personal_access_token": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "description": "Service Principal authentication (service-to-service via Azure AD/Entra ID)\nUses OAuth 2.0 client credentials flow for automated system access",
                     "type": "string"
                 }
             }
@@ -20165,11 +20524,23 @@
         "types.GitHub": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "GitHub App authentication (service-to-service)\nWhen AppID and PrivateKey are set, uses GitHub App installation tokens",
+                    "type": "integer"
+                },
                 "base_url": {
                     "description": "For GitHub Enterprise instances (empty for github.com)",
                     "type": "string"
                 },
+                "installation_id": {
+                    "description": "Installation ID for the app on the org/repo",
+                    "type": "integer"
+                },
                 "personal_access_token": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "description": "PEM-encoded private key for JWT signing",
                     "type": "string"
                 }
             }
@@ -23896,6 +24267,157 @@
                     "type": "boolean"
                 },
                 "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ServiceConnectionCreateRequest": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_client_secret": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal fields",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "Base URL for enterprise/self-hosted instances",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App fields",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "github_private_key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ServiceConnectionType"
+                }
+            }
+        },
+        "types.ServiceConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal (non-sensitive fields only)",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App (non-sensitive fields only)",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "has_ado_client_secret": {
+                    "type": "boolean"
+                },
+                "has_github_private_key": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_tested_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ServiceConnectionType"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ServiceConnectionType": {
+            "type": "string",
+            "enum": [
+                "github_app",
+                "ado_service_principal"
+            ],
+            "x-enum-varnames": [
+                "ServiceConnectionTypeGitHubApp",
+                "ServiceConnectionTypeADOServicePrincipal"
+            ]
+        },
+        "types.ServiceConnectionUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_client_secret": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal fields (only update if provided)",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "Base URL for enterprise/self-hosted instances",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App fields (only update if provided)",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "github_private_key": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
