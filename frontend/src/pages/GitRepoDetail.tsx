@@ -220,14 +220,17 @@ const GitRepoDetail: FC = () => {
     }
   }
 
-  // List commits
+  // List commits with pagination
+  const [commitsPage, setCommitsPage] = useState(1)
+  const commitsPerPage = 20
   const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
     repoId || '',
     commitsBranch || undefined,
-    1,
-    100
+    commitsPage,
+    commitsPerPage
   )
   const commits = commitsData?.commits || []
+  const commitsTotal = commitsData?.total || 0
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -947,13 +950,21 @@ const GitRepoDetail: FC = () => {
             <CommitsTab
               repository={repository}
               commitsBranch={commitsBranch}
-              setCommitsBranch={setCommitsBranch}
+              setCommitsBranch={(branch) => {
+                setCommitsBranch(branch)
+                setCommitsPage(1) // Reset to first page on branch change
+              }}
               branches={branches}
               commits={commits}
               commitsLoading={commitsLoading}
               handleCopySha={handleCopySha}
               copiedSha={copiedSha}
               onViewEnrichments={handleViewEnrichments}
+              // Pagination props
+              currentPage={commitsPage}
+              totalCount={commitsTotal}
+              perPage={commitsPerPage}
+              onPageChange={setCommitsPage}
             />
           )}
 

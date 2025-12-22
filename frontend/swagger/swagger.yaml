@@ -5031,6 +5031,13 @@ definitions:
         type: array
       external_status:
         $ref: '#/definitions/types.ExternalStatus'
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        description: Pagination info
+        type: integer
     type: object
   types.ListOAuthRepositoriesResponse:
     properties:
@@ -8551,20 +8558,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:

@@ -214,6 +214,10 @@ type ListCommitsRequest struct {
 type ListCommitsResponse struct {
 	Commits        []*Commit      `json:"commits"`
 	ExternalStatus ExternalStatus `json:"external_status"`
+	// Pagination info
+	Total   int `json:"total"`
+	Page    int `json:"page"`
+	PerPage int `json:"per_page"`
 }
 
 type ExternalStatus struct {

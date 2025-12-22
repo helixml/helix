@@ -75,6 +75,7 @@ func (s *GitRepositoryService) ListCommits(ctx context.Context, req *types.ListC
 	var commits []*types.Commit
 	count := 0
 	skipped := 0
+	totalCount := 0
 
 	errStopIteration := fmt.Errorf("stop iteration")
 
@@ -86,13 +87,17 @@ func (s *GitRepositoryService) ListCommits(ctx context.Context, req *types.ListC
 			return nil
 		}
 
+		// Count all matching commits for total
+		totalCount++
+
 		if skipped < skip {
 			skipped++
 			return nil
 		}
 
 		if count >= perPage {
-			return errStopIteration
+			// Continue counting for total but don't add to results
+			return nil
 		}
 
 		commits = append(commits, &types.Commit{
@@ -113,5 +118,8 @@ func (s *GitRepositoryService) ListCommits(ctx context.Context, req *types.ListC
 
 	return &types.ListCommitsResponse{
 		Commits: commits,
+		Total:   totalCount,
+		Page:    page,
+		PerPage: perPage,
 	}, nil
 }

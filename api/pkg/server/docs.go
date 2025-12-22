@@ -21488,6 +21488,16 @@ const docTemplate = `{
                 },
                 "external_status": {
                     "$ref": "#/definitions/types.ExternalStatus"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "description": "Pagination info",
+                    "type": "integer"
                 }
             }
         },
@@ -26462,20 +26472,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {
