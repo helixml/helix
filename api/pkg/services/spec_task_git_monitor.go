@@ -324,6 +324,41 @@ func (m *SpecTaskGitMonitor) readSpecDocsFromGit(repoPath string, specTaskID str
 	return requirementsSpec, technicalDesign, implementationPlan
 }
 
+// readShortTitleFromGit reads the short-title.txt from helix-specs branch
+// Returns empty string if file cannot be read
+func (m *SpecTaskGitMonitor) readShortTitleFromGit(repoPath string, specTaskID string, designDocPath string) string {
+	// Find task directory in helix-specs branch
+	taskDir, err := findTaskDirectory(repoPath, specTaskID, designDocPath)
+	if err != nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[GitMonitor] Could not find task directory for short-title")
+		return ""
+	}
+
+	// Read short-title.txt
+	filePath := fmt.Sprintf("%s/short-title.txt", taskDir)
+	content, err := readFileFromBranch(repoPath, "helix-specs", filePath)
+	if err != nil {
+		log.Debug().
+			Err(err).
+			Str("path", filePath).
+			Msg("[GitMonitor] Could not read short-title.txt from helix-specs (this is normal if agent hasn't written it yet)")
+		return ""
+	}
+
+	// Trim whitespace and limit to 100 chars
+	shortTitle := strings.TrimSpace(content)
+	if len(shortTitle) > 100 {
+		shortTitle = shortTitle[:100]
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("short_title", shortTitle).
+		Msg("[GitMonitor] Read short-title from helix-specs branch")
+
+	return shortTitle
+}
+
 // processGitPushEvent processes a Git push event and creates a design review
 func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent, specTask *types.SpecTask, repoPath string) error {
 	log.Info().
@@ -349,6 +384,16 @@ func (m *SpecTaskGitMonitor) processGitPushEvent(ctx context.Context, event *typ
 
 	// Read spec content from helix-specs branch (fresh from git, not stale database fields)
 	requirementsSpec, technicalDesign, implementationPlan := m.readSpecDocsFromGit(repoPath, specTask.ID, specTask.DesignDocPath)
+
+	// Read short-title.txt if present (agent-generated tab title)
+	shortTitle := m.readShortTitleFromGit(repoPath, specTask.ID, specTask.DesignDocPath)
+	if shortTitle != "" && specTask.ShortTitle != shortTitle {
+		specTask.ShortTitle = shortTitle
+		log.Info().
+			Str("spec_task_id", specTask.ID).
+			Str("short_title", shortTitle).
+			Msg("[GitMonitor] Updated task short_title from helix-specs branch")
+	}
 
 	// Create new design review with content from git
 	review := &types.SpecTaskDesignReview{
