@@ -331,6 +331,12 @@ type Store interface {
 	DeleteOAuthRequestToken(ctx context.Context, id string) error
 	GenerateRandomState(ctx context.Context) (string, error)
 
+	// Git Provider Connection methods (PAT-based connections)
+	CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error
+	GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error)
+	ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error)
+	DeleteGitProviderConnection(ctx context.Context, id string) error
+
 	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)

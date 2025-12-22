@@ -1093,24 +1093,52 @@ const TabsView: React.FC<TabsViewProps> = ({
     }))
   }, [])
 
+  // When no panels exist, show an empty panel with just a + button
   if (panels.length === 0) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          gap: 2,
-        }}
-      >
-        <Typography variant="h6" color="text.secondary">
-          No tasks to display
-        </Typography>
-        <Typography variant="body2" color="text.disabled">
-          Create a task to get started
-        </Typography>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* Tab bar with just the + button */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            minHeight: 32,
+          }}
+        >
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5 }}>
+            <Tooltip title="Create new task">
+              <IconButton
+                size="small"
+                onClick={onCreateTask}
+                sx={{ opacity: 0.8, '&:hover': { opacity: 1 } }}
+              >
+                <AddIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+        {/* Empty state content */}
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            No tasks to display
+          </Typography>
+          <Typography variant="body2" color="text.disabled">
+            Click + above to create a task
+          </Typography>
+        </Box>
       </Box>
     )
   }

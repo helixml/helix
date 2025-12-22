@@ -44,6 +44,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      # Encryption key for secrets at rest (SSH keys, PATs, etc.)
+      - HELIX_ENCRYPTION_KEY=${HELIX_ENCRYPTION_KEY:-dev-encryption-key-do-not-use-in-prod}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}

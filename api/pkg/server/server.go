@@ -1101,6 +1101,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Browse remote repositories using PAT credentials (without needing OAuth)
 	authRouter.HandleFunc("/git/browse-remote", apiServer.browseRemoteRepositories).Methods(http.MethodPost)
 
+	// Git provider connections - persistent PAT-based connections for browsing repositories
+	authRouter.HandleFunc("/git-provider-connections", apiServer.listGitProviderConnections).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git-provider-connections", apiServer.createGitProviderConnection).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git-provider-connections/{id}", apiServer.deleteGitProviderConnection).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/git-provider-connections/{id}/repositories", apiServer.browseGitProviderConnectionRepositories).Methods(http.MethodGet)
+
 	// Git repository access grant routes
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)

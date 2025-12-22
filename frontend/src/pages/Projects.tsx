@@ -9,7 +9,7 @@ import {
   CircularProgress,
 } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
-import { Plus, Link } from 'lucide-react'
+import { Plus, Link, FolderSearch } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -17,6 +17,7 @@ import CreateProjectButton from '../components/project/CreateProjectButton'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog'
 import LinkExternalRepositoryDialog from '../components/project/LinkExternalRepositoryDialog'
+import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 import AgentSelectionModal from '../components/project/AgentSelectionModal'
 import ProjectsListView from '../components/project/ProjectsListView'
 import RepositoriesListView from '../components/project/RepositoriesListView'
@@ -34,7 +35,7 @@ import {
   TypesProject,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
-import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps, TypesGitHub, TypesGitLab } from '../api/api'
+import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps, TypesGitHub, TypesGitLab, TypesRepositoryInfo } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
@@ -100,6 +101,10 @@ const Projects: FC = () => {
 
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string>('')
+
+  // Browse providers dialog state
+  const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false)
+  const [linkingFromBrowser, setLinkingFromBrowser] = useState(false)
 
   // Search and pagination for projects
   const [projectsSearchQuery, setProjectsSearchQuery] = useState('')
@@ -391,10 +396,99 @@ const Projects: FC = () => {
     account.orgNavigate('git-repo-detail', { repoId: repo.id })
   }
 
+  // Handle repository selection from OAuth browser or PAT flow
+  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerTypeOrCreds: string) => {
+    if (!account.user?.id) return
+
+    setLinkingFromBrowser(true)
+    try {
+      const apiClient = api.getApiClient()
+
+      // Check if providerTypeOrCreds is JSON (PAT credentials) or plain provider type
+      let providerType: string
+      let patCredentials: { pat?: string; orgUrl?: string; gitlabBaseUrl?: string } | null = null
+
+      try {
+        const parsed = JSON.parse(providerTypeOrCreds)
+        providerType = parsed.type
+        patCredentials = {
+          pat: parsed.pat,
+          orgUrl: parsed.orgUrl,
+          gitlabBaseUrl: parsed.gitlabBaseUrl,
+        }
+      } catch {
+        // Not JSON, it's a plain provider type (OAuth flow)
+        providerType = providerTypeOrCreds
+      }
+
+      // Map provider type to external type
+      const externalTypeMap: Record<string, TypesExternalRepositoryType> = {
+        'github': 'github' as TypesExternalRepositoryType,
+        'gitlab': 'gitlab' as TypesExternalRepositoryType,
+        'azure-devops': 'ado' as TypesExternalRepositoryType,
+      }
+
+      // Build provider-specific config if using PAT
+      let github: TypesGitHub | undefined
+      let gitlab: TypesGitLab | undefined
+      let azureDevOps: TypesAzureDevOps | undefined
+
+      if (patCredentials?.pat) {
+        if (providerType === 'github') {
+          github = {
+            personal_access_token: patCredentials.pat,
+          }
+        } else if (providerType === 'gitlab') {
+          gitlab = {
+            personal_access_token: patCredentials.pat,
+            base_url: patCredentials.gitlabBaseUrl,
+          }
+        } else if (providerType === 'azure-devops') {
+          azureDevOps = {
+            organization_url: patCredentials.orgUrl || '',
+            personal_access_token: patCredentials.pat,
+          }
+        }
+      }
+
+      await apiClient.v1GitRepositoriesCreate({
+        name: repo.name || 'repository',
+        description: repo.description || `${providerType} repository`,
+        owner_id: account.user.id,
+        organization_id: currentOrg?.id,
+        repo_type: 'code' as any,
+        default_branch: repo.default_branch || 'main',
+        is_external: true,
+        external_url: repo.clone_url || repo.html_url || '',
+        external_type: externalTypeMap[providerType] || ('github' as TypesExternalRepositoryType),
+        kodit_indexing: true,
+        github,
+        gitlab,
+        azure_devops: azureDevOps,
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
+
+      // Reset pagination to show the new repo at the top
+      setReposPage(0)
+      setReposSearchQuery('')
+
+      setBrowseProvidersOpen(false)
+      snackbar.success('Repository linked successfully')
+    } catch (error) {
+      console.error('Failed to link repository from browser:', error)
+      snackbar.error('Failed to link repository')
+    } finally {
+      setLinkingFromBrowser(false)
+    }
+  }
+
   if (isLoading || reposLoading) {
     return (
       <Page
         breadcrumbTitle="Projects"
+        breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
         orgBreadcrumbs={true}
       >
         <Container maxWidth="lg">
@@ -423,6 +517,7 @@ const Projects: FC = () => {
   return (
     <Page
       breadcrumbTitle={getBreadcrumbTitle()}
+      breadcrumbParent={{ title: 'Projects', routeName: 'projects' }}
       breadcrumbs={[]}
       orgBreadcrumbs={true}
       topbarContent={currentView === 'projects' ? (
@@ -437,22 +532,32 @@ const Projects: FC = () => {
       ) : currentView === 'repositories' ? (
         <>
           <Button
+            variant="contained"
+            color="secondary"
+            size="small"
+            startIcon={<FolderSearch size={16} />}
+            onClick={() => setBrowseProvidersOpen(true)}
+            sx={{ mr: 1 }}
+          >
+            Connect & Browse
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<Link size={16} />}
+            onClick={() => setLinkRepoDialogOpen(true)}
+            sx={{ textTransform: 'none', mr: 1 }}
+          >
+            Link Manually
+          </Button>
+          <Button
             variant="outlined"
             size="small"
             startIcon={<Plus size={16} />}
             onClick={() => setCreateRepoDialogOpen(true)}
-            sx={{ textTransform: 'none', mr: 1 }}
+            sx={{ textTransform: 'none' }}
           >
-            New Repository
-          </Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            size="small"
-            startIcon={<Link size={16} />}
-            onClick={() => setLinkRepoDialogOpen(true)}
-          >
-            Link External Repository
+            New Empty
           </Button>
         </>
       ) : null}
@@ -563,6 +668,15 @@ const Projects: FC = () => {
           onSelect={handleAgentSelected}
           title="Select Agent for Project"
           description="Choose a default agent for this project. You can override this when creating individual tasks."
+        />
+
+        {/* Browse Connected Providers Dialog */}
+        <BrowseProvidersDialog
+          open={browseProvidersOpen}
+          onClose={() => setBrowseProvidersOpen(false)}
+          onSelectRepository={handleBrowseSelectRepository}
+          isLinking={linkingFromBrowser}
+          organizationName={currentOrg?.name}
         />
     </Page>
   )

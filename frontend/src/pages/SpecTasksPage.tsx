@@ -135,8 +135,20 @@ const SpecTasksPage: FC = () => {
     }
   }, [projectId, router.params.new, account]);
 
-  // State for view management
-  const [viewMode, setViewMode] = useState<'kanban' | 'tabs' | 'audit'>('kanban');
+  // State for view management - persist preference in localStorage
+  const [viewMode, setViewMode] = useState<'kanban' | 'tabs' | 'audit'>(() => {
+    const saved = localStorage.getItem('helix_spectask_view_mode');
+    if (saved === 'kanban' || saved === 'tabs' || saved === 'audit') {
+      return saved;
+    }
+    return 'kanban';
+  });
+
+  // Persist view mode preference when it changes
+  useEffect(() => {
+    localStorage.setItem('helix_spectask_view_mode', viewMode);
+  }, [viewMode]);
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);

@@ -145,6 +145,15 @@ func (c *Client) GetProjectByPath(ctx context.Context, path string) (*gitlab.Pro
 	return project, nil
 }
 
+// GetCurrentUser gets the authenticated user's profile
+func (c *Client) GetCurrentUser(ctx context.Context) (*gitlab.User, error) {
+	user, _, err := c.client.Users.CurrentUser(gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+	return user, nil
+}
+
 // ParseGitLabURL extracts the project path or ID from a GitLab URL
 // Supports formats:
 //   - https://gitlab.com/group/project

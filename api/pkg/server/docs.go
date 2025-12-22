@@ -2709,6 +2709,199 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git-provider-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all PAT-based git provider connections for the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "List git provider connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitProviderConnection"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new PAT-based git provider connection for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Create git provider connection",
+                "parameters": [
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnectionCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git-provider-connections/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a PAT-based git provider connection",
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Delete git provider connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git-provider-connections/{id}/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories from a saved PAT-based git provider connection",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Browse repositories from saved connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/browse-remote": {
             "post": {
                 "security": [
@@ -20007,6 +20200,81 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitProviderConnection": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "For GitLab Enterprise: base URL (empty = gitlab.com)",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_tested_at": {
+                    "description": "Last successful connection test",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the connection (e.g., \"My GitHub Account\")",
+                    "type": "string"
+                },
+                "organization_url": {
+                    "description": "For Azure DevOps: organization URL",
+                    "type": "string"
+                },
+                "provider_type": {
+                    "description": "Provider type: github, gitlab, ado",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "User who owns this connection (PAT is personal, not org-level)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "User info from the provider (cached from last successful auth)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitProviderConnectionCreateRequest": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_url": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.GitRepository": {
             "type": "object",
             "properties": {
@@ -21697,6 +21965,10 @@ const docTemplate = `{
                 },
                 "raw": {
                     "description": "Raw JSON response from provider",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Provider-specific username (e.g., GitHub login)",
                     "type": "string"
                 }
             }
@@ -26190,20 +26462,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {
