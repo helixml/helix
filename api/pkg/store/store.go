@@ -653,6 +653,7 @@ type Store interface {
 	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	MarkPromptAsFailed(ctx context.Context, promptID string) error

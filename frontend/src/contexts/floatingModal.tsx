@@ -10,6 +10,9 @@ interface FloatingModalConfig {
   displayWidth?: number
   displayHeight?: number
   displayFps?: number
+  // Prompt history sync (for exploratory_session)
+  specTaskId?: string
+  projectId?: string
 }
 
 interface FloatingModalContextType {

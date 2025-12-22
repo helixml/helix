@@ -3861,6 +3861,21 @@ func (mr *MockStoreMockRecorder) ListPromptHistory(ctx, userID, req any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistory", reflect.TypeOf((*MockStore)(nil).ListPromptHistory), ctx, userID, req)
 }
 
+// ListPromptHistoryBySpecTask mocks base method.
+func (m *MockStore) ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPromptHistoryBySpecTask", ctx, specTaskID)
+	ret0, _ := ret[0].([]*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPromptHistoryBySpecTask indicates an expected call of ListPromptHistoryBySpecTask.
+func (mr *MockStoreMockRecorder) ListPromptHistoryBySpecTask(ctx, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistoryBySpecTask", reflect.TypeOf((*MockStore)(nil).ListPromptHistoryBySpecTask), ctx, specTaskID)
+}
+
 // ListPromptTemplates mocks base method.
 func (m *MockStore) ListPromptTemplates(ctx context.Context, userID string) ([]*types.PromptHistoryEntry, error) {
 	m.ctrl.T.Helper()
