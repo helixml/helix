@@ -674,6 +674,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // - 'low' mode: wait for first screenshot (handled in screenshot polling)
           if (qualityMode === 'low') {
             setStatus('Waiting for screenshot...');
+            // Mark that we're waiting for first screenshot - this is checked by the
+            // screenshot polling effect to know when to hide the loading overlay
+            waitingForFirstScreenshotRef.current = true;
             // CRITICAL: Disable video on server when starting in screenshot mode
             // This prevents the server from sending video frames we can't render
             // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
