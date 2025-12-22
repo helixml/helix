@@ -594,10 +594,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [handleSaveEdit, handleCancelEdit])
 
   // Handle key events
+  // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      // Ctrl+Enter = interrupt mode, Enter = queue mode
+      const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
+      // Temporarily set the mode for this send, then restore
+      const originalMode = interruptMode
+      setInterruptMode(useInterrupt)
+      // Need to call saveToHistory directly with the correct mode since handleSend uses state
+      const content = draft.trim()
+      if (content && !disabled) {
+        saveToHistory(content, useInterrupt)
+        clearDraft()
+        if (isOnline && !processingRef.current) {
+          setTimeout(processQueue, 100)
+        }
+      }
+      // Restore original mode
+      setInterruptMode(originalMode)
       return
     }
 
@@ -618,7 +634,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, handleSend, navigateUp, navigateDown])
+  }, [draft, disabled, interruptMode, saveToHistory, clearDraft, isOnline, processQueue, navigateUp, navigateDown])
 
   // Format timestamp
   const formatTime = (timestamp: number): string => {
@@ -844,9 +860,21 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
         {/* Interrupt mode toggle */}
         <Tooltip
-          title={interruptMode
-            ? "Interrupt mode: Message will be sent immediately, interrupting current conversation"
-            : "Queue mode: Message will wait until current conversation completes"
+          title={
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                {interruptMode
+                  ? 'Messages sent immediately, interrupting current conversation'
+                  : 'Messages wait until current conversation completes'
+                }
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
+                Keyboard: Enter = queue, Ctrl+Enter = interrupt
+              </Typography>
+            </Box>
           }
         >
           <IconButton
@@ -876,7 +904,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         </Tooltip>
 
         {/* Send button */}
-        <Tooltip title="Add to queue (Enter)">
+        <Tooltip title="Add to queue (Enter = queue, Ctrl+Enter = interrupt)">
           <span>
             <IconButton
               onClick={handleSend}
@@ -911,7 +939,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         }}
       >
         <Typography variant="caption" sx={{ color: 'text.secondary', opacity: 0.7 }}>
-          Enter to send, Shift+Enter for new line
+          Enter = queue, Ctrl+Enter = interrupt, Shift+Enter = new line
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           {queuedMessages.length > 0 && (

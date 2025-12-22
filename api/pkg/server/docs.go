@@ -24537,6 +24537,10 @@ const docTemplate = `{
                     "description": "Agent activity tracking (computed from session.updated, not stored)",
                     "type": "string"
                 },
+                "short_title": {
+                    "description": "Short title for tab display (auto-generated from agent writing short-title.txt)\nUserShortTitle takes precedence if set (user override)",
+                    "type": "string"
+                },
                 "spec_approved_at": {
                     "type": "string"
                 },
@@ -24577,6 +24581,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_short_title": {
+                    "description": "User override",
+                    "type": "string"
                 },
                 "workspace_config": {
                     "type": "array",
@@ -25249,6 +25257,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/types.SpecTaskStatus"
+                },
+                "user_short_title": {
+                    "description": "User override for tab title (pointer to allow clearing with empty string)",
+                    "type": "string"
                 }
             }
         },

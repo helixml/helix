@@ -446,7 +446,6 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         anchorEl={tileMenuAnchor}
         open={Boolean(tileMenuAnchor)}
         onClose={() => setTileMenuAnchor(null)}
-        sx={{ zIndex: 100001 }}
       >
         <MenuItem onClick={() => handleTile('full')}>
           <ListItemText primary="Full Screen" secondary="Fill entire window" />

@@ -23,6 +23,21 @@ type ExternalAgentWSManager struct {
 	connections map[string]*ExternalAgentWSConnection
 	mu          sync.RWMutex
 	upgrader    websocket.Upgrader
+
+	// Session readiness tracking - prevents sending messages before agent is ready
+	readinessState map[string]*SessionReadinessState
+	readinessMu    sync.RWMutex
+}
+
+// SessionReadinessState tracks whether an agent session is ready to receive messages
+// This prevents race conditions where we send prompts before Zed has loaded the agent
+type SessionReadinessState struct {
+	IsReady       bool                         // True when agent_ready received
+	ReadyAt       time.Time                    // When agent became ready
+	PendingQueue  []types.ExternalAgentCommand // Commands queued before ready
+	TimeoutTimer  *time.Timer                  // Fallback timeout (60s)
+	SessionID     string                       // For logging
+	NeedsContinue bool                         // Whether to send continue prompt when ready
 }
 
 type ExternalAgentWSConnection struct {
@@ -36,7 +51,8 @@ type ExternalAgentWSConnection struct {
 
 func NewExternalAgentWSManager() *ExternalAgentWSManager {
 	return &ExternalAgentWSManager{
-		connections: make(map[string]*ExternalAgentWSConnection),
+		connections:    make(map[string]*ExternalAgentWSConnection),
+		readinessState: make(map[string]*SessionReadinessState),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO: Add proper origin validation
@@ -323,8 +339,20 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Msg("🔧 [HELIX] Restored contextMappings from session metadata (ensures message routing after restart)")
 			}
 
-			// Check if agent needs a continue prompt after container restart
-			apiServer.sendContinuePromptIfNeeded(ctx, helixSessionID, wsConn)
+			// Check if agent was working before disconnect (to determine if continue prompt needed)
+			needsContinue := false
+			activity, actErr := apiServer.Store.GetExternalAgentActivity(ctx, helixSessionID)
+			if actErr == nil && activity != nil && activity.AgentWorkState == types.AgentWorkStateWorking {
+				needsContinue = true
+				log.Info().
+					Str("session_id", helixSessionID).
+					Msg("🔄 [READINESS] Agent was working before disconnect, will send continue prompt when ready")
+			}
+
+			// Initialize readiness tracking - we'll wait for agent_ready before sending continue prompt
+			// This prevents race conditions where we send prompts before the agent is ready
+			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
+			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
 
 			// Find the waiting interaction
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
@@ -552,6 +580,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleThreadLoadError(sessionID, syncMsg)
 	case "chat_response_error":
 		return apiServer.handleChatResponseError(sessionID, syncMsg)
+	case "agent_ready":
+		return apiServer.handleAgentReady(sessionID, syncMsg)
 	case "ping":
 		return nil
 	default:
@@ -1279,6 +1309,166 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 	return connections
 }
 
+// Session Readiness Management
+// These methods track whether the agent in a session is ready to receive messages.
+// This prevents race conditions where we send prompts before Zed has loaded the agent.
+
+// initReadinessState initializes readiness tracking for a session
+// Returns a callback that should be called when agent_ready is received (or on timeout)
+func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) {
+	manager.readinessMu.Lock()
+	defer manager.readinessMu.Unlock()
+
+	// Clean up any existing state for this session
+	if existing, exists := manager.readinessState[sessionID]; exists && existing.TimeoutTimer != nil {
+		existing.TimeoutTimer.Stop()
+	}
+
+	state := &SessionReadinessState{
+		IsReady:       false,
+		SessionID:     sessionID,
+		PendingQueue:  make([]types.ExternalAgentCommand, 0),
+		NeedsContinue: needsContinue,
+	}
+
+	// Set up fallback timeout (60 seconds)
+	// If we don't receive agent_ready within 60s, assume ready and send anyway
+	state.TimeoutTimer = time.AfterFunc(60*time.Second, func() {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("⏰ [READINESS] Timeout waiting for agent_ready, proceeding with queued messages")
+		manager.markSessionReady(sessionID, onReady)
+	})
+
+	manager.readinessState[sessionID] = state
+
+	log.Info().
+		Str("session_id", sessionID).
+		Bool("needs_continue", needsContinue).
+		Msg("🔧 [READINESS] Initialized readiness tracking for session (waiting for agent_ready)")
+}
+
+// markSessionReady marks a session as ready and flushes pending messages
+func (manager *ExternalAgentWSManager) markSessionReady(sessionID string, onReady func()) {
+	manager.readinessMu.Lock()
+
+	state, exists := manager.readinessState[sessionID]
+	if !exists {
+		manager.readinessMu.Unlock()
+		log.Debug().Str("session_id", sessionID).Msg("No readiness state found for session")
+		return
+	}
+
+	if state.IsReady {
+		manager.readinessMu.Unlock()
+		log.Debug().Str("session_id", sessionID).Msg("Session already marked as ready")
+		return
+	}
+
+	// Stop the timeout timer
+	if state.TimeoutTimer != nil {
+		state.TimeoutTimer.Stop()
+	}
+
+	state.IsReady = true
+	state.ReadyAt = time.Now()
+	pendingQueue := state.PendingQueue
+	state.PendingQueue = nil // Clear the queue
+
+	manager.readinessMu.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("pending_count", len(pendingQueue)).
+		Msg("✅ [READINESS] Session marked as ready, flushing pending messages")
+
+	// Flush pending messages (after releasing lock to avoid deadlock)
+	if len(pendingQueue) > 0 {
+		conn, exists := manager.getConnection(sessionID)
+		if exists {
+			for _, cmd := range pendingQueue {
+				select {
+				case conn.SendChan <- cmd:
+					log.Debug().
+						Str("session_id", sessionID).
+						Str("type", cmd.Type).
+						Msg("📤 [READINESS] Sent queued message")
+				default:
+					log.Warn().
+						Str("session_id", sessionID).
+						Str("type", cmd.Type).
+						Msg("⚠️ [READINESS] SendChan full, dropped queued message")
+				}
+			}
+		}
+	}
+
+	// Call the onReady callback (e.g., to send continue prompt)
+	if onReady != nil {
+		onReady()
+	}
+}
+
+// isSessionReady checks if a session is ready to receive messages
+func (manager *ExternalAgentWSManager) isSessionReady(sessionID string) bool {
+	manager.readinessMu.RLock()
+	defer manager.readinessMu.RUnlock()
+
+	state, exists := manager.readinessState[sessionID]
+	if !exists {
+		// No readiness tracking = assume ready (for backward compatibility)
+		return true
+	}
+	return state.IsReady
+}
+
+// queueOrSend queues a command if session isn't ready, or sends immediately if ready
+func (manager *ExternalAgentWSManager) queueOrSend(sessionID string, cmd types.ExternalAgentCommand) bool {
+	manager.readinessMu.Lock()
+	state, exists := manager.readinessState[sessionID]
+	if !exists || state.IsReady {
+		manager.readinessMu.Unlock()
+		// Session is ready or not tracked - send immediately
+		conn, connExists := manager.getConnection(sessionID)
+		if !connExists {
+			log.Warn().Str("session_id", sessionID).Msg("No connection found for session")
+			return false
+		}
+		select {
+		case conn.SendChan <- cmd:
+			return true
+		default:
+			log.Warn().Str("session_id", sessionID).Msg("SendChan full, could not send command")
+			return false
+		}
+	}
+
+	// Session not ready - queue the message
+	state.PendingQueue = append(state.PendingQueue, cmd)
+	manager.readinessMu.Unlock()
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("type", cmd.Type).
+		Int("queue_size", len(state.PendingQueue)).
+		Msg("📥 [READINESS] Queued message (waiting for agent_ready)")
+	return true
+}
+
+// cleanupReadinessState removes readiness tracking for a session
+func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string) {
+	manager.readinessMu.Lock()
+	defer manager.readinessMu.Unlock()
+
+	if state, exists := manager.readinessState[sessionID]; exists {
+		if state.TimeoutTimer != nil {
+			state.TimeoutTimer.Stop()
+		}
+		delete(manager.readinessState, sessionID)
+		log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
+	}
+}
+
 // handleChatResponse processes complete chat response from external agent
 func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *types.SyncMessage) error {
 	log.Info().
@@ -1897,6 +2087,55 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 	default:
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
 	}
+
+	return nil
+}
+
+// handleAgentReady processes the agent_ready event from Zed
+// This is sent when the agent (e.g., qwen-code) has finished initialization and is ready for prompts
+func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Interface("data", syncMsg.Data).
+		Msg("🚀 [READINESS] Received agent_ready event from Zed")
+
+	// Extract optional metadata from the ready event
+	agentName, _ := syncMsg.Data["agent_name"].(string)
+	threadID, _ := syncMsg.Data["thread_id"].(string)
+
+	// Mark the session as ready, which will:
+	// 1. Flush any queued messages
+	// 2. Trigger the onReady callback (which sends continue prompt if needed)
+	apiServer.externalAgentWSManager.readinessMu.RLock()
+	state, exists := apiServer.externalAgentWSManager.readinessState[sessionID]
+	apiServer.externalAgentWSManager.readinessMu.RUnlock()
+
+	if !exists {
+		// No readiness tracking for this session - that's fine, just log
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("No readiness state found for session (may be already ready or legacy connection)")
+		return nil
+	}
+
+	// Get the connection for sending continue prompt
+	wsConn, connExists := apiServer.externalAgentWSManager.getConnection(sessionID)
+
+	// Create the onReady callback that will send the continue prompt
+	var onReadyCallback func()
+	if state.NeedsContinue && connExists {
+		onReadyCallback = func() {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("agent_name", agentName).
+				Str("thread_id", threadID).
+				Msg("🔄 [READINESS] Agent ready, now sending continue prompt")
+			apiServer.sendContinuePromptIfNeeded(context.Background(), sessionID, wsConn)
+		}
+	}
+
+	// Mark as ready (this flushes queued messages and calls onReady)
+	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
 	return nil
 }
