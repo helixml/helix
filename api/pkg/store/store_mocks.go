@@ -724,6 +724,20 @@ func (mr *MockStoreMockRecorder) CreateSecret(ctx, secret any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSecret", reflect.TypeOf((*MockStore)(nil).CreateSecret), ctx, secret)
 }
 
+// CreateServiceConnection mocks base method.
+func (m *MockStore) CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateServiceConnection", ctx, connection)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateServiceConnection indicates an expected call of CreateServiceConnection.
+func (mr *MockStoreMockRecorder) CreateServiceConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateServiceConnection", reflect.TypeOf((*MockStore)(nil).CreateServiceConnection), ctx, connection)
+}
+
 // CreateSession mocks base method.
 func (m *MockStore) CreateSession(ctx context.Context, session types.Session) (*types.Session, error) {
 	m.ctrl.T.Helper()
@@ -1520,6 +1534,20 @@ func (m *MockStore) DeleteSecret(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteSecret(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSecret", reflect.TypeOf((*MockStore)(nil).DeleteSecret), ctx, id)
+}
+
+// DeleteServiceConnection mocks base method.
+func (m *MockStore) DeleteServiceConnection(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteServiceConnection", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteServiceConnection indicates an expected call of DeleteServiceConnection.
+func (mr *MockStoreMockRecorder) DeleteServiceConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteServiceConnection", reflect.TypeOf((*MockStore)(nil).DeleteServiceConnection), ctx, id)
 }
 
 // DeleteSession mocks base method.
@@ -2808,6 +2836,21 @@ func (mr *MockStoreMockRecorder) GetSecret(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockStore)(nil).GetSecret), ctx, id)
 }
 
+// GetServiceConnection mocks base method.
+func (m *MockStore) GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServiceConnection", ctx, id)
+	ret0, _ := ret[0].(*types.ServiceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServiceConnection indicates an expected call of GetServiceConnection.
+func (mr *MockStoreMockRecorder) GetServiceConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceConnection", reflect.TypeOf((*MockStore)(nil).GetServiceConnection), ctx, id)
+}
+
 // GetSession mocks base method.
 func (m *MockStore) GetSession(ctx context.Context, id string) (*types.Session, error) {
 	m.ctrl.T.Helper()
@@ -4084,6 +4127,51 @@ func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
 }
 
+// ListServiceConnections mocks base method.
+func (m *MockStore) ListServiceConnections(ctx context.Context, organizationID string) ([]*types.ServiceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListServiceConnections", ctx, organizationID)
+	ret0, _ := ret[0].([]*types.ServiceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListServiceConnections indicates an expected call of ListServiceConnections.
+func (mr *MockStoreMockRecorder) ListServiceConnections(ctx, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListServiceConnections", reflect.TypeOf((*MockStore)(nil).ListServiceConnections), ctx, organizationID)
+}
+
+// ListServiceConnectionsByProvider mocks base method.
+func (m *MockStore) ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListServiceConnectionsByProvider", ctx, organizationID, providerType)
+	ret0, _ := ret[0].([]*types.ServiceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListServiceConnectionsByProvider indicates an expected call of ListServiceConnectionsByProvider.
+func (mr *MockStoreMockRecorder) ListServiceConnectionsByProvider(ctx, organizationID, providerType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListServiceConnectionsByProvider", reflect.TypeOf((*MockStore)(nil).ListServiceConnectionsByProvider), ctx, organizationID, providerType)
+}
+
+// ListServiceConnectionsByType mocks base method.
+func (m *MockStore) ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListServiceConnectionsByType", ctx, organizationID, connType)
+	ret0, _ := ret[0].([]*types.ServiceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListServiceConnectionsByType indicates an expected call of ListServiceConnectionsByType.
+func (mr *MockStoreMockRecorder) ListServiceConnectionsByType(ctx, organizationID, connType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListServiceConnectionsByType", reflect.TypeOf((*MockStore)(nil).ListServiceConnectionsByType), ctx, organizationID, connType)
+}
+
 // ListSessions mocks base method.
 func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error) {
 	m.ctrl.T.Helper()
@@ -5170,6 +5258,20 @@ func (m *MockStore) UpdateSecret(ctx context.Context, secret *types.Secret) (*ty
 func (mr *MockStoreMockRecorder) UpdateSecret(ctx, secret any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSecret", reflect.TypeOf((*MockStore)(nil).UpdateSecret), ctx, secret)
+}
+
+// UpdateServiceConnection mocks base method.
+func (m *MockStore) UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateServiceConnection", ctx, connection)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateServiceConnection indicates an expected call of UpdateServiceConnection.
+func (mr *MockStoreMockRecorder) UpdateServiceConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceConnection", reflect.TypeOf((*MockStore)(nil).UpdateServiceConnection), ctx, connection)
 }
 
 // UpdateSession mocks base method.

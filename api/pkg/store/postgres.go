@@ -134,6 +134,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
 		&types.GitProviderConnection{},
+		&types.ServiceConnection{},
 		&types.UsageMetric{},
 		&types.Model{},
 		&types.DynamicModelInfo{},

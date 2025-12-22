@@ -3085,9 +3085,20 @@ definitions:
     type: object
   types.AzureDevOps:
     properties:
+      client_id:
+        description: App registration client ID
+        type: string
+      client_secret:
+        description: App registration client secret
+        type: string
       organization_url:
         type: string
       personal_access_token:
+        type: string
+      tenant_id:
+        description: |-
+          Service Principal authentication (service-to-service via Azure AD/Entra ID)
+          Uses OAuth 2.0 client credentials flow for automated system access
         type: string
     type: object
   types.AzureDevOpsTrigger:
@@ -4101,10 +4112,21 @@ definitions:
     type: object
   types.GitHub:
     properties:
+      app_id:
+        description: |-
+          GitHub App authentication (service-to-service)
+          When AppID and PrivateKey are set, uses GitHub App installation tokens
+        type: integer
       base_url:
         description: For GitHub Enterprise instances (empty for github.com)
         type: string
+      installation_id:
+        description: Installation ID for the app on the org/repo
+        type: integer
       personal_access_token:
+        type: string
+      private_key:
+        description: PEM-encoded private key for JWT signing
         type: string
     type: object
   types.GitHubWorkConfig:
@@ -6731,6 +6753,109 @@ definitions:
       tools_enabled:
         type: boolean
       version:
+        type: string
+    type: object
+  types.ServiceConnectionCreateRequest:
+    properties:
+      ado_client_id:
+        type: string
+      ado_client_secret:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal fields
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        description: Base URL for enterprise/self-hosted instances
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App fields
+        type: integer
+      github_installation_id:
+        type: integer
+      github_private_key:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.ServiceConnectionType'
+    type: object
+  types.ServiceConnectionResponse:
+    properties:
+      ado_client_id:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal (non-sensitive fields only)
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App (non-sensitive fields only)
+        type: integer
+      github_installation_id:
+        type: integer
+      has_ado_client_secret:
+        type: boolean
+      has_github_private_key:
+        type: boolean
+      id:
+        type: string
+      last_error:
+        type: string
+      last_tested_at:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      provider_type:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      type:
+        $ref: '#/definitions/types.ServiceConnectionType'
+      updated_at:
+        type: string
+    type: object
+  types.ServiceConnectionType:
+    enum:
+    - github_app
+    - ado_service_principal
+    type: string
+    x-enum-varnames:
+    - ServiceConnectionTypeGitHubApp
+    - ServiceConnectionTypeADOServicePrincipal
+  types.ServiceConnectionUpdateRequest:
+    properties:
+      ado_client_id:
+        type: string
+      ado_client_secret:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal fields (only update if provided)
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        description: Base URL for enterprise/self-hosted instances
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App fields (only update if provided)
+        type: integer
+      github_installation_id:
+        type: integer
+      github_private_key:
+        type: string
+      name:
         type: string
     type: object
   types.Session:
@@ -14759,6 +14884,229 @@ paths:
       summary: Update an existing secret
       tags:
       - secrets
+  /api/v1/service-connections:
+    get:
+      description: List all service connections (GitHub Apps, ADO Service Principals)
+        for the organization
+      parameters:
+      - description: Organization ID (optional, defaults to user's org)
+        in: query
+        name: organization_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ServiceConnectionResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List service connections
+      tags:
+      - service-connections
+    post:
+      consumes:
+      - application/json
+      description: Create a new service connection (GitHub App or ADO Service Principal)
+      parameters:
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ServiceConnectionCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create service connection
+      tags:
+      - service-connections
+  /api/v1/service-connections/{id}:
+    delete:
+      description: Delete a service connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete service connection
+      tags:
+      - service-connections
+    get:
+      description: Get a specific service connection by ID
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get service connection
+      tags:
+      - service-connections
+    put:
+      consumes:
+      - application/json
+      description: Update a service connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ServiceConnectionUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update service connection
+      tags:
+      - service-connections
+  /api/v1/service-connections/{id}/test:
+    post:
+      description: Test a service connection by attempting to authenticate
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Test service connection
+      tags:
+      - service-connections
   /api/v1/sessions:
     get:
       description: List sessions

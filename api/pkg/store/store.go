@@ -337,6 +337,15 @@ type Store interface {
 	ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error)
 	DeleteGitProviderConnection(ctx context.Context, id string) error
 
+	// Service Connection methods (GitHub Apps, ADO Service Principals, etc.)
+	CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error)
+	ListServiceConnections(ctx context.Context, organizationID string) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error)
+	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	DeleteServiceConnection(ctx context.Context, id string) error
+
 	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)

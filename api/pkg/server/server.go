@@ -1107,6 +1107,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git-provider-connections/{id}", apiServer.deleteGitProviderConnection).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git-provider-connections/{id}/repositories", apiServer.browseGitProviderConnectionRepositories).Methods(http.MethodGet)
 
+	// Service connections - admin-configured GitHub Apps, ADO Service Principals, etc.
+	authRouter.HandleFunc("/service-connections", apiServer.listServiceConnections).Methods(http.MethodGet)
+	authRouter.HandleFunc("/service-connections", apiServer.createServiceConnection).Methods(http.MethodPost)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.getServiceConnection).Methods(http.MethodGet)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.updateServiceConnection).Methods(http.MethodPut)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.deleteServiceConnection).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/service-connections/{id}/test", apiServer.testServiceConnectionEndpoint).Methods(http.MethodPost)
+
 	// Git repository access grant routes
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)

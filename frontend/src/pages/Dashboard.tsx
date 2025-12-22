@@ -46,6 +46,7 @@ import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
+import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import MoonlightMonitor from "../components/admin/MoonlightMonitor";
 import WolfHealthPanel from "../components/wolf/WolfHealthPanel";
@@ -244,6 +245,17 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <OAuthProvidersTable />
+                    </Box>
+                )}
+
+                {tab === "service_connections" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <ServiceConnectionsTable />
                     </Box>
                 )}
 
