@@ -1440,7 +1440,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 
 	switch request.ProviderType {
 	case types.ExternalRepositoryTypeGitHub:
-		ghClient := github.NewClientWithPAT(request.Token)
+		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to list GitHub repositories")

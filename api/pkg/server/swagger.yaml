@@ -3114,7 +3114,8 @@ definitions:
   types.BrowseRemoteRepositoriesRequest:
     properties:
       base_url:
-        description: Base URL for self-hosted instances (optional, for GitLab)
+        description: Base URL for self-hosted instances (for GitHub Enterprise or
+          GitLab Enterprise)
         type: string
       organization_url:
         description: Organization URL (required for Azure DevOps)
@@ -4085,6 +4086,9 @@ definitions:
     type: object
   types.GitHub:
     properties:
+      base_url:
+        description: For GitHub Enterprise instances (empty for github.com)
+        type: string
       personal_access_token:
         type: string
     type: object
@@ -4125,7 +4129,8 @@ definitions:
       avatar_url:
         type: string
       base_url:
-        description: 'For GitLab Enterprise: base URL (empty = gitlab.com)'
+        description: 'For GitHub Enterprise or GitLab Enterprise: base URL (empty
+          = github.com/gitlab.com)'
         type: string
       created_at:
         type: string
@@ -8558,20 +8563,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:
