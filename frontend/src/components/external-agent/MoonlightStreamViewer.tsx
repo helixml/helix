@@ -1072,6 +1072,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
       sseVideoDecoderRef.current = null;
     }
+    // Unregister SSE video connection if it was active
+    if (currentSseVideoIdRef.current) {
+      unregisterConnection(currentSseVideoIdRef.current);
+      currentSseVideoIdRef.current = null;
+    }
     sseReceivedFirstKeyframeRef.current = false;
     hasInitializedSseRef.current = false;
 
@@ -1403,6 +1408,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // CRITICAL: Disable WS video for screenshot mode to prevent video streaming
       // This is redundant with the video control effect but ensures WS video is definitely off
       console.log('[MoonlightStreamViewer] Disabling WS video for screenshot mode');
+      // Show loading overlay while waiting for first screenshot
+      // This prevents a black screen gap between video disappearing and screenshot appearing
+      setIsConnecting(true);
+      setStatus('Switching to screenshots...');
       wsStream.setVideoEnabled(false);
       // Screenshot polling will auto-start via shouldPollScreenshots becoming true
     }
