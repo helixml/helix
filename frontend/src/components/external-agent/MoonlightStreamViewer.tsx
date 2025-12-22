@@ -853,6 +853,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const sseEventSourceRef = useRef<EventSource | null>(null);
   const sseVideoDecoderRef = useRef<VideoDecoder | null>(null);
   const sseReceivedFirstKeyframeRef = useRef(false);
+  const hasInitializedSseRef = useRef(false); // Track if SSE was initialized for initial connection
 
   // Handle streaming mode changes - reconnect when switching between websocket and webrtc
   // Note: SSE video is now controlled by qualityMode, not streamingMode
@@ -863,6 +864,36 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const newMode = streamingMode;
     console.log('[MoonlightStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
     previousStreamingModeRef.current = newMode;
+
+    // CRITICAL: Reset qualityMode to 'high' when switching streaming modes
+    // This prevents state bleeding (e.g., screenshot polling continuing in WebRTC mode)
+    // qualityMode only applies to websocket streaming, so reset it to default when changing protocols
+    if (qualityMode !== 'high') {
+      console.log('[MoonlightStreamViewer] Resetting qualityMode to high for streaming mode switch');
+      setQualityMode('high');
+      previousQualityModeRef.current = 'high';
+      setIsOnFallback(false);
+    }
+
+    // CRITICAL: Explicitly clean up SSE resources before reconnecting
+    // The disconnect() call inside reconnect may race with qualityMode effects
+    if (sseEventSourceRef.current) {
+      console.log('[MoonlightStreamViewer] Closing SSE EventSource for streaming mode switch');
+      sseEventSourceRef.current.close();
+      sseEventSourceRef.current = null;
+    }
+    if (sseVideoDecoderRef.current) {
+      if (sseVideoDecoderRef.current.state !== 'closed') {
+        try {
+          sseVideoDecoderRef.current.close();
+        } catch (err) {
+          console.warn('[MoonlightStreamViewer] Error closing SSE decoder:', err);
+        }
+      }
+      sseVideoDecoderRef.current = null;
+    }
+    sseReceivedFirstKeyframeRef.current = false;
+    hasInitializedSseRef.current = false;
 
     // Switching between websocket and webrtc requires full reconnect (different protocols)
     console.log('[MoonlightStreamViewer] Full reconnect needed for mode switch');
@@ -929,6 +960,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     if (newMode === 'high') {
       // Enable WS video
       console.log('[MoonlightStreamViewer] Enabling WS video for high mode');
+      // Show loading overlay while waiting for first video frame
+      // The videoStarted event will hide it (handler already exists for initial connection)
+      setIsConnecting(true);
+      setStatus('Switching to video stream...');
       wsStream.setVideoEnabled(true);
       if (canvasRef.current) {
         wsStream.setCanvas(canvasRef.current);
@@ -938,6 +973,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // This is redundant if coming from 'high' (already disabled above) but ensures
       // WS video is definitely off regardless of previous mode
       console.log('[MoonlightStreamViewer] Disabling WS video before SSE setup');
+      // Show loading overlay while waiting for first SSE video frame
+      setIsConnecting(true);
+      setStatus('Switching to SSE stream...');
       wsStream.setVideoEnabled(false);
 
       // Defensive cleanup: close any stale SSE resources before opening new ones
@@ -1161,7 +1199,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Handle initial connection with SSE quality mode
   // The hot-switch handler above only triggers on qualityMode CHANGES, not initial state
   // This effect runs once when first connected and sets up SSE if that's the initial mode
-  const hasInitializedSseRef = useRef(false);
+  // NOTE: hasInitializedSseRef is defined earlier (with other SSE refs) for use by streaming mode effect
   useEffect(() => {
     // Only run once when first connected with SSE mode
     if (hasInitializedSseRef.current || !isConnected || qualityMode !== 'sse') {
@@ -1584,15 +1622,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Screenshot polling for low-quality mode (manual screenshot fallback)
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
-  const shouldPollScreenshots = qualityMode === 'low';
+  // IMPORTANT: Only poll in websocket mode - not in webrtc mode (qualityMode persists across streaming mode changes)
+  const shouldPollScreenshots = qualityMode === 'low' && streamingMode === 'websocket';
 
   // Notify server to pause/resume video based on quality mode
   // - 'high': WS video enabled (main video source)
   // - 'sse': WS video disabled (SSE is the video source, handled by SSE setup)
   // - 'low': WS video disabled (screenshots are the video source)
+  // NOTE: This effect only applies to websocket streaming mode
   useEffect(() => {
     const stream = streamRef.current;
     if (!stream || !(stream instanceof WebSocketStream) || !isConnected) {
+      return;
+    }
+
+    // Only apply quality mode changes in websocket streaming mode
+    // WebRTC has its own congestion control and doesn't use qualityMode
+    if (streamingMode !== 'websocket') {
       return;
     }
 
@@ -1606,7 +1652,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       stream.setVideoEnabled(true);
     }
     // SSE mode: do nothing here - SSE setup/hot-switch handles video state
-  }, [qualityMode, isConnected]);
+  }, [qualityMode, isConnected, streamingMode]);
 
   useEffect(() => {
     // Only poll screenshots when needed
@@ -3098,7 +3144,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           onClose={() => setBitrateMenuAnchor(null)}
           container={containerRef.current} // Render in main container (not transformed toolbar) for correct positioning + fullscreen support
           slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
-          sx={{ zIndex: 100001 }} // Above floating modals (z-index 9999+)
         >
           {[5, 10, 20, 40, 80].map((bitrate) => (
             <MenuItem
