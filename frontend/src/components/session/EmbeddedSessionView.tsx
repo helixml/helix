@@ -44,6 +44,76 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   const containerRef = useRef<HTMLDivElement>(null)
   const { NewInference } = useStreaming()
 
+  // Smart scroll state - use refs to avoid re-renders on scroll
+  const isAtBottomRef = useRef(true) // Start at bottom
+  const userScrolledUpRef = useRef(false) // Track if user explicitly scrolled up
+  const lastScrollTopRef = useRef(0) // Track scroll direction
+  const isResizingRef = useRef(false) // Track resize events
+  const SCROLL_THRESHOLD = 50 // Pixels from bottom to consider "at bottom"
+
+  // Check if currently at bottom
+  const checkIsAtBottom = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return true
+    const { scrollTop, scrollHeight, clientHeight } = container
+    return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD
+  }, [])
+
+  // Handle scroll events to track user scroll intent
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    // Ignore scroll events during resize
+    if (isResizingRef.current) return
+
+    const { scrollTop } = container
+    const wasAtBottom = isAtBottomRef.current
+    const isNowAtBottom = checkIsAtBottom()
+
+    // Detect scroll direction
+    const scrolledUp = scrollTop < lastScrollTopRef.current
+
+    // If user scrolled up from the bottom, mark as user-initiated scroll up
+    if (scrolledUp && wasAtBottom && !isNowAtBottom) {
+      userScrolledUpRef.current = true
+    }
+
+    // If user scrolled back to bottom, re-enable auto-scroll
+    if (isNowAtBottom) {
+      userScrolledUpRef.current = false
+    }
+
+    isAtBottomRef.current = isNowAtBottom
+    lastScrollTopRef.current = scrollTop
+  }, [checkIsAtBottom])
+
+  // Handle resize - don't count as user scroll, but do scroll to bottom if we were at bottom
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver(() => {
+      isResizingRef.current = true
+
+      // If we were at bottom before resize and user hasn't scrolled up, scroll to bottom
+      if (!userScrolledUpRef.current) {
+        requestAnimationFrame(() => {
+          if (containerRef.current) {
+            containerRef.current.scrollTop = containerRef.current.scrollHeight
+            isAtBottomRef.current = true
+          }
+          isResizingRef.current = false
+        })
+      } else {
+        isResizingRef.current = false
+      }
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [])
+
   // Fetch session data with auto-refresh
   const { data: sessionResponse, refetch: refetchSession } = useGetSession(sessionId, {
     enabled: !!sessionId,
@@ -82,13 +152,18 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   }, [session?.interactions])
 
   // Auto-scroll to bottom when new messages arrive or when streaming
-  const scrollToBottom = useCallback(() => {
+  // Only scrolls if user hasn't explicitly scrolled up
+  const scrollToBottom = useCallback((force = false) => {
     if (!containerRef.current) return
+
+    // Don't auto-scroll if user has explicitly scrolled up (unless forced)
+    if (!force && userScrolledUpRef.current) return
 
     // Use requestAnimationFrame to ensure DOM has updated
     requestAnimationFrame(() => {
       if (!containerRef.current) return
       containerRef.current.scrollTop = containerRef.current.scrollHeight
+      isAtBottomRef.current = true
     })
 
     onScrollToBottom?.()
@@ -107,13 +182,14 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   }, [session?.interactions?.length, scrollToBottom])
 
   // Scroll to bottom on initial mount (with slight delay to ensure DOM is ready)
+  // Force scroll on initial mount - user hasn't had a chance to scroll yet
   const hasInitiallyScrolledRef = useRef(false)
   useEffect(() => {
     if (session?.interactions && session.interactions.length > 0 && !hasInitiallyScrolledRef.current) {
       hasInitiallyScrolledRef.current = true
       // Use a small timeout to ensure the container and content are fully rendered
       const timeoutId = setTimeout(() => {
-        scrollToBottom()
+        scrollToBottom(true) // Force scroll on initial mount
       }, 100)
       return () => clearTimeout(timeoutId)
     }
@@ -184,6 +260,7 @@ const EmbeddedSessionView = forwardRef<EmbeddedSessionViewHandle, EmbeddedSessio
   return (
     <Box
       ref={containerRef}
+      onScroll={handleScroll}
       sx={{
         flex: 1,
         overflow: 'auto',
