@@ -27,7 +27,7 @@ const HISTORY_STORAGE_KEY = 'helix_prompt_history'
 const DRAFT_STORAGE_KEY = 'helix_prompt_draft'
 const LAST_SYNC_KEY = 'helix_prompt_last_sync'
 const MAX_HISTORY_SIZE = 100
-const SYNC_DEBOUNCE_MS = 5000 // Sync to backend every 5 seconds when there are changes
+const SYNC_DEBOUNCE_MS = 100 // Debounce for batching rapid changes (100ms feels instant)
 
 export interface PromptHistoryEntry {
   id: string
@@ -228,7 +228,33 @@ export function usePromptHistory({
     })
   }, [specTaskId])
 
-  // Sync to backend
+  // Sync a single entry immediately (for new prompts - no debounce)
+  const syncEntryImmediately = useCallback(async (entry: PromptHistoryEntry) => {
+    if (!apiClient || !specTaskId || !projectId) return
+    if (!navigator.onLine) return
+
+    try {
+      console.log(`[PromptHistory] Immediate sync for entry ${entry.id}`)
+      const response = await syncPromptHistory(apiClient, projectId, specTaskId, [entry])
+
+      if (response.synced && response.synced > 0) {
+        console.log(`[PromptHistory] Immediately synced entry ${entry.id}`)
+      }
+
+      // Mark this entry as synced
+      setHistory(prev => {
+        const updated = prev.map(h =>
+          h.id === entry.id ? { ...h, syncedToBackend: true } : h
+        )
+        saveHistory(updated, specTaskId)
+        return updated
+      })
+    } catch (e) {
+      console.warn('[PromptHistory] Failed immediate sync:', e)
+    }
+  }, [apiClient, specTaskId, projectId])
+
+  // Sync to backend (debounced - for status updates and edits)
   const syncToBackend = useCallback(async () => {
     if (!apiClient || !specTaskId || !projectId) return
     if (!navigator.onLine) return
@@ -524,8 +550,11 @@ export function usePromptHistory({
       return updated
     })
 
+    // IMMEDIATE SYNC: Send to backend right away (no debounce for new prompts)
+    syncEntryImmediately(entry)
+
     return entry
-  }, [sessionId, specTaskId])
+  }, [sessionId, specTaskId, syncEntryImmediately])
 
   // Mark prompt as successfully sent
   const markAsSent = useCallback((id: string) => {
