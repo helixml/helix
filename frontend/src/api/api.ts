@@ -4273,6 +4273,11 @@ export interface TypesSpecTask {
   requirements_spec?: string;
   /** Agent activity tracking (computed from session.updated, not stored) */
   session_updated_at?: string;
+  /**
+   * Short title for tab display (auto-generated from agent writing short-title.txt)
+   * UserShortTitle takes precedence if set (user override)
+   */
+  short_title?: string;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;
@@ -4294,6 +4299,8 @@ export interface TypesSpecTask {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** User override */
+  user_short_title?: string;
   workspace_config?: number[];
   /** Multi-session support */
   zed_instance_id?: string;
@@ -4550,6 +4557,8 @@ export interface TypesSpecTaskUpdateRequest {
   name?: string;
   priority?: TypesSpecTaskPriority;
   status?: TypesSpecTaskStatus;
+  /** User override for tab title (pointer to allow clearing with empty string) */
+  user_short_title?: string;
 }
 
 export interface TypesSpecTaskWorkSession {

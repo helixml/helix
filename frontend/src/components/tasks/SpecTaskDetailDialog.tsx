@@ -849,7 +849,6 @@ I'll give you feedback and we can iterate on any changes needed.`
                 {activeSessionId && (
                   <Tooltip
                     title="Restart agent session (stops container, starts fresh)"
-                    slotProps={{ popper: { sx: { zIndex: 100001 } } }}
                   >
                     <IconButton
                       size="small"
@@ -1151,7 +1150,6 @@ I'll give you feedback and we can iterate on any changes needed.`
                       value={editFormData.priority}
                       onChange={(e) => setEditFormData(prev => ({ ...prev, priority: e.target.value }))}
                       label="Priority"
-                      MenuProps={{ sx: { zIndex: 100001 } }}
                     >
                       <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityCritical}>Critical</MenuItem>
                       <MenuItem value={TypesSpecTaskPriority.SpecTaskPriorityHigh}>High</MenuItem>
@@ -1208,7 +1206,6 @@ I'll give you feedback and we can iterate on any changes needed.`
                     label="Agent"
                     disabled={updatingAgent}
                     endAdornment={updatingAgent ? <CircularProgress size={16} sx={{ mr: 2 }} /> : null}
-                    MenuProps={{ sx: { zIndex: 100001 } }}
                   >
                     {sortedApps.map((app) => (
                       <MenuItem key={app.id} value={app.id}>
@@ -1316,7 +1313,6 @@ I'll give you feedback and we can iterate on any changes needed.`
         anchorEl={tileMenuAnchor}
         open={Boolean(tileMenuAnchor)}
         onClose={() => setTileMenuAnchor(null)}
-        sx={{ zIndex: 100001 }}
       >
         <MenuItem onClick={() => handleTile('full')}>
           <ListItemText primary="Full Screen" secondary="Fill entire window" />
@@ -1396,7 +1392,6 @@ I'll give you feedback and we can iterate on any changes needed.`
       <Dialog
         open={restartConfirmOpen}
         onClose={() => setRestartConfirmOpen(false)}
-        sx={{ zIndex: 100002 }}
       >
         <DialogTitle>Restart Agent Session?</DialogTitle>
         <DialogContent>
