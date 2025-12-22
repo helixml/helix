@@ -37,8 +37,6 @@ interface MoonlightStreamViewerProps {
   wolfLobbyId?: string;
   hostId?: number;
   appId?: number;
-  showLoadingOverlay?: boolean; // Show loading overlay (for restart/reconnect scenarios)
-  isRestart?: boolean; // Whether this is a restart (vs first start)
   onConnectionChange?: (isConnected: boolean) => void;
   onError?: (error: string) => void;
   onClientIdCalculated?: (clientId: string) => void; // Callback when client unique ID is calculated
@@ -65,8 +63,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   wolfLobbyId,
   hostId = 0,
   appId = 1,
-  showLoadingOverlay = false,
-  isRestart = false,
   onConnectionChange,
   onError,
   onClientIdCalculated,
@@ -3517,38 +3513,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
-      {showLoadingOverlay && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            zIndex: 2000,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 3,
-          }}
-        >
-          <CircularProgress size={60} sx={{ color: 'primary.main' }} />
-          <Typography variant="h6" sx={{ color: 'white' }}>
-            {isRestart ? 'Restarting session...' : 'Starting session...'}
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'grey.400' }}>
-            {isRestart
-              ? 'Stopping old session and starting with fresh startup script'
-              : 'Creating new session and running startup script'}
-          </Typography>
-        </Box>
-      )}
-
       {/* Disconnected Overlay - prominent reconnection indicator */}
-      {!isConnecting && !isConnected && !error && retryCountdown === null && !showLoadingOverlay && (
+      {!isConnecting && !isConnected && !error && retryCountdown === null && (
         <Box
           sx={{
             position: 'absolute',
@@ -3583,15 +3549,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Status Overlay */}
+      {/* Status Overlay - single unified loading/error overlay */}
       {(isConnecting || error || retryCountdown !== null) && (
         <Box
           sx={{
             position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
             zIndex: 999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
             textAlign: 'center',
           }}
         >

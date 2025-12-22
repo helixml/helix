@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback, useMemo } from 'react'
+import React, { FC, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Box,
   Typography,
@@ -49,7 +49,7 @@ import { useGetSession, GET_SESSION_QUERY_KEY } from '../../services/sessionServ
 import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
 import RobustPromptInput from '../common/RobustPromptInput'
-import EmbeddedSessionView from '../session/EmbeddedSessionView'
+import EmbeddedSessionView, { EmbeddedSessionViewHandle } from '../session/EmbeddedSessionView'
 import PromptLibrarySidebar from '../common/PromptLibrarySidebar'
 import { usePromptHistory } from '../../hooks/usePromptHistory'
 
@@ -146,6 +146,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   const [currentView, setCurrentView] = useState<'session' | 'desktop' | 'details'>('session')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
+
+  // Ref for EmbeddedSessionView to trigger scroll on height changes
+  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false)
@@ -499,7 +502,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         {activeSessionId && currentView === 'session' && (
           <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <EmbeddedSessionView sessionId={activeSessionId} />
+              <EmbeddedSessionView ref={sessionViewRef} sessionId={activeSessionId} />
               <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                 <Box sx={{ flex: 1 }}>
                   <RobustPromptInput
@@ -514,6 +517,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         sessionId: activeSessionId,
                       })
                     }}
+                    onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
                     placeholder="Send message to agent..."
                   />
                 </Box>
