@@ -699,10 +699,6 @@ export interface ServerPromptTagsRequest {
   tags?: string;
 }
 
-export interface ServerPromptTemplateRequest {
-  is_template?: boolean;
-}
-
 export interface ServerPushPullResponse {
   branch?: string;
   message?: string;
@@ -1427,6 +1423,12 @@ export interface TypesAgentWorkQueueTrigger {
   timeout_mins?: number;
   /** Work item configuration */
   work_config?: TypesAgentWorkConfig;
+}
+
+export enum TypesAgentWorkState {
+  AgentWorkStateIdle = "idle",
+  AgentWorkStateWorking = "working",
+  AgentWorkStateDone = "done",
 }
 
 export interface TypesAggregatedUsageMetric {
@@ -3449,7 +3451,7 @@ export interface TypesPromptHistoryEntrySync {
   id?: string;
   /** If true, interrupts current conversation */
   interrupt?: boolean;
-  /** If true, saved as template */
+  /** If true, saved as a reusable template */
   is_template?: boolean;
   /** If true, pinned by user */
   pinned?: boolean;
@@ -4018,6 +4020,8 @@ export interface TypesSessionMetadata {
   avatar?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
+  /** "running" = should be running, "stopped" = can terminate */
+  desired_state?: string;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -4204,6 +4208,8 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /** Current agent work state (idle/working/done) from activity tracking */
+  agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
   /** The base branch this was created from */
@@ -4243,6 +4249,8 @@ export interface TypesSpecTask {
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   labels?: string[];
+  /** Last prompt sent to agent (for continue functionality) */
+  last_prompt_content?: string;
   /** When branch was last pushed */
   last_push_at?: string;
   /** Git tracking */
@@ -4271,7 +4279,7 @@ export interface TypesSpecTask {
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
-  /** Agent activity tracking (computed from session.updated, not stored) */
+  /** Agent activity tracking (computed from session/activity data, not stored) */
   session_updated_at?: string;
   /**
    * Short title for tab display (auto-generated from agent writing short-title.txt)
@@ -4969,12 +4977,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -8976,26 +8984,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Mark or unmark a prompt as a reusable template
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryTemplateUpdate
-     * @summary Update prompt template status
-     * @request PUT:/api/v1/prompt-history/{id}/template
-     * @secure
-     */
-    v1PromptHistoryTemplateUpdate: (id: string, request: ServerPromptTemplateRequest, params: RequestParams = {}) =>
-      this.request<Record<string, boolean>, SystemHTTPError>({
-        path: `/api/v1/prompt-history/${id}/template`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Increment usage count when a prompt is reused
      *
      * @tags PromptHistory
@@ -9082,25 +9070,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/prompt-history/sync`,
         method: "POST",
         body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all prompt templates for the current user (across all projects)
-     *
-     * @tags PromptHistory
-     * @name V1PromptHistoryTemplatesList
-     * @summary List prompt templates
-     * @request GET:/api/v1/prompt-history/templates
-     * @secure
-     */
-    v1PromptHistoryTemplatesList: (params: RequestParams = {}) =>
-      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
-        path: `/api/v1/prompt-history/templates`,
-        method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",

@@ -2,9 +2,9 @@
  * PromptsListView - Aggregated prompt history view across all projects
  *
  * Features:
- * - Shows pinned prompts, templates, and recent prompts
+ * - Shows pinned prompts and recent prompts
  * - Search across all prompts
- * - Copy prompts, pin/unpin, manage templates
+ * - Copy prompts, pin/unpin
  * - Shows which project/task each prompt is from
  */
 
@@ -34,8 +34,6 @@ import {
 import SearchIcon from '@mui/icons-material/Search'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import DescriptionIcon from '@mui/icons-material/Description'
-import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -48,25 +46,20 @@ import { TypesPromptHistoryEntry } from '../../api/api'
 
 // Query keys
 const PINNED_PROMPTS_KEY = ['prompt-history', 'pinned']
-const TEMPLATES_KEY = ['prompt-history', 'templates']
 const SEARCH_PROMPTS_KEY = ['prompt-history', 'search']
 
 interface PromptItemProps {
   entry: TypesPromptHistoryEntry
   onCopy: () => void
   onPin: () => void
-  onToggleTemplate: () => void
   isPinned: boolean
-  isTemplate: boolean
 }
 
 const PromptItem: FC<PromptItemProps> = ({
   entry,
   onCopy,
   onPin,
-  onToggleTemplate,
   isPinned,
-  isTemplate,
 }) => {
   const [copied, setCopied] = useState(false)
 
@@ -115,23 +108,6 @@ const PromptItem: FC<PromptItemProps> = ({
               {copied ? <CheckIcon sx={{ fontSize: 18 }} /> : <ContentCopyIcon sx={{ fontSize: 18 }} />}
             </IconButton>
           </Tooltip>
-          {/* Template toggle */}
-          <Tooltip title={isTemplate ? 'Remove from templates' : 'Save as template'}>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleTemplate()
-              }}
-              sx={{ color: isTemplate ? 'info.main' : 'text.secondary' }}
-            >
-              {isTemplate ? (
-                <DescriptionIcon sx={{ fontSize: 18 }} />
-              ) : (
-                <DescriptionOutlinedIcon sx={{ fontSize: 18 }} />
-              )}
-            </IconButton>
-          </Tooltip>
           {/* Pin toggle */}
           <Tooltip title={isPinned ? 'Unpin' : 'Pin'}>
             <IconButton
@@ -169,9 +145,7 @@ const PromptItem: FC<PromptItemProps> = ({
           borderColor: isPinned ? 'warning.main' : 'transparent',
           bgcolor: isPinned
             ? (theme) => alpha(theme.palette.warning.main, 0.04)
-            : isTemplate
-              ? (theme) => alpha(theme.palette.info.main, 0.04)
-              : 'transparent',
+            : 'transparent',
         }}
       >
         <ListItemText
@@ -224,7 +198,6 @@ const PromptsListView: FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [expandedSections, setExpandedSections] = useState({
     pinned: true,
-    templates: true,
     recent: true,
   })
 
@@ -245,15 +218,6 @@ const PromptsListView: FC = () => {
     },
   })
 
-  // Fetch templates
-  const { data: templates = [], isLoading: templatesLoading } = useQuery({
-    queryKey: TEMPLATES_KEY,
-    queryFn: async () => {
-      const response = await apiClient.v1PromptHistoryTemplatesList()
-      return response.data || []
-    },
-  })
-
   // Search prompts
   const { data: searchResults, isLoading: searchLoading } = useQuery({
     queryKey: [...SEARCH_PROMPTS_KEY, debouncedSearch],
@@ -265,8 +229,7 @@ const PromptsListView: FC = () => {
     enabled: !!debouncedSearch.trim(),
   })
 
-  // Recent prompts - use search with empty string or fetch recent via templates endpoint
-  // Since there's no "list all" endpoint, we'll search with a space to get recent ones
+  // Recent prompts - since there's no "list all" endpoint, we'll search with a space to get recent ones
   const { data: recentPrompts = [], isLoading: recentLoading } = useQuery({
     queryKey: ['prompt-history', 'recent'],
     queryFn: async () => {
@@ -284,19 +247,6 @@ const PromptsListView: FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PINNED_PROMPTS_KEY })
-      queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY })
-      queryClient.invalidateQueries({ queryKey: SEARCH_PROMPTS_KEY })
-    },
-  })
-
-  // Mutation for updating template status
-  const updateTemplateMutation = useMutation({
-    mutationFn: async ({ id, isTemplate }: { id: string; isTemplate: boolean }) => {
-      await apiClient.v1PromptHistoryTemplateUpdate(id, { is_template: isTemplate })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: PINNED_PROMPTS_KEY })
-      queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY })
       queryClient.invalidateQueries({ queryKey: SEARCH_PROMPTS_KEY })
     },
   })
@@ -314,15 +264,6 @@ const PromptsListView: FC = () => {
     }
   }, [updatePinMutation, snackbar])
 
-  const handleToggleTemplate = useCallback(async (id: string, currentTemplate: boolean) => {
-    try {
-      await updateTemplateMutation.mutateAsync({ id, isTemplate: !currentTemplate })
-      snackbar.success(currentTemplate ? 'Removed from templates' : 'Saved as template')
-    } catch (error) {
-      snackbar.error('Failed to update template status')
-    }
-  }, [updateTemplateMutation, snackbar])
-
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({
       ...prev,
@@ -330,11 +271,10 @@ const PromptsListView: FC = () => {
     }))
   }
 
-  const isLoading = pinnedLoading || templatesLoading || recentLoading
+  const isLoading = pinnedLoading || recentLoading
 
   // Create ID sets for quick lookup
   const pinnedIds = useMemo(() => new Set(pinnedPrompts.map(p => p.id)), [pinnedPrompts])
-  const templateIds = useMemo(() => new Set(templates.map(t => t.id)), [templates])
 
   const renderSection = (
     title: string,
@@ -386,9 +326,7 @@ const PromptsListView: FC = () => {
                 entry={entry}
                 onCopy={handleCopy}
                 onPin={() => handlePin(entry.id || '', pinnedIds.has(entry.id))}
-                onToggleTemplate={() => handleToggleTemplate(entry.id || '', templateIds.has(entry.id))}
                 isPinned={pinnedIds.has(entry.id)}
-                isTemplate={templateIds.has(entry.id)}
               />
             ))}
           </List>
@@ -405,7 +343,7 @@ const PromptsListView: FC = () => {
           Prompt Library
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Browse and manage your prompts across all projects. Pin frequently used prompts or save them as templates.
+          Browse and manage your prompts across all projects. Pin frequently used prompts for quick access.
         </Typography>
       </Box>
 
@@ -464,9 +402,7 @@ const PromptsListView: FC = () => {
                     entry={entry}
                     onCopy={handleCopy}
                     onPin={() => handlePin(entry.id || '', pinnedIds.has(entry.id))}
-                    onToggleTemplate={() => handleToggleTemplate(entry.id || '', templateIds.has(entry.id))}
                     isPinned={pinnedIds.has(entry.id)}
-                    isTemplate={templateIds.has(entry.id)}
                   />
                 ))}
               </List>
@@ -484,20 +420,13 @@ const PromptsListView: FC = () => {
             '#ed6c02' // warning.main
           )}
           {renderSection(
-            'Templates',
-            <DescriptionIcon />,
-            templates,
-            'templates',
-            '#0288d1' // info.main
-          )}
-          {renderSection(
             'Recent Prompts',
             <HistoryIcon />,
-            recentPrompts.filter(p => !pinnedIds.has(p.id) && !templateIds.has(p.id)),
+            recentPrompts.filter(p => !pinnedIds.has(p.id)),
             'recent',
             'text.secondary'
           )}
-          {pinnedPrompts.length === 0 && templates.length === 0 && recentPrompts.length === 0 && (
+          {pinnedPrompts.length === 0 && recentPrompts.length === 0 && (
             <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
               <HistoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
               <Typography variant="h6" color="text.secondary" gutterBottom>

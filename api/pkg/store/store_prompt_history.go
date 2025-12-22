@@ -30,12 +30,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			pinned = *entry.Pinned
 		}
 
-		// Default isTemplate to false if not specified
-		isTemplate := false
-		if entry.IsTemplate != nil {
-			isTemplate = *entry.IsTemplate
-		}
-
 		dbEntry := &types.PromptHistoryEntry{
 			ID:            entry.ID,
 			UserID:        userID,
@@ -48,7 +42,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			QueuePosition: entry.QueuePosition,
 			Pinned:        pinned,
 			Tags:          entry.Tags,
-			IsTemplate:    isTemplate,
 			CreatedAt:     createdAt,
 			UpdatedAt:     time.Now(),
 		}
@@ -118,6 +111,52 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 	if result.Error != nil {
 		if result.Error.Error() == "record not found" {
 			return nil, nil // No pending prompts
+		}
+		return nil, result.Error
+	}
+
+	return &entry, nil
+}
+
+// GetAnyPendingPrompt returns the next pending or failed prompt for a session (interrupt or not)
+// Used when the session is idle to process any pending prompts
+// Prioritizes interrupt=true messages (they should be processed first when session is idle)
+func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	var entry types.PromptHistoryEntry
+
+	// Find the oldest pending or failed prompt for this session
+	// Order: interrupt first (DESC so true=1 comes before false=0), then queue_position, then created_at
+	result := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND status IN (?, ?)", sessionID, "pending", "failed").
+		Order("interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC").
+		First(&entry)
+
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			return nil, nil // No pending prompts
+		}
+		return nil, result.Error
+	}
+
+	return &entry, nil
+}
+
+// GetNextInterruptPrompt returns the next pending or failed interrupt prompt for a session
+// Used by sync/list operations - only interrupt prompts should be sent immediately
+// Non-interrupt (queue) prompts wait for message_completed
+func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	var entry types.PromptHistoryEntry
+
+	// Find the oldest pending or failed interrupt prompt for this session
+	// Only get interrupt=true prompts - queue prompts wait for message_completed
+	result := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND status IN (?, ?) AND interrupt = ?", sessionID, "pending", "failed", true).
+		Order("COALESCE(queue_position, 999999) ASC, created_at ASC").
+		First(&entry)
+
+	if result.Error != nil {
+		if result.Error.Error() == "record not found" {
+			return nil, nil // No pending interrupt prompts
 		}
 		return nil, result.Error
 	}
@@ -240,15 +279,6 @@ func (s *PostgresStore) UpdatePromptTags(ctx context.Context, promptID string, t
 		Error
 }
 
-// UpdatePromptTemplate sets whether a prompt is a template
-func (s *PostgresStore) UpdatePromptTemplate(ctx context.Context, promptID string, isTemplate bool) error {
-	return s.gdb.WithContext(ctx).
-		Model(&types.PromptHistoryEntry{}).
-		Where("id = ?", promptID).
-		Update("is_template", isTemplate).
-		Error
-}
-
 // ListPinnedPrompts returns all pinned prompts for a user in a spec task
 func (s *PostgresStore) ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error) {
 	var entries []*types.PromptHistoryEntry
@@ -261,21 +291,6 @@ func (s *PostgresStore) ListPinnedPrompts(ctx context.Context, userID, specTaskI
 
 	err := query.
 		Order("created_at DESC").
-		Find(&entries).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	return entries, nil
-}
-
-// ListPromptTemplates returns all templates for a user (across all projects)
-func (s *PostgresStore) ListPromptTemplates(ctx context.Context, userID string) ([]*types.PromptHistoryEntry, error) {
-	var entries []*types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND is_template = ?", userID, true).
-		Order("usage_count DESC, created_at DESC").
 		Find(&entries).Error
 
 	if err != nil {
@@ -508,9 +523,6 @@ func (s *PostgresStore) UnifiedSearch(ctx context.Context, userID string, req *t
 					}
 					if p.Pinned {
 						meta["pinned"] = "true"
-					}
-					if p.IsTemplate {
-						meta["template"] = "true"
 					}
 
 					results = append(results, types.UnifiedSearchResult{

@@ -7067,49 +7067,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/prompt-history/templates": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all prompt templates for the current user (across all projects)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "List prompt templates",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.PromptHistoryEntry"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/prompt-history/{id}/pin": {
             "put": {
                 "security": [
@@ -7220,73 +7177,6 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/prompt-history/{id}/template": {
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Mark or unmark a prompt as a reusable template",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PromptHistory"
-                ],
-                "summary": "Update prompt template status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Prompt ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Template status",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.PromptTemplateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
                             }
                         }
                     },
@@ -15703,14 +15593,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.PromptTemplateRequest": {
-            "type": "object",
-            "properties": {
-                "is_template": {
-                    "type": "boolean"
-                }
-            }
-        },
         "server.PushPullResponse": {
             "type": "object",
             "properties": {
@@ -17731,6 +17613,24 @@ const docTemplate = `{
                     ]
                 }
             }
+        },
+        "types.AgentWorkState": {
+            "type": "string",
+            "enum": [
+                "idle",
+                "working",
+                "done"
+            ],
+            "x-enum-comments": {
+                "AgentWorkStateDone": "Agent finished its assigned task",
+                "AgentWorkStateIdle": "Agent connected but not actively working",
+                "AgentWorkStateWorking": "Agent actively processing a prompt"
+            },
+            "x-enum-varnames": [
+                "AgentWorkStateIdle",
+                "AgentWorkStateWorking",
+                "AgentWorkStateDone"
+            ]
         },
         "types.AggregatedUsageMetric": {
             "type": "object",
@@ -22556,7 +22456,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "is_template": {
-                    "description": "If true, saved as template",
+                    "description": "If true, saved as a reusable template",
                     "type": "boolean"
                 },
                 "pinned": {
@@ -23944,6 +23844,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "desired_state": {
+                    "description": "\"running\" = should be running, \"stopped\" = can terminate",
+                    "type": "string"
+                },
                 "document_group_id": {
                     "type": "string"
                 },
@@ -24381,6 +24285,14 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
+                "agent_work_state": {
+                    "description": "Current agent work state (idle/working/done) from activity tracking",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
@@ -24473,6 +24385,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_prompt_content": {
+                    "description": "Last prompt sent to agent (for continue functionality)",
+                    "type": "string"
+                },
                 "last_push_at": {
                     "description": "When branch was last pushed",
                     "type": "string"
@@ -24534,7 +24450,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_updated_at": {
-                    "description": "Agent activity tracking (computed from session.updated, not stored)",
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
                     "type": "string"
                 },
                 "short_title": {
@@ -26274,20 +26190,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {

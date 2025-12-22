@@ -1925,6 +1925,21 @@ func (mr *MockStoreMockRecorder) GetAggregatedUsageMetrics(ctx, q any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetAggregatedUsageMetrics), ctx, q)
 }
 
+// GetAnyPendingPrompt mocks base method.
+func (m *MockStore) GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAnyPendingPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAnyPendingPrompt indicates an expected call of GetAnyPendingPrompt.
+func (mr *MockStoreMockRecorder) GetAnyPendingPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAnyPendingPrompt", reflect.TypeOf((*MockStore)(nil).GetAnyPendingPrompt), ctx, sessionID)
+}
+
 // GetApp mocks base method.
 func (m *MockStore) GetApp(ctx context.Context, id string) (*types.App, error) {
 	m.ctrl.T.Helper()
@@ -2313,6 +2328,21 @@ func (m *MockStore) GetModel(ctx context.Context, id string) (*types.Model, erro
 func (mr *MockStoreMockRecorder) GetModel(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetModel", reflect.TypeOf((*MockStore)(nil).GetModel), ctx, id)
+}
+
+// GetNextInterruptPrompt mocks base method.
+func (m *MockStore) GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNextInterruptPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNextInterruptPrompt indicates an expected call of GetNextInterruptPrompt.
+func (mr *MockStoreMockRecorder) GetNextInterruptPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextInterruptPrompt", reflect.TypeOf((*MockStore)(nil).GetNextInterruptPrompt), ctx, sessionID)
 }
 
 // GetNextPendingPrompt mocks base method.
@@ -3876,21 +3906,6 @@ func (mr *MockStoreMockRecorder) ListPromptHistoryBySpecTask(ctx, specTaskID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistoryBySpecTask", reflect.TypeOf((*MockStore)(nil).ListPromptHistoryBySpecTask), ctx, specTaskID)
 }
 
-// ListPromptTemplates mocks base method.
-func (m *MockStore) ListPromptTemplates(ctx context.Context, userID string) ([]*types.PromptHistoryEntry, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPromptTemplates", ctx, userID)
-	ret0, _ := ret[0].([]*types.PromptHistoryEntry)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListPromptTemplates indicates an expected call of ListPromptTemplates.
-func (mr *MockStoreMockRecorder) ListPromptTemplates(ctx, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptTemplates", reflect.TypeOf((*MockStore)(nil).ListPromptTemplates), ctx, userID)
-}
-
 // ListProviderEndpoints mocks base method.
 func (m *MockStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -5008,20 +5023,6 @@ func (m *MockStore) UpdatePromptTags(ctx context.Context, promptID, tags string)
 func (mr *MockStoreMockRecorder) UpdatePromptTags(ctx, promptID, tags any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePromptTags", reflect.TypeOf((*MockStore)(nil).UpdatePromptTags), ctx, promptID, tags)
-}
-
-// UpdatePromptTemplate mocks base method.
-func (m *MockStore) UpdatePromptTemplate(ctx context.Context, promptID string, isTemplate bool) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePromptTemplate", ctx, promptID, isTemplate)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdatePromptTemplate indicates an expected call of UpdatePromptTemplate.
-func (mr *MockStoreMockRecorder) UpdatePromptTemplate(ctx, promptID, isTemplate any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePromptTemplate", reflect.TypeOf((*MockStore)(nil).UpdatePromptTemplate), ctx, promptID, isTemplate)
 }
 
 // UpdateProviderEndpoint mocks base method.

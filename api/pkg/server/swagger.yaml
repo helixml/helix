@@ -1084,11 +1084,6 @@ definitions:
         description: JSON array of tags
         type: string
     type: object
-  server.PromptTemplateRequest:
-    properties:
-      is_template:
-        type: boolean
-    type: object
   server.PushPullResponse:
     properties:
       branch:
@@ -2448,6 +2443,20 @@ definitions:
         - $ref: '#/definitions/types.AgentWorkConfig'
         description: Work item configuration
     type: object
+  types.AgentWorkState:
+    enum:
+    - idle
+    - working
+    - done
+    type: string
+    x-enum-comments:
+      AgentWorkStateDone: Agent finished its assigned task
+      AgentWorkStateIdle: Agent connected but not actively working
+      AgentWorkStateWorking: Agent actively processing a prompt
+    x-enum-varnames:
+    - AgentWorkStateIdle
+    - AgentWorkStateWorking
+    - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
       completion_cost:
@@ -5841,7 +5850,7 @@ definitions:
         description: If true, interrupts current conversation
         type: boolean
       is_template:
-        description: If true, saved as template
+        description: If true, saved as a reusable template
         type: boolean
       pinned:
         description: If true, pinned by user
@@ -6818,6 +6827,9 @@ definitions:
         - $ref: '#/definitions/types.CodeAgentRuntime'
         description: Which code agent runtime is used (zed_agent, qwen_code, claude_code,
           etc.)
+      desired_state:
+        description: '"running" = should be running, "stopped" = can terminate'
+        type: string
       document_group_id:
         type: string
       document_ids:
@@ -7132,6 +7144,10 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_work_state:
+        allOf:
+        - $ref: '#/definitions/types.AgentWorkState'
+        description: Current agent work state (idle/working/done) from activity tracking
       archived:
         description: Archive to hide from main view
         type: boolean
@@ -7198,6 +7214,9 @@ definitions:
         items:
           type: string
         type: array
+      last_prompt_content:
+        description: Last prompt sent to agent (for continue functionality)
+        type: string
       last_push_at:
         description: When branch was last pushed
         type: string
@@ -7243,7 +7262,8 @@ definitions:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
       session_updated_at:
-        description: Agent activity tracking (computed from session.updated, not stored)
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
         type: string
       short_title:
         description: |-
@@ -8478,20 +8498,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:
@@ -13581,49 +13601,6 @@ paths:
       summary: Update prompt tags
       tags:
       - PromptHistory
-  /api/v1/prompt-history/{id}/template:
-    put:
-      consumes:
-      - application/json
-      description: Mark or unmark a prompt as a reusable template
-      parameters:
-      - description: Prompt ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Template status
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.PromptTemplateRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: boolean
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Update prompt template status
-      tags:
-      - PromptHistory
   /api/v1/prompt-history/{id}/use:
     post:
       consumes:
@@ -13769,33 +13746,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Sync prompt history
-      tags:
-      - PromptHistory
-  /api/v1/prompt-history/templates:
-    get:
-      consumes:
-      - application/json
-      description: Get all prompt templates for the current user (across all projects)
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.PromptHistoryEntry'
-            type: array
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: List prompt templates
       tags:
       - PromptHistory
   /api/v1/provider-endpoints:
