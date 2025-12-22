@@ -438,12 +438,34 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         </Box>
       </Box>
 
-      {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', backgroundColor: 'background.paper' }}>
-        <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
-          {activeSessionId && <Tab label="Session" />}
-          {activeSessionId && <Tab label="Desktop + IDE" />}
-          <Tab label="Details" />
+      {/* Inner Tabs - compact style to differentiate from panel tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', backgroundColor: 'action.hover', px: 1 }}>
+        <Tabs
+          value={currentTab}
+          onChange={(_, newValue) => setCurrentTab(newValue)}
+          sx={{
+            minHeight: 32,
+            '& .MuiTabs-indicator': {
+              height: 2,
+            },
+          }}
+        >
+          {activeSessionId && (
+            <Tab
+              label="Session"
+              sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
+            />
+          )}
+          {activeSessionId && (
+            <Tab
+              label="Desktop"
+              sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
+            />
+          )}
+          <Tab
+            label="Details"
+            sx={{ minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', textTransform: 'none' }}
+          />
         </Tabs>
       </Box>
 
