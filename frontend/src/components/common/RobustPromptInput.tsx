@@ -35,7 +35,6 @@ import {
 import SendIcon from '@mui/icons-material/Send'
 import HistoryIcon from '@mui/icons-material/History'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
@@ -48,8 +47,6 @@ import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import BoltIcon from '@mui/icons-material/Bolt'
 import QueueIcon from '@mui/icons-material/Queue'
-import DoneIcon from '@mui/icons-material/Done'
-import DoneAllIcon from '@mui/icons-material/DoneAll'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import SearchIcon from '@mui/icons-material/Search'
@@ -74,7 +71,7 @@ import { Api } from '../../api/api'
 
 interface RobustPromptInputProps {
   sessionId: string
-  onSend: (message: string) => Promise<void>
+  onSend: (message: string, interrupt?: boolean) => Promise<void>
   placeholder?: string
   disabled?: boolean
   maxHeight?: number
@@ -329,7 +326,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               )}
             </IconButton>
           </Tooltip>
-          {/* Delete */}
+          {/* Remove */}
           <Tooltip title="Remove from queue">
             <IconButton
               size="small"
@@ -339,18 +336,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               }}
               sx={{ p: 0.5 }}
             >
-              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+              <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
-          </Tooltip>
-          {/* Sync status indicator */}
-          <Tooltip title={entry.syncedToBackend ? "Synced to cloud" : "Pending sync"}>
-            <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5 }}>
-              {entry.syncedToBackend ? (
-                <DoneAllIcon sx={{ fontSize: 14, color: 'info.main' }} />
-              ) : (
-                <DoneIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-              )}
-            </Box>
           </Tooltip>
         </Box>
       )}
@@ -377,7 +364,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
-  const [interruptMode, setInterruptMode] = useState(true) // true = interrupt, false = queue after
+  const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
   const processingRef = useRef(false)
 
   // Editing state for queued messages
@@ -443,17 +430,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
 
   // Process queue - send pending messages one at a time
-  // NOTE: This only runs when backend queue processing is NOT enabled
-  // When backend queue is enabled, the backend handles sending after sync
+  // When backend queue processing is enabled, the backend handles sending after sync
+  // When disabled, frontend sends directly via onSend
   const processQueue = useCallback(async () => {
-    // If backend handles queue processing, don't process here
+    // When backend queue is enabled, let the backend handle sending
+    // The backend processes the queue after sync (interrupt prompts immediately,
+    // queue prompts after message_completed events)
     if (backendQueueEnabled) return
 
     // Prevent concurrent processing
     if (processingRef.current || !isOnline || disabled) return
 
-    // Build queue in order: failed first, then pending
-    const queuedMessages = [...failedPrompts, ...pendingPrompts]
+    // Build queue sorted: interrupt mode first, then queue mode, within each by timestamp
+    const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+      const aInterrupt = a.interrupt !== false
+      const bInterrupt = b.interrupt !== false
+      if (aInterrupt && !bInterrupt) return -1
+      if (!aInterrupt && bInterrupt) return 1
+      return a.timestamp - b.timestamp
+    })
 
     // If editing, find the index of the message being edited
     // Block that message and everything after it (maintain ordering)
@@ -479,7 +474,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     setSendingId(nextToSend.id)
 
     try {
-      await onSend(nextToSend.content)
+      // Pass interrupt flag to backend - true means interrupt current work, false means queue after
+      await onSend(nextToSend.content, nextToSend.interrupt !== false)
       markAsSent(nextToSend.id)
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -490,21 +486,21 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
-  // Auto-process queue when online and messages are pending (only if backend queue not enabled)
+  // Auto-process queue when online and messages are pending
   useEffect(() => {
-    if (!backendQueueEnabled && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
+    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
       const timer = setTimeout(processQueue, 500)
       return () => clearTimeout(timer)
     }
-  }, [backendQueueEnabled, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
-  // Continue processing queue after each send (only if backend queue not enabled)
+  // Continue processing queue after each send
   useEffect(() => {
-    if (!backendQueueEnabled && !sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
+    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
       const timer = setTimeout(processQueue, 300)
       return () => clearTimeout(timer)
     }
-  }, [backendQueueEnabled, sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -673,8 +669,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     return firstLine.substring(0, maxLen - 3) + '...'
   }
 
-  // All queued messages (pending + failed)
-  const queuedMessages = [...failedPrompts, ...pendingPrompts]
+  // All queued messages (pending + failed), sorted: interrupt mode first, then queue mode
+  const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+    // Interrupt mode (true or undefined) comes first
+    const aInterrupt = a.interrupt !== false
+    const bInterrupt = b.interrupt !== false
+    if (aInterrupt && !bInterrupt) return -1
+    if (!aInterrupt && bInterrupt) return 1
+    // Within same mode, maintain original order by timestamp
+    return a.timestamp - b.timestamp
+  })
   const sentHistory = history.filter(h => h.status === 'sent')
   const hasHistory = sentHistory.length > 0
 

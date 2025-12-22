@@ -24,6 +24,7 @@ interface NewInferenceParams {
   attachedImages?: File[];
   agentType?: IAgentType;
   externalAgentConfig?: any;
+  interrupt?: boolean; // If true, interrupt current agent work; if false/undefined, queue after current work
 }
 
 interface StreamingContextType {
@@ -260,6 +261,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     attachedImages = [],
     agentType = 'helix_basic',
     externalAgentConfig = undefined,
+    interrupt = true, // Default to interrupt for backwards compatibility
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -343,6 +345,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       session_id: sessionId,
       agent_type: agentType,
       external_agent_config: sanitizedExternalAgentConfig,
+      interrupt: interrupt,
       messages: [
         {
           role: 'user',

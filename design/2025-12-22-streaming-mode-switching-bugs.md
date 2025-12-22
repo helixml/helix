@@ -385,6 +385,32 @@ Comprehensive review of all possible mode switching paths:
    - SSE resources were closed but connection not unregistered
    - Fix: Added `unregisterConnection(currentSseVideoIdRef.current)` after SSE cleanup
 
+## Bug 6: Multiple Loading Spinners Visible Simultaneously
+
+**Symptom:** User reported seeing multiple loading spinners stacked on top of each other during mode switches.
+
+**Root Cause:** Three separate overlay components could show spinners:
+1. `showLoadingOverlay` prop overlay (zIndex 2000) - UNUSED (prop was never passed)
+2. `isConnecting` state overlay (zIndex 999) - had no background, just centered content
+3. ExternalAgentDesktopViewer's `showReconnectingOverlay` (zIndex 100)
+
+When both MoonlightStreamViewer's `isConnecting` overlay and ExternalAgentDesktopViewer's overlay were visible, users saw two spinners because the `isConnecting` overlay had no background to cover the parent overlay.
+
+**Fix:**
+1. Removed unused `showLoadingOverlay` and `isRestart` props (dead code)
+2. Changed Status Overlay to have full-screen background (`backgroundColor: 'rgba(0, 0, 0, 0.85)'`)
+3. Now only ONE overlay is visible at a time with proper stacking
+
+**Overlay Architecture After Fix:**
+
+| Component | Condition | zIndex | Purpose |
+|-----------|-----------|--------|---------|
+| ExternalAgentDesktopViewer | `!isRunning && hasEverBeenRunning` | 100 | Desktop container paused |
+| MoonlightStreamViewer Status | `isConnecting \|\| error \|\| retryCountdown` | 999 | Stream connecting/error |
+| MoonlightStreamViewer Disconnected | `!isConnecting && !isConnected && !error && !retryCountdown` | 1500 | Connection lost |
+
+Higher zIndex overlays cover lower ones completely due to full-screen backgrounds.
+
 ## Conclusion
 
 The core issues stem from `qualityMode` not being properly scoped to `websocket` streaming mode. The fixes ensure:
@@ -396,3 +422,4 @@ The core issues stem from `qualityMode` not being properly scoped to `websocket`
 6. **Rendering is blocked after close() is called via multiple guard checks**
 7. **Connection registry provides visibility into active connections for debugging**
 8. **All mode transitions show loading overlays to prevent black screen gaps**
+9. **Unified loading overlay architecture prevents multiple spinners from stacking**
