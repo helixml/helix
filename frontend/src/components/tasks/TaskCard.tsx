@@ -75,55 +75,42 @@ const activePulse = keyframes`
   }
 `
 
-// Helper to check if agent is active (session updated within last 10 seconds)
-const isAgentActive = (sessionUpdatedAt?: string, _tick?: number): boolean => {
-  if (!sessionUpdatedAt) return false
-  const updatedTime = new Date(sessionUpdatedAt).getTime()
-  const now = Date.now()
-  const diffSeconds = (now - updatedTime) / 1000
-  return diffSeconds < 10 // Active if updated within last 10 seconds
-}
+// Agent work state from backend (replaces timestamp-based heuristics)
+type AgentWorkState = 'idle' | 'working' | 'done'
 
-// Hook to periodically check agent activity status and manage attention state
+// Hook to manage agent activity status and attention state
+// Uses backend-tracked agent_work_state instead of timestamp heuristics
 const useAgentActivityCheck = (
-  sessionUpdatedAt?: string,
+  agentWorkState?: AgentWorkState,
   enabled: boolean = true
 ): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
-  const [tick, setTick] = useState(0)
-  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(null)
+  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(null)
 
-  useEffect(() => {
-    if (!enabled || !sessionUpdatedAt) return
-
-    // Re-check every 3 seconds
-    const interval = setInterval(() => {
-      setTick(t => t + 1)
-    }, 3000)
-
-    return () => clearInterval(interval)
-  }, [enabled, sessionUpdatedAt])
-
-  const isActive = isAgentActive(sessionUpdatedAt, tick)
+  // Agent is active if backend reports it's working
+  const isActive = enabled && agentWorkState === 'working'
 
   // Agent needs attention if:
-  // 1. It's idle (not active)
-  // 2. User hasn't marked the current idle state as seen
-  //    (lastSeenTimestamp tracks which session_updated_at they acknowledged)
-  const needsAttention = !isActive && sessionUpdatedAt !== lastSeenTimestamp
+  // 1. It's idle or done (not actively working)
+  // 2. User hasn't marked the current state as seen
+  // 3. There IS an agent work state (undefined means no session yet)
+  const needsAttention = enabled &&
+    agentWorkState !== undefined &&
+    agentWorkState !== 'working' &&
+    agentWorkState !== lastSeenState
 
   const markAsSeen = () => {
-    if (sessionUpdatedAt) {
-      setLastSeenTimestamp(sessionUpdatedAt)
+    if (agentWorkState) {
+      setLastSeenState(agentWorkState)
     }
   }
 
   // Reset seen state when agent becomes active again
   // (so if it goes idle again later, attention dot reappears)
   useEffect(() => {
-    if (isActive && lastSeenTimestamp) {
-      setLastSeenTimestamp(null)
+    if (isActive && lastSeenState) {
+      setLastSeenState(null)
     }
-  }, [isActive, lastSeenTimestamp])
+  }, [isActive, lastSeenState])
 
   return { isActive, needsAttention, markAsSeen }
 }
@@ -152,6 +139,7 @@ interface SpecTaskWithExtras {
   branch_name?: string
   // Agent activity tracking
   session_updated_at?: string
+  agent_work_state?: 'idle' | 'working' | 'done' // Backend-tracked work state
 }
 
 interface KanbanColumn {
@@ -504,9 +492,9 @@ export default function TaskCard({
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
   })
 
-  // Check agent activity status (periodically re-evaluates)
+  // Check agent activity status using backend-tracked work state
   const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
-    task.session_updated_at,
+    task.agent_work_state,
     showProgress && !!task.planning_session_id
   )
 
