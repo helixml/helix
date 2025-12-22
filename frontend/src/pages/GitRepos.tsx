@@ -213,16 +213,54 @@ const GitRepos: FC = () => {
         'azure-devops': 'ado' as TypesExternalRepositoryType,
       }
 
+      // Parse provider credentials if providerType is JSON (PAT-based auth)
+      let actualProviderType = providerType
+      let providerCreds: {
+        type?: string
+        pat?: string
+        orgUrl?: string
+        gitlabBaseUrl?: string
+        githubBaseUrl?: string
+      } | null = null
+
+      try {
+        if (providerType.startsWith('{')) {
+          providerCreds = JSON.parse(providerType)
+          actualProviderType = providerCreds?.type || 'github'
+        }
+      } catch {
+        // Not JSON, use as simple provider type
+      }
+
+      // Build provider-specific settings
+      const githubSettings = actualProviderType === 'github' && providerCreds ? {
+        personal_access_token: providerCreds.pat,
+        base_url: providerCreds.githubBaseUrl,
+      } : undefined
+
+      const gitlabSettings = actualProviderType === 'gitlab' && providerCreds ? {
+        personal_access_token: providerCreds.pat,
+        base_url: providerCreds.gitlabBaseUrl,
+      } : undefined
+
+      const azureDevOpsSettings = actualProviderType === 'azure-devops' && providerCreds ? {
+        organization_url: providerCreds.orgUrl,
+        personal_access_token: providerCreds.pat,
+      } : undefined
+
       await apiClient.v1GitRepositoriesCreate({
         name: repo.name || 'repository',
-        description: repo.description || `${providerType} repository`,
+        description: repo.description || `${actualProviderType} repository`,
         owner_id: ownerId,
         repo_type: 'code' as any,
         default_branch: repo.default_branch || 'main',
         is_external: true,
         external_url: repo.clone_url || repo.html_url || '',
-        external_type: externalTypeMap[providerType] || ('github' as TypesExternalRepositoryType),
+        external_type: externalTypeMap[actualProviderType] || ('github' as TypesExternalRepositoryType),
         kodit_indexing: true,
+        github: githubSettings,
+        gitlab: gitlabSettings,
+        azure_devops: azureDevOpsSettings,
       })
 
       // Invalidate and refetch git repositories query

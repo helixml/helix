@@ -406,7 +406,7 @@ const Projects: FC = () => {
 
       // Check if providerTypeOrCreds is JSON (PAT credentials) or plain provider type
       let providerType: string
-      let patCredentials: { pat?: string; orgUrl?: string; gitlabBaseUrl?: string } | null = null
+      let patCredentials: { pat?: string; orgUrl?: string; gitlabBaseUrl?: string; githubBaseUrl?: string } | null = null
 
       try {
         const parsed = JSON.parse(providerTypeOrCreds)
@@ -415,6 +415,7 @@ const Projects: FC = () => {
           pat: parsed.pat,
           orgUrl: parsed.orgUrl,
           gitlabBaseUrl: parsed.gitlabBaseUrl,
+          githubBaseUrl: parsed.githubBaseUrl,
         }
       } catch {
         // Not JSON, it's a plain provider type (OAuth flow)
@@ -437,6 +438,7 @@ const Projects: FC = () => {
         if (providerType === 'github') {
           github = {
             personal_access_token: patCredentials.pat,
+            base_url: patCredentials.githubBaseUrl,
           }
         } else if (providerType === 'gitlab') {
           gitlab = {
