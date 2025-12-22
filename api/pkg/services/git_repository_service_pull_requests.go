@@ -42,20 +42,10 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 }
 
 func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-
-	if repo.AzureDevOps == nil {
-		return "", fmt.Errorf("azure devops repository not found")
+	client, err := s.getAzureDevOpsClient(ctx, repo)
+	if err != nil {
+		return "", err
 	}
-
-	if repo.AzureDevOps.OrganizationURL == "" {
-		return "", fmt.Errorf("azure devops organization URL not found")
-	}
-
-	if repo.AzureDevOps.PersonalAccessToken == "" {
-		return "", fmt.Errorf("azure devops personal access token not found, get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows")
-	}
-
-	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
 	project, err := s.getAzureDevOpsProject(repo)
 	if err != nil {
@@ -113,19 +103,10 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 }
 
 func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	if repo.AzureDevOps == nil {
-		return nil, fmt.Errorf("azure devops repository not found")
+	client, err := s.getAzureDevOpsClient(ctx, repo)
+	if err != nil {
+		return nil, err
 	}
-
-	if repo.AzureDevOps.OrganizationURL == "" {
-		return nil, fmt.Errorf("azure devops organization URL not found")
-	}
-
-	if repo.AzureDevOps.PersonalAccessToken == "" {
-		return nil, fmt.Errorf("azure devops personal access token not found, get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows")
-	}
-
-	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
 	// Get azure project ID
 	project, err := s.getAzureDevOpsProject(repo)
@@ -236,15 +217,10 @@ func (s *GitRepositoryService) GetPullRequest(ctx context.Context, repoID, id st
 }
 
 func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, id int) (*types.PullRequest, error) {
-	if repo.AzureDevOps == nil {
-		return nil, fmt.Errorf("azure devops repository not found")
+	client, err := s.getAzureDevOpsClient(ctx, repo)
+	if err != nil {
+		return nil, err
 	}
-
-	if repo.AzureDevOps.OrganizationURL == "" {
-		return nil, fmt.Errorf("azure devops organization URL not found")
-	}
-
-	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
 	project, err := s.getAzureDevOpsProject(repo)
 	if err != nil {
@@ -356,6 +332,40 @@ func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepos
 	return "", fmt.Errorf("could not parse repository name from URL: %s", repo.ExternalURL)
 }
 
+// getAzureDevOpsClient creates an Azure DevOps client using the best available authentication method
+func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *types.GitRepository) (*azuredevops.AzureDevOpsClient, error) {
+	if repo.AzureDevOps == nil {
+		return nil, fmt.Errorf("azure devops configuration not found")
+	}
+
+	if repo.AzureDevOps.OrganizationURL == "" {
+		return nil, fmt.Errorf("azure devops organization URL not found")
+	}
+
+	// First check for Service Principal authentication (service-to-service)
+	// This takes priority as it's the recommended approach for automated systems
+	if repo.AzureDevOps.TenantID != "" && repo.AzureDevOps.ClientID != "" && repo.AzureDevOps.ClientSecret != "" {
+		client, err := azuredevops.NewAzureDevOpsClientWithServicePrincipal(
+			ctx,
+			repo.AzureDevOps.OrganizationURL,
+			repo.AzureDevOps.TenantID,
+			repo.AzureDevOps.ClientID,
+			repo.AzureDevOps.ClientSecret,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Service Principal client: %w", err)
+		}
+		return client, nil
+	}
+
+	// Fall back to Personal Access Token
+	if repo.AzureDevOps.PersonalAccessToken != "" {
+		return azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken), nil
+	}
+
+	return nil, fmt.Errorf("no Azure DevOps authentication configured - provide a Personal Access Token or Service Principal credentials")
+}
+
 // GitHub Pull Request Operations
 
 func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
@@ -365,7 +375,17 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		baseURL = repo.GitHub.BaseURL
 	}
 
-	// First check for OAuth connection
+	// First check for GitHub App authentication (service-to-service)
+	// This takes priority as it's the recommended approach for automated systems
+	if repo.GitHub != nil && repo.GitHub.AppID != 0 && repo.GitHub.InstallationID != 0 && repo.GitHub.PrivateKey != "" {
+		client, err := github.NewClientWithGitHubApp(repo.GitHub.AppID, repo.GitHub.InstallationID, repo.GitHub.PrivateKey, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GitHub App client: %w", err)
+		}
+		return client, nil
+	}
+
+	// Check for OAuth connection
 	if repo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
@@ -383,7 +403,7 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		return github.NewClientWithPATAndBaseURL(repo.Password, baseURL), nil
 	}
 
-	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token or connect via OAuth")
+	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
 func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {

@@ -3,8 +3,10 @@ package github
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v57/github"
 	"golang.org/x/oauth2"
 )
@@ -62,6 +64,42 @@ func NewClientWithOAuth(accessToken string) *Client {
 // If baseURL is empty, uses github.com.
 func NewClientWithOAuthAndBaseURL(accessToken, baseURL string) *Client {
 	return NewClientWithPATAndBaseURL(accessToken, baseURL)
+}
+
+// NewClientWithGitHubApp creates a new GitHub client using GitHub App authentication.
+// This uses JWT to get an installation access token, providing service-to-service auth.
+// appID is the GitHub App ID, installationID is the installation ID for the app on the org/repo,
+// and privateKey is the PEM-encoded private key for JWT signing.
+// baseURL is optional for GitHub Enterprise instances (empty for github.com).
+func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL string) (*Client, error) {
+	// Create the GitHub App installation transport
+	// This handles JWT generation and token refresh automatically
+	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
+	}
+
+	// Configure base URL for GitHub Enterprise if needed
+	if baseURL != "" {
+		// For GHE, set the API endpoint
+		itr.BaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+
+	ctx := context.Background()
+	client := github.NewClient(&http.Client{Transport: itr})
+
+	// Configure for GitHub Enterprise if base URL is provided
+	if baseURL != "" {
+		enterpriseClient, err := client.WithEnterpriseURLs(baseURL, baseURL)
+		if err == nil {
+			client = enterpriseClient
+		}
+	}
+
+	return &Client{
+		client: client,
+		ctx:    ctx,
+	}, nil
 }
 
 // ListRepositories lists all repositories accessible to the authenticated user

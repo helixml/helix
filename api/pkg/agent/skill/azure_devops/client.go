@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
@@ -53,6 +55,84 @@ func NewAzureDevOpsClient(organizationURL string, personalAccessToken string) *A
 		organizationURL:     organizationURL,
 		personalAccessToken: personalAccessToken,
 	}
+}
+
+// NewAzureDevOpsClientWithServicePrincipal creates a client using Azure AD Service Principal authentication.
+// This uses OAuth 2.0 client credentials flow to get an access token for the Azure DevOps API.
+// tenantID: Azure AD tenant ID
+// clientID: App registration client ID (Application ID)
+// clientSecret: App registration client secret
+// organizationURL: Azure DevOps organization URL (e.g., https://dev.azure.com/org)
+func NewAzureDevOpsClientWithServicePrincipal(ctx context.Context, organizationURL, tenantID, clientID, clientSecret string) (*AzureDevOpsClient, error) {
+	// Get access token using client credentials flow
+	accessToken, err := getAzureADAccessToken(ctx, tenantID, clientID, clientSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	// Create connection with bearer token
+	// The Azure DevOps Go SDK accepts bearer tokens - we use the access token directly
+	connection := azuredevops.NewPatConnection(organizationURL, accessToken)
+
+	return &AzureDevOpsClient{
+		connection:          connection,
+		organizationURL:     organizationURL,
+		personalAccessToken: accessToken, // Store access token for manual API calls
+	}, nil
+}
+
+// getAzureADAccessToken gets an access token from Azure AD using client credentials flow
+// The resource/scope for Azure DevOps is https://app.vssps.visualstudio.com/.default
+func getAzureADAccessToken(ctx context.Context, tenantID, clientID, clientSecret string) (string, error) {
+	tokenURL := fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
+
+	// Azure DevOps resource scope
+	scope := "499b84ac-1321-427f-aa17-267ca6975798/.default" // Azure DevOps resource ID
+
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("scope", scope)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to request token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil && errorResp.Error != "" {
+			return "", fmt.Errorf("token request failed: %s - %s", errorResp.Error, errorResp.ErrorDescription)
+		}
+		return "", fmt.Errorf("token request failed with status: %d", resp.StatusCode)
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("no access token in response")
+	}
+
+	return tokenResp.AccessToken, nil
 }
 
 // GetUserProfile fetches the authenticated user's profile from Azure DevOps
