@@ -23,12 +23,13 @@ import {
   Switch,
   useTheme,
 } from '@mui/material'
-import { GitBranch, Plus, Brain, Link } from 'lucide-react'
+import { GitBranch, Plus, Brain, Link, FolderSearch } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import CreateRepositoryDialog from '../components/project/CreateRepositoryDialog'
+import BrowseProvidersDialog from '../components/project/BrowseProvidersDialog'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -36,7 +37,7 @@ import useRouter from '../hooks/useRouter'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
 import { getSampleProjectIcon } from '../utils/sampleProjectIcons'
-import type { TypesGitRepository, ServerSampleType, TypesExternalRepositoryType } from '../api/api'
+import type { TypesGitRepository, ServerSampleType, TypesExternalRepositoryType, TypesRepositoryInfo } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
@@ -65,6 +66,8 @@ const GitRepos: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
   const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
+  const [browseProvidersOpen, setBrowseProvidersOpen] = useState(false)
+  const [linkingFromBrowser, setLinkingFromBrowser] = useState(false)
   const [selectedSampleType, setSelectedSampleType] = useState('')
   const [demoRepoName, setDemoRepoName] = useState('')
   const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
@@ -195,6 +198,44 @@ const GitRepos: FC = () => {
     }
   }
 
+  // Handle repository selection from OAuth browser
+  const handleBrowseSelectRepository = async (repo: TypesRepositoryInfo, providerType: string) => {
+    if (!ownerId) return
+
+    setLinkingFromBrowser(true)
+    try {
+      const apiClient = api.getApiClient()
+
+      // Map provider type to external type
+      const externalTypeMap: Record<string, TypesExternalRepositoryType> = {
+        'github': 'github' as TypesExternalRepositoryType,
+        'gitlab': 'gitlab' as TypesExternalRepositoryType,
+        'azure-devops': 'ado' as TypesExternalRepositoryType,
+      }
+
+      await apiClient.v1GitRepositoriesCreate({
+        name: repo.name || 'repository',
+        description: repo.description || `${providerType} repository`,
+        owner_id: ownerId,
+        repo_type: 'code' as any,
+        default_branch: repo.default_branch || 'main',
+        is_external: true,
+        external_url: repo.clone_url || repo.html_url || '',
+        external_type: externalTypeMap[providerType] || ('github' as TypesExternalRepositoryType),
+        kodit_indexing: true,
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories'] })
+
+      setBrowseProvidersOpen(false)
+    } catch (error) {
+      console.error('Failed to link repository from browser:', error)
+    } finally {
+      setLinkingFromBrowser(false)
+    }
+  }
+
   // Show logged out state if user is not authenticated
   if (!account.user) {
     return (
@@ -243,6 +284,15 @@ const GitRepos: FC = () => {
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                startIcon={<FolderSearch size={16} />}
+                onClick={() => setBrowseProvidersOpen(true)}
+              >
+                Connect & Browse
+              </Button>
+              <Button
                 variant="outlined"
                 size="small"
                 startIcon={<GitBranch size={16} />}
@@ -258,16 +308,16 @@ const GitRepos: FC = () => {
                 onClick={() => setLinkRepoDialogOpen(true)}
                 sx={{ textTransform: 'none' }}
               >
-                Link external
+                Link manually
               </Button>
               <Button
-                variant="contained"
-                color="secondary"
+                variant="outlined"
                 size="small"
                 startIcon={<Plus size={16} />}
                 onClick={() => setCreateDialogOpen(true)}
+                sx={{ textTransform: 'none' }}
               >
-                New
+                New empty
               </Button>
             </Box>
           </Box>
@@ -482,6 +532,14 @@ const GitRepos: FC = () => {
           onSubmit={handleCreateCustomRepo}
           isCreating={creating}
           error={createError}
+        />
+
+        {/* Browse Connected Providers Dialog */}
+        <BrowseProvidersDialog
+          open={browseProvidersOpen}
+          onClose={() => setBrowseProvidersOpen(false)}
+          onSelectRepository={handleBrowseSelectRepository}
+          isLinking={linkingFromBrowser}
         />
       </Container>
     </Page>

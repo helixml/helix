@@ -2427,6 +2427,37 @@ export interface TypesGitLab {
   personal_access_token?: string;
 }
 
+export interface TypesGitProviderConnection {
+  avatar_url?: string;
+  /** For GitLab Enterprise: base URL (empty = gitlab.com) */
+  base_url?: string;
+  created_at?: string;
+  deleted_at?: GormDeletedAt;
+  email?: string;
+  id?: string;
+  /** Last successful connection test */
+  last_tested_at?: string;
+  /** Display name for the connection (e.g., "My GitHub Account") */
+  name?: string;
+  /** For Azure DevOps: organization URL */
+  organization_url?: string;
+  /** Provider type: github, gitlab, ado */
+  provider_type?: TypesExternalRepositoryType;
+  updated_at?: string;
+  /** User who owns this connection (PAT is personal, not org-level) */
+  user_id?: string;
+  /** User info from the provider (cached from last successful auth) */
+  username?: string;
+}
+
+export interface TypesGitProviderConnectionCreateRequest {
+  base_url?: string;
+  name?: string;
+  organization_url?: string;
+  provider_type?: TypesExternalRepositoryType;
+  token?: string;
+}
+
 export interface TypesGitRepository {
   /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
@@ -3133,6 +3164,8 @@ export interface TypesOAuthUserInfo {
   name?: string;
   /** Raw JSON response from provider */
   raw?: string;
+  /** Provider-specific username (e.g., GitHub login) */
+  username?: string;
 }
 
 export interface TypesOpenAIMessage {
@@ -4977,12 +5010,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -7007,6 +7040,79 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all PAT-based git provider connections for the current user
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsList
+     * @summary List git provider connections
+     * @request GET:/api/v1/git-provider-connections
+     * @secure
+     */
+    v1GitProviderConnectionsList: (params: RequestParams = {}) =>
+      this.request<TypesGitProviderConnection[], TypesAPIError>({
+        path: `/api/v1/git-provider-connections`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new PAT-based git provider connection for the current user
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsCreate
+     * @summary Create git provider connection
+     * @request POST:/api/v1/git-provider-connections
+     * @secure
+     */
+    v1GitProviderConnectionsCreate: (request: TypesGitProviderConnectionCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesGitProviderConnection, TypesAPIError>({
+        path: `/api/v1/git-provider-connections`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a PAT-based git provider connection
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsDelete
+     * @summary Delete git provider connection
+     * @request DELETE:/api/v1/git-provider-connections/{id}
+     * @secure
+     */
+    v1GitProviderConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git-provider-connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List repositories from a saved PAT-based git provider connection
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsRepositoriesDetail
+     * @summary Browse repositories from saved connection
+     * @request GET:/api/v1/git-provider-connections/{id}/repositories
+     * @secure
+     */
+    v1GitProviderConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/git-provider-connections/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

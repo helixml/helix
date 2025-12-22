@@ -4120,6 +4120,56 @@ definitions:
       personal_access_token:
         type: string
     type: object
+  types.GitProviderConnection:
+    properties:
+      avatar_url:
+        type: string
+      base_url:
+        description: 'For GitLab Enterprise: base URL (empty = gitlab.com)'
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      email:
+        type: string
+      id:
+        type: string
+      last_tested_at:
+        description: Last successful connection test
+        type: string
+      name:
+        description: Display name for the connection (e.g., "My GitHub Account")
+        type: string
+      organization_url:
+        description: 'For Azure DevOps: organization URL'
+        type: string
+      provider_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: 'Provider type: github, gitlab, ado'
+      updated_at:
+        type: string
+      user_id:
+        description: User who owns this connection (PAT is personal, not org-level)
+        type: string
+      username:
+        description: User info from the provider (cached from last successful auth)
+        type: string
+    type: object
+  types.GitProviderConnectionCreateRequest:
+    properties:
+      base_url:
+        type: string
+      name:
+        type: string
+      organization_url:
+        type: string
+      provider_type:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      token:
+        type: string
+    type: object
   types.GitRepository:
     properties:
       azure_devops:
@@ -5317,6 +5367,9 @@ definitions:
         type: string
       raw:
         description: Raw JSON response from provider
+        type: string
+      username:
+        description: Provider-specific username (e.g., GitHub login)
         type: string
     type: object
   types.OpenAIMessage:
@@ -8498,20 +8551,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:
@@ -10848,6 +10901,129 @@ paths:
       summary: View filestore files
       tags:
       - filestore
+  /api/v1/git-provider-connections:
+    get:
+      description: List all PAT-based git provider connections for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitProviderConnection'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List git provider connections
+      tags:
+      - git-provider-connections
+    post:
+      consumes:
+      - application/json
+      description: Create a new PAT-based git provider connection for the current
+        user
+      parameters:
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.GitProviderConnectionCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.GitProviderConnection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create git provider connection
+      tags:
+      - git-provider-connections
+  /api/v1/git-provider-connections/{id}:
+    delete:
+      description: Delete a PAT-based git provider connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete git provider connection
+      tags:
+      - git-provider-connections
+  /api/v1/git-provider-connections/{id}/repositories:
+    get:
+      description: List repositories from a saved PAT-based git provider connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Browse repositories from saved connection
+      tags:
+      - git-provider-connections
   /api/v1/git/browse-remote:
     post:
       consumes:

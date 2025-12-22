@@ -104,6 +104,7 @@ type OAuthUserInfo struct {
 	ID          string `json:"id"`
 	Email       string `json:"email"`
 	Name        string `json:"name"`
+	Username    string `json:"username"`     // Provider-specific username (e.g., GitHub login)
 	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`
 	Raw         string `json:"raw"` // Raw JSON response from provider
@@ -161,4 +162,65 @@ type BrowseRemoteRepositoriesRequest struct {
 	OrganizationURL string `json:"organization_url,omitempty"`
 	// Base URL for self-hosted instances (optional, for GitLab)
 	BaseURL string `json:"base_url,omitempty"`
+}
+
+// GitProviderConnection represents a user's PAT-based connection to a git provider
+// This is separate from OAuthConnection which uses OAuth flow
+type GitProviderConnection struct {
+	ID        string         `json:"id" gorm:"primaryKey;type:uuid"`
+	CreatedAt time.Time      `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+
+	// User who owns this connection (PAT is personal, not org-level)
+	UserID string `json:"user_id" gorm:"not null;index"`
+
+	// Provider type: github, gitlab, ado
+	ProviderType ExternalRepositoryType `json:"provider_type" gorm:"not null;type:text"`
+
+	// Display name for the connection (e.g., "My GitHub Account")
+	Name string `json:"name"`
+
+	// Personal Access Token (encrypted at rest)
+	Token string `json:"-" gorm:"not null;type:text"`
+
+	// For Azure DevOps: organization URL
+	OrganizationURL string `json:"organization_url,omitempty"`
+
+	// For GitLab Enterprise: base URL (empty = gitlab.com)
+	BaseURL string `json:"base_url,omitempty"`
+
+	// User info from the provider (cached from last successful auth)
+	Username  string `json:"username,omitempty"`
+	Email     string `json:"email,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
+
+	// Last successful connection test
+	LastTestedAt *time.Time `json:"last_tested_at,omitempty"`
+}
+
+// GitProviderConnectionCreateRequest is the request body for creating a PAT connection
+type GitProviderConnectionCreateRequest struct {
+	ProviderType    ExternalRepositoryType `json:"provider_type"`
+	Name            string                 `json:"name,omitempty"`
+	Token           string                 `json:"token"`
+	OrganizationURL string                 `json:"organization_url,omitempty"`
+	BaseURL         string                 `json:"base_url,omitempty"`
+}
+
+// BeforeCreate sets default values for new git provider connections
+func (c *GitProviderConnection) BeforeCreate(_ *gorm.DB) error {
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	if c.UpdatedAt.IsZero() {
+		c.UpdatedAt = time.Now()
+	}
+	return nil
+}
+
+// BeforeUpdate sets updated_at before updating git provider connections
+func (c *GitProviderConnection) BeforeUpdate(_ *gorm.DB) error {
+	c.UpdatedAt = time.Now()
+	return nil
 }

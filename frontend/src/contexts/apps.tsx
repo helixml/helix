@@ -169,10 +169,11 @@ export const useAppsContext = (): IAppsContext => {
    }
 
   const loadApps = useCallback(async () => {
-    if (!orgLoaded) return
-    
-    // Determine the organization_id parameter value
-    let organizationIdParam = account.organizationTools.organization?.id || ''
+    if (!orgLoaded) {
+      return
+    }
+
+    const organizationIdParam = account.organizationTools.organization?.id || ''
 
     const result = await api.get<IApp[]>(`/api/v1/apps`, {
       params: {
@@ -303,7 +304,9 @@ export const useAppsContext = (): IAppsContext => {
 
   // Load initial data when user is available (just like in the sessions context)
   useEffect(() => {
-    if(!account.user) return
+    if(!account.user) {
+      return
+    }
     loadApps()
   }, [
     account.user,

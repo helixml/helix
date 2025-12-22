@@ -86,6 +86,12 @@ controlplane:
   runnerToken: ""
   runnerTokenExistingSecret: ""
   runnerTokenExistingSecretKey: ""
+  # Encryption key for secrets at rest (SSH keys, PATs, etc.)
+  # 64-character hex string (32 bytes for AES-256-GCM)
+  # Generate with: openssl rand -hex 32
+  encryptionKey: ""
+  encryptionKeyExistingSecret: ""
+  encryptionKeyExistingSecretKey: ""
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""

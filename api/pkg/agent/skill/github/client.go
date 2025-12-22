@@ -117,6 +117,15 @@ func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*github
 	return repository, nil
 }
 
+// GetAuthenticatedUser gets the authenticated user's profile
+func (c *Client) GetAuthenticatedUser(ctx context.Context) (*github.User, error) {
+	user, _, err := c.client.Users.Get(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get authenticated user: %w", err)
+	}
+	return user, nil
+}
+
 // ParseGitHubURL extracts owner and repo from a GitHub URL
 // Supports formats:
 //   - https://github.com/owner/repo

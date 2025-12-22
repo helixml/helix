@@ -292,6 +292,20 @@ func (mr *MockStoreMockRecorder) CreateDynamicModelInfo(ctx, modelInfo any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).CreateDynamicModelInfo), ctx, modelInfo)
 }
 
+// CreateGitProviderConnection mocks base method.
+func (m *MockStore) CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateGitProviderConnection", ctx, connection)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateGitProviderConnection indicates an expected call of CreateGitProviderConnection.
+func (mr *MockStoreMockRecorder) CreateGitProviderConnection(ctx, connection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGitProviderConnection", reflect.TypeOf((*MockStore)(nil).CreateGitProviderConnection), ctx, connection)
+}
+
 // CreateGitRepository mocks base method.
 func (m *MockStore) CreateGitRepository(ctx context.Context, repo *types.GitRepository) error {
 	m.ctrl.T.Helper()
@@ -1169,6 +1183,20 @@ func (m *MockStore) DeleteExternalAgentActivity(ctx context.Context, agentID str
 func (mr *MockStoreMockRecorder) DeleteExternalAgentActivity(ctx, agentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).DeleteExternalAgentActivity), ctx, agentID)
+}
+
+// DeleteGitProviderConnection mocks base method.
+func (m *MockStore) DeleteGitProviderConnection(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGitProviderConnection", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteGitProviderConnection indicates an expected call of DeleteGitProviderConnection.
+func (mr *MockStoreMockRecorder) DeleteGitProviderConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGitProviderConnection", reflect.TypeOf((*MockStore)(nil).DeleteGitProviderConnection), ctx, id)
 }
 
 // DeleteGitRepository mocks base method.
@@ -2193,6 +2221,21 @@ func (m *MockStore) GetExternalAgentActivityByLobbyID(ctx context.Context, lobby
 func (mr *MockStoreMockRecorder) GetExternalAgentActivityByLobbyID(ctx, lobbyID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExternalAgentActivityByLobbyID", reflect.TypeOf((*MockStore)(nil).GetExternalAgentActivityByLobbyID), ctx, lobbyID)
+}
+
+// GetGitProviderConnection mocks base method.
+func (m *MockStore) GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGitProviderConnection", ctx, id)
+	ret0, _ := ret[0].(*types.GitProviderConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGitProviderConnection indicates an expected call of GetGitProviderConnection.
+func (mr *MockStoreMockRecorder) GetGitProviderConnection(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitProviderConnection", reflect.TypeOf((*MockStore)(nil).GetGitProviderConnection), ctx, id)
 }
 
 // GetGitRepository mocks base method.
@@ -3602,6 +3645,21 @@ func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDyna
 func (mr *MockStoreMockRecorder) ListDynamicModelInfos(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDynamicModelInfos", reflect.TypeOf((*MockStore)(nil).ListDynamicModelInfos), ctx, q)
+}
+
+// ListGitProviderConnections mocks base method.
+func (m *MockStore) ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGitProviderConnections", ctx, userID)
+	ret0, _ := ret[0].([]*types.GitProviderConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGitProviderConnections indicates an expected call of ListGitProviderConnections.
+func (mr *MockStoreMockRecorder) ListGitProviderConnections(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitProviderConnections", reflect.TypeOf((*MockStore)(nil).ListGitProviderConnections), ctx, userID)
 }
 
 // ListGitRepositories mocks base method.

@@ -2,7 +2,9 @@ package azuredevops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
@@ -11,7 +13,16 @@ import (
 
 // TODO: move to separate pkg/git/azure_devops package
 type AzureDevOpsClient struct { //nolint:revive
-	connection *azuredevops.Connection
+	connection          *azuredevops.Connection
+	organizationURL     string
+	personalAccessToken string
+}
+
+// ADOUserProfile represents the user profile response from Azure DevOps
+type ADOUserProfile struct {
+	ID           string `json:"id"`
+	DisplayName  string `json:"displayName"`
+	EmailAddress string `json:"emailAddress"`
 }
 
 func NewAzureDevOpsClientFromApp(app *types.App) (*AzureDevOpsClient, error) {
@@ -37,8 +48,42 @@ func NewAzureDevOpsClient(organizationURL string, personalAccessToken string) *A
 	connection := azuredevops.NewPatConnection(organizationURL, personalAccessToken)
 
 	return &AzureDevOpsClient{
-		connection: connection,
+		connection:          connection,
+		organizationURL:     organizationURL,
+		personalAccessToken: personalAccessToken,
 	}
+}
+
+// GetUserProfile fetches the authenticated user's profile from Azure DevOps
+func (c *AzureDevOpsClient) GetUserProfile(ctx context.Context) (*ADOUserProfile, error) {
+	// Azure DevOps profile API endpoint
+	profileURL := "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1-preview.3"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", profileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set Basic Auth with PAT
+	req.SetBasicAuth("", c.personalAccessToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var profile ADOUserProfile
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &profile, nil
 }
 
 func (c *AzureDevOpsClient) GetComments(ctx context.Context, repositoryID string, pullRequestID int, threadID int) ([]git.Comment, error) {
