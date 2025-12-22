@@ -87,6 +87,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const [selectedAgent, setSelectedAgent] = useState('')
   const [updatingAgent, setUpdatingAgent] = useState(false)
 
+  // Start planning state - prevents double-click
+  const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+
   // Sort apps: zed_external agents first, then others
   const sortedApps = useMemo(() => {
     if (!apps.apps) return []
@@ -249,8 +252,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   }
 
   const handleStartPlanning = async () => {
-    if (!task?.id) return
+    if (!task?.id || isStartingPlanning) return
 
+    setIsStartingPlanning(true)
     try {
       const { keyboardLayout, timezone, isOverridden } = getBrowserLocale()
       const queryParams = new URLSearchParams()
@@ -270,10 +274,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
 
       snackbar.success('Planning started! Agent session will begin shortly.')
-      setCurrentTab(0)
+      setCurrentView('session')
     } catch (err: any) {
       console.error('Failed to start planning:', err)
       snackbar.error(err?.message || 'Failed to start planning. Please try again.')
+    } finally {
+      setIsStartingPlanning(false)
     }
   }
 
@@ -510,11 +516,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     specTaskId={task.id}
                     projectId={task.project_id}
                     apiClient={api.getApiClient()}
-                    onSend={async (message: string) => {
+                    onSend={async (message: string, interrupt?: boolean) => {
                       await streaming.NewInference({
                         type: SESSION_TYPE_TEXT,
                         message,
                         sessionId: activeSessionId,
+                        interrupt: interrupt ?? true, // Default to interrupt if not specified
                       })
                     }}
                     onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
@@ -567,11 +574,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 specTaskId={task.id}
                 projectId={task.project_id}
                 apiClient={api.getApiClient()}
-                onSend={async (message: string) => {
+                onSend={async (message: string, interrupt?: boolean) => {
                   await streaming.NewInference({
                     type: SESSION_TYPE_TEXT,
                     message,
                     sessionId: activeSessionId,
+                    interrupt: interrupt ?? true,
                   })
                 }}
                 placeholder="Send message to agent..."
@@ -590,10 +598,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   <Button
                     variant="contained"
                     color={justDoItMode ? 'success' : 'warning'}
-                    startIcon={<PlayArrow />}
+                    startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
                     onClick={handleStartPlanning}
+                    disabled={isStartingPlanning}
                   >
-                    {justDoItMode ? 'Just Do It' : 'Start Planning'}
+                    {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
                   </Button>
                   <FormControlLabel
                     control={

@@ -207,6 +207,9 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [justDoItMode, setJustDoItMode] = useState(task?.just_do_it_mode || false)
   const [updatingJustDoIt, setUpdatingJustDoIt] = useState(false)
 
+  // Start planning state - prevents double-click
+  const [isStartingPlanning, setIsStartingPlanning] = useState(false)
+
   // Use useSpecTask hook with auto-refresh, but disable when in edit mode
   const { data: refreshedTask } = useSpecTask(task?.id || '', {
     enabled: !!task?.id && open,
@@ -387,8 +390,9 @@ I'll give you feedback and we can iterate on any changes needed.`
   }
 
   const handleStartPlanning = async () => {
-    if (!task.id) return
+    if (!task.id || isStartingPlanning) return
 
+    setIsStartingPlanning(true)
     try {
       // Include keyboard layout from browser locale detection (or ?keyboard= override)
       const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
@@ -422,6 +426,8 @@ I'll give you feedback and we can iterate on any changes needed.`
         || err?.message
         || 'Failed to start planning. Please try again.'
       snackbar.error(errorMessage)
+    } finally {
+      setIsStartingPlanning(false)
     }
   }
 
@@ -900,11 +906,12 @@ I'll give you feedback and we can iterate on any changes needed.`
                       specTaskId={displayTask.id}
                       projectId={displayTask.project_id}
                       apiClient={api.getApiClient()}
-                      onSend={async (message: string) => {
+                      onSend={async (message: string, interrupt?: boolean) => {
                         await streaming.NewInference({
                           type: SESSION_TYPE_TEXT,
                           message,
                           sessionId: activeSessionId,
+                          interrupt: interrupt ?? true,
                         })
                       }}
                       placeholder="Send message to agent..."
@@ -966,11 +973,12 @@ I'll give you feedback and we can iterate on any changes needed.`
                   specTaskId={displayTask.id}
                   projectId={displayTask.project_id}
                   apiClient={api.getApiClient()}
-                  onSend={async (message: string) => {
+                  onSend={async (message: string, interrupt?: boolean) => {
                     await streaming.NewInference({
                       type: SESSION_TYPE_TEXT,
                       message,
                       sessionId: activeSessionId,
+                      interrupt: interrupt ?? true,
                     })
                   }}
                   placeholder="Send message to agent..."
@@ -989,15 +997,18 @@ I'll give you feedback and we can iterate on any changes needed.`
                     <Button
                       variant="contained"
                       color={justDoItMode ? 'success' : 'warning'}
-                      startIcon={<PlayArrow />}
+                      startIcon={isStartingPlanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrow />}
                       onClick={handleStartPlanning}
+                      disabled={isStartingPlanning}
                       endIcon={
-                        <Box component="span" sx={{ opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
-                          {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
-                        </Box>
+                        !isStartingPlanning ? (
+                          <Box component="span" sx={{ opacity: 0.7, fontFamily: 'monospace', ml: 0.5 }}>
+                            {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                          </Box>
+                        ) : undefined
                       }
                     >
-                      {justDoItMode ? 'Just Do It' : 'Start Planning'}
+                      {isStartingPlanning ? 'Starting...' : (justDoItMode ? 'Just Do It' : 'Start Planning')}
                     </Button>
                     <Tooltip title={`Skip spec planning and start implementation immediately (${navigator.platform.includes('Mac') ? '⌘J' : 'Ctrl+J'})`}>
                       <FormControlLabel

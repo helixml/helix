@@ -44,6 +44,9 @@ interface MoonlightStreamViewerProps {
   height?: number;
   fps?: number;
   className?: string;
+  // When true, suppress the connection overlay (parent component is showing its own overlay)
+  // This prevents multiple spinners stacking when Wolf container state changes
+  suppressOverlay?: boolean;
 }
 
 /**
@@ -70,6 +73,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   height = 1080,
   fps = 60,
   className = '',
+  suppressOverlay = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
@@ -110,6 +114,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
+  const [reconnectClicked, setReconnectClicked] = useState(false); // Immediate feedback when button clicked
   const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -1857,6 +1862,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
+  // Reset reconnectClicked when isConnecting becomes true (connection attempt has started)
+  // This provides immediate button feedback: click → disable → wait for isConnecting
+  useEffect(() => {
+    if (isConnecting) {
+      setReconnectClicked(false);
+    }
+  }, [isConnecting]);
+
   // Screenshot polling for low-quality mode (manual screenshot fallback)
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
@@ -3253,11 +3266,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <span>
             <IconButton
               size="small"
-              onClick={() => reconnect(1000, 'Reconnecting...')}
+              onClick={() => {
+                setReconnectClicked(true);
+                reconnect(1000, 'Reconnecting...');
+              }}
               sx={{ color: 'white' }}
-              disabled={isConnecting}
+              disabled={reconnectClicked || isConnecting}
             >
-              <Refresh fontSize="small" />
+              {reconnectClicked || isConnecting ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <Refresh fontSize="small" />}
             </IconButton>
           </span>
         </Tooltip>
@@ -3513,8 +3529,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Disconnected Overlay - prominent reconnection indicator */}
-      {!isConnecting && !isConnected && !error && retryCountdown === null && (
+      {/* Unified Connection Status Overlay - single overlay for all connection states */}
+      {/* Suppressed when parent component (ExternalAgentDesktopViewer) is showing its own overlay */}
+      {!suppressOverlay && (!isConnected || isConnecting || error || retryCountdown !== null) && (
         <Box
           sx={{
             position: 'absolute',
@@ -3523,50 +3540,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            zIndex: 1500,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 2,
-          }}
-        >
-          <Typography variant="h6" sx={{ color: 'white' }}>
-            Disconnected
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
-            {status || 'Connection lost'}
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => reconnect(1000, 'Reconnecting...')}
-            startIcon={<Refresh />}
-            sx={{ mt: 2 }}
-          >
-            Reconnect Now
-          </Button>
-        </Box>
-      )}
-
-      {/* Status Overlay - single unified loading/error overlay */}
-      {(isConnecting || error || retryCountdown !== null) && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            zIndex: 999,
+            zIndex: 1000,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             textAlign: 'center',
+            gap: 2,
           }}
         >
+          {/* Connecting state - spinner with status message */}
           {isConnecting && (
             <Box sx={{ color: 'white' }}>
               <CircularProgress size={40} sx={{ mb: 2 }} />
@@ -3574,13 +3557,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </Box>
           )}
 
-          {retryCountdown !== null && (
+          {/* Retry countdown - waiting before retry */}
+          {retryCountdown !== null && !isConnecting && (
             <Alert severity="warning" sx={{ maxWidth: 400 }}>
               Stream busy (attempt {retryAttemptDisplay}) - retrying in {retryCountdown} second{retryCountdown !== 1 ? 's' : ''}...
             </Alert>
           )}
 
-          {error && retryCountdown === null && (
+          {/* Disconnected state - no active connection, no error, not connecting */}
+          {!isConnecting && !isConnected && !error && retryCountdown === null && (
+            <>
+              <Typography variant="h6" sx={{ color: 'white' }}>
+                Disconnected
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+                {status || 'Connection lost'}
+              </Typography>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => {
+                  setReconnectClicked(true);
+                  reconnect(500, 'Reconnecting...');
+                }}
+                disabled={reconnectClicked}
+                startIcon={reconnectClicked ? <CircularProgress size={20} /> : <Refresh />}
+                sx={{ mt: 2 }}
+              >
+                {reconnectClicked ? 'Reconnecting...' : 'Reconnect Now'}
+              </Button>
+            </>
+          )}
+
+          {/* Error state - show error with reconnect option */}
+          {error && retryCountdown === null && !isConnecting && (
             <Alert
               severity="error"
               sx={{ maxWidth: 400 }}
@@ -3588,12 +3598,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 <Button
                   color="inherit"
                   size="small"
+                  disabled={reconnectClicked}
                   onClick={() => {
+                    setReconnectClicked(true);
                     setError(null);
-                    connect();
+                    reconnect(500, 'Reconnecting...');
                   }}
+                  startIcon={reconnectClicked ? <CircularProgress size={14} color="inherit" /> : undefined}
                 >
-                  Reconnect
+                  {reconnectClicked ? 'Reconnecting...' : 'Reconnect'}
                 </Button>
               }
             >
