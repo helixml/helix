@@ -65,6 +65,10 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		go apiServer.processNewInterruptPrompts(context.Background(), syncReq.Entries)
 	}
 
+	// Also check if there are pending queue prompts for idle sessions
+	// This handles the case where queue prompts are synced but the agent is already idle
+	go apiServer.processPendingQueuePromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+
 	return response, nil
 }
 
@@ -133,6 +137,80 @@ func (apiServer *HelixAPIServer) processNewInterruptPrompts(ctx context.Context,
 			Str("prompt_id", entry.ID).
 			Str("session_id", entry.SessionID).
 			Msg("✅ [QUEUE] Successfully sent interrupt prompt to session")
+	}
+}
+
+// processPendingQueuePromptsForIdleSessions checks the database for any pending
+// queue prompts and triggers processing if the session is idle
+// This handles the case where queue prompts were synced previously but the agent was busy
+func (apiServer *HelixAPIServer) processPendingQueuePromptsForIdleSessions(ctx context.Context, specTaskID string) {
+	if specTaskID == "" {
+		return
+	}
+
+	// Query the database for ALL pending queue prompts for this spec task
+	entries, err := apiServer.Store.ListPromptHistoryBySpecTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to list prompt history for queue processing")
+		return
+	}
+
+	// Collect unique session IDs that have pending queue prompts
+	sessionIDs := make(map[string]bool)
+	for _, entry := range entries {
+		// Only interested in queue prompts (interrupt=false) that are pending
+		if entry.Interrupt {
+			continue // Skip interrupt prompts (handled separately)
+		}
+		if entry.Status != "pending" {
+			continue
+		}
+		if entry.SessionID == "" {
+			continue
+		}
+		sessionIDs[entry.SessionID] = true
+	}
+
+	if len(sessionIDs) == 0 {
+		return
+	}
+
+	log.Debug().
+		Str("spec_task_id", specTaskID).
+		Int("session_count", len(sessionIDs)).
+		Msg("🔍 [QUEUE] Found sessions with pending queue prompts")
+
+	// For each session with pending queue prompts, check if idle and process
+	for sessionID := range sessionIDs {
+		session, err := apiServer.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+			continue
+		}
+
+		if session == nil {
+			continue
+		}
+
+		// Check if session is idle (no interactions, or last interaction is complete)
+		isIdle := true
+		if len(session.Interactions) > 0 {
+			lastInteraction := session.Interactions[len(session.Interactions)-1]
+			if lastInteraction.State == types.InteractionStateWaiting {
+				isIdle = false
+			}
+		}
+
+		if isIdle {
+			log.Info().
+				Str("session_id", sessionID).
+				Msg("📤 [QUEUE] Session is idle, processing pending queue prompts")
+			apiServer.processPromptQueue(ctx, sessionID)
+		} else {
+			log.Debug().
+				Str("session_id", sessionID).
+				Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
+		}
 	}
 }
 

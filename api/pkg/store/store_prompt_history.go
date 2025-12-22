@@ -125,6 +125,22 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 	return &entry, nil
 }
 
+// ListPromptHistoryBySpecTask returns all prompt history entries for a spec task
+// Used by the queue processor to find pending prompts across all sessions
+func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error) {
+	var entries []*types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("spec_task_id = ?", specTaskID).
+		Order("created_at ASC").
+		Find(&entries).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
 // MarkPromptAsPending marks a prompt as pending (used before retry)
 func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
 	return s.gdb.WithContext(ctx).

@@ -2137,6 +2137,10 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	// Mark as ready (this flushes queued messages and calls onReady)
 	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
 
+	// Also process any pending queue prompts (non-interrupt prompts that were waiting)
+	// This handles the case where the agent was restarted with queued messages
+	go apiServer.processPromptQueue(context.Background(), sessionID)
+
 	return nil
 }
 

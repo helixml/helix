@@ -15,6 +15,7 @@ import {
 import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material'
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
+import useApi from '../../hooks/useApi'
 import LogViewerModal from './LogViewerModal'
 import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
@@ -25,6 +26,7 @@ interface FloatingModalProps {
 
 const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const floatingModal = useFloatingModal()
+  const api = useApi()
   const [isMinimized, setIsMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -435,6 +437,11 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
                 displayWidth={modalConfig.displayWidth}
                 displayHeight={modalConfig.displayHeight}
                 displayFps={modalConfig.displayFps}
+                specTaskId={modalConfig.specTaskId}
+                projectId={modalConfig.projectId}
+                apiClient={api.getApiClient()}
+                showSessionPanel={true}
+                defaultPanelOpen={true}
               />
             )}
           </Box>
