@@ -153,6 +153,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Track whether we're waiting for first screenshot after entering screenshot mode
+  // This is used to hide the loading overlay - using a ref instead of checking screenshotUrl
+  // to avoid race conditions when switching modes rapidly
+  const waitingForFirstScreenshotRef = useRef(false);
   // Adaptive JPEG quality control - targets 2 FPS (500ms max per frame)
   const [screenshotQuality, setScreenshotQuality] = useState(70); // JPEG quality 10-90
   const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
@@ -1413,6 +1417,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // This prevents a black screen gap between video disappearing and screenshot appearing
       setIsConnecting(true);
       setStatus('Switching to screenshots...');
+      // Mark that we're waiting for first screenshot - this is used by the polling effect
+      // to know when to hide the overlay (more reliable than checking screenshotUrl state)
+      waitingForFirstScreenshotRef.current = true;
       wsStream.setVideoEnabled(false);
       // Screenshot polling will auto-start via shouldPollScreenshots becoming true
     }
@@ -1993,14 +2000,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const img = new Image();
         img.onload = () => {
           setScreenshotUrl((oldUrl) => {
-            // Hide connecting overlay on first screenshot
-            if (!oldUrl) {
+            // Hide connecting overlay on first screenshot after entering screenshot mode
+            // Use ref instead of !oldUrl to handle rapid mode switching correctly
+            // (oldUrl might still exist from previous session)
+            if (waitingForFirstScreenshotRef.current) {
               console.log('[Screenshot] First screenshot received - hiding connecting overlay');
               // Clear video start timeout - screenshot arrived successfully
               if (videoStartTimeoutRef.current) {
                 clearTimeout(videoStartTimeoutRef.current);
                 videoStartTimeoutRef.current = null;
               }
+              waitingForFirstScreenshotRef.current = false;
               setIsConnecting(false);
               setStatus('Streaming active');
             }
