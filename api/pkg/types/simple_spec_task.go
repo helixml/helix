@@ -104,8 +104,10 @@ type SpecTask struct {
 	PullRequestID  string `json:"pull_request_id"`
 	PullRequestURL string `json:"pull_request_url,omitempty" gorm:"-"` // Computed field, not stored
 
-	// Agent activity tracking (computed from session.updated, not stored)
-	SessionUpdatedAt *time.Time `json:"session_updated_at,omitempty" gorm:"-"` // When the session was last updated (for active/idle detection)
+	// Agent activity tracking (computed from session/activity data, not stored)
+	SessionUpdatedAt  *time.Time     `json:"session_updated_at,omitempty" gorm:"-"`   // When the session was last updated (for active/idle detection)
+	AgentWorkState    AgentWorkState `json:"agent_work_state,omitempty" gorm:"-"`     // Current agent work state (idle/working/done) from activity tracking
+	LastPromptContent string         `json:"last_prompt_content,omitempty" gorm:"-"` // Last prompt sent to agent (for continue functionality)
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
