@@ -37,12 +37,14 @@ import {
   SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
+  Tab as TabIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
+import TabsView from '../components/tasks/TabsView';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
 import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../types';
@@ -108,6 +110,19 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
+  // Fetch tasks for TabsView
+  const { data: tasksData } = useQuery({
+    queryKey: ['spec-tasks', projectId, refreshTrigger],
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      return response.data || [];
+    },
+    enabled: !!projectId && viewMode === 'tabs',
+    refetchInterval: 3000, // Refresh every 3 seconds for live updates
+  });
+
   // Query wolf instances to check for privileged mode availability
   const { data: wolfInstances } = useQuery({
     queryKey: ['wolf-instances'],
@@ -134,7 +149,7 @@ const SpecTasksPage: FC = () => {
   }, [projectId, router.params.new, account]);
 
   // State for view management
-  const [viewMode, setViewMode] = useState<'kanban' | 'audit'>('kanban');
+  const [viewMode, setViewMode] = useState<'kanban' | 'tabs' | 'audit'>('kanban');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -626,7 +641,7 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
-          {/* View mode toggle: Kanban vs Audit Trail */}
+          {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
           <Stack direction="row" spacing={0.5} sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}>
             <Tooltip title="Kanban View">
               <IconButton
@@ -639,6 +654,19 @@ const SpecTasksPage: FC = () => {
                 }}
               >
                 <KanbanIcon fontSize="small" color={viewMode === 'kanban' ? 'primary' : 'inherit'} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Tabs View">
+              <IconButton
+                size="small"
+                onClick={() => setViewMode('tabs')}
+                sx={{
+                  bgcolor: viewMode === 'tabs' ? 'background.paper' : 'transparent',
+                  boxShadow: viewMode === 'tabs' ? 1 : 0,
+                  '&:hover': { bgcolor: viewMode === 'tabs' ? 'background.paper' : 'action.selected' },
+                }}
+              >
+                <TabIcon fontSize="small" color={viewMode === 'tabs' ? 'primary' : 'inherit'} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Audit Trail">
@@ -788,9 +816,9 @@ const SpecTasksPage: FC = () => {
             </Alert>
           )}
 
-          {/* Main Content: Kanban Board or Audit Trail */}
+          {/* Main Content: Kanban Board, Tabs View, or Audit Trail */}
           <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-            {viewMode === 'kanban' ? (
+            {viewMode === 'kanban' && (
               <SpecTaskKanbanBoard
                 userId={account.user?.id}
                 projectId={projectId}
@@ -812,7 +840,16 @@ const SpecTasksPage: FC = () => {
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
               />
-            ) : (
+            )}
+            {viewMode === 'tabs' && (
+              <TabsView
+                projectId={projectId}
+                tasks={tasksData || []}
+                onCreateTask={() => setCreateDialogOpen(true)}
+                onRefresh={() => setRefreshTrigger(prev => prev + 1)}
+              />
+            )}
+            {viewMode === 'audit' && (
               <ProjectAuditTrail
                 projectId={projectId || ''}
                 onTaskClick={(taskId) => {
