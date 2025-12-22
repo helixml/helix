@@ -630,6 +630,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
+	// Update user short title (pointer allows clearing with empty string)
+	if updateReq.UserShortTitle != nil {
+		task.UserShortTitle = *updateReq.UserShortTitle
+	}
 
 	// Update in store
 	err = s.Store.UpdateSpecTask(r.Context(), task)
