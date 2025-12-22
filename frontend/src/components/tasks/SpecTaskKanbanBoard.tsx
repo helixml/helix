@@ -65,6 +65,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
+import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
 import specTaskService, {
   SpecTask,
@@ -1380,55 +1381,23 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       </Dialog>
 
       {/* Archive Confirmation Dialog */}
-      <Dialog open={archiveConfirmOpen} onClose={() => setArchiveConfirmOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600, fontSize: '1.125rem' }}>Archive Task?</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2, border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-              Archiving this task will:
-            </Typography>
-            <ul style={{ marginTop: 0, marginBottom: 0, paddingLeft: 20 }}>
-              <li><Typography variant="body2">Stop any running external agents</Typography></li>
-              <li><Typography variant="body2">Lose any unsaved data in the desktop</Typography></li>
-              <li><Typography variant="body2">Hide the task from the board</Typography></li>
-            </ul>
-          </Alert>
-          <Typography variant="body2" color="text.secondary">
-            The conversation history will be preserved and you can restore the task later.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button
-            onClick={() => {
-              setArchiveConfirmOpen(false);
-              setTaskToArchive(null);
-            }}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 500,
-              color: 'text.secondary',
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              if (taskToArchive) {
-                // Close dialog immediately so user can continue working
-                setArchiveConfirmOpen(false);
-                const task = taskToArchive;
-                setTaskToArchive(null);
-                // Fire off archive (spinner shows on card via archivingTaskId)
-                performArchive(task, true);
-              }
-            }}
-            variant="contained"
-            color="warning"
-          >
-            Archive Task
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => {
+          setArchiveConfirmOpen(false);
+          setTaskToArchive(null);
+        }}
+        onConfirm={() => {
+          if (taskToArchive) {
+            setArchiveConfirmOpen(false);
+            const task = taskToArchive;
+            setTaskToArchive(null);
+            performArchive(task, true);
+          }
+        }}
+        taskName={taskToArchive?.name}
+        isArchiving={!!archivingTaskId}
+      />
     </Box>
   );
 };
