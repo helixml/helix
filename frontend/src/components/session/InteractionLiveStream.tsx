@@ -103,10 +103,12 @@ export const InteractionLiveStream: FC<{
         onMessageChange(message);
     }, [message, onMessageChange]);
 
+    // Scroll to bottom when message or tool steps change (height changes)
     useEffect(() => {
-        if (!message || !onMessageUpdate) return;
+        if (!onMessageUpdate) return;
+        if (!message && stepInfos.length === 0) return;
         onMessageUpdate();
-    }, [message, onMessageUpdate]);
+    }, [message, stepInfos.length, onMessageUpdate]);
 
     if (!serverConfig || !serverConfig.filestore_prefix) {
         return null;
