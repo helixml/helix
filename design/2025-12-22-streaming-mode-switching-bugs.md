@@ -351,6 +351,40 @@ The registry is visible in "Stats for Nerds" panel with:
 - List of active connection types
 - Warning indicator (⚠️ TOO MANY!) if more than 2 connections active
 
+## Mode Transition Analysis
+
+Comprehensive review of all possible mode switching paths:
+
+### Quality Mode Transitions (within WebSocket streaming)
+
+| Transition | Teardown | Setup | Loading Overlay |
+|------------|----------|-------|-----------------|
+| high → sse | Disable WS video, unregister | Open SSE EventSource | ✓ Shows "Switching to SSE stream..." |
+| high → low | Disable WS video, unregister | Enable screenshot polling | ✓ Shows "Switching to screenshots..." |
+| sse → high | Close SSE EventSource/decoder, unregister | Enable WS video | ✓ Shows "Switching to video stream..." |
+| sse → low | Close SSE EventSource/decoder, unregister | Enable screenshot polling | ✓ Shows "Switching to screenshots..." |
+| low → high | Effect cleanup stops polling | Enable WS video | ✓ Shows "Switching to video stream..." |
+| low → sse | Effect cleanup stops polling | Open SSE EventSource | ✓ Shows "Switching to SSE stream..." |
+
+### Streaming Mode Transitions
+
+| Transition | Actions |
+|------------|---------|
+| websocket → webrtc | Reset qualityMode to 'high', close SSE resources, unregister SSE, full reconnect |
+| webrtc → websocket | Full reconnect (qualityMode already 'high') |
+
+### Bugs Fixed in This Review
+
+1. **Missing loading overlay for low mode transitions**
+   - When switching TO 'low' mode, canvas becomes transparent immediately
+   - Screenshot takes time to arrive → user saw black screen
+   - Fix: Added `setIsConnecting(true)` in 'low' mode setup
+
+2. **SSE registry unregistration missing in streaming mode switch**
+   - When switching streaming modes while in SSE quality mode
+   - SSE resources were closed but connection not unregistered
+   - Fix: Added `unregisterConnection(currentSseVideoIdRef.current)` after SSE cleanup
+
 ## Conclusion
 
 The core issues stem from `qualityMode` not being properly scoped to `websocket` streaming mode. The fixes ensure:
@@ -361,3 +395,4 @@ The core issues stem from `qualityMode` not being properly scoped to `websocket`
 5. **Duplicate streams are prevented by closing old resources before creating new ones**
 6. **Rendering is blocked after close() is called via multiple guard checks**
 7. **Connection registry provides visibility into active connections for debugging**
+8. **All mode transitions show loading overlays to prevent black screen gaps**
