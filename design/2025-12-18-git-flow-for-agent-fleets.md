@@ -1,6 +1,6 @@
-# We Mass-Produce Merge Conflicts (And That's Fine)
+# Every Branch Has a Direction: Git Flow for AI Agent Fleets
 
-*How we handle git when 10 AI agents are all pushing to your repo at once*
+*We run 10 agents on one repo. Here's the one rule that stopped everything from breaking.*
 
 ---
 
