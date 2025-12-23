@@ -1,6 +1,6 @@
-# Single-Direction Git Branches: Running Agent Fleets on Enterprise Repos
+# We Mass-Produce Merge Conflicts (And That's Fine)
 
-*Or: what happens when you can't just give AI agents your Azure DevOps credentials*
+*What happens when you can't just give AI agents your Azure DevOps credentials*
 
 ---
 
