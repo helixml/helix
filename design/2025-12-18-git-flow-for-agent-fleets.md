@@ -114,9 +114,13 @@ Each task gets a dated directory. The notebook grows monotonically. You never lo
 
 ## Feature Branches: Push-Only
 
-"But what if Agent A needs to pull Agent B's changes mid-work?"
+Agents can start work in three ways:
 
-They don't. This was counterintuitive until we thought about it:
+1. **New branch from main.** Easy. Pull main, branch, work, push.
+2. **Continue on existing branch.** Easy. Pull the branch, work, push.
+3. **New branch from existing branch.** Hard. This is where directionality matters.
+
+Case 3 is the problem:
 
 ```
 Agent B: feature/add-auth (commits A, B, C)
@@ -129,11 +133,11 @@ Agent A: makes commits D, E, F
 NO.
 ```
 
-Agents CAN resolve conflicts - they're actually pretty good at it. But remember the architecture: there's a bare repo between agents and your external repo. If we allow bidirectional sync, conflicts happen in that middle layer, and we can't merge in a bare repo without significant infrastructure.
+Agents CAN resolve conflicts - they're actually pretty good at it. But remember the architecture: there's a bare repo between agents and your external repo. If Agent A pulls while working, that pull has to flow through our middle repo, potentially conflicting with what Agent B is pushing.
 
-The alternative we considered: surface upstream's branch under a different name (like `upstream/feature/add-auth`) so the agent sees both versions and can merge. We haven't built that yet.
+The alternative we're considering: surface upstream's branch under a different name (like `upstream/feature/add-auth`) so the agent sees both versions and can merge locally. We haven't built that yet.
 
-For now, the flow is simple:
+For now, once an agent branches off, they don't pull updates from the parent. The flow is simple:
 
 1. Agent finishes work, pushes to Helix
 2. Helix pushes to your repo
