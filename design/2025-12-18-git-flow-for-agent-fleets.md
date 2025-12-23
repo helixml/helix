@@ -4,61 +4,39 @@
 
 ---
 
-Everyone's building AI coding agents. But they're all single-player. One agent, one human, one repo.
+We're [Helix](https://github.com/helixml/helix), a bootstrapped team selling AI agent infrastructure to enterprises. The pitch: run 10 coding agents in parallel on your codebase, connected to Azure DevOps, behind your firewall.
 
-We sell to enterprises. They want 10 agents working in parallel on the same codebase, connected to Azure DevOps, behind their firewall, with their SSO, without giving AI direct access to their git credentials.
+The constraint: enterprise security won't let AI agents have direct git credentials. Fair enough. One hallucinating agent with push access to production is one too many.
 
-That last part is the problem.
-
-We're [Helix](https://github.com/helixml/helix), a bootstrapped team building open-source infrastructure for AI agent fleets. We're not VC-funded. We don't have 6 months to build elegant solutions. We have enterprise customers who need this working yesterday, and a burn rate that keeps me up at night.
-
-Here's what happens when you naively parallelize agents:
+So we built a middle layer:
 
 ```
-Agent 1: git checkout main && git checkout -b feature/add-login
-Agent 2: git checkout main && git checkout -b feature/add-signup
-Agent 3: git checkout main && git checkout -b feature/fix-auth
-
-# Meanwhile, a human merges a PR on GitHub...
-
-Agent 4: git checkout main  # Wait, which main? Local or remote?
+Customer's Repo (ADO/GitHub)  ←→  Helix Bare Repo  ←→  Agent Sandboxes
+            │                           │                     │
+       source of truth           we control this         no git creds
 ```
 
-## The Solution We Eventually Stumbled Into
+Agents push to our bare repo. We sync with the customer's repo using credentials they control. The agent sandbox never sees their git credentials.
 
-After weeks of staring at divergence errors at 2am, we realized the problem was bidirectional sync. Every time we tried to sync branches in both directions, edge cases multiplied. So we stopped.
+**The problem:** both sides can make changes. Customer merges a PR on ADO. Meanwhile, agents are pushing feature branches. Now there's a conflict in our middle repo.
 
-**Every branch type now has exactly one direction:**
+Resolving conflicts in a bare repository is painful. There's no working directory. You'd need to build an entire conflict resolution UI so someone (the customer? the agent?) can reconcile changes. Or surface upstream's branch under a different name so the agent sees both versions and can merge.
+
+We haven't built either of those. We probably should. But we're bootstrapped with a burn rate that keeps me up at night. We needed something that works now.
+
+## The Constraint That Fixed Everything
+
+After weeks of 2am debugging, we stopped trying to sync branches bidirectionally. Instead: **every branch type has exactly one direction**.
 
 | Branch Type | Direction | Why |
 |-------------|-----------|-----|
-| `main` | PULL-ONLY | Customer's ADO/GitHub is source of truth. We never write to it directly. |
+| `main` | PULL-ONLY | Customer's ADO/GitHub is source of truth. We only read from it. |
 | `helix-specs` | PUSH-ONLY | Our design docs branch. Customer never writes to it. |
-| Feature branches | PUSH-ONLY | Agents create branches and push. They never pull updates. |
+| Feature branches | PUSH-ONLY | Agents create and push. They never pull updates mid-work. |
 
-This constraint sounds limiting until you realize it eliminates an entire class of problems.
+If a branch only moves in one direction, conflicts in the middle repo become impossible. Customer changes flow inward. Agent changes flow outward. They never collide in our infrastructure.
 
-## The Security Constraint That Drove Everything
-
-Enterprise security teams have opinions about AI agents with direct write access to their repos. Strong opinions. Opinions that sound like "absolutely not" and "over my dead body."
-
-Fair enough. We wouldn't want that either. One hallucinating agent with push access to production is one too many.
-
-So we built a security boundary: a bare git repo hosted by Helix that sits between agent sandboxes and the customer's external repo.
-
-```
-Customer's Repo (ADO/GitHub)  ←→  Helix Bare Repo  ←→  Agent Sandbox
-            │                           │                    │
-       source of truth           credential boundary     no git creds
-```
-
-Agents push to our repo. We sync with the customer's repo using a service connection they control. The agent sandbox never sees their git credentials.
-
-The problem? If customers make changes upstream while agents are making changes, conflicts happen in **our** middle repo. And resolving conflicts in a bare repository means building an entire conflict resolution UI so someone (the customer? the agent?) can reconcile changes in the middle layer.
-
-We haven't built that. We probably should. The alternative is surfacing upstream's branch under a different name so the agent can see both versions. We haven't figured out how to do that elegantly either.
-
-For now: enforce direction per branch. Conflicts in the middle repo become impossible. Problem solved, kind of.
+Conflicts still happen - but they happen in the PR on GitHub/ADO, where they belong, where the customer's existing tooling handles them.
 
 ## Main Branch: Pull-Only, Fast-Forward Only
 
