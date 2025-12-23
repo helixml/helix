@@ -22,7 +22,7 @@ Agents push to our bare repo. We sync with the customer's repo using credentials
 
 Resolving conflicts in a bare repository is painful. There's no working directory. You'd need to build an entire conflict resolution UI so someone (the customer? the agent?) can reconcile changes. Or surface upstream's branch under a different name so the agent sees both versions and can merge.
 
-We haven't built either of those. We probably should. But we're bootstrapped with a burn rate that keeps me up at night. We needed something that works now.
+We haven't built either of those. We probably should. But we needed something that works now.
 
 ## The Constraint That Fixed Everything
 
@@ -138,7 +138,7 @@ if branchToSync != repo.DefaultBranch {
 }
 ```
 
-Is this the right design? Honestly, we're not sure. The alternative is building proper bidirectional sync with conflict resolution surfaced to agents. That's a lot of work for a bootstrapped team. We'd love to hear if anyone's solved this elegantly.
+Is this the right design? Honestly, we're not sure. The alternative is building proper bidirectional sync with conflict resolution surfaced to agents. We'd love to hear if anyone's solved this elegantly.
 
 ## Why Bare Repos?
 
