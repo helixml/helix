@@ -6,7 +6,7 @@
 
 We're [Helix](https://github.com/helixml/helix), a bootstrapped team selling AI agent infrastructure to enterprises. The pitch: run 10 coding agents in parallel on your codebase, connected to Azure DevOps, behind your firewall.
 
-The constraint: enterprise security won't give AI agents direct git credentials. Fair enough. One hallucinating agent with push access to production is one too many.
+The constraint: enterprise security won't give AI agents direct git credentials. This isn't paranoia - [GitGuardian's 2025 report](https://blog.gitguardian.com/agentic-ai-secdays-france/) found repositories with Copilot active have 40% higher incidence of secret leaks. One hallucinating agent with push access to production is one too many.
 
 So we built a middle layer:
 
@@ -193,17 +193,29 @@ The constraint (single direction per branch) turned out to be a feature, not a l
 
 ---
 
+## How Others Are Solving This
+
+We're not the only ones thinking about multi-agent git coordination:
+
+**Devin's MultiDevin** uses a manager/worker model - one "manager" Devin distributes tasks to up to 10 "worker" Devins, then merges all successful changes into one branch. This works well for repeated, isolated tasks (lint fixes, migrations). It sidesteps the coordination problem by having a single merge point. [Cognition's approach](https://docs.devin.ai/release-notes/overview) is agent-centric - the manager agent handles conflicts, not infrastructure.
+
+**Git worktrees** are another approach. [Nick Mitchinson wrote](https://www.nrmitchi.com/2025/10/using-git-worktrees-for-multi-feature-development-with-ai-agents/) about using worktrees for AI agent isolation - each agent gets a persistent working directory for its branch. This eliminates context switching friction and gives agents bounded workspaces. We haven't tried this yet but it's compelling.
+
+**GitHub Copilot's agent** takes a different approach: branch protections still apply, and the agent's PRs require human approval before any CI/CD runs. [The agent spins up secure dev environments](https://news.ycombinator.com/item?id=44031432) via GitHub Actions. Similar to our human-in-loop model, but tighter integration with GitHub's existing permissions.
+
+We chose the middle bare repo approach because we need to work with any git host (ADO, GitHub, GitLab, Bitbucket) and can't assume specific platform features.
+
 ## Open Questions
 
 We're not certain this is the right design. Some things we're still thinking about:
 
 1. **Bidirectional sync.** Single-direction is restrictive. We could surface upstream changes as `upstream/<branch>` and let agents merge. That's significant infrastructure.
 
-2. **What are other agent platforms doing?** Multi-agent git coordination isn't discussed publicly anywhere we've found. If you're solving this differently, we'd genuinely like to know.
+2. **Manager agent for merging.** Devin's approach - have a manager agent consolidate worker outputs - is interesting. Could we add a "coordinator" agent that handles merges in our architecture?
 
-3. **Orphan branches for design docs.** Useful pattern or weird hack? We're biased. But it's worked for 6 months now.
+3. **Git worktrees.** Would worktrees solve some of our problems more elegantly than the bare repo approach? We haven't experimented with this yet.
 
-4. **Bare repo tooling.** go-git is good but operating at the plumbing level is painful. Anyone have recommendations?
+4. **Orphan branches for design docs.** Useful pattern or weird hack? We're biased. But it's worked for 6 months now.
 
 ---
 
