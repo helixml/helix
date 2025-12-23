@@ -163,7 +163,7 @@ This means humans are the natural place to resolve conflicts:
 - helix-specs is PUSH-ONLY → humans approve designs before agents start coding
 - Main is PULL-ONLY → agents work from the latest blessed version
 
-Every design decision assumes a human is watching. Our enterprise customers wanted it that way. So did we, frankly. Fully autonomous agents pushing to production without review is a horror story waiting to happen.
+Every design decision assumes a human is in the loop - even if they're supervising a fleet of 10 agents in parallel. Our enterprise customers wanted it that way. So did we, frankly. Fully autonomous agents pushing to production without review is a horror story waiting to happen.
 
 ## Results
 
