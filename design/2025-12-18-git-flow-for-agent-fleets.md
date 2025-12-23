@@ -1,14 +1,16 @@
-# Every Branch Has a Direction: Git Flow for AI Agent Fleets
+# Single-Direction Git Branches: Running Agent Fleets on Enterprise Repos
 
-*We run 10 agents on one repo. Here's the one rule that stopped everything from breaking.*
+*Or: what happens when you can't just give AI agents your Azure DevOps credentials*
 
 ---
 
-Everyone's building AI coding agents. Cursor, Windsurf, Devin, Claude Code, Codex. Cool. Ship it.
+Everyone's building AI coding agents. But they're all single-player. One agent, one human, one repo.
 
-But nobody talks about what happens when you have *multiple* agents working on the same codebase. Simultaneously. Stepping on each other's toes. Creating the kind of git chaos that would make your senior dev cry.
+We sell to enterprises. They want 10 agents working in parallel on the same codebase, connected to Azure DevOps, behind their firewall, with their SSO, without giving AI direct access to their git credentials.
 
-We're [Helix](https://github.com/helixml/helix), a bootstrapped team building an open-source platform for running fleets of AI coding agents. We're not VC-funded, which means we can't afford to spend 6 months on elegant solutions. We need things that work yesterday.
+That last part is the problem.
+
+We're [Helix](https://github.com/helixml/helix), a bootstrapped team building open-source infrastructure for AI agent fleets. We're not VC-funded. We don't have 6 months to build elegant solutions. We have enterprise customers who need this working yesterday, and a burn rate that keeps me up at night.
 
 Here's what happens when you naively parallelize agents:
 
@@ -22,39 +24,41 @@ Agent 3: git checkout main && git checkout -b feature/fix-auth
 Agent 4: git checkout main  # Wait, which main? Local or remote?
 ```
 
-## The One Weird Trick: Single-Direction Branches
+## The Solution We Eventually Stumbled Into
 
-After weeks of staring at divergence errors at 2am, we discovered something embarrassingly simple: **every branch type has exactly ONE direction**.
+After weeks of staring at divergence errors at 2am, we realized the problem was bidirectional sync. Every time we tried to sync branches in both directions, edge cases multiplied. So we stopped.
+
+**Every branch type now has exactly one direction:**
 
 | Branch Type | Direction | Why |
 |-------------|-----------|-----|
-| `main` | PULL-ONLY | Your ADO/GitHub repo is truth. We're just visiting. |
-| `helix-specs` | PUSH-ONLY | We own this. Nobody else touches it. |
-| Feature branches | PUSH-ONLY | Agents create, push, and forget. |
+| `main` | PULL-ONLY | Customer's ADO/GitHub is source of truth. We never write to it directly. |
+| `helix-specs` | PUSH-ONLY | Our design docs branch. Customer never writes to it. |
+| Feature branches | PUSH-ONLY | Agents create branches and push. They never pull updates. |
 
-That's it. That's the insight that took us three weeks to figure out. You're welcome.
+This constraint sounds limiting until you realize it eliminates an entire class of problems.
 
-## Why This Matters: The Middle Repo Problem
+## The Security Constraint That Drove Everything
 
-"Just give agents git credentials and let them push to GitHub."
+Enterprise security teams have opinions about AI agents with direct write access to their repos. Strong opinions. Opinions that sound like "absolutely not" and "over my dead body."
 
-No. Absolutely not. Enterprise customers don't want AI agents with direct write access to their repos. Neither do we. One hallucinating agent with push access to production is one too many.
+Fair enough. We wouldn't want that either. One hallucinating agent with push access to production is one too many.
 
-So we built a **security boundary**: a bare git repo hosted by Helix that sits between agents and your external repo.
+So we built a security boundary: a bare git repo hosted by Helix that sits between agent sandboxes and the customer's external repo.
 
 ```
-Your Repo (ADO/GitHub)  ←→  Helix Bare Repo  ←→  Agent Sandbox
-        │                         │                    │
-   source of truth          security layer        no credentials
+Customer's Repo (ADO/GitHub)  ←→  Helix Bare Repo  ←→  Agent Sandbox
+            │                           │                    │
+       source of truth           credential boundary     no git creds
 ```
 
-Agents push to Helix. Helix syncs with your repo using credentials we control. The agent sandbox never touches your git credentials.
+Agents push to our repo. We sync with the customer's repo using a service connection they control. The agent sandbox never sees their git credentials.
 
-The problem? If both you AND the agents are making changes, conflicts happen in **our** middle repo. And resolving conflicts in a bare repository is... have you ever tried that? You'd need to build an entire conflict resolution UI so users (or agents) could reconcile changes in the middle layer.
+The problem? If customers make changes upstream while agents are making changes, conflicts happen in **our** middle repo. And resolving conflicts in a bare repository means building an entire conflict resolution UI so someone (the customer? the agent?) can reconcile changes in the middle layer.
 
-We haven't built that. Maybe we should. What do you think, HN?
+We haven't built that. We probably should. The alternative is surfacing upstream's branch under a different name so the agent can see both versions. We haven't figured out how to do that elegantly either.
 
-For now, the simpler solution: enforce direction per branch so conflicts in the middle repo are literally impossible.
+For now: enforce direction per branch. Conflicts in the middle repo become impossible. Problem solved, kind of.
 
 ## Main Branch: Pull-Only, Fast-Forward Only
 
@@ -99,11 +103,11 @@ Development is messy. You switch branches, revert commits, try different approac
 Solution: an **orphan branch** called `helix-specs` with no shared history with main.
 
 ```go
-// Orphan commit = no parents = separate history
+// Orphan commit = no parents = completely separate history from main
 commit := &object.Commit{
     Message:  "Initialize helix-specs branch",
     TreeHash: emptyTreeHash,
-    // No ParentHashes - this is the trick
+    // No ParentHashes - orphan branch
 }
 ```
 
@@ -169,48 +173,47 @@ Quick aside on why the middle repo is bare (no working directory):
 
 The single-direction rule exists specifically to make this architecture work without building conflict resolution infrastructure in the middle layer. Maybe someday. For now, it works.
 
-## Humans In The Loop (Sorry, Not Sorry)
+## Why Humans Resolve Conflicts
 
-We're not trying to replace developers with agents. We tried. It doesn't work.
+We're not building autonomous agents that replace developers. We tried. The error rate was unacceptable for enterprise customers who actually care about their codebase.
 
-The mental model is **pair programming with a fleet**. You're still the engineer. You still make decisions. But now you're coordinating multiple AI pair programmers instead of typing every line yourself.
+The model is **pair programming with a fleet**. You're still the engineer. You define tasks, review designs, approve implementations. The agents do the typing.
 
-Some of our team joke "we're all managers now." It's... uncomfortably accurate:
+This means humans are the natural place to resolve conflicts:
 
-- Define tasks clearly enough for agents to execute
-- Review design docs before approving implementation
-- Monitor progress on the Kanban board
-- Step in when an agent goes off-track
-- Merge PRs and resolve conflicts
+- Feature branches are PUSH-ONLY → conflicts surface in the PR, where humans review anyway
+- helix-specs is PUSH-ONLY → humans approve designs before agents start coding
+- Main is PULL-ONLY → agents work from the latest blessed version
 
-The git flow assumes humans are in the loop. Feature branches are PUSH-ONLY because humans resolve conflicts in PR review. helix-specs keeps design visible because humans approve specs before coding starts.
+Every design decision assumes a human is watching. Our enterprise customers wanted it that way. So did we, frankly. Fully autonomous agents pushing to production without review is a horror story waiting to happen.
 
-Agents do grunt work. You do thinking. For now, anyway.
-
-## Does It Work?
+## Results
 
 Before single-direction branches:
 - ~5% of task starts hit divergence errors
-- Debugging sessions that made me question my career choices
+- Confusing error messages that told us nothing
+- Hours of debugging sessions
 
 After:
 - Zero divergence errors in production
 - 10+ agents working on same repo simultaneously
 - 200ms average sync time for repos up to 1GB
 
-Not bad for three weeks of 2am debugging sessions.
+The constraint (single direction per branch) turned out to be a feature, not a limitation.
 
 ---
 
-## Questions We'd Actually Like Answered
+## Open Questions
 
-1. **Has anyone built conflict resolution for bare repos?** We're pushing conflicts to PR review, but maybe there's a better way.
+We're not sure this is the right design. Some things we're still thinking about:
 
-2. **Is single-direction-per-branch too restrictive?** We could build bidirectional sync with proper reconciliation UI. Should we?
+1. **Conflict resolution in bare repos.** We push this to PR review. There might be a better way. We haven't found it.
 
-3. **How do other agent platforms handle multi-agent git?** Genuinely curious. We couldn't find anyone talking about this publicly.
+2. **Bidirectional sync.** Single-direction is restrictive. We could build proper reconciliation - surface upstream changes as a separate branch, let agents or users merge. That's a lot of infrastructure for a small team.
 
-4. **Orphan branches for design docs - good idea or hack?** It works for us, but we're biased.
+3. **What are other agent platforms doing?** Multi-agent git coordination isn't discussed publicly anywhere we've found. If you're solving this differently, we'd genuinely like to know.
+
+4. **Orphan branches for design docs.** Useful hack or proper pattern? We're biased. It works for us.
 
 ---
 
@@ -218,10 +221,10 @@ Not bad for three weeks of 2am debugging sessions.
 
 Helix is open source: [github.com/helixml/helix](https://github.com/helixml/helix)
 
-The git sync code lives in `api/pkg/services/git_repository_service_pull.go`. Steal it. We stole ideas from everyone else.
+The git sync code is in `api/pkg/services/git_repository_service_pull.go`.
 
 ---
 
-*We're a bootstrapped team trying to make AI coding agents work for enterprises. If this post helped you, star the repo. If you have answers to any of our questions, we're all ears. If you want to tell us we're doing it wrong, we're listening - we probably are.*
+*We're a bootstrapped company selling AI agent infrastructure to enterprises. We need this to work correctly more than we need it to be elegant. If you have better ideas, we're listening. If you want to tell us we're doing it wrong, you're probably right.*
 
-*— Luke, who has mass-produced more merge conflicts than any human should*
+*— Luke*
