@@ -197,7 +197,7 @@ We're not sure this is the right design. Some things we're still thinking about:
 
 ## The Code
 
-Helix is open source: [github.com/helixml/helix](https://github.com/helixml/helix)
+Helix is source available: [github.com/helixml/helix](https://github.com/helixml/helix)
 
 The git sync code is in `api/pkg/services/git_repository_service_pull.go`.
 
