@@ -1,4 +1,4 @@
-# We Mass-Produce Merge Conflicts (And That's Fine)
+# Every Branch Has a Direction: Git Flow for AI Agent Fleets
 
 *What happens when you can't just give AI agents your Azure DevOps credentials*
 
