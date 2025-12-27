@@ -358,10 +358,12 @@ function build-zed() {
     fi
   fi
 
-  # Setup cargo cache for faster rebuilds
+  # Setup cargo + rustup cache for faster rebuilds
   # Note: We mount registry and git separately to avoid shadowing /root/.cargo/bin
+  # Rustup cache stores the toolchain (1.91.1 + wasm32-wasip2 target) so it doesn't re-download
   local CARGO_CACHE="$HOME/.cargo-docker-cache"
-  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git"
+  local RUSTUP_CACHE="$HOME/.rustup-docker-cache"
+  mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
 
   # Build command based on type
   # Use a separate target directory to avoid conflicts with host-compiled build scripts
@@ -394,12 +396,14 @@ function build-zed() {
   #   - Zed source at /zed
   #   - Cargo registry cache at /root/.cargo/registry (crates index and sources)
   #   - Cargo git cache at /root/.cargo/git (git dependencies)
+  #   - Rustup cache at /root/.rustup (toolchain 1.91.1 + wasm32-wasip2 target)
   #   - Output directory at /output
   # Note: We don't mount the entire /root/.cargo to avoid shadowing the cargo binary
   docker run --rm \
     -v "$ZED_ABS_PATH:/zed" \
     -v "$CARGO_CACHE/registry:/root/.cargo/registry" \
     -v "$CARGO_CACHE/git:/root/.cargo/git" \
+    -v "$RUSTUP_CACHE:/root/.rustup" \
     -v "$OUTPUT_ABS_PATH:/output" \
     -w /zed \
     zed-builder:ubuntu22 \
