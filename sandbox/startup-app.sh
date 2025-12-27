@@ -39,8 +39,8 @@ export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
 # Auto-detect software rendering mode based on GPU_VENDOR
 if [ "$GPU_VENDOR" = "none" ] || [ -z "$GPU_VENDOR" ] && [ ! -e /dev/dri/renderD128 ]; then
     echo "🖥️  Software rendering mode detected (GPU_VENDOR=$GPU_VENDOR)"
-    export WOLF_RENDER_NODE="SOFTWARE"
-    export WOLF_ENCODER_NODE="SOFTWARE"
+    export WOLF_RENDER_NODE="software"
+    export WOLF_ENCODER_NODE="software"
     export GST_GL_DRM_DEVICE=""
     # Force Mesa to use llvmpipe for software rendering
     export LIBGL_ALWAYS_SOFTWARE=1

@@ -1758,7 +1758,7 @@ EOF
 
         # Handle "none" case for software rendering (no GPU available)
         if [ "$GPU_VENDOR" = "none" ]; then
-            WOLF_RENDER_NODE="SOFTWARE"
+            WOLF_RENDER_NODE="software"
             echo "No GPU detected - using software rendering (llvmpipe)"
         elif [ -d "/sys/class/drm" ]; then
             # Determine which driver to look for based on GPU_VENDOR
@@ -2470,7 +2470,7 @@ elif [ "$GPU_VENDOR" = "intel" ]; then
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
-    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e WOLF_RENDER_NODE=SOFTWARE -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5 -e WOLF_USE_ZERO_COPY=FALSE"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=none -e WOLF_RENDER_NODE=software -e LIBGL_ALWAYS_SOFTWARE=1 -e MESA_GL_VERSION_OVERRIDE=4.5 -e WOLF_USE_ZERO_COPY=FALSE"
     echo "Using software rendering (no GPU detected)"
 else
     GPU_FLAGS=""
