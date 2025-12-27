@@ -32,6 +32,7 @@ const (
 	DesktopZorin  DesktopType = "zorin"
 	DesktopUbuntu DesktopType = "ubuntu"
 	DesktopXFCE   DesktopType = "xfce"
+	DesktopKDE    DesktopType = "kde"
 )
 
 // parseDesktopType converts a string to DesktopType, defaulting to Sway
@@ -43,6 +44,8 @@ func parseDesktopType(s string) DesktopType {
 		return DesktopUbuntu
 	case "xfce":
 		return DesktopXFCE
+	case "kde":
+		return DesktopKDE
 	default:
 		return DesktopSway
 	}
@@ -60,8 +63,8 @@ func getDesktopEnvVars(desktop DesktopType) []string {
 	case DesktopSway:
 		// Sway needs RUN_SWAY=1 for GOW launcher to start Sway compositor
 		return []string{"RUN_SWAY=1"}
-	case DesktopZorin, DesktopUbuntu, DesktopXFCE:
-		// GNOME (Zorin) and XFCE (Ubuntu/XFCE) don't need special flags
+	case DesktopZorin, DesktopUbuntu, DesktopXFCE, DesktopKDE:
+		// GNOME (Zorin), XFCE (Ubuntu/XFCE), and KDE don't need special flags
 		// GOW base images detect the desktop environment automatically
 		return []string{}
 	default:
@@ -75,8 +78,8 @@ func getDesktopEnvVars(desktop DesktopType) []string {
 // - Zorin/Ubuntu bases: Only have startup.sh (single-stage, no startup-app.sh)
 func getDesktopMountPath(desktop DesktopType) string {
 	switch desktop {
-	case DesktopSway:
-		// Sway base: startup.sh calls startup-app.sh
+	case DesktopSway, DesktopKDE:
+		// Sway and KDE base: startup.sh calls startup-app.sh
 		return "/opt/gow/startup-app.sh"
 	case DesktopZorin, DesktopUbuntu, DesktopXFCE:
 		// Zorin/Ubuntu/XFCE base: startup.sh IS the main script (no startup-app.sh)
@@ -283,6 +286,8 @@ func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, wolfI
 		prefix = "helix-ubuntu"
 	case DesktopXFCE:
 		prefix = "helix-xfce"
+	case DesktopKDE:
+		prefix = "helix-kde"
 	}
 
 	// Version is a Docker image hash (e.g., "sha256:abc123def...")
@@ -390,6 +395,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 			configDir = "ubuntu-config"
 		} else if config.DesktopType == DesktopXFCE {
 			configDir = "xfce-config"
+		} else if config.DesktopType == DesktopKDE {
+			configDir = "kde-config"
 		}
 
 		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
