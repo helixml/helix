@@ -1,8 +1,13 @@
+# syntax=docker/dockerfile:1.4
+# ====================================================================
+# Helix KDE Plasma Desktop
+# ====================================================================
+# KDE setup copied from games-on-whales/gow dev-kde branch
+# Helix additions (Zed, Qwen Code, etc.) added on top
+
 # ====================================================================
 # Build grim from source with JPEG support
 # ====================================================================
-# Ubuntu's grim package is compiled without libjpeg, so we build from source
-# to enable JPEG output for smaller screenshots (100KB JPEG vs 300KB PNG)
 FROM ubuntu:25.10 AS grim-build
 RUN apt-get update && apt-get install -y \
     meson ninja-build pkg-config git \
@@ -16,7 +21,7 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
     cp build/grim /grim-bin
 
 # ====================================================================
-# Go build stage for screenshot-server and settings-sync-daemon
+# Go build stage for Helix binaries
 # ====================================================================
 FROM golang:1.24 AS go-build-env
 WORKDIR /app
@@ -31,58 +36,69 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
-# KDE Plasma Personal Dev Environment
+# KDE Desktop (from GOW dev-kde branch)
 # ====================================================================
-# KDE Plasma 6 on Ubuntu 25.10 (Questing Quokka) - pure Wayland, no X11
-# Uses GOW base-app for streaming infrastructure
 FROM ghcr.io/games-on-whales/base-app:edge
 
-# RADV debug options for AMD MxGPU crash prevention
-# hang: Enables syncshaders internally, which serializes GPU commands
-# This prevents race conditions that cause GPU crashes on AMD Radeon Pro V710 MxGPU (Azure NVv5)
-ENV RADV_DEBUG=hang
-
-# RadeonSI (OpenGL) debug options for GL apps (Firefox, KDE apps)
-# sync_compile: Always compile shaders synchronously (prevents race conditions)
-# check_vm: Check VM faults and dump debug info
-ENV AMD_DEBUG=sync_compile,check_vm
-
-# Add passwordless sudo and basic tools
-RUN apt-get update && \
-    apt-get install -y sudo wget curl ca-certificates gnupg software-properties-common && \
-    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    rm -rf /var/lib/apt/lists/*
-
-# ====================================================================
-# Install KDE Plasma Desktop (Wayland-only)
-# ====================================================================
-# Following GOW PR #277 package choices for KDE desktop
-# Ubuntu 25.10 has KDE Plasma 6 which runs on pure Wayland
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core packages (from GOW)
+# GOW KDE packages (copied exactly from dev-kde branch)
+ARG CORE_PACKAGES=" \
+    wget \
     dbus \
+    firefox \
     flatpak \
     locales \
     xwayland \
-    # KDE Desktop Environment (from GOW)
+    "
+
+ARG DE_PACKAGES=" \
     kde-plasma-desktop \
     qt6-wayland \
     qtwayland5 \
     pipewire \
-    # KDE file manager and terminal
-    dolphin konsole \
-    # Basic KDE apps
-    kate ark \
-    && rm -rf /var/lib/apt/lists/*
+    "
 
-# Setup flatpak and locale (from GOW)
-RUN chmod u+s /usr/bin/bwrap && \
-    service dbus start && \
-    flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true && \
-    locale-gen en_US.UTF-8
+# GOW KDE installation (copied exactly from dev-kde branch)
+RUN <<_INSTALL_BASE
+  set -e
 
+  # Setup Firefox PPA
+  apt-get update
+  apt-get install -y --no-install-recommends software-properties-common gpg-agent
+  add-apt-repository -y ppa:mozillateam/ppa
+  apt-get update
+
+  # Install core packages
+  apt-get install -y $CORE_PACKAGES
+
+  # Install DE packages
+  apt-get install -y $DE_PACKAGES
+
+  # Clean
+  apt autoremove -y
+  apt clean
+  rm -rf /config/.cache /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+_INSTALL_BASE
+
+# Firefox APT pin (from GOW)
+COPY <<_APT_PIN /etc/apt/preferences.d/mozilla-firefox
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+_APT_PIN
+
+# GOW fixes (copied exactly from dev-kde branch)
+RUN <<_FIXES
+  set -e
+
+  chmod u+s /usr/bin/bwrap
+  service dbus start
+  flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+  locale-gen en_US.UTF-8
+_FIXES
+
+# GOW KDE environment variables (copied exactly from dev-kde branch)
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     QT_QPA_PLATFORM=wayland;wayland-egl \
@@ -91,33 +107,38 @@ ENV LANG=en_US.UTF-8 \
     CLUTTER_BACKEND=wayland \
     SDL_VIDEODRIVER=wayland
 
-# Install Firefox from Mozilla Team PPA (following GOW pattern)
-COPY <<_APT_PIN /etc/apt/preferences.d/mozilla-firefox
-Package: *
-Pin: release o=LP-PPA-mozillateam
-Pin-Priority: 1001
-_APT_PIN
+# GOW dbus init script (from dev-kde overlay)
+COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
+#!/bin/bash
+service dbus start
+_DBUS_INIT
+RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
-    && add-apt-repository ppa:mozillateam/ppa \
-    && apt-get install -y --no-install-recommends firefox libavcodec-extra \
-    && apt-get remove -y software-properties-common gpg-agent \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+# ====================================================================
+# Helix additions (same pattern as sway-helix)
+# ====================================================================
 
-# Install Docker CLI only (daemon on host via socket mount)
+# RADV/AMD debug options for GPU crash prevention
+ENV RADV_DEBUG=hang
+ENV AMD_DEBUG=sync_compile,check_vm
+
+# Passwordless sudo
+RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Docker CLI (same as sway)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu questing stable" > /etc/apt/sources.list.d/docker.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Docker CLI and Compose wrappers that resolve symlinks for Hydra compatibility
+# Docker wrappers for Hydra compatibility
 COPY wolf/kde-config/docker-wrapper.sh /usr/local/bin/docker-wrapper.sh
 COPY wolf/kde-config/docker-compose-wrapper.sh /usr/local/bin/docker-compose-wrapper.sh
 RUN mv /usr/bin/docker /usr/bin/docker.real \
@@ -127,27 +148,22 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Install utilities and fonts
+# Utilities (same as sway)
 RUN apt-get update && apt-get install -y \
-    # Debugging utilities (grim is built from source with JPEG support)
     lsof libjpeg-turbo8 bc \
-    # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
-    # Input device testing tools for keyboard state observability
     evtest evemu-tools \
-    # Shell and Git for repository access
     bash git openssh-client \
-    # Emoji and icon fonts
     fonts-noto-color-emoji fonts-dejavu-core \
+    dolphin konsole kate ark \
+    imagemagick sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and set Helix logo as background
+# Helix background
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# ====================================================================
-# Install Node.js 20 (required for AI coding agents)
-# ====================================================================
+# Node.js 20 (for Qwen Code)
 RUN apt-get update && \
     apt-get install -y ca-certificates curl gnupg git && \
     mkdir -p /etc/apt/keyrings && \
@@ -157,9 +173,7 @@ RUN apt-get update && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# ====================================================================
-# Build Qwen Code from AUDITED source (NOT from npm)
-# ====================================================================
+# Qwen Code
 ARG QWEN_CODE_HASH=unknown
 WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
@@ -167,44 +181,36 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
     chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
 
-# ====================================================================
-# KDE Configuration
-# ====================================================================
-RUN mkdir -p /cfg/kde
+# Helix startup script (GOW pattern + Helix additions)
 ADD wolf/kde-config/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
-# Copy Zed startup script and helper scripts
+# Helix helper scripts
 ADD wolf/kde-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
 
-# Add retro user to docker group at runtime
+# Docker group init script
 ADD wolf/kde-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 
-# Start dbus (required for KDE - from GOW dev-kde branch)
-ADD wolf/kde-config/99-startdbus.sh /etc/cont-init.d/99-startdbus.sh
-RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
-
-# Copy welcome README template for workspace initialization
+# Workspace README
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# Copy binaries from build stages
+# Helix Go binaries
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
-# Copy Zed binary
+# Zed binary
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
 
-# Install Zed desktop file and icon
-RUN apt-get update && apt-get install -y imagemagick && rm -rf /var/lib/apt/lists/*
+# Zed desktop file and icon
 COPY wolf/kde-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/dev.zed.Zed-Dev.png
@@ -215,58 +221,19 @@ RUN for size in 16 24 32 48 64 128 256; do \
             /usr/share/icons/hicolor/${size}x${size}/apps/dev.zed.Zed-Dev.png; \
     done
 
-# ====================================================================
-# AI Agent Privacy Configuration
-# ====================================================================
+# AI agent privacy configs
 RUN mkdir -p /home/retro/.qwen && \
-    cat > /home/retro/.qwen/settings.json <<'QWEN_CONFIG'
-{
-  "privacy": {
-    "usageStatisticsEnabled": false
-  },
-  "general": {
-    "disableAutoUpdate": true,
-    "disableUpdateNag": true
-  }
-}
-QWEN_CONFIG
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.qwen/settings.json
 
 RUN mkdir -p /home/retro/.gemini && \
-    cat > /home/retro/.gemini/settings.json <<'GEMINI_CONFIG'
-{
-  "privacy": {
-    "usageStatisticsEnabled": false
-  },
-  "general": {
-    "disableAutoUpdate": true,
-    "disableUpdateNag": true
-  }
-}
-GEMINI_CONFIG
+    echo '{"privacy":{"usageStatisticsEnabled":false},"general":{"disableAutoUpdate":true,"disableUpdateNag":true}}' > /home/retro/.gemini/settings.json
 
 RUN mkdir -p /home/retro/.claude && \
-    cat > /home/retro/.claude/settings.json <<'CLAUDE_CONFIG'
-{
-  "env": {
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "DISABLE_TELEMETRY": "1",
-    "DISABLE_ERROR_REPORTING": "1",
-    "DISABLE_AUTOUPDATER": "1"
-  }
-}
-CLAUDE_CONFIG
+    echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
 
 RUN mkdir -p /home/retro/.config/zed && \
-    cat > /home/retro/.config/zed/settings.json <<'ZED_CONFIG'
-{
-  "telemetry": {
-    "diagnostics": false,
-    "metrics": false
-  }
-}
-ZED_CONFIG
+    echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
 
-# Environment variables for AI agent privacy
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
     DISABLE_TELEMETRY=1 \
@@ -275,10 +242,8 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
     ZED_HTTP_INSECURE_TLS=1
 
-# Configure Git
 RUN git config --system http.sslVerify false
 
-# Fix ownership
 RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
