@@ -17,7 +17,7 @@ export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 # Desktop categories for build-sandbox
 # Production desktops are always built; experimental require opt-in via EXPERIMENTAL_DESKTOPS
 # Note: Using arrays because IFS is set to '\n\t' (no space splitting)
-PRODUCTION_DESKTOPS=(sway ubuntu)
+PRODUCTION_DESKTOPS=(sway ubuntu kde)
 AVAILABLE_EXPERIMENTAL_DESKTOPS=(zorin xfce)
 # EXPERIMENTAL_DESKTOPS can be set as space-separated string, converted to array below
 
