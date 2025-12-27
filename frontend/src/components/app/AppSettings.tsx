@@ -243,7 +243,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [code_agent_runtime, setCodeAgentRuntime] = useState<'zed_agent' | 'qwen_code'>(app.code_agent_runtime || 'zed_agent')
   // External agent display settings
   const [resolution, setResolution] = useState<'1080p' | '4k' | '5k'>(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
-  const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+  const [desktopType, setDesktopType] = useState<'ubuntu' | 'sway' | 'kde'>(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' | 'kde' || 'ubuntu')
   const [zoomLevel, setZoomLevel] = useState<number>(app.external_agent_config?.zoom_level || ((app.external_agent_config?.resolution === '5k' || app.external_agent_config?.resolution === '4k') ? 200 : 100))
   const [refreshRate, setRefreshRate] = useState<number>(app.external_agent_config?.display_refresh_rate || 60)
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
@@ -284,7 +284,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setCodeAgentRuntime(app.code_agent_runtime || 'zed_agent')
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
-      setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
+      setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' | 'kde' || 'ubuntu')
       setZoomLevel(app.external_agent_config?.zoom_level || (app.external_agent_config?.resolution === '4k' ? 200 : 100))
       setRefreshRate(app.external_agent_config?.display_refresh_rate || 60)
 
@@ -735,20 +735,28 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Select
                 value={desktopType}
                 onChange={(e) => {
-                  const newDesktopType = e.target.value as 'ubuntu' | 'sway';
+                  const newDesktopType = e.target.value as 'ubuntu' | 'sway' | 'kde';
                   setDesktopType(newDesktopType);
                   const updatedConfig = { ...external_agent_config, desktop_type: newDesktopType };
                   setExternalAgentConfig(updatedConfig);
                   onUpdate({ ...app, external_agent_config: updatedConfig });
                 }}
                 disabled={readOnly}
-                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu 22.04' : 'Sway'}
+                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu 22.04' : value === 'kde' ? 'KDE Plasma' : 'Sway'}
               >
                 <MenuItem value="ubuntu">
                   <Box>
                     <Typography variant="body2">Ubuntu 22.04 (X11)</Typography>
                     <Typography variant="caption" color="text.secondary">
                       GNOME desktop - recommended
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="kde">
+                  <Box>
+                    <Typography variant="body2">KDE Plasma (Wayland)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Full-featured desktop, polished experience
                     </Typography>
                   </Box>
                 </MenuItem>
