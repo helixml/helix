@@ -325,6 +325,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
@@ -448,6 +449,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
@@ -569,6 +571,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
