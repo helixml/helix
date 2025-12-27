@@ -507,7 +507,7 @@ services:
     environment:
       # Software rendering (CPU-only, no GPU)
       - GPU_VENDOR=none
-      - WOLF_RENDER_NODE=SOFTWARE
+      - WOLF_RENDER_NODE=software
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
       # Helix dev mode (enables bind-mounts for hot reload)
