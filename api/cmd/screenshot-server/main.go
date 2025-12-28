@@ -31,8 +31,41 @@ var isKDE bool
 var clipboardModeChecked bool
 var useX11Clipboard bool
 
+// GNOME environment detection - cached after first check
+var gnomeChecked bool
+var isGNOME bool
+
+// isGNOMEEnvironment returns true if we're running in GNOME environment
+// GNOME 41+ blocks org.gnome.Shell.Screenshot D-Bus API, so we use scrot via XWayland
+// Wolf uses gst-wayland-src (GStreamer), so grim doesn't work on the outer compositor
+func isGNOMEEnvironment() bool {
+	if gnomeChecked {
+		return isGNOME
+	}
+	gnomeChecked = true
+
+	// Check XDG_CURRENT_DESKTOP (most reliable)
+	desktop := os.Getenv("XDG_CURRENT_DESKTOP")
+	if strings.Contains(strings.ToUpper(desktop), "GNOME") {
+		log.Printf("[Screenshot] GNOME detected via XDG_CURRENT_DESKTOP=%s, will use scrot via XWayland", desktop)
+		isGNOME = true
+		return true
+	}
+
+	// Check DESKTOP_SESSION
+	session := os.Getenv("DESKTOP_SESSION")
+	if strings.Contains(strings.ToLower(session), "gnome") {
+		log.Printf("[Screenshot] GNOME detected via DESKTOP_SESSION=%s, will use scrot via XWayland", session)
+		isGNOME = true
+		return true
+	}
+
+	isGNOME = false
+	return false
+}
+
 // isKDEEnvironment returns true if we're running in KDE Plasma environment
-// KDE's KWin doesn't support wlr-screencopy protocol, so we use grim on Wolf's outer compositor
+// KDE's KWin doesn't support wlr-screencopy protocol, so we use D-Bus API
 func isKDEEnvironment() bool {
 	if kdeChecked {
 		return isKDE
@@ -183,16 +216,23 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 
 // captureScreenshot captures a screenshot using grim (Wayland), spectacle (KDE), or scrot (X11)
 func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, string, error) {
-	// Check if we're in X11 mode (Ubuntu GNOME on Xwayland)
+	// Check if we're in X11 mode (legacy or forced X11)
 	if isX11Mode() {
 		return captureScreenshotX11(format, quality)
 	}
 
-	// Check if we're in KDE environment (upfront detection, not error-based)
-	// Use grim on Wolf's outer compositor (wayland-1) instead of spectacle
-	// This avoids spectacle popup windows that disrupt the desktop
+	// Check if we're in KDE environment
+	// Use org.kde.KWin.ScreenShot2 D-Bus API (silent, no popup)
 	if isKDEEnvironment() {
 		return captureScreenshotKDE(format, quality)
+	}
+
+	// Check if we're in GNOME environment
+	// Use org.gnome.Shell.Screenshot D-Bus API, registering as "org.gnome.Screenshot"
+	// to pass GNOME 41+'s allowlist check. Wolf uses gst-wayland-src (not wlroots)
+	// so grim doesn't work on the outer compositor.
+	if isGNOMEEnvironment() {
+		return captureScreenshotGNOME(format, quality)
 	}
 
 	// Check if we should use KDE screenshot method (set by previous grim failure on unknown compositor)
@@ -353,6 +393,83 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 	return data, outputFormat, nil
 }
 
+// captureScreenshotGNOME captures a screenshot for GNOME environment
+// Uses org.gnome.Shell.Screenshot D-Bus API. GNOME 41+ restricts this API to an
+// allowlist of callers, so we register as "org.gnome.Screenshot" to pass the check.
+// See: https://gitlab.gnome.org/GNOME/gnome-shell/-/issues/3943
+func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) {
+	log.Printf("[GNOME] Capturing screenshot via D-Bus (org.gnome.Shell.Screenshot)")
+
+	// Connect to session D-Bus
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to connect to session D-Bus: %w", err)
+	}
+	defer conn.Close()
+
+	// CRITICAL: Request the name "org.gnome.Screenshot" to pass GNOME's allowlist check
+	// GNOME 41+ restricts org.gnome.Shell.Screenshot API to these callers:
+	// - org.gnome.SettingsDaemon.MediaKeys
+	// - org.gnome.Screenshot
+	// - org.freedesktop.impl.portal.desktop.gtk
+	reply, err := conn.RequestName("org.gnome.Screenshot", dbus.NameFlagDoNotQueue)
+	if err != nil {
+		log.Printf("[GNOME] Warning: Failed to request D-Bus name org.gnome.Screenshot: %v", err)
+		// Continue anyway - might work if the name check is lenient
+	} else if reply != dbus.RequestNameReplyPrimaryOwner {
+		log.Printf("[GNOME] Warning: Could not become primary owner of org.gnome.Screenshot (reply=%d)", reply)
+	} else {
+		log.Printf("[GNOME] Successfully registered as org.gnome.Screenshot on D-Bus")
+	}
+
+	// Create temp file path for screenshot
+	tmpDir := os.TempDir()
+	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+
+	// Get the GNOME Shell Screenshot object
+	obj := conn.Object("org.gnome.Shell", "/org/gnome/Shell/Screenshot")
+
+	// Call Screenshot method
+	// Screenshot(filename: s, include_cursor: b, flash: b) → (success: b, filename_used: s)
+	var success bool
+	var filenameUsed string
+	err = obj.Call("org.gnome.Shell.Screenshot.Screenshot", 0,
+		filename,  // filename
+		true,      // include_cursor
+		false,     // flash (disable flash for silent capture)
+	).Store(&success, &filenameUsed)
+
+	if err != nil {
+		return nil, "", fmt.Errorf("GNOME D-Bus screenshot failed: %w", err)
+	}
+
+	if !success {
+		return nil, "", fmt.Errorf("GNOME screenshot returned success=false")
+	}
+
+	// Read the PNG file
+	pngData, err := os.ReadFile(filenameUsed)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot file %s: %w", filenameUsed, err)
+	}
+	defer os.Remove(filenameUsed)
+
+	log.Printf("[GNOME] D-Bus screenshot captured (%d bytes PNG)", len(pngData))
+
+	// If JPEG is requested, convert PNG to JPEG
+	if format == "jpeg" {
+		jpegData, err := convertPNGtoJPEG(pngData, quality)
+		if err != nil {
+			log.Printf("[GNOME] Failed to convert to JPEG, returning PNG: %v", err)
+			return pngData, "png", nil
+		}
+		log.Printf("[GNOME] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
+		return jpegData, "jpeg", nil
+	}
+
+	return pngData, "png", nil
+}
+
 // captureScreenshotKDE captures a screenshot for KDE Plasma environment
 // Uses KWin's D-Bus API (org.kde.KWin.ScreenShot2) which is the proper way
 // to capture screenshots on KDE Wayland. grim doesn't work because Wolf uses
@@ -469,7 +586,7 @@ func handleClipboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetClipboard(w http.ResponseWriter, r *http.Request) {
-	// Check if we should use X11 clipboard (for Ubuntu GNOME on Xwayland)
+	// Check if we should use X11 clipboard (legacy X11 environments only)
 	if isX11Mode() {
 		handleGetClipboardX11(w, r)
 		return
@@ -670,7 +787,7 @@ func handleGetClipboardX11(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
-	// Check if we should use X11 clipboard (for Ubuntu GNOME on Xwayland)
+	// Check if we should use X11 clipboard (legacy X11 environments only)
 	if isX11Mode() {
 		handleSetClipboardX11(w, r)
 		return
