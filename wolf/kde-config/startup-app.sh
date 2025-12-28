@@ -137,6 +137,20 @@ export DESKTOP_SESSION=plasma
 export WAYLAND_DISPLAY=wayland-0
 gow_log "[start] Set WAYLAND_DISPLAY=wayland-0 (KWin client socket)"
 
+# Display scaling support for nested Wayland
+# KDE's display settings can't change Wolf's output, so we use environment-based scaling
+# Set HELIX_DISPLAY_SCALE (e.g., "1.5" or "2") in Wolf executor to enable scaling
+if [ -n "\$HELIX_DISPLAY_SCALE" ] && [ "\$HELIX_DISPLAY_SCALE" != "1" ]; then
+    export QT_SCALE_FACTOR=\$HELIX_DISPLAY_SCALE
+    export QT_ENABLE_HIGHDPI_SCALING=1
+    export PLASMA_USE_QT_SCALING=1
+    export GDK_SCALE=\$HELIX_DISPLAY_SCALE
+    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
+    gow_log "[start] Display scaling enabled: \${HELIX_DISPLAY_SCALE}x (via environment)"
+else
+    gow_log "[start] Display scaling: 1x (default)"
+fi
+
 gow_log "[start] Starting pipewire"
 pipewire &
 

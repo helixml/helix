@@ -875,12 +875,18 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	}
 
 	// Add display configuration to environment for startup script
+	// NOTE: Display scale is NOT inferred - user specifies it via agent.DisplayScale
 	extraEnv = append(extraEnv,
 		fmt.Sprintf("GAMESCOPE_WIDTH=%d", displayWidth),
 		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", displayHeight),
 		fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel),
 		fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", string(desktopType)), // For container hostname reconstruction
 	)
+
+	// Pass display scale only if user specified it (for KDE/Qt scaling in nested Wayland)
+	if agent.DisplayScale > 0 {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_DISPLAY_SCALE=%d", agent.DisplayScale))
+	}
 
 	// Extra mounts for additional directories
 	extraMounts := []string{}

@@ -285,6 +285,7 @@ RUN apt-get update && apt-get install -y \
     dolphin konsole kate ark \
     imagemagick sudo \
     kde-spectacle \
+    kitty \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
