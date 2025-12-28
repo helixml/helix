@@ -24,14 +24,16 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
 # Go build stage for Helix binaries
 # ====================================================================
 FROM golang:1.24 AS go-build-env
+# Cache buster for Go code changes (passed from build script)
+ARG GO_CODE_HASH=unknown
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
+    echo "Go code hash: ${GO_CODE_HASH}" && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
@@ -148,7 +150,7 @@ RUN mv /usr/bin/docker /usr/bin/docker.real \
     && mv /usr/local/bin/docker-compose-wrapper.sh /usr/libexec/docker/cli-plugins/docker-compose \
     && chmod 755 /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose.real
 
-# Utilities (same as sway)
+# Utilities (same as sway + KDE-specific tools)
 RUN apt-get update && apt-get install -y \
     lsof libjpeg-turbo8 bc \
     wl-clipboard \
@@ -157,6 +159,7 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-color-emoji fonts-dejavu-core \
     dolphin konsole kate ark \
     imagemagick sudo \
+    kde-spectacle \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background

@@ -119,9 +119,6 @@ cat <<EOF > $XDG_RUNTIME_DIR/gow_start_kde
 
 source /opt/gow/bash-lib/utils.sh
 
-gow_log "[start] Starting pipewire"
-pipewire &
-
 # Set KDE environment variables BEFORE starting any services
 # These are normally set by startplasma-wayland, but services that start
 # before KDE need them set explicitly for desktop environment detection
@@ -129,7 +126,10 @@ export XDG_CURRENT_DESKTOP=KDE
 export KDE_SESSION_VERSION=6
 export DESKTOP_SESSION=plasma
 
-# Start Helix services (only if Helix environment is configured)
+gow_log "[start] Starting pipewire"
+pipewire &
+
+# Start Helix services
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$USER_API_TOKEN" ]; then
   gow_log "[start] Starting settings-sync-daemon..."
   XDG_CURRENT_DESKTOP=KDE KDE_SESSION_VERSION=6 /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
@@ -147,15 +147,13 @@ if [ -x /zed-build/zed ]; then
   (
     gow_log "[start] Waiting for plasmashell to start before launching Zed..."
     # Wait up to 60 seconds for plasmashell to be running
-    WAIT_COUNT=0
-    while [ \$WAIT_COUNT -lt 60 ]; do
+    for i in $(seq 1 60); do
       if pgrep -x plasmashell > /dev/null 2>&1; then
         gow_log "[start] plasmashell detected, waiting 2 more seconds for panel to initialize..."
         sleep 2
         break
       fi
       sleep 1
-      WAIT_COUNT=\$((WAIT_COUNT + 1))
     done
     gow_log "[start] Launching Zed..."
     /usr/local/bin/start-zed-helix.sh

@@ -16,11 +16,51 @@ import (
 )
 
 var cachedWaylandDisplay string
-var jpegSupported = true // Will be set to false if grim reports "jpeg support disabled"
+var jpegSupported = true  // Will be set to false if grim reports "jpeg support disabled"
+var useSpectacle = false  // Will be set to true if grim fails with screencopy protocol error (KDE)
+
+// KDE environment detection - cached after first check
+var kdeChecked bool
+var isKDE bool
 
 // Clipboard mode detection - cached after first check
 var clipboardModeChecked bool
 var useX11Clipboard bool
+
+// isKDEEnvironment returns true if we're running in KDE Plasma environment
+// KDE's KWin doesn't support wlr-screencopy protocol, so we need to use spectacle
+func isKDEEnvironment() bool {
+	if kdeChecked {
+		return isKDE
+	}
+	kdeChecked = true
+
+	// Check XDG_CURRENT_DESKTOP (most reliable)
+	desktop := os.Getenv("XDG_CURRENT_DESKTOP")
+	if strings.Contains(strings.ToUpper(desktop), "KDE") {
+		log.Printf("[Screenshot] KDE detected via XDG_CURRENT_DESKTOP=%s, will use spectacle", desktop)
+		isKDE = true
+		return true
+	}
+
+	// Check KDE_SESSION_VERSION (set in KDE Plasma sessions)
+	if os.Getenv("KDE_SESSION_VERSION") != "" {
+		log.Printf("[Screenshot] KDE detected via KDE_SESSION_VERSION, will use spectacle")
+		isKDE = true
+		return true
+	}
+
+	// Check DESKTOP_SESSION
+	session := os.Getenv("DESKTOP_SESSION")
+	if strings.Contains(strings.ToLower(session), "plasma") || strings.Contains(strings.ToLower(session), "kde") {
+		log.Printf("[Screenshot] KDE detected via DESKTOP_SESSION=%s, will use spectacle", session)
+		isKDE = true
+		return true
+	}
+
+	isKDE = false
+	return false
+}
 
 // isX11Mode returns true if we should use X11 clipboard (xclip) instead of Wayland (wl-paste/wl-copy)
 // This is needed for Ubuntu GNOME which runs on Xwayland (X11 on top of Wayland)
@@ -137,11 +177,22 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Screenshot captured successfully (%d bytes, format=%s, quality=%d)", len(data), actualFormat, quality)
 }
 
-// captureScreenshot captures a screenshot using grim (Wayland) or scrot (X11)
+// captureScreenshot captures a screenshot using grim (Wayland), spectacle (KDE), or scrot (X11)
 func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, string, error) {
 	// Check if we're in X11 mode (Ubuntu GNOME on Xwayland)
 	if isX11Mode() {
 		return captureScreenshotX11(format, quality)
+	}
+
+	// Check if we're in KDE environment (upfront detection, not error-based)
+	// KDE's KWin doesn't support wlr-screencopy, so use spectacle directly
+	if isKDEEnvironment() {
+		return captureScreenshotSpectacle(format, quality)
+	}
+
+	// Check if we should use spectacle (set by previous grim failure on unknown compositor)
+	if useSpectacle {
+		return captureScreenshotSpectacle(format, quality)
 	}
 
 	// Wayland mode - use grim
@@ -182,6 +233,13 @@ func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, strin
 			jpegSupported = false
 			return captureScreenshot(xdgRuntimeDir, "png", quality)
 		}
+
+		// Check for screencopy protocol error (KDE doesn't support wlr-screencopy)
+		if err != nil && strings.Contains(string(output), "screencopy") {
+			log.Printf("Compositor doesn't support screencopy protocol (KDE), falling back to spectacle")
+			useSpectacle = true
+			return captureScreenshotSpectacle(format, quality)
+		}
 	}
 
 	// If cached failed or doesn't exist, try all sockets
@@ -217,6 +275,13 @@ func captureScreenshot(xdgRuntimeDir, format string, quality int) ([]byte, strin
 				log.Printf("JPEG not supported by grim, falling back to PNG")
 				jpegSupported = false
 				return captureScreenshot(xdgRuntimeDir, "png", quality)
+			}
+
+			// Check for screencopy protocol error (KDE doesn't support wlr-screencopy)
+			if err != nil && strings.Contains(string(output), "screencopy") {
+				log.Printf("Compositor doesn't support screencopy protocol (KDE), falling back to spectacle")
+				useSpectacle = true
+				return captureScreenshotSpectacle(format, quality)
 			}
 
 			if err == nil {
@@ -280,6 +345,60 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 	}
 
 	log.Printf("[X11] Screenshot captured as %s (%d bytes, quality=%d)", outputFormat, len(data), quality)
+	return data, outputFormat, nil
+}
+
+// captureScreenshotSpectacle captures a screenshot using spectacle (for KDE Plasma)
+// KDE's KWin compositor doesn't support wlr-screencopy protocol, so we use spectacle instead
+func captureScreenshotSpectacle(format string, quality int) ([]byte, string, error) {
+	// Create temporary file for screenshot
+	// spectacle determines format from file extension
+	tmpDir := os.TempDir()
+	var filename string
+	var outputFormat string
+
+	if format == "jpeg" {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
+		outputFormat = "jpeg"
+	} else {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+		outputFormat = "png"
+	}
+	defer os.Remove(filename)
+
+	// Use spectacle for KDE screenshots
+	// -b = background mode (no GUI)
+	// -n = no notification
+	// -f = fullscreen
+	// -c = include cursor
+	// -o = output file
+	cmd := exec.Command("spectacle", "-b", "-n", "-f", "-c", "-o", filename)
+
+	// CRITICAL: Spectacle needs to connect to KWin's nested Wayland compositor (wayland-0),
+	// not Wolf's outer compositor (wayland-5). KWin creates wayland-0 as its nested socket.
+	// Also set DISPLAY=:0 for X11 compatibility with XWayland apps.
+	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntimeDir == "" {
+		xdgRuntimeDir = "/tmp/sockets"
+	}
+	cmd.Env = append(os.Environ(),
+		"WAYLAND_DISPLAY=wayland-0", // KWin's nested socket, NOT wayland-5 (Wolf's outer)
+		fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		"DISPLAY=:0", // XWayland display
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, "", fmt.Errorf("spectacle failed: %v, output: %s", err, string(output))
+	}
+
+	// Read the screenshot file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
+	}
+
+	log.Printf("[KDE] Screenshot captured as %s (%d bytes)", outputFormat, len(data))
 	return data, outputFormat, nil
 }
 

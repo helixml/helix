@@ -3253,13 +3253,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }}
     >
       {/* Toolbar - always visible so user can reconnect/access controls */}
+      {/* z-index 1100 ensures toolbar is above connection overlay (z-index 1000) */}
       <Box
         sx={{
           position: 'absolute',
           top: 8,
           left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 1000,
+          zIndex: 1100,
           backgroundColor: 'rgba(0,0,0,0.7)',
           borderRadius: 1,
           display: 'flex',
