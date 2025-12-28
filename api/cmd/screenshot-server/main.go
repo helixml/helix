@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -13,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 )
 
 var cachedWaylandDisplay string
@@ -350,80 +354,107 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 }
 
 // captureScreenshotKDE captures a screenshot for KDE Plasma environment
-// Uses grim on Wolf's outer compositor (wayland-1) which supports wlr-screencopy
-// This avoids spectacle popup windows that disrupt the desktop
+// Uses KWin's D-Bus API (org.kde.KWin.ScreenShot2) which is the proper way
+// to capture screenshots on KDE Wayland. grim doesn't work because Wolf uses
+// gst-wayland-src (GStreamer), not wlroots, so wlr-screencopy isn't available.
 func captureScreenshotKDE(format string, quality int) ([]byte, string, error) {
-	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if xdgRuntimeDir == "" {
-		xdgRuntimeDir = "/tmp/sockets"
+	log.Printf("[KDE] Capturing screenshot via D-Bus (org.kde.KWin.ScreenShot2)")
+
+	// Connect to session D-Bus
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to connect to session D-Bus: %w", err)
+	}
+	defer conn.Close()
+
+	// Get the KWin Screenshot2 object
+	// The CaptureActiveScreen method captures the screen without any UI popup
+	obj := conn.Object("org.kde.KWin", "/org/kde/KWin/ScreenShot2")
+
+	// Options for the screenshot
+	// "include-cursor" = true to include mouse cursor
+	// "native-resolution" = true to capture at native resolution
+	options := map[string]dbus.Variant{
+		"include-cursor":    dbus.MakeVariant(true),
+		"native-resolution": dbus.MakeVariant(true),
 	}
 
-	// Create temporary file for screenshot
-	tmpDir := os.TempDir()
-	ext := "jpg"
-	if format == "png" {
-		ext = "png"
+	// Create a pipe for the screenshot data
+	// KWin writes PNG data to the file descriptor
+	readFd, writeFd, err := os.Pipe()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create pipe: %w", err)
 	}
-	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.%s", time.Now().UnixNano(), ext))
-	defer os.Remove(filename)
+	defer readFd.Close()
 
-	// Build grim arguments based on format and quality
-	// -c includes the cursor in the screenshot
-	grimArgs := []string{"-c"}
+	// Call CaptureActiveScreen which captures without UI
+	// Method signature: CaptureActiveScreen(options: a{sv}) -> (fd: h)
+	// The 'h' type means it returns data via a file descriptor
+	call := obj.Call("org.kde.KWin.ScreenShot2.CaptureActiveScreen", 0, options, dbus.UnixFD(writeFd.Fd()))
+	writeFd.Close() // Close write end after passing to D-Bus
+
+	if call.Err != nil {
+		// Try alternative method: CaptureScreen with screen index
+		log.Printf("[KDE] CaptureActiveScreen failed (%v), trying CaptureScreen", call.Err)
+
+		// Recreate pipe
+		readFd.Close()
+		readFd, writeFd, err = os.Pipe()
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to create pipe: %w", err)
+		}
+		defer readFd.Close()
+
+		// Try CaptureScreen with screen name (usually "0" or a connector name)
+		call = obj.Call("org.kde.KWin.ScreenShot2.CaptureScreen", 0, "0", options, dbus.UnixFD(writeFd.Fd()))
+		writeFd.Close()
+
+		if call.Err != nil {
+			return nil, "", fmt.Errorf("KWin D-Bus screenshot failed: %w", call.Err)
+		}
+	}
+
+	// Read PNG data from the pipe
+	pngData, err := io.ReadAll(readFd)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot from pipe: %w", err)
+	}
+
+	if len(pngData) == 0 {
+		return nil, "", fmt.Errorf("KWin returned empty screenshot data")
+	}
+
+	log.Printf("[KDE] D-Bus screenshot captured (%d bytes PNG)", len(pngData))
+
+	// If JPEG is requested, convert PNG to JPEG
 	if format == "jpeg" {
-		grimArgs = append(grimArgs, "-t", "jpeg", "-q", fmt.Sprintf("%d", quality))
-	} else {
-		grimArgs = append(grimArgs, "-t", "png")
-	}
-	grimArgs = append(grimArgs, filename)
-
-	// KEY INSIGHT: Wolf uses Cage/wlroots as the outer compositor (wayland-1)
-	// Cage DOES support wlr-screencopy! KWin's wayland-0 doesn't, but we don't need it.
-	// The screen content is rendered to wayland-1 which Wolf streams anyway.
-	// Try wayland-1 first (Wolf's outer compositor), then other sockets
-	waylandSockets := []string{"wayland-1"}
-
-	// Add other sockets as fallback
-	entries, err := os.ReadDir(xdgRuntimeDir)
-	if err == nil {
-		for _, entry := range entries {
-			name := entry.Name()
-			if strings.HasPrefix(name, "wayland-") && !strings.HasSuffix(name, ".lock") && name != "wayland-1" && name != "wayland-0" {
-				waylandSockets = append(waylandSockets, name)
-			}
+		jpegData, err := convertPNGtoJPEG(pngData, quality)
+		if err != nil {
+			log.Printf("[KDE] Failed to convert to JPEG, returning PNG: %v", err)
+			return pngData, "png", nil
 		}
+		log.Printf("[KDE] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
+		return jpegData, "jpeg", nil
 	}
 
-	var lastErr error
-	var output []byte
-	for _, socket := range waylandSockets {
-		cmd := exec.Command("grim", grimArgs...)
-		cmd.Env = append(os.Environ(),
-			fmt.Sprintf("WAYLAND_DISPLAY=%s", socket),
-			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
-		)
-		output, lastErr = cmd.CombinedOutput()
+	return pngData, "png", nil
+}
 
-		// Check for JPEG not supported error
-		if lastErr != nil && strings.Contains(string(output), "jpeg support disabled") {
-			log.Printf("[KDE] JPEG not supported by grim, retrying with PNG")
-			return captureScreenshotKDE("png", quality)
-		}
-
-		if lastErr == nil {
-			// Success! Read and return the screenshot
-			data, err := os.ReadFile(filename)
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
-			}
-			log.Printf("[KDE] Screenshot captured via grim on %s (%d bytes, format=%s)", socket, len(data), format)
-			return data, format, nil
-		}
-		log.Printf("[KDE] grim failed on %s: %v, output: %s", socket, lastErr, string(output))
+// convertPNGtoJPEG converts PNG image data to JPEG with specified quality
+func convertPNGtoJPEG(pngData []byte, quality int) ([]byte, error) {
+	// Decode PNG
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode PNG: %w", err)
 	}
 
-	// All grim attempts failed - this shouldn't happen in normal operation
-	return nil, "", fmt.Errorf("grim failed on all sockets for KDE: %v, output: %s", lastErr, string(output))
+	// Encode as JPEG
+	var jpegBuf bytes.Buffer
+	if err := jpeg.Encode(&jpegBuf, img, &jpeg.Options{Quality: quality}); err != nil {
+		return nil, fmt.Errorf("failed to encode JPEG: %w", err)
+	}
+
+	return jpegBuf.Bytes(), nil
 }
 
 func handleClipboard(w http.ResponseWriter, r *http.Request) {

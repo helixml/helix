@@ -72,15 +72,20 @@ RUN apt-get install -y kitty
 
 **Cause:** Our screenshot-server used spectacle for KDE screenshots. Even with `-b` (background) flag, spectacle briefly shows a window.
 
-**Fix:** Use grim on Wolf's outer compositor (wayland-1) instead of spectacle on KWin (wayland-0). Wolf uses Cage/wlroots which supports `wlr-screencopy` protocol.
+**Fix:** Use KWin's D-Bus API (`org.kde.KWin.ScreenShot2`) instead of spectacle or grim.
+
+**Why not grim?** Wolf uses `gst-wayland-src` (GStreamer) for video streaming, NOT Cage/wlroots. grim requires the `wlr-screencopy` protocol which only wlroots-based compositors support.
 
 ```go
 // api/cmd/screenshot-server/main.go
 func captureScreenshotKDE(format string, quality int) ([]byte, string, error) {
-    // Use grim on wayland-1 (Wolf's outer compositor)
-    // Wolf uses Cage/wlroots which supports wlr-screencopy
-    waylandSockets := []string{"wayland-1"}
-    // ... grim capture logic
+    // Connect to session D-Bus and use KWin's native screenshot API
+    conn, err := dbus.ConnectSessionBus()
+    obj := conn.Object("org.kde.KWin", "/org/kde/KWin/ScreenShot2")
+
+    // CaptureActiveScreen returns PNG data via file descriptor
+    call := obj.Call("org.kde.KWin.ScreenShot2.CaptureActiveScreen", 0, options, fd)
+    // ... read PNG from pipe, convert to JPEG if requested
 }
 ```
 
@@ -107,20 +112,21 @@ fi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Wolf (Cage/wlroots)                                             │
+│ Wolf (gst-wayland-src - GStreamer)                              │
 │ Creates WAYLAND_DISPLAY=wayland-1                               │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Sway (nested compositor)                                        │
+│ Sway (wlroots-based nested compositor)                          │
 │ - Connects to wayland-1 as parent                               │
-│ - Does NOT create separate socket                               │
-│ - Apps use wayland-1 directly                                   │
+│ - Apps connect to wayland-1, Sway handles wlr-screencopy        │
+│ - grim works because Sway (wlroots) supports the protocol       │
 │                                                                 │
-│   ┌─────────────┐  ┌─────────────┐                              │
-│   │ Zed         │  │ Kitty       │  ← All use wayland-1         │
-│   └─────────────┘  └─────────────┘                              │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│   │ Zed         │  │ grim        │  │ Kitty       │             │
+│   └─────────────┘  └─────────────┘  └─────────────┘             │
+│   All use wayland-1 → Sway (wlroots) handles the requests       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -128,9 +134,9 @@ fi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Wolf (Cage/wlroots)                                             │
+│ Wolf (gst-wayland-src - GStreamer)                              │
 │ Creates WAYLAND_DISPLAY=wayland-1                               │
-│ grim captures from here for screenshots                         │
+│ Does NOT support wlr-screencopy (grim won't work here)          │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
@@ -138,6 +144,7 @@ fi
 │ KWin (nested compositor)                                        │
 │ - Connects to wayland-1 as parent                               │
 │ - Creates wayland-0 for client apps                             │
+│ - Provides D-Bus API: org.kde.KWin.ScreenShot2                  │
 │                                                                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │ wayland-0 (KWin's client socket)                        │   │
@@ -147,19 +154,23 @@ fi
 │   │   └─────────────┘  └─────────────┘  └─────────────┘     │   │
 │   │                                                         │   │
 │   │   All apps use wayland-0 → KWin provides decorations    │   │
+│   │   Screenshots via D-Bus → No popup, silent capture      │   │
 │   └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Key difference:** Sway reuses the parent socket; KWin creates a separate client socket.
+**Key differences:**
+- **Sway:** wlroots-based, so grim works via `wlr-screencopy` protocol
+- **KDE:** KWin doesn't support wlr-screencopy, use D-Bus `org.kde.KWin.ScreenShot2` instead
 
 ## Files Modified
 
 1. **Dockerfile.kde-helix** - Ubuntu 25.10 base, Kubuntu Backports PPA, kitty terminal
-2. **wolf/kde-config/startup-app.sh** - WAYLAND_DISPLAY=wayland-0, scaling env vars
-3. **api/cmd/screenshot-server/main.go** - Use grim on wayland-1 for KDE
-4. **api/pkg/types/types.go** - Add DisplayScale field to ZedAgent
-5. **api/pkg/external-agent/wolf_executor.go** - Pass HELIX_DISPLAY_SCALE if user specifies
+2. **Dockerfile.sway-helix** - Updated grim-build and wlroots-build stages to Ubuntu 25.10
+3. **wolf/kde-config/startup-app.sh** - WAYLAND_DISPLAY=wayland-0, scaling env vars
+4. **api/cmd/screenshot-server/main.go** - Use D-Bus (org.kde.KWin.ScreenShot2) for KDE
+5. **api/pkg/types/types.go** - Add DisplayScale field to ZedAgent
+6. **api/pkg/external-agent/wolf_executor.go** - Pass HELIX_DISPLAY_SCALE if user specifies
 
 ## Testing
 
