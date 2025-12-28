@@ -147,7 +147,7 @@ if [ -x /zed-build/zed ]; then
   (
     gow_log "[start] Waiting for plasmashell to start before launching Zed..."
     # Wait up to 60 seconds for plasmashell to be running
-    for i in $(seq 1 60); do
+    for i in \$(seq 1 60); do
       if pgrep -x plasmashell > /dev/null 2>&1; then
         gow_log "[start] plasmashell detected, waiting 2 more seconds for panel to initialize..."
         sleep 2
