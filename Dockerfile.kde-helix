@@ -38,18 +38,46 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
-# KDE Desktop (from GOW dev-kde branch)
+# KDE Desktop - Ubuntu 25.10 base for Plasma 6.5
 # ====================================================================
-FROM ghcr.io/games-on-whales/base-app:edge
+# Using Ubuntu 25.10 instead of GOW base-app:edge (Ubuntu 25.04) because:
+# - Ubuntu 25.04 has Plasma 6.3 which has a nested compositor bug
+# - Ubuntu 25.10 has Plasma 6.4 by default, 6.5 via backports
+# - DatHorse got KDE working with Arch (Plasma 6.5.4)
+# See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 
-# GOW KDE packages (copied exactly from dev-kde branch)
+FROM ubuntu:25.10
+
+# Configure default user and set env (from GOW base-app)
+ENV \
+    PUID=1000 \
+    PGID=1000 \
+    UMASK=000 \
+    UNAME="retro" \
+    HOME="/home/retro" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
+
+ARG TARGETARCH TARGETVARIANT
+
+# Install GOW base requirements + KDE packages
+ARG GOSU_VERSION=1.14
+
 ARG CORE_PACKAGES=" \
     wget \
+    curl \
+    jq \
+    fuse \
+    libnss3 \
+    ca-certificates \
     dbus \
     firefox \
     flatpak \
     locales \
     xwayland \
+    software-properties-common \
+    gpg-agent \
     "
 
 ARG DE_PACKAGES=" \
@@ -59,35 +87,131 @@ ARG DE_PACKAGES=" \
     pipewire \
     "
 
-# GOW KDE installation (copied exactly from dev-kde branch)
+# Install base packages, PPAs, and KDE with Plasma 6.5 from backports
 RUN <<_INSTALL_BASE
   set -e
 
-  # Setup Firefox PPA
+  echo "**** Update apt database ****"
   apt-get update
-  apt-get install -y --no-install-recommends software-properties-common gpg-agent
+
+  echo "**** Install base packages ****"
+  apt-get install -y --no-install-recommends $CORE_PACKAGES
+
+  echo "**** Install gosu (from GOW) ****"
+  GOSU_ARCH="${TARGETARCH:-amd64}"
+  wget --progress=dot:giga \
+      -O /usr/bin/gosu \
+      "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}"
+  chmod +x /usr/bin/gosu
+  gosu nobody true && echo "gosu working!"
+
+  echo "**** Setup Firefox PPA ****"
   add-apt-repository -y ppa:mozillateam/ppa
-  apt-get update
 
-  # Install core packages
-  apt-get install -y $CORE_PACKAGES
+  echo "**** Add Kubuntu Backports PPA for Plasma 6.5 ****"
+  add-apt-repository -y ppa:kubuntu-ppa/backports
 
-  # Install DE packages
-  apt-get install -y $DE_PACKAGES
-
-  # Clean
-  apt autoremove -y
-  apt clean
-  rm -rf /config/.cache /var/lib/apt/lists/* /var/tmp/* /tmp/*
-
-_INSTALL_BASE
-
-# Firefox APT pin (from GOW)
-COPY <<_APT_PIN /etc/apt/preferences.d/mozilla-firefox
+  echo "**** Configure APT pins ****"
+  cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
 Package: *
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
-_APT_PIN
+PINEOF
+
+  cat > /etc/apt/preferences.d/kubuntu-backports << 'PINEOF'
+Package: *
+Pin: release o=LP-PPA-kubuntu-ppa-backports
+Pin-Priority: 1001
+PINEOF
+
+  apt-get update
+
+  echo "**** Install KDE Plasma (from backports = 6.5) ****"
+  apt-get install -y $DE_PACKAGES
+
+  echo "=== Installed KDE Versions ==="
+  dpkg -l | grep -E "kwin|plasma-desktop" || true
+  kwin_wayland --version || echo "kwin_wayland not found yet"
+  plasmashell --version || echo "plasmashell not found yet"
+
+  echo "**** Cleanup ****"
+  apt autoremove -y
+  apt clean
+  rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+_INSTALL_BASE
+
+# Create retro user (from GOW base-app)
+# Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
+RUN <<_CREATE_USER
+  set -e
+  # Remove existing user with UID 1000 if present
+  EXISTING_USER=$(getent passwd 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_USER" ]; then
+    userdel -r "$EXISTING_USER" 2>/dev/null || userdel "$EXISTING_USER" || true
+  fi
+  # Remove existing group with GID 1000 if present
+  EXISTING_GROUP=$(getent group 1000 | cut -d: -f1) || true
+  if [ -n "$EXISTING_GROUP" ]; then
+    groupdel "$EXISTING_GROUP" 2>/dev/null || true
+  fi
+  # Create retro user/group
+  groupadd -g 1000 retro
+  useradd -m -u 1000 -g 1000 -s /bin/bash retro
+  mkdir -p /home/retro
+  chown -R retro:retro /home/retro
+_CREATE_USER
+
+# GOW utilities and entrypoint (minimal version)
+RUN mkdir -p /opt/gow/bash-lib /opt/gow/startup.d /etc/cont-init.d
+
+# GOW utils.sh (minimal implementation)
+COPY <<'_GOW_UTILS' /opt/gow/bash-lib/utils.sh
+#!/bin/bash
+gow_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+export -f gow_log
+_GOW_UTILS
+
+# GOW user setup init script
+COPY <<'_USER_INIT' /etc/cont-init.d/10-setup_user.sh
+#!/bin/bash
+echo "**** Configure default user ****"
+echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
+echo "Setting umask to ${UMASK}"
+umask "${UMASK}"
+echo "Ensure ${UNAME} home directory is writable"
+chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+echo "Ensure XDG_RUNTIME_DIR is writable"
+mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
+chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+chmod 700 "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
+_USER_INIT
+
+# GOW entrypoint
+COPY <<'_ENTRYPOINT' /entrypoint.sh
+#!/usr/bin/env bash
+set -e
+source /opt/gow/bash-lib/utils.sh
+if [ "$(id -u)" = "0" ]; then
+    for init_script in /etc/cont-init.d/*.sh ; do
+        gow_log
+        gow_log "[ ${init_script}: executing... ]"
+        source "${init_script}"
+    done
+fi
+if [ -n "${@:-}" ]; then
+    /bin/bash -c "$@"
+    exit $?
+fi
+gow_log "Launching the container's startup script as user '${UNAME}'"
+chmod +x /opt/gow/startup.sh 2>/dev/null || chmod +x /opt/gow/startup-app.sh
+exec gosu "${UNAME}" ${STARTUP_SCRIPT:-/opt/gow/startup-app.sh}
+_ENTRYPOINT
+RUN chmod +x /entrypoint.sh /etc/cont-init.d/*.sh /opt/gow/bash-lib/utils.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 
 # GOW fixes (copied exactly from dev-kde branch)
 RUN <<_FIXES
@@ -130,12 +254,13 @@ RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Docker CLI (same as sway)
+# Note: Using lsb_release to detect codename (questing for 25.10)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gnupg ca-certificates curl \
+    && apt-get install -y --no-install-recommends gnupg ca-certificates curl lsb-release \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu plucky stable" > /etc/apt/sources.list.d/docker.list \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*

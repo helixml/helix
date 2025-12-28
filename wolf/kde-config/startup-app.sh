@@ -126,6 +126,17 @@ export XDG_CURRENT_DESKTOP=KDE
 export KDE_SESSION_VERSION=6
 export DESKTOP_SESSION=plasma
 
+# CRITICAL: Set WAYLAND_DISPLAY for KDE session to use KWin's client socket
+# Architecture explanation (see design/2025-12-28-kde-vs-sway-compositor-architecture.md):
+# - Wolf creates wayland-1 as the parent compositor for video streaming
+# - KWin connects to wayland-1 as its parent (via --wayland-display in kwin_wayland_wrapper)
+# - KWin creates wayland-0 for its client applications (default nested socket name)
+# - All KDE apps (plasmashell, dolphin, Zed) must connect to wayland-0 for window decorations
+# - The kwin_wayland_wrapper already captured wayland-1 in the heredoc, so KWin still
+#   connects to the correct parent even though we're changing WAYLAND_DISPLAY here
+export WAYLAND_DISPLAY=wayland-0
+gow_log "[start] Set WAYLAND_DISPLAY=wayland-0 (KWin client socket)"
+
 gow_log "[start] Starting pipewire"
 pipewire &
 
@@ -155,7 +166,8 @@ if [ -x /zed-build/zed ]; then
       fi
       sleep 1
     done
-    gow_log "[start] Launching Zed..."
+    # WAYLAND_DISPLAY=wayland-0 is already set for the entire KDE session
+    gow_log "[start] Launching Zed (WAYLAND_DISPLAY=\$WAYLAND_DISPLAY)..."
     /usr/local/bin/start-zed-helix.sh
   ) &
 fi
