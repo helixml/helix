@@ -207,14 +207,14 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           flexDirection: 'column',
         }}
       >
-        {/* Mode Toggle */}
+        {/* Mode Toggle - high z-index to stay above MoonlightStreamViewer's connection overlay */}
         <Box
           sx={{
             position: 'absolute',
             top: 8,
             left: '50%',
             transform: 'translateX(-50%)',
-            zIndex: 1001,
+            zIndex: 1100,
             backgroundColor: 'rgba(0,0,0,0.8)',
             borderRadius: 1,
           }}
