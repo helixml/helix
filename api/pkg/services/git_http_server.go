@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -550,8 +551,24 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	cmd.Env = env
 
 	// Pipe request body to git http-backend stdin
+	// Handle gzip-compressed request bodies (git clients compress large requests)
 	if r.ContentLength != 0 {
-		cmd.Stdin = r.Body
+		body := r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzReader, gzErr := gzip.NewReader(r.Body)
+			if gzErr != nil {
+				log.Error().Err(gzErr).Str("repo_id", repoID).Msg("Failed to create gzip reader for request body")
+				http.Error(w, "Failed to decompress request", http.StatusBadRequest)
+				return
+			}
+			defer gzReader.Close()
+			body = gzReader
+			log.Debug().
+				Str("repo_id", repoID).
+				Int64("compressed_size", r.ContentLength).
+				Msg("Decompressing gzip-encoded git request body")
+		}
+		cmd.Stdin = body
 	}
 
 	// Capture stderr separately for error logging
