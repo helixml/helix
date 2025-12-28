@@ -47,6 +47,15 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const mountTimeRef = React.useRef<Date>(new Date());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
+  // Handle mode switch - clear error and loading state when switching modes
+  const handleModeChange = useCallback((newMode: 'screenshot' | 'stream') => {
+    setStreamingMode(newMode);
+    setError(null); // Clear any error from previous mode
+    if (newMode === 'screenshot') {
+      setIsLoading(true); // Reset loading for screenshot mode
+    }
+  }, []);
+
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
     if (isRunner) {
@@ -222,7 +231,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           <ToggleButtonGroup
             value={streamingMode}
             exclusive
-            onChange={(_, value) => value && setStreamingMode(value)}
+            onChange={(_, value) => value && handleModeChange(value)}
             size="small"
           >
             <ToggleButton value="screenshot" sx={{ color: 'white' }}>
@@ -276,7 +285,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           <ToggleButtonGroup
             value={streamingMode}
             exclusive
-            onChange={(_, value) => value && setStreamingMode(value)}
+            onChange={(_, value) => value && handleModeChange(value)}
             size="small"
           >
             <ToggleButton value="screenshot" sx={{ color: 'white' }}>
@@ -341,19 +350,20 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         </Typography>
       )}
 
-      {/* Error Display */}
+      {/* Error Display - positioned below controls, pointer-events:none so it doesn't block toggle */}
       {error && (
         <Box
           sx={{
             position: 'absolute',
-            top: '50%',
+            top: '60%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
             zIndex: 999,
             textAlign: 'center',
+            pointerEvents: 'none', // Don't block clicks on controls above
           }}
         >
-          <Alert severity="error" sx={{ maxWidth: 400 }}>
+          <Alert severity="error" sx={{ maxWidth: 400, pointerEvents: 'auto' }}>
             {error}
           </Alert>
         </Box>
@@ -399,11 +409,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       {isLoading && !hasFirstImage && (
         <Box
           sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '100%',
             color: 'white',
+            pointerEvents: 'none', // Don't block clicks on mode toggle
           }}
         >
           <Typography variant="body1">Loading desktop...</Typography>
