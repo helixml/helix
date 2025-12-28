@@ -344,6 +344,40 @@ rm -rf frontend/src/components/broken/     # OR THIS
 
 **NEVER assume you can delete someone else's code.**
 
+## 🚨 CRITICAL: NEVER COMMIT CUSTOMER-SENSITIVE DATA 🚨
+
+**NEVER include real customer data, internal hostnames, IP addresses, or infrastructure details in commits**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN in commits:
+- Real customer hostnames (e.g., internal-server.customer-corp.com)
+- Real IP addresses from customer environments
+- Customer company names in error logs or examples
+- Internal port numbers that reveal infrastructure
+- Any identifying information from customer support cases
+
+# ✅ CORRECT: Always sanitize examples
+- Use example.com, customer.example, internal-server.example
+- Use RFC 5737 documentation IPs: 192.0.2.x, 198.51.100.x, 203.0.113.x
+- Use generic descriptions: "Customer on Helix 2.5.25 reported..."
+- Use placeholder ports: 8080, 443, or omit entirely
+```
+
+**Why this is critical:**
+- Repository is PUBLIC - anyone can see committed data
+- Git history preserves data FOREVER (even after deletion from current files)
+- Customer infrastructure details are security-sensitive
+- Violates customer trust and potentially contractual obligations
+- Removing from git history requires `git filter-repo` which rewrites ALL commits
+
+**Before committing design docs or investigation notes:**
+1. **Search for hostnames:** `grep -E '[a-z0-9-]+\.[a-z0-9-]+\.(intranet|internal|corp|local)' file.md`
+2. **Search for IPs:** `grep -E '\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b' file.md`
+3. **Review error logs:** Real error messages often contain sensitive URLs
+4. **Sanitize ALL customer-identifying information** before committing
+
+**NEVER commit real customer data. When in doubt, sanitize it.**
+
 ## 🚨 CRITICAL: COMMIT QWEN-CODE BEFORE BUILDING SANDBOX IMAGE 🚨
 
 **Commit qwen-code before running `./stack build-sway` or `./stack build-sandbox`**
