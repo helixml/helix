@@ -1244,7 +1244,11 @@ function build-desktop() {
   docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}"
 
   # Save tarball with BOTH tags - this ensures docker ps shows the named image
-  docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"
+  if ! docker save "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.tar"; then
+    echo "❌ Failed to save ${DESKTOP_NAME} tarball (disk space issue?)"
+    rm -f "sandbox-images/${IMAGE_NAME}.tar"  # Remove partial/corrupted tarball
+    exit 1
+  fi
   echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
 
   local TARBALL_SIZE=$(du -h "sandbox-images/${IMAGE_NAME}.tar" | cut -f1)
