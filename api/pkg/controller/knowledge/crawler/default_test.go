@@ -51,8 +51,8 @@ func TestDefault_Crawl(t *testing.T) {
 	require.NoError(t, err)
 
 	const (
-		appsText              = `When I submit a request that uses an App, it hangs`
-		privateDeploymentText = `This section describes how to install the control plane using Docker`
+		appsText              = `how to create, configure, and interact with agents`
+		privateDeploymentText = `Install Control Plane pointing at TogetherAI`
 	)
 
 	var (
@@ -72,7 +72,7 @@ func TestDefault_Crawl(t *testing.T) {
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
 
-			assert.Equal(t, "https://docs.helixml.tech/helix/private-deployment/manual-install/docker/", doc.SourceURL)
+			assert.Equal(t, "https://docs.helixml.tech/helix/private-deployment/controlplane/", doc.SourceURL)
 		}
 	}
 
