@@ -919,33 +919,8 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		}
 		w.sessions[agent.SessionID] = session
 
-		// Track activity for idle cleanup
-		agentType := "agent"
-		if agent.ProjectID != "" {
-			agentType = "exploratory"
-		}
-		if agent.SpecTaskID != "" {
-			agentType = "spectask"
-		}
-
-		err = w.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
-			ExternalAgentID: agent.SessionID,
-			SpecTaskID:      agent.SpecTaskID,
-			LastInteraction: time.Now(),
-			AgentType:       agentType,
-			WolfAppID:       "", // Don't have app ID for reused lobby
-			WorkspaceDir:    workspaceDir,
-			UserID:          agent.UserID,
-		})
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("session_id", agent.SessionID).
-				Msg("Failed to track activity for reused lobby")
-		}
-
-		// Fetch PIN and Wolf instance ID from session metadata for auto-join support
-		// With the session_handlers fix, this will preserve existing PINs even if we return empty
+		// Fetch PIN and Wolf instance ID from session metadata
+		// Used for: (1) activity tracking (admin stop) and (2) response for auto-join
 		var lobbyPIN string
 		var existingWolfInstanceID string
 		if helixSessionID != "" {
@@ -962,6 +937,35 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 					Msg("Retrieved lobby PIN and Wolf instance from session metadata for reuse")
 			}
 		}
+
+		// Track activity for idle cleanup
+		agentType := "agent"
+		if agent.ProjectID != "" {
+			agentType = "exploratory"
+		}
+		if agent.SpecTaskID != "" {
+			agentType = "spectask"
+		}
+
+		err = w.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+			ExternalAgentID: agent.SessionID,
+			SpecTaskID:      agent.SpecTaskID,
+			LastInteraction: time.Now(),
+			AgentType:       agentType,
+			WolfAppID:       "",               // Don't have app ID for reused lobby
+			WolfLobbyID:     existingLobbyID,  // Store lobby ID for admin stop functionality
+			WolfLobbyPIN:    lobbyPIN,         // Store PIN for admin stop functionality
+			WorkspaceDir:    workspaceDir,
+			UserID:          agent.UserID,
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", agent.SessionID).
+				Msg("Failed to track activity for reused lobby")
+		}
+
+		// Note: lobbyPIN and existingWolfInstanceID already fetched above for activity tracking
 
 		// Build response using existing lobby
 		response := &types.ZedAgentResponse{
