@@ -427,8 +427,11 @@ export DESKTOP_SESSION=gnome
 export WAYLAND_DISPLAY=wayland-0
 gow_log "[start] Set WAYLAND_DISPLAY=wayland-0 (Mutter client socket)"
 
-gow_log "[start] Starting pipewire"
+gow_log "[start] Starting PipeWire + WirePlumber"
 pipewire &
+sleep 0.5
+wireplumber &
+sleep 0.5
 
 # Start Helix services
 if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
@@ -460,13 +463,29 @@ if [ -x /zed-build/zed ]; then
   ) &
 fi
 
-gow_log "[start] Starting GNOME Shell (nested Wayland, parent=$WOLF_WAYLAND_DISPLAY)"
+gow_log "[start] Starting GNOME Shell (headless/devkit mode)"
 
-# Start GNOME Shell in nested Wayland mode
-# --wayland: Force Wayland session (not X11)
-# --wayland-display: Connect to Wolf's Wayland socket (wayland-1, captured at script creation)
-# Note: gnome-shell runs nested by default; --display-server would make it primary
-gnome-shell --wayland --wayland-display=$WOLF_WAYLAND_DISPLAY
+# GNOME 49 removed --nested mode. We use --devkit which:
+# 1. Runs GNOME Shell in headless mode with a virtual display
+# 2. Exports the virtual display via PipeWire screen-cast
+# 3. We consume the PipeWire stream with GStreamer and render to Wolf
+
+# Start the GStreamer bridge in background
+# This consumes PipeWire screen-cast and renders to Wolf's wayland-1
+(
+  gow_log "[start] Waiting for GNOME Shell to be ready..."
+  # Wait for GNOME Mutter ScreenCast D-Bus service
+  if gdbus wait --session --timeout 60 org.gnome.Mutter.ScreenCast; then
+    gow_log "[start] Starting PipeWire → Wolf bridge..."
+    WOLF_WAYLAND_DISPLAY=$WOLF_WAYLAND_DISPLAY /usr/local/bin/start-gnome-bridge.sh >> /tmp/gnome-bridge.log 2>&1
+  else
+    gow_log "[start] ERROR: GNOME Mutter ScreenCast not available"
+  fi
+) &
+
+# Start GNOME Shell in devkit mode
+# --devkit: Headless mode with PipeWire screen-cast export
+gnome-shell --devkit
 GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome
