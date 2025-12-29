@@ -364,6 +364,58 @@ cargo build --release
 
 See `wolf/ubuntu-config/start-gnome-headless.sh` for a complete startup sequence.
 
+## Input Handling
+
+Input forwarding uses **EIS (Emulated Input Subsystem)** for headless GNOME:
+
+```
+Wolf (wl_seat input)
+    → wolf-bridge (receives Wayland input events)
+        → libei (EIS client library)
+            → GNOME Shell (org.freedesktop.RemoteDesktop / EIS portal)
+```
+
+### How EIS Works
+
+1. **GNOME Shell** exposes an EIS socket when running with remote desktop support
+2. **wolf-bridge** connects as an EIS client via libei
+3. **Keyboard/mouse events** from Wolf's `wl_seat` are translated to EIS events
+4. **GNOME Shell** injects these events as if they came from real input devices
+
+### Implementation
+
+The C implementation has `eis-input.c` for this. In Rust, use the `reis` crate.
+
+Key D-Bus interface: `org.freedesktop.RemoteDesktop.Session.ConnectToEIS()`
+
+## Audio Handling
+
+Audio is **separate from video** and handled automatically by Wolf:
+
+```
+GNOME Shell (application audio)
+    → PipeWire / pipewire-pulse
+        → Wolf's audio capture
+            → GStreamer encoding → Moonlight client
+```
+
+### Why No Bridge Needed
+
+1. **GNOME outputs audio to PipeWire** - The headless session uses pipewire-pulse
+2. **Wolf captures audio directly** - Wolf's gstreamer pipeline already captures from PulseAudio/PipeWire
+3. **Same container** - Both GNOME and Wolf run in the same container, sharing audio
+
+### Audio Dependencies
+
+```bash
+# Install in container
+pipewire
+pipewire-pulse
+wireplumber
+```
+
+Wolf auto-detects PipeWire and captures audio without additional configuration.
+
 ## Conclusion
 
 The PipeWire bridge approach is **verified to support zero-copy DMA-BUF** across all components:
