@@ -61,12 +61,12 @@ FROM ubuntu:25.10 AS wlroots-build
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
     apt-get install -y dpkg-dev devscripts quilt && \
-    apt-get build-dep -y libwlroots12t64 && \
+    apt-get build-dep -y libwlroots-0.18 && \
     rm -rf /var/lib/apt/lists/*
 
 # Get the source package
 WORKDIR /build
-RUN apt-get update && apt-get source libwlroots12t64
+RUN apt-get update && apt-get source libwlroots-0.18
 
 # Copy our patch into the Debian patches directory
 COPY wolf/wlroots-patches/0001-wayland-backend-ignore-parent-layout-group.patch /build/
@@ -141,7 +141,7 @@ RUN <<_INSTALL_BASE
   set -e
 
   echo "**** Install patched wlroots (before sway pulls in stock) ****"
-  dpkg -i /tmp/wlroots/libwlroots12*.deb || apt-get install -f -y
+  dpkg -i /tmp/wlroots/libwlroots*.deb || apt-get install -f -y
   rm -rf /tmp/wlroots
 
   echo "**** Update apt database ****"
@@ -434,8 +434,8 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
 RUN git config --system http.sslVerify false
 
 # Configure Kitty terminal (system-wide, since /home/retro is bind-mounted)
-RUN mkdir -p /etc/xdg/kitty && \
-    cat > /etc/xdg/kitty/kitty.conf << 'KITTY_CONFIG'
+RUN mkdir -p /etc/xdg/kitty
+COPY <<'KITTY_CONFIG' /etc/xdg/kitty/kitty.conf
 # Close window when shell exits (don't leave orphan windows)
 close_on_child_death yes
 
