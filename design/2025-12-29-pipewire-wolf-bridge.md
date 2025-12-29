@@ -1,14 +1,77 @@
 # PipeWire-Wolf Bridge: GPU-Accelerated GNOME Streaming
 
 **Date:** 2025-12-29
-**Status:** Design Proposal
+**Status:** Implementation Complete
 **Author:** Claude
 
 ## Executive Summary
 
 This document explores a pure Wayland approach for running GNOME Shell inside Wolf's streaming architecture. Instead of XWayland (which adds X11 overhead), we can use **GNOME Remote Desktop's PipeWire screen-cast** and bridge it to Wolf's Wayland compositor.
 
-**Key insight:** GNOME Remote Desktop uses GPU-accelerated DMA-BUF frames via PipeWire - the same technology we need. We just need a small bridge to render these frames to Wolf's Wayland socket.
+**Key insight:** GNOME 49's `--devkit` mode (Mutter SDK) provides this bridge out of the box! The `mutter-devkit` viewer reads GNOME's screen via ScreenCast D-Bus API and renders to any Wayland display - including Wolf's.
+
+## GNOME 49 Mutter SDK Solution (Recommended)
+
+GNOME 49 introduced the **Mutter SDK** (`--devkit` flag) which eliminates the need for a custom bridge:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  GNOME 49 Mutter SDK Architecture                                           │
+│  ================================                                           │
+│                                                                             │
+│  Wolf(wayland-11)                                                           │
+│       ↑                                                                     │
+│       │ Wayland surface (fullscreen)                                        │
+│       │                                                                     │
+│  ┌────┴─────────────────┐                                                   │
+│  │  mutter-devkit       │ ← SDK viewer, spawned by gnome-shell --devkit    │
+│  │  (built-in bridge!)  │                                                   │
+│  └────┬─────────────────┘                                                   │
+│       │                                                                     │
+│       │ ScreenCast D-Bus API + PipeWire                                     │
+│       │                                                                     │
+│  ┌────┴─────────────────┐     ┌──────────────────┐                         │
+│  │  GNOME Shell         │────→│  Client apps     │                         │
+│  │  (creates wayland-0) │     │  (Zed, nautilus) │                         │
+│  └──────────────────────┘     └──────────────────┘                         │
+│                                    ↓                                        │
+│                              wayland-0 (Mutter socket)                      │
+│                                                                             │
+│  Key: mutter-devkit inherits WAYLAND_DISPLAY from gnome-shell's parent     │
+│       Set WAYLAND_DISPLAY=wayland-11 (Wolf) before running --devkit        │
+│       Client apps must use WAYLAND_DISPLAY=wayland-0 explicitly            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### How to Use
+
+```bash
+# Save Wolf's display
+export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+
+# Keep WAYLAND_DISPLAY pointing to Wolf - mutter-devkit will output here
+# DO NOT set WAYLAND_DISPLAY=wayland-0 before running gnome-shell!
+
+# Start GNOME Shell in devkit mode
+gnome-shell --devkit  # Creates wayland-0, spawns mutter-devkit
+
+# Launch client apps with explicit wayland-0
+WAYLAND_DISPLAY=wayland-0 zed
+```
+
+### What mutter-devkit Does
+
+Per the [Phoronix article](https://www.phoronix.com/news/GNOME-49-Mutter-SDK):
+- The SDK adds a "viewer" that connects to the mutter instance
+- Creates a virtual monitor via ScreenCast D-Bus API
+- Sends input to the GNOME session
+- Renders the screen content to its WAYLAND_DISPLAY
+
+**No custom GStreamer bridge needed** - mutter-devkit IS the bridge.
+
+---
+
+## Original Analysis (Pre-GNOME 49 / Alternative Approaches)
 
 ## Architecture
 
@@ -535,6 +598,173 @@ pipewiresrc → vaapih264enc → webrtcbin → browser
 
 Worth exploring as a **v2 architecture** but the Wolf + PipeWire bridge approach should work for v1.
 
+## V2 Architecture: PipeWire Direct to Wolf Encoder (No Compositor)
+
+> **STATUS: Future Exploration**
+>
+> This section documents a potential simplification for future consideration.
+> The current V1 implementation uses the GStreamer bridge (pipewiresrc → waylandsink).
+> V2 would eliminate gst-wayland-display entirely by feeding PipeWire directly into Wolf's encoder.
+
+**Key Insight:** If `pipewiresrc` is a GStreamer element, we can feed PipeWire directly into Wolf's encoder pipeline, **eliminating gst-wayland-display entirely**.
+
+### Current vs Proposed Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Current Architecture (with gst-wayland-display)                            │
+│  ==============================================                             │
+│                                                                             │
+│  GNOME (--devkit) → PipeWire → pipewiresrc → waylandsink                   │
+│                                                    ↓                        │
+│                                  gst-wayland-display (Smithay compositor)   │
+│                                                    ↓                        │
+│                                  Wolf video capture → encoder → Moonlight   │
+│                                                                             │
+│  Problems:                                                                  │
+│  - Extra compositor layer (Smithay/gst-wayland-display)                     │
+│  - Video path: GNOME → PipeWire → Wayland → capture → encode                │
+│  - ~10K lines of Rust compositor code to maintain                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Proposed Architecture (PipeWire → Wolf encoder directly)                   │
+│  ========================================================                   │
+│                                                                             │
+│  GNOME (--devkit) → PipeWire → pipewiresrc → Wolf encoder → Moonlight      │
+│                                                    ↑                        │
+│                                    Wolf manages GPU detection               │
+│                                    Wolf selects VAAPI/NVENC/software        │
+│                                                                             │
+│  Benefits:                                                                  │
+│  - No compositor needed for headless desktops                               │
+│  - Direct path: GNOME → PipeWire → encode                                   │
+│  - Wolf still handles all the complex stuff:                                │
+│    - Container orchestration                                                │
+│    - Lobby/pairing management                                               │
+│    - GPU detection and encoder selection                                    │
+│    - Moonlight protocol                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What This Eliminates
+
+| Component | Lines of Code | Purpose |
+|-----------|---------------|---------|
+| gst-wayland-display | ~10K Rust | Smithay Wayland compositor |
+| wayland-display-core | ~5K Rust | DMA-BUF handling, surface management |
+| wlroot-src | ~2K | Video capture from compositor |
+
+**Total eliminated: ~17K lines of complex Rust code**
+
+### What Wolf Still Does
+
+Wolf continues to handle all the orchestration complexity:
+
+1. **Container Management**
+   - Start GNOME containers with GPU passthrough
+   - Mount workspace directories
+   - Configure environment (resolution, zoom, etc.)
+
+2. **GPU Detection & Encoder Selection**
+   - Detect NVIDIA (NVENC), AMD (VAAPI), Intel (QSV)
+   - Select optimal encoder based on GPU type
+   - Handle fallback to software encoding
+
+3. **Lobby & Pairing**
+   - Generate pairing PINs
+   - Manage Moonlight client connections
+   - Handle multiple sessions
+
+4. **Moonlight Protocol**
+   - Encode video frames
+   - Handle input events
+   - Stream to browser/client
+
+### GStreamer Pipeline Change
+
+Wolf's video pipeline becomes simpler:
+
+```
+# Before (with compositor):
+wlroot-src → videoconvert → vaapih264enc → moonlight-sink
+
+# After (PipeWire direct):
+pipewiresrc path=N → videoconvert → vaapih264enc → moonlight-sink
+                ↑
+        Node ID from GNOME ScreenCast D-Bus
+```
+
+**Key:** The encoder chain (`vaapih264enc`, `nvh264enc`, etc.) stays exactly the same.
+
+### Input Handling Without Compositor
+
+With gst-wayland-display:
+```
+Moonlight input → Wolf → wl_seat → client apps
+```
+
+Without compositor (headless desktops):
+```
+Moonlight input → Wolf → input subsystem → desktop → apps
+```
+
+**Input subsystem varies by desktop:**
+
+| Desktop | Input Method | Library |
+|---------|-------------|---------|
+| GNOME | EIS (Emulated Input Subsystem) | libei |
+| KDE | EIS (KWin 6.0+) | libei |
+| Sway | uinput or wtype | linux kernel uinput |
+
+**EIS is a freedesktop.org standard** (not GNOME-specific). KDE added full support in 2024.
+
+For Sway/wlroots, we can use `/dev/uinput` directly or the `wtype` tool, which doesn't require EIS.
+
+### Implementation Steps
+
+1. **Add pipewiresrc to Wolf's GStreamer pipeline**
+   - Replace `wlroot-src` with `pipewiresrc`
+   - Pass PipeWire node ID from container
+
+2. **Container startup changes**
+   - Start GNOME in `--devkit` mode
+   - Get PipeWire node ID from ScreenCast D-Bus
+   - Pass node ID back to Wolf
+
+3. **Add libei input forwarding**
+   - Wolf receives Moonlight input events
+   - Forward to container via EIS socket
+
+4. **Keep gst-wayland-display for legacy**
+   - Some apps may still need Wayland compositor
+   - Can be enabled per-container if needed
+
+### GPU Considerations
+
+**NVIDIA Zero-Copy:**
+- Wolf already handles NVIDIA DMA-BUF complexity
+- PipeWire to NVENC path is battle-tested (OBS uses this)
+- No additional work needed
+
+**AMD/Intel:**
+- VAAPI encoder works with PipeWire DMA-BUF
+- Same path as NVIDIA, just different encoder element
+
+**Software Fallback:**
+- If no GPU encoder, use `x264enc` or `vp9enc`
+- PipeWire provides SHM buffers automatically
+
+### Advantages Over Current Approach
+
+| Aspect | Current (waylandsink bridge) | Proposed (pipewiresrc direct) |
+|--------|------------------------------|-------------------------------|
+| Video path | GNOME → PipeWire → Wayland → capture | GNOME → PipeWire → encode |
+| Compositor | Required (gst-wayland-display) | Not needed |
+| Code to maintain | ~17K lines | ~500 lines (EIS integration) |
+| DMA-BUF handling | In compositor | In PipeWire/encoder |
+| Latency | +1 frame (compositor) | None |
+
 ## Conclusion
 
 The PipeWire bridge approach is **verified to support zero-copy DMA-BUF** across all components:
@@ -544,6 +774,107 @@ The PipeWire bridge approach is **verified to support zero-copy DMA-BUF** across
 - Sway → xdg-desktop-portal-wlr with DMA-BUF
 
 **Fallback:** When DMA-BUF isn't available (e.g., software rendering, NVIDIA issues), SHM path with CPU copy is used automatically.
+
+## GNOME 49 Screenshot D-Bus API Change
+
+**BREAKING CHANGE:** GNOME 49 changed the argument order for `org.gnome.Shell.Screenshot.Screenshot`:
+
+| Version | Signature | Argument Order |
+|---------|-----------|----------------|
+| GNOME 48 and earlier | `(sbb)` → `(bs)` | `filename, include_cursor, flash` |
+| GNOME 49+ | `(bbs)` → `(bs)` | `include_cursor, flash, filename` |
+
+The fix in `api/cmd/screenshot-server/main.go` reorders the arguments:
+
+```go
+// OLD (GNOME 48 and earlier):
+obj.Call("org.gnome.Shell.Screenshot.Screenshot", 0,
+    filename,  // s - first
+    true,      // b - second
+    false,     // b - third
+)
+
+// NEW (GNOME 49+):
+obj.Call("org.gnome.Shell.Screenshot.Screenshot", 0,
+    true,      // b - first (include_cursor)
+    false,     // b - second (flash)
+    filename,  // s - third (now last)
+)
+```
+
+**Discovery:** The D-Bus interface file at `/usr/share/dbus-1/interfaces/org.gnome.Shell.Screenshot.xml` in the container shows the new signature.
+
+## GNOME 49 Screenshot Security & ScreenCast Fallback
+
+**GNOME 49 has stricter security** - even registering as `org.gnome.Screenshot` on D-Bus doesn't bypass the allowlist check. The Screenshot D-Bus API returns "Screenshot is not allowed" for programmatic access in headless containers.
+
+**Solution:** Use the ScreenCast API (same as mutter-devkit uses) for screenshots:
+
+```
+screenshot-server → org.gnome.Shell.Screenshot (blocked)
+                  ↓ fallback
+screenshot-server → /usr/local/bin/gnome-screencast-screenshot.sh
+                  → org.gnome.Mutter.ScreenCast (NOT blocked)
+                  → PipeWire stream → GStreamer pipewiresrc → PNG
+```
+
+The helper script `gnome-screencast-screenshot.sh`:
+1. Creates a ScreenCast session via D-Bus
+2. Records the current monitor (or virtual display in headless)
+3. Captures one frame via GStreamer pipewiresrc
+4. Encodes as PNG and returns
+
+## mutter-devkit Fullscreen Behavior
+
+**Yes, mutter-devkit runs fullscreen by default.** The SDK viewer creates a fullscreen surface on its inherited `WAYLAND_DISPLAY` (Wolf's compositor).
+
+The fullscreen behavior is inherent to how mutter-devkit works:
+- It's designed to mirror the entire GNOME session
+- No windowed mode is needed since it's a 1:1 display bridge
+- The surface matches the GNOME session resolution
+
+## libei Input Forwarding Compatibility
+
+| Desktop | libei Support | Alternative |
+|---------|---------------|-------------|
+| **GNOME** (Mutter) | ✅ Full support | - |
+| **KDE** (KWin 6.0+) | ✅ Full support (added 2024) | - |
+| **Sway/wlroots** | ❌ Not supported | `/dev/uinput` or `wtype` |
+| **Hyprland** | ❌ Not supported | `/dev/uinput` |
+
+**libei** (Emulated Input Subsystem) is a freedesktop.org standard, but wlroots-based compositors haven't adopted it yet.
+
+**For Sway/wlroots input forwarding:**
+- Use `/dev/uinput` kernel interface directly
+- Or spawn `wtype` commands for keyboard input
+- Or use `ydotool` which works without X11
+
+## V2 Architecture: PipeWire Direct to Wolf Encoder
+
+**Implementation Effort:** Moderate (~2-3 days focused work)
+
+The V2 architecture eliminates gst-wayland-display by feeding PipeWire directly into Wolf's encoder:
+
+```
+Current:  GNOME → PipeWire → mutter-devkit → Wolf Compositor → Encoder
+V2:       GNOME → PipeWire → pipewiresrc → Wolf Encoder (directly)
+```
+
+**Changes required:**
+1. Replace `wlroot-src` with `pipewiresrc` in Wolf's GStreamer pipeline
+2. Pass PipeWire node ID from container to Wolf
+3. Add libei/uinput input forwarding (Wolf → container)
+4. Remove gst-wayland-display dependency for headless desktops
+
+**Benefits:**
+- Eliminates ~17K lines of Smithay compositor code
+- Removes one frame of latency (no compositor pass)
+- Simpler DMA-BUF path (PipeWire handles it)
+
+**Risks:**
+- Need to manage PipeWire node IDs across container boundary
+- Input forwarding adds complexity
+- May need per-desktop input handling (libei vs uinput)
 
 ## References
 

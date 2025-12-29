@@ -286,6 +286,7 @@ RUN apt-get update && apt-get install -y \
     imagemagick sudo \
     kde-spectacle \
     kitty \
+    scrot xclip \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background

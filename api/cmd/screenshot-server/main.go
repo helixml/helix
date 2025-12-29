@@ -430,21 +430,27 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 	obj := conn.Object("org.gnome.Shell", "/org/gnome/Shell/Screenshot")
 
 	// Call Screenshot method
-	// Screenshot(filename: s, include_cursor: b, flash: b) → (success: b, filename_used: s)
+	// GNOME 49+ signature: Screenshot(include_cursor: b, flash: b, filename: s) → (success: b, filename_used: s)
+	// Note: GNOME 49 changed the argument order - filename is now LAST (was first in older versions)
 	var success bool
 	var filenameUsed string
 	err = obj.Call("org.gnome.Shell.Screenshot.Screenshot", 0,
-		filename,  // filename
 		true,      // include_cursor
 		false,     // flash (disable flash for silent capture)
+		filename,  // filename (now last in GNOME 49+)
 	).Store(&success, &filenameUsed)
 
 	if err != nil {
-		return nil, "", fmt.Errorf("GNOME D-Bus screenshot failed: %w", err)
+		// GNOME 49+ has stricter security - the Screenshot D-Bus API may be blocked
+		// Fall back to ScreenCast-based screenshot which is NOT blocked
+		log.Printf("[GNOME] Screenshot D-Bus API failed (%v), trying ScreenCast fallback...", err)
+		return captureScreenshotGNOMEScreenCast(format, quality)
 	}
 
 	if !success {
-		return nil, "", fmt.Errorf("GNOME screenshot returned success=false")
+		// Also try ScreenCast fallback if the call succeeded but returned false
+		log.Printf("[GNOME] Screenshot D-Bus API returned success=false, trying ScreenCast fallback...")
+		return captureScreenshotGNOMEScreenCast(format, quality)
 	}
 
 	// Read the PNG file
@@ -464,6 +470,51 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 			return pngData, "png", nil
 		}
 		log.Printf("[GNOME] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
+		return jpegData, "jpeg", nil
+	}
+
+	return pngData, "png", nil
+}
+
+// captureScreenshotGNOMEScreenCast captures a screenshot using GNOME's ScreenCast API
+// This is the fallback method for GNOME 49+ where the Screenshot D-Bus API is blocked.
+// Uses org.gnome.Mutter.ScreenCast which is NOT blocked (same API that mutter-devkit uses).
+// Calls gnome-screencast-screenshot.sh helper script which:
+// 1. Creates a ScreenCast session via D-Bus
+// 2. Records the current monitor
+// 3. Captures one frame via GStreamer pipewiresrc
+// 4. Saves as PNG
+func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, string, error) {
+	log.Printf("[GNOME/ScreenCast] Capturing screenshot via ScreenCast API...")
+
+	// Create temp file for output
+	tmpDir := os.TempDir()
+	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(filename)
+
+	// Call the helper script
+	cmd := exec.Command("/usr/local/bin/gnome-screencast-screenshot.sh", filename)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, "", fmt.Errorf("ScreenCast screenshot failed: %v, output: %s", err, string(output))
+	}
+
+	// Read the screenshot file
+	pngData, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
+	}
+
+	log.Printf("[GNOME/ScreenCast] Screenshot captured (%d bytes PNG)", len(pngData))
+
+	// If JPEG is requested, convert PNG to JPEG
+	if format == "jpeg" {
+		jpegData, err := convertPNGtoJPEG(pngData, quality)
+		if err != nil {
+			log.Printf("[GNOME/ScreenCast] Failed to convert to JPEG, returning PNG: %v", err)
+			return pngData, "png", nil
+		}
+		log.Printf("[GNOME/ScreenCast] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
 		return jpegData, "jpeg", nil
 	}
 
@@ -527,18 +578,22 @@ func captureScreenshotKDE(format string, quality int) ([]byte, string, error) {
 		writeFd.Close()
 
 		if call.Err != nil {
-			return nil, "", fmt.Errorf("KWin D-Bus screenshot failed: %w", call.Err)
+			// D-Bus failed (likely authorization in Plasma 6.5+), fall back to X11
+			log.Printf("[KDE] D-Bus screenshot failed (%v), falling back to X11/scrot", call.Err)
+			return captureScreenshotKDEViaX11(format, quality)
 		}
 	}
 
 	// Read PNG data from the pipe
 	pngData, err := io.ReadAll(readFd)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to read screenshot from pipe: %w", err)
+		log.Printf("[KDE] Failed to read from pipe (%v), falling back to X11/scrot", err)
+		return captureScreenshotKDEViaX11(format, quality)
 	}
 
 	if len(pngData) == 0 {
-		return nil, "", fmt.Errorf("KWin returned empty screenshot data")
+		log.Printf("[KDE] D-Bus returned empty data, falling back to X11/scrot")
+		return captureScreenshotKDEViaX11(format, quality)
 	}
 
 	log.Printf("[KDE] D-Bus screenshot captured (%d bytes PNG)", len(pngData))
@@ -555,6 +610,58 @@ func captureScreenshotKDE(format string, quality int) ([]byte, string, error) {
 	}
 
 	return pngData, "png", nil
+}
+
+// captureScreenshotKDEViaX11 captures a screenshot using scrot via Xwayland
+// This is a fallback for KDE Plasma 6.5+ where D-Bus API requires portal authorization
+// KDE runs Xwayland at DISPLAY=:0, so scrot can capture the X11 view
+func captureScreenshotKDEViaX11(format string, quality int) ([]byte, string, error) {
+	// KDE runs Xwayland at :0
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		display = ":0" // Default for KDE's Xwayland
+	}
+
+	log.Printf("[KDE/X11] Capturing screenshot via scrot (DISPLAY=%s)", display)
+
+	// Check if scrot is available
+	scrotPath, err := exec.LookPath("scrot")
+	if err != nil {
+		return nil, "", fmt.Errorf("scrot not found: %w", err)
+	}
+
+	// Create temporary file for screenshot
+	tmpDir := os.TempDir()
+	var filename string
+	var outputFormat string
+
+	if format == "jpeg" {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
+		outputFormat = "jpeg"
+	} else {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+		outputFormat = "png"
+	}
+	defer os.Remove(filename)
+
+	// Use scrot for X11 screenshots
+	// -o = overwrite file, -z = silent mode, -p = capture mouse pointer, -q = quality (0-100)
+	cmd := exec.Command(scrotPath, "-o", "-z", "-p", "-q", fmt.Sprintf("%d", quality), filename)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, "", fmt.Errorf("scrot failed: %v, output: %s", err, string(output))
+	}
+
+	// Read the screenshot file
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
+	}
+
+	log.Printf("[KDE/X11] Screenshot captured as %s (%d bytes, quality=%d)", outputFormat, len(data), quality)
+	return data, outputFormat, nil
 }
 
 // convertPNGtoJPEG converts PNG image data to JPEG with specified quality

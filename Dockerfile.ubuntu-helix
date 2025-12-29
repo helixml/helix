@@ -97,6 +97,7 @@ ARG DE_PACKAGES=" \
     gstreamer1.0-plugins-good \
     gstreamer1.0-gl \
     wl-clipboard \
+    mutter-dev-bin \
     "
 
 # Install base packages, PPAs, and GNOME
@@ -418,14 +419,21 @@ export XDG_SESSION_DESKTOP=gnome
 export XDG_SESSION_TYPE=wayland
 export DESKTOP_SESSION=gnome
 
-# CRITICAL: Set WAYLAND_DISPLAY for client apps to use Mutter's socket
-# Architecture (see design/2025-12-28-kde-vs-sway-compositor-architecture.md):
-# - Wolf creates wayland-1 as the parent compositor for video streaming
-# - gnome-shell connects to wayland-1 as its parent (via --wayland-display below)
-# - Mutter creates wayland-0 for client applications
-# - All GNOME apps (nautilus, Zed, etc.) must connect to wayland-0
-export WAYLAND_DISPLAY=wayland-0
-gow_log "[start] Set WAYLAND_DISPLAY=wayland-0 (Mutter client socket)"
+# GNOME 49 Mutter SDK (--devkit) Architecture:
+# =============================================
+# When gnome-shell runs with --devkit, it:
+# 1. Creates wayland-0 for client applications (Zed, nautilus, etc.)
+# 2. Spawns mutter-devkit (the SDK viewer) which:
+#    - Connects to Mutter via ScreenCast D-Bus API
+#    - Renders the screen content to its WAYLAND_DISPLAY
+#
+# CRITICAL: mutter-devkit must output to Wolf's wayland display, not wayland-0!
+# So we keep WAYLAND_DISPLAY pointing to Wolf's display for gnome-shell --devkit.
+# Client apps will be launched with WAYLAND_DISPLAY=wayland-0 explicitly.
+#
+# This eliminates the need for a custom GStreamer bridge - mutter-devkit IS the bridge!
+
+gow_log "[start] Wolf display: $WOLF_WAYLAND_DISPLAY (mutter-devkit will render here)"
 
 gow_log "[start] Starting PipeWire + WirePlumber"
 pipewire &
@@ -433,20 +441,19 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
-# Start Helix services
+# Start Helix services - these need wayland-0 (Mutter's client socket)
 if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
   gow_log "[start] Starting settings-sync-daemon..."
-  XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
+  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
 fi
 
 if [ -x /usr/local/bin/screenshot-server ]; then
   gow_log "[start] Starting screenshot server with GNOME environment..."
-  # Uses org.gnome.Shell.Screenshot D-Bus API, registering as org.gnome.Screenshot
-  # to pass GNOME 41+'s allowlist check
-  XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+  # Uses org.gnome.Shell.Screenshot D-Bus API
+  WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
 fi
 
-# Launch Zed after GNOME Shell is ready
+# Launch Zed after GNOME Shell is ready - it needs wayland-0
 if [ -x /zed-build/zed ]; then
   (
     gow_log "[start] Waiting for GNOME Shell to start before launching Zed..."
@@ -458,33 +465,21 @@ if [ -x /zed-build/zed ]; then
       fi
       sleep 1
     done
-    gow_log "[start] Launching Zed (WAYLAND_DISPLAY=\$WAYLAND_DISPLAY)..."
-    /usr/local/bin/start-zed-helix.sh
+    gow_log "[start] Launching Zed (WAYLAND_DISPLAY=wayland-0)..."
+    WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
   ) &
 fi
 
-gow_log "[start] Starting GNOME Shell (headless/devkit mode)"
+gow_log "[start] Starting GNOME Shell (devkit mode)"
 
-# GNOME 49 removed --nested mode. We use --devkit which:
-# 1. Runs GNOME Shell in headless mode with a virtual display
-# 2. Exports the virtual display via PipeWire screen-cast
-# 3. We consume the PipeWire stream with GStreamer and render to Wolf
+# GNOME 49 Mutter SDK (--devkit):
+# - gnome-shell creates wayland-0 for client apps
+# - mutter-devkit spawned by --devkit inherits our WAYLAND_DISPLAY ($WOLF_WAYLAND_DISPLAY)
+# - mutter-devkit reads screen via ScreenCast API and renders to Wolf
+# - No custom GStreamer bridge needed!
 
-# Start the GStreamer bridge in background
-# This consumes PipeWire screen-cast and renders to Wolf's wayland-1
-(
-  gow_log "[start] Waiting for GNOME Shell to be ready..."
-  # Wait for GNOME Mutter ScreenCast D-Bus service
-  if gdbus wait --session --timeout 60 org.gnome.Mutter.ScreenCast; then
-    gow_log "[start] Starting PipeWire → Wolf bridge..."
-    WOLF_WAYLAND_DISPLAY=$WOLF_WAYLAND_DISPLAY /usr/local/bin/start-gnome-bridge.sh >> /tmp/gnome-bridge.log 2>&1
-  else
-    gow_log "[start] ERROR: GNOME Mutter ScreenCast not available"
-  fi
-) &
-
-# Start GNOME Shell in devkit mode
-# --devkit: Headless mode with PipeWire screen-cast export
+# Start GNOME Shell in devkit mode with Wolf's display
+# mutter-devkit will inherit this and output to Wolf
 gnome-shell --devkit
 GNOME_EOF
 
@@ -498,8 +493,9 @@ RUN chmod +x /opt/gow/startup.sh
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

@@ -1219,6 +1219,7 @@ gather_modifications() {
 
     if [ "$CONTROLPLANE" = true ]; then
         modifications+="  - Set up Docker Compose stack for Helix Control Plane ${LATEST_RELEASE}\n"
+        modifications+="  - Start/upgrade controlplane services and delete old Helix Docker images\n"
     fi
 
     if [ "$RUNNER" = true ]; then
@@ -1231,6 +1232,7 @@ gather_modifications() {
             fi
         fi
         modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
+        modifications+="  - Start/upgrade runner containers and delete old Helix runner images\n"
     fi
 
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
@@ -1248,6 +1250,7 @@ gather_modifications() {
 
     if [ "$SANDBOX" = true ]; then
         modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
+        modifications+="  - Start/upgrade sandbox container and delete old Helix sandbox images\n"
     fi
 
     echo -e "$modifications"
@@ -1473,6 +1476,76 @@ generate_encryption_key() {
     else
         # Use openssl for crypto-secure random bytes
         openssl rand -hex 32
+    fi
+}
+
+# Function to clean up old Helix Docker images that are no longer needed
+# This helps reclaim disk space after upgrades by removing old image versions
+# Parameters:
+#   $1 - image_prefix: Prefix pattern for images to clean (e.g., "registry.helixml.tech/helix/")
+#   $2 - keep_version: Version tag to keep (e.g., "1.5.0") - all other versions are removed
+#   $3 - image_filter: Optional filter pattern (e.g., "controlplane" or "runner")
+cleanup_old_helix_images() {
+    local image_prefix="${1:-registry.helixml.tech/helix/}"
+    local keep_version="${2:-}"
+    local image_filter="${3:-}"
+
+    echo ""
+    echo "🧹 Cleaning up old Docker images..."
+
+    # Safety check: don't clean up if we don't know what version to keep
+    if [ -z "$keep_version" ]; then
+        echo "   Skipping cleanup: no version specified to keep"
+        return 0
+    fi
+
+    # Get all Helix images matching the prefix (and optional filter)
+    local all_images
+    if [ -n "$image_filter" ]; then
+        all_images=$($DOCKER_CMD images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${image_prefix}" | grep "$image_filter" | sort -u)
+    else
+        all_images=$($DOCKER_CMD images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${image_prefix}" | sort -u)
+    fi
+
+    # Skip if no images found
+    if [ -z "$all_images" ]; then
+        echo "   No old images to clean up"
+        return 0
+    fi
+
+    local removed_count=0
+    local kept_count=0
+
+    # Remove images that don't match the version we're installing
+    while IFS= read -r image; do
+        # Skip images with <none> tags
+        if [[ "$image" == *":<none>"* ]]; then
+            continue
+        fi
+
+        # Extract the tag from the image
+        local image_tag="${image##*:}"
+
+        # Keep images matching the installed version (or containing it, e.g., "1.5.0-small")
+        if [ -n "$keep_version" ] && [[ "$image_tag" == *"$keep_version"* ]]; then
+            kept_count=$((kept_count + 1))
+        else
+            echo "   Removing old image: $image"
+            if $DOCKER_CMD rmi "$image" 2>/dev/null; then
+                removed_count=$((removed_count + 1))
+            fi
+        fi
+    done <<< "$all_images"
+
+    # Final summary
+    if [ "$removed_count" -gt 0 ]; then
+        echo "✅ Cleaned up $removed_count old image(s), kept $kept_count current image(s)"
+    else
+        if [ "$kept_count" -gt 0 ]; then
+            echo "   No old images to clean up (all $kept_count images are current version)"
+        else
+            echo "   No images matched cleanup criteria"
+        fi
     fi
 }
 
@@ -2036,50 +2109,33 @@ CADDYEOF"
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
         echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
-    # When sandbox is being installed with controlplane, we auto-start services later
+    # When sandbox is being installed with controlplane, we start services later (after sandbox setup)
     if [ "$SANDBOX" = true ]; then
         echo "│"
-        echo "│ Services will be started automatically."
+        echo "│ Services will be started automatically after sandbox setup."
         echo "│ Helix will be available at $API_HOST"
         echo "└───────────────────────────────────────────────────────────────────────────"
     else
+        # Always start/upgrade controlplane services
         echo "│"
-        echo "│ Start the Helix services by running:"
-        echo "│"
-        echo "│ cd $INSTALL_DIR"
-        if [ "$NEED_SUDO" = "true" ]; then
-            echo "│ sudo docker compose up -d --remove-orphans"
-        else
-            echo "│ docker compose up -d --remove-orphans"
-        fi
-        if [ "$CADDY" = true ]; then
-            echo "│ sudo systemctl restart caddy"
-        fi
-        echo "│"
-        echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-        echo "│ This will take a minute or so to boot."
+        echo "│ Starting Helix services..."
         echo "└───────────────────────────────────────────────────────────────────────────"
-    fi
-
-    # Auto-restart services if configs were changed and services are running
-    if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
-        # Check if wolf or moonlight-web containers are running
-        if $DOCKER_CMD ps --format '{{.Names}}' | grep -qE '^(wolf-1|moonlight-web-1)$'; then
-            echo
-            echo "Hostname configuration changed - restarting Wolf and Moonlight Web to apply..."
-            cd "$INSTALL_DIR"
-            if [ "$NEED_SUDO" = "true" ]; then
-                sudo docker compose down wolf moonlight-web
-                sudo docker compose up -d wolf moonlight-web
-            else
-                docker compose down wolf moonlight-web
-                docker compose up -d wolf moonlight-web
-            fi
-            echo "✓ Services restarted with new hostname configuration"
+        echo
+        cd "$INSTALL_DIR"
+        if [ "$NEED_SUDO" = "true" ]; then
+            sudo docker compose up -d --remove-orphans
         else
-            echo
-            echo "Note: Hostname configuration updated. Start services with: docker compose up -d"
+            docker compose up -d --remove-orphans
         fi
+        # Clean up old controlplane Docker images to free disk space
+        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
+        if [ "$CADDY" = true ]; then
+            echo "Restarting Caddy reverse proxy..."
+            sudo systemctl restart caddy
+        fi
+        echo
+        echo "✅ Helix $LATEST_RELEASE started"
+        echo "   Helix is available at $API_HOST"
     fi
 fi
 
@@ -2324,6 +2380,46 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
 done
 
 echo "Successfully started \$SPLIT_RUNNERS runner container(s)"
+
+# Clean up old runner images to free disk space
+echo ""
+echo "🧹 Cleaning up old runner Docker images..."
+
+# Safety check: don't clean up if RUNNER_TAG is empty
+if [ -z "\$RUNNER_TAG" ]; then
+    echo "   Skipping cleanup: no version specified to keep"
+else
+    # Get all runner images
+    ALL_RUNNER_IMAGES=\$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/runner" | sort -u)
+
+    REMOVED_COUNT=0
+    KEPT_COUNT=0
+    for image in \$ALL_RUNNER_IMAGES; do
+        # Extract the tag from the image
+        IMAGE_TAG="\${image##*:}"
+
+        # Keep images matching the installed version (RUNNER_TAG contains version like "1.5.0-small")
+        # RUNNER_TAG is set at the top of this script
+        if [[ "\$IMAGE_TAG" == "\$RUNNER_TAG" ]]; then
+            KEPT_COUNT=\$((KEPT_COUNT + 1))
+        else
+            echo "   Removing old image: \$image"
+            if docker rmi "\$image" 2>/dev/null; then
+                REMOVED_COUNT=\$((REMOVED_COUNT + 1))
+            fi
+        fi
+    done
+
+    if [ "\$REMOVED_COUNT" -gt 0 ]; then
+        echo "✅ Cleaned up \$REMOVED_COUNT old runner image(s), kept \$KEPT_COUNT current"
+    else
+        if [ "\$KEPT_COUNT" -gt 0 ]; then
+            echo "   No old runner images to clean up (all \$KEPT_COUNT images are current version)"
+        else
+            echo "   No runner images found to clean up"
+        fi
+    fi
+fi
 EOF
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -2332,16 +2428,17 @@ EOF
         sudo chmod +x $INSTALL_DIR/runner.sh
     fi
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
-    echo "┌───────────────────────────────────────────────────────────────────────────"
-    echo "│ To start the runner, run:"
-    echo "│"
+
+    # Always start/upgrade runner
+    echo
+    echo "Starting runner..."
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│   sudo $INSTALL_DIR/runner.sh"
+        sudo $INSTALL_DIR/runner.sh
     else
-        echo "│   $INSTALL_DIR/runner.sh"
+        $INSTALL_DIR/runner.sh
     fi
-    echo "│"
-    echo "└───────────────────────────────────────────────────────────────────────────"
+    echo
+    echo "✅ Runner started with version $RUNNER_TAG"
 fi
 
 # Install sandbox node if requested
@@ -2546,6 +2643,46 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
 
 if [ $? -eq 0 ]; then
     echo "✅ Helix Sandbox container started successfully"
+
+    # Clean up old sandbox images to free disk space
+    echo ""
+    echo "🧹 Cleaning up old sandbox Docker images..."
+
+    # Safety check: don't clean up if SANDBOX_TAG is empty
+    if [ -z "$SANDBOX_TAG" ]; then
+        echo "   Skipping cleanup: no version specified to keep"
+    else
+        # Get all sandbox images
+        ALL_SANDBOX_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "registry.helixml.tech/helix/helix-sandbox" | sort -u)
+
+        REMOVED_COUNT=0
+        KEPT_COUNT=0
+        for image in $ALL_SANDBOX_IMAGES; do
+            # Extract the tag from the image
+            IMAGE_TAG="${image##*:}"
+
+            # Keep images matching the installed version (SANDBOX_TAG is set at the top of this script)
+            if [ "$IMAGE_TAG" = "$SANDBOX_TAG" ]; then
+                KEPT_COUNT=$((KEPT_COUNT + 1))
+            else
+                echo "   Removing old image: $image"
+                if docker rmi "$image" 2>/dev/null; then
+                    REMOVED_COUNT=$((REMOVED_COUNT + 1))
+                fi
+            fi
+        done
+
+        if [ "$REMOVED_COUNT" -gt 0 ]; then
+            echo "✅ Cleaned up $REMOVED_COUNT old sandbox image(s), kept $KEPT_COUNT current"
+        else
+            if [ "$KEPT_COUNT" -gt 0 ]; then
+                echo "   No old sandbox images to clean up (all $KEPT_COUNT images are current version)"
+            else
+                echo "   No sandbox images found to clean up"
+            fi
+        fi
+    fi
+
     echo
     echo "To view logs: docker logs -f helix-sandbox"
     echo "To stop: docker stop helix-sandbox"
@@ -2601,6 +2738,8 @@ EOF
         else
             docker compose up -d --remove-orphans
         fi
+        # Clean up old controlplane Docker images to free disk space
+        cleanup_old_helix_images "registry.helixml.tech/helix/" "$LATEST_RELEASE"
         # Restart Caddy if it was installed (for HTTPS reverse proxy)
         if [ "$CADDY" = true ]; then
             echo "Restarting Caddy reverse proxy..."

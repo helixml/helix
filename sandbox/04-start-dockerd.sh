@@ -158,3 +158,100 @@ load_desktop_image() {
 load_desktop_image "sway" "true"
 load_desktop_image "zorin" "false"
 load_desktop_image "ubuntu" "false"
+load_desktop_image "kde" "false"
+
+# ================================================================================
+# Clean up old desktop images to free disk space
+# This removes old versions of helix-sway, helix-ubuntu, etc. that are no longer
+# needed after upgrading to new versions.
+#
+# How versioning works:
+# - Each desktop image is tagged with the first 6 chars of its Docker image ID
+#   (content-addressable hash), e.g., helix-sway:5874ee
+# - The .version file contains this same hash (e.g., "5874ee")
+# - When a new sandbox image is deployed, it contains new tarballs with new hashes
+# - Old images (e.g., helix-sway:abc123) remain in nested Docker and waste space
+#
+# Cleanup logic:
+# - Read the expected hash from each .version file
+# - Keep images matching that hash OR tagged as :latest
+# - Remove all other versions (old image hashes)
+# ================================================================================
+echo ""
+echo "🧹 Cleaning up old desktop images in nested Docker..."
+
+# First, build a list of expected versions from the embedded .version files
+# These are the versions we just loaded (or already had loaded)
+# This also tells us which desktop types exist (no hardcoded list needed)
+declare -A EXPECTED_VERSIONS
+DESKTOP_NAMES=""
+for version_file in /opt/images/helix-*.version; do
+    if [ -f "$version_file" ]; then
+        # Extract image name from filename (e.g., helix-sway from helix-sway.version)
+        IMAGE_NAME=$(basename "$version_file" .version)
+        EXPECTED_VERSIONS[$IMAGE_NAME]=$(cat "$version_file")
+        echo "   Expected version for $IMAGE_NAME: ${EXPECTED_VERSIONS[$IMAGE_NAME]}"
+        # Build list of desktop names for grep pattern
+        DESKTOP_NAME="${IMAGE_NAME#helix-}"  # Remove "helix-" prefix
+        if [ -z "$DESKTOP_NAMES" ]; then
+            DESKTOP_NAMES="$DESKTOP_NAME"
+        else
+            DESKTOP_NAMES="$DESKTOP_NAMES|$DESKTOP_NAME"
+        fi
+    fi
+done
+
+# Skip cleanup if no version files found (nothing to clean)
+if [ -z "$DESKTOP_NAMES" ]; then
+    echo "   No desktop version files found - skipping cleanup"
+else
+    # Get all helix-* desktop images matching known desktop types
+    # Pattern is built dynamically from .version files (e.g., "sway|ubuntu|kde")
+    ALL_DESKTOP_IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E "^helix-($DESKTOP_NAMES):" | sort -u)
+
+    REMOVED_COUNT=0
+    KEPT_COUNT=0
+
+    for image in $ALL_DESKTOP_IMAGES; do
+        # Skip images with <none> tags
+        if [[ "$image" == *":<none>"* ]]; then
+            continue
+        fi
+
+        # Parse image name and tag
+        IMAGE_NAME=$(echo "$image" | cut -d: -f1)
+        IMAGE_TAG=$(echo "$image" | cut -d: -f2)
+
+        # Get expected version for this desktop type
+        EXPECTED_VERSION="${EXPECTED_VERSIONS[$IMAGE_NAME]:-}"
+
+        # Safety: skip if we don't know the expected version for this desktop
+        if [ -z "$EXPECTED_VERSION" ]; then
+            KEPT_COUNT=$((KEPT_COUNT + 1))
+            continue
+        fi
+
+        # Keep images matching the expected version from .version file
+        # Remove everything else (old versions)
+        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ]; then
+            KEPT_COUNT=$((KEPT_COUNT + 1))
+        else
+            echo "   Removing old image: $image (expected version: $EXPECTED_VERSION)"
+            if docker rmi "$image" 2>/dev/null; then
+                REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            fi
+        fi
+    done
+
+    if [ "$REMOVED_COUNT" -gt 0 ]; then
+        echo "✅ Cleaned up $REMOVED_COUNT old desktop image(s), kept $KEPT_COUNT current image(s)"
+    else
+        if [ "$KEPT_COUNT" -gt 0 ]; then
+            echo "   No old desktop images to clean up (all $KEPT_COUNT images are current)"
+        else
+            echo "   No desktop images found to clean up"
+        fi
+    fi
+fi
+
+echo "✅ Desktop image cleanup complete"

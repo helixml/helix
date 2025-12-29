@@ -143,6 +143,10 @@ custom_launcher() {
     export XDG_CURRENT_DESKTOP=sway
     export XDG_SESSION_DESKTOP=sway
     export XDG_SESSION_TYPE=wayland
+    # CRITICAL: Force Wayland-only backend to prevent DRM assertion failure
+    # wlroots' legacy_drm_handle_device can fail when receiving DRM device
+    # info from Wolf's compositor. Setting WLR_BACKENDS=wayland prevents this.
+    export WLR_BACKENDS=wayland
 
     # Create waybar config directory (config files generated inline below)
     mkdir -p $HOME/.config/waybar

@@ -594,84 +594,96 @@ export WLR_NO_HARDWARE_CURSORS=1
 echo "Cursor environment variables set (WLR_NO_HARDWARE_CURSORS=1)"
 
 # ============================================================================
-# GNOME Session Startup (Native Wayland)
+# GNOME Session Startup (Mutter SDK for GNOME 49)
 # ============================================================================
-# Ubuntu 25.10 uses GNOME 47+ with excellent Wayland support.
-# We run gnome-shell as a nested compositor inside Wolf's Wayland.
-# See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
+# GNOME 49 removed --nested mode. We use --devkit (Mutter SDK) which:
+# 1. Runs GNOME Shell and creates wayland-0 for client apps
+# 2. Spawns mutter-devkit (the SDK viewer) which:
+#    - Connects to Mutter via ScreenCast D-Bus API
+#    - Renders the screen content to its inherited WAYLAND_DISPLAY
+#
+# CRITICAL: mutter-devkit IS the bridge! It reads from GNOME via ScreenCast
+# and outputs to Wolf's Wayland display. No custom GStreamer bridge needed.
+# See: design/2025-12-29-pipewire-wolf-bridge.md
 
-echo "Starting GNOME Shell on native Wayland..."
+# Save Wolf's Wayland display - mutter-devkit will output here
+export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+echo "Wolf Wayland display: $WOLF_WAYLAND_DISPLAY (mutter-devkit will render here)"
 
-# Enable nested mode for Mutter (running inside Wolf's compositor)
-export MUTTER_ALLOW_NESTED=1
+# DO NOT change WAYLAND_DISPLAY here - gnome-shell --devkit needs to inherit
+# Wolf's display so that mutter-devkit outputs to Wolf, not to wayland-0.
+# Client apps (Zed, etc.) will be launched with WAYLAND_DISPLAY=wayland-0 explicitly.
 
-# Save Wolf's Wayland display (wayland-1) before we change it for client apps
-WOLF_WAYLAND_DISPLAY=$WAYLAND_DISPLAY
-
-# Create GNOME start script
-# Note: Using non-quoted heredoc so $WOLF_WAYLAND_DISPLAY is captured at script creation
-cat <<GNOME_EOF > $XDG_RUNTIME_DIR/start_gnome
+# Create a script that runs inside dbus-run-session
+# This ensures all D-Bus dependent services have access to the session bus
+# Note: Using unquoted heredoc to expand WOLF_WAYLAND_DISPLAY at script creation time
+cat > /tmp/gnome-session.sh << GNOME_SESSION_EOF
 #!/bin/bash
-source /opt/gow/bash-lib/utils.sh 2>/dev/null || true
+set -e
 
-# Set GNOME environment
-export XDG_CURRENT_DESKTOP=GNOME
-export XDG_SESSION_DESKTOP=gnome
-export XDG_SESSION_TYPE=wayland
-export DESKTOP_SESSION=gnome
+# Environment variables captured from outer script
+export WOLF_WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
+export HELIX_API_BASE_URL="$HELIX_API_BASE_URL"
+export USER_API_TOKEN="$USER_API_TOKEN"
 
-# CRITICAL: Set WAYLAND_DISPLAY for client apps to use Mutter's socket
-# Architecture (see design/2025-12-28-kde-vs-sway-compositor-architecture.md):
-# - Wolf creates wayland-1 as the parent compositor for video streaming
-# - gnome-shell connects to wayland-1 as its parent (via --wayland-display below)
-# - Mutter creates wayland-0 for client applications
-# - All GNOME apps (nautilus, Zed, etc.) must connect to wayland-0
-export WAYLAND_DISPLAY=wayland-0
-echo "[GNOME] Set WAYLAND_DISPLAY=wayland-0 (Mutter client socket)"
+# CRITICAL: Keep WAYLAND_DISPLAY pointing to Wolf's display!
+# gnome-shell --devkit spawns mutter-devkit which inherits this.
+# mutter-devkit is the SDK viewer that reads GNOME's screen via ScreenCast
+# and outputs to this display (Wolf's Wayland compositor).
+export WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
 
-echo "[GNOME] Starting pipewire"
+echo "[gnome-session] Starting inside dbus-run-session..."
+echo "[gnome-session] WAYLAND_DISPLAY=\$WAYLAND_DISPLAY (mutter-devkit outputs here)"
+
+# Start PipeWire + WirePlumber (need D-Bus for portal integration)
+echo "[gnome-session] Starting PipeWire + WirePlumber..."
 pipewire &
+sleep 0.5
+wireplumber &
+sleep 0.5
 
-# Start Helix services
-if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
-  echo "[GNOME] Starting settings-sync-daemon..."
-  XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
-fi
-
-if [ -x /usr/local/bin/screenshot-server ]; then
-  echo "[GNOME] Starting screenshot server..."
-  # Uses org.gnome.Shell.Screenshot D-Bus API, registering as org.gnome.Screenshot
-  # to pass GNOME 41+'s allowlist check
-  XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
-fi
-
-# Launch Zed after GNOME Shell is ready
-if [ -x /zed-build/zed ] || [ -x /usr/local/bin/zed ]; then
-  (
-    echo "[GNOME] Waiting for GNOME Shell to start before launching Zed..."
-    for i in \$(seq 1 60); do
-      if pgrep -x gnome-shell > /dev/null 2>&1; then
-        echo "[GNOME] gnome-shell detected, waiting 2 more seconds for initialization..."
-        sleep 2
-        break
-      fi
-      sleep 1
+# Start Helix services FIRST - they need wayland-0 (Mutter's client socket)
+# Note: wayland-0 is created by gnome-shell, so we start these with a delay
+(
+    echo "[gnome-session] Waiting for Mutter to create wayland-0..."
+    for i in \$(seq 1 30); do
+        if [ -e "\$XDG_RUNTIME_DIR/wayland-0" ]; then
+            echo "[gnome-session] wayland-0 is ready"
+            break
+        fi
+        sleep 0.5
     done
-    echo "[GNOME] Launching Zed (WAYLAND_DISPLAY=\$WAYLAND_DISPLAY)..."
-    /usr/local/bin/start-zed-helix.sh
-  ) &
-fi
 
-echo "[GNOME] Starting GNOME Shell (nested Wayland, parent=$WOLF_WAYLAND_DISPLAY)"
+    if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
+        echo "[gnome-session] Starting settings-sync-daemon..."
+        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
+    fi
 
-# Start GNOME Shell in nested Wayland mode
-# --wayland: Force Wayland session (not X11)
-# --wayland-display: Connect to Wolf's Wayland socket (wayland-1, captured at script creation)
-# Note: gnome-shell runs nested by default; --display-server would make it primary
-exec gnome-shell --wayland --wayland-display=$WOLF_WAYLAND_DISPLAY
-GNOME_EOF
+    if [ -x /usr/local/bin/screenshot-server ]; then
+        echo "[gnome-session] Starting screenshot server..."
+        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+    fi
 
-chmod +x $XDG_RUNTIME_DIR/start_gnome
+    # Launch Zed after GNOME Shell is ready - it needs wayland-0
+    if [ -x /zed-build/zed ]; then
+        echo "[gnome-session] Waiting for GNOME Shell to fully initialize..."
+        sleep 2
+        echo "[gnome-session] Launching Zed (WAYLAND_DISPLAY=wayland-0)..."
+        WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
+    fi
+) &
 
-echo "Launching GNOME via dbus-run-session..."
-exec dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
+echo "[gnome-session] Starting GNOME Shell in devkit mode..."
+echo "[gnome-session] mutter-devkit will inherit WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
+
+# Start GNOME Shell in devkit mode
+# gnome-shell creates wayland-0 for client apps and spawns mutter-devkit
+# mutter-devkit inherits our WAYLAND_DISPLAY ($WOLF_WAYLAND_DISPLAY) and outputs to Wolf
+# This is the Mutter SDK approach - no custom GStreamer bridge needed!
+gnome-shell --devkit
+GNOME_SESSION_EOF
+
+chmod +x /tmp/gnome-session.sh
+
+echo "Starting GNOME session inside dbus-run-session..."
+exec dbus-run-session -- /tmp/gnome-session.sh
