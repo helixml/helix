@@ -1,0 +1,7 @@
+# Meson build directory
+build/
+builddir/
+
+# Editor files
+*.swp
+*~
