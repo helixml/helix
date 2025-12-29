@@ -28,7 +28,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
 # Ubuntu 25.10 uses GNOME 47+ which has excellent Wayland support.
-# Running on Wayland (not Xwayland) for better performance and stability.
+# Supports two modes:
+# 1. Nested mode: gnome-shell --wayland --wayland-display=wayland-1 (default)
+# 2. Headless mode: gnome-shell --headless + GStreamer bridge (experimental)
+#
+# The headless bridge uses GStreamer's pipewiresrc + waylandsink for
+# zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
 FROM ubuntu:25.10
 
 # Configure default user and set env (from GOW base-app)
@@ -84,6 +89,13 @@ ARG DE_PACKAGES=" \
     xdg-utils \
     pipewire \
     pipewire-audio \
+    wireplumber \
+    libpipewire-0.3-0 \
+    gnome-remote-desktop \
+    gstreamer1.0-pipewire \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-gl \
     wl-clipboard \
     "
 
@@ -466,8 +478,9 @@ RUN chmod +x /opt/gow/startup.sh
 # Helix helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
