@@ -22,6 +22,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import useAccount from '../../hooks/useAccount'
 import {
   useGetOrganizationGuidelinesHistory,
   useGetUserGuidelines,
@@ -39,6 +40,7 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization, isPersonalWorks
   const api = useApi()
   const snackbar = useSnackbar()
   const queryClient = useQueryClient()
+  const account = useAccount()
 
   // State declarations (must come before hooks that use them)
   const [orgGuidelines, setOrgGuidelines] = useState(organization?.guidelines || '')
@@ -49,16 +51,16 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization, isPersonalWorks
   const [personalDirty, setPersonalDirty] = useState(false)
 
   // Personal workspace guidelines hooks
-  const { data: userGuidelinesData } = useGetUserGuidelines(isPersonalWorkspace)
+  const { data: userGuidelinesData } = useGetUserGuidelines(isPersonalWorkspace && !!account.user)
   const updateUserGuidelinesMutation = useUpdateUserGuidelines()
   const { data: userGuidelinesHistory = [] } = useGetUserGuidelinesHistory(
-    isPersonalWorkspace && historyDialogOpen
+    isPersonalWorkspace && historyDialogOpen && !!account.user
   )
 
   // Guidelines history - only fetch when dialog is open
   const { data: orgGuidelinesHistory = [] } = useGetOrganizationGuidelinesHistory(
     organization?.id || '',
-    historyDialogOpen && !!organization?.id && !isPersonalWorkspace
+    historyDialogOpen && !!organization?.id && !isPersonalWorkspace && !!account.user
   )
 
   // Use the appropriate history based on context
@@ -129,6 +131,10 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization, isPersonalWorks
   const isSaving = isPersonalWorkspace ? updateUserGuidelinesMutation.isPending : orgSaving
 
   const handleGuidelinesChange = (value: string) => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
     if (isPersonalWorkspace) {
       handlePersonalGuidelinesChange(value)
     } else {
@@ -137,6 +143,10 @@ const GuidelinesView: FC<GuidelinesViewProps> = ({ organization, isPersonalWorks
   }
 
   const handleSave = () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
     if (isPersonalWorkspace) {
       handleSavePersonalGuidelines()
     } else {

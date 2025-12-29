@@ -35,7 +35,25 @@ const Tasks: FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
-  const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>() 
+  const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>()
+
+  const isLoggedIn = !!account.user
+
+  // Single helper to check login and show dialog if needed
+  const requireLogin = React.useCallback((): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }, [account])
+
+  // Show login dialog on mount if not logged in (only after account is initialized)
+  useEffect(() => {
+    if (account.initialized && !isLoggedIn) {
+      account.setShowLoginWindow(true)
+    }
+  }, [account.initialized, isLoggedIn])
 
   // Check if org slug is set in the URL
   const orgSlug = router.params.org_id || ''
@@ -51,7 +69,7 @@ const Tasks: FC = () => {
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || '',
     {
-      enabled: listTriggersEnabled && !!account.user,
+      enabled: listTriggersEnabled && isLoggedIn,
     }
   )
 
@@ -94,16 +112,8 @@ const Tasks: FC = () => {
     }
   }, [triggers?.data])
 
-  const checkLoginStatus = (): boolean => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
-    return true
-  }
-
   const handleCreateTask = (taskData?: TaskData) => {
-    if (!checkLoginStatus()) return
+    if (!requireLogin()) return
     
     setSelectedTask(undefined)
     setPrepopulatedTaskData(taskData)

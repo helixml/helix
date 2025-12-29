@@ -44,6 +44,24 @@ const Projects: FC = () => {
   const api = useApi()
   const apps = useApps()
 
+  const isLoggedIn = !!account.user
+
+  // Single helper to check login and show dialog if needed
+  const requireLogin = React.useCallback((): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }, [account])
+
+  // Show login dialog on mount if not logged in (only after account is initialized)
+  React.useEffect(() => {
+    if (account.initialized && !isLoggedIn) {
+      account.setShowLoginWindow(true)
+    }
+  }, [account.initialized, isLoggedIn])
+
   // Load apps on mount to get app names for project lozenges
   React.useEffect(() => {
     if (account.user?.id) {
@@ -67,8 +85,8 @@ const Projects: FC = () => {
   // Check if org slug is set in the URL
   // const orgSlug = router.params.org_id || ''
 
-  const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '')
-  const { data: sampleProjects = [] } = useListSampleProjects()
+  const { data: projects = [], isLoading, error } = useListProjects(account.organizationTools.organization?.id || '', { enabled: isLoggedIn })
+  const { data: sampleProjects = [] } = useListSampleProjects({ enabled: isLoggedIn })
   const instantiateSampleMutation = useInstantiateSampleProject()
 
   // Get tab from URL query parameter
@@ -85,8 +103,8 @@ const Projects: FC = () => {
   // List repos by organization_id when in org context, or by owner_id for personal workspace
   const { data: repositories = [], isLoading: reposLoading } = useGitRepositories(
     currentOrg?.id
-      ? { organizationId: currentOrg.id }
-      : { ownerId: account.user?.id }
+      ? { organizationId: currentOrg.id, enabled: isLoggedIn }
+      : { ownerId: account.user?.id, enabled: isLoggedIn }
   )
 
   // Repository dialog states
@@ -218,22 +236,14 @@ const Projects: FC = () => {
     handleMenuClose()
   }
 
-  const checkLoginStatus = (): boolean => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
-    return true
-  }
-
   const handleNewProject = () => {
-    if (!checkLoginStatus()) return
+    if (!requireLogin()) return
     setCreateDialogOpen(true)
   }
 
   // Step 1: User clicks on sample project - show agent selection modal
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
-    if (!checkLoginStatus()) return
+    if (!requireLogin()) return
 
     // Store the pending fork request and show agent selection modal
     setPendingSampleFork({ sampleId, sampleName })
@@ -418,7 +428,10 @@ const Projects: FC = () => {
             variant="outlined"
             size="small"
             startIcon={<Plus size={16} />}
-            onClick={() => setCreateRepoDialogOpen(true)}
+            onClick={() => {
+              if (!requireLogin()) return
+              setCreateRepoDialogOpen(true)
+            }}
             sx={{ textTransform: 'none', mr: 1 }}
           >
             New Repository
@@ -428,7 +441,10 @@ const Projects: FC = () => {
             color="secondary"
             size="small"
             startIcon={<Link size={16} />}
-            onClick={() => setLinkRepoDialogOpen(true)}
+            onClick={() => {
+              if (!requireLogin()) return
+              setLinkRepoDialogOpen(true)
+            }}
           >
             Link External Repository
           </Button>
@@ -440,7 +456,7 @@ const Projects: FC = () => {
         {currentView === 'projects' && (
           <ProjectsListView
             projects={projects}
-            error={error}
+            error={isLoggedIn ? error : null}
             searchQuery={projectsSearchQuery}
             onSearchChange={setProjectsSearchQuery}
             page={projectsPage}
@@ -472,8 +488,14 @@ const Projects: FC = () => {
             paginatedRepositories={paginatedRepositories}
             totalPages={reposTotalPages}
             onViewRepository={handleViewRepository}
-            onCreateRepo={() => setCreateRepoDialogOpen(true)}
-            onLinkExternalRepo={() => setLinkRepoDialogOpen(true)}
+            onCreateRepo={() => {
+              if (!requireLogin()) return
+              setCreateRepoDialogOpen(true)
+            }}
+            onLinkExternalRepo={() => {
+              if (!requireLogin()) return
+              setLinkRepoDialogOpen(true)
+            }}
           />
         )}
 

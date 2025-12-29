@@ -27,9 +27,9 @@ export const QUERY_KEYS = {
 
 // Custom hooks for git repository operations
 
-export function useGitRepositories(options?: { ownerId?: string; organizationId?: string; repoType?: string }) {
+export function useGitRepositories(options?: { ownerId?: string; organizationId?: string; repoType?: string; enabled?: boolean }) {
   const api = useApi();
-  const { ownerId, organizationId, repoType } = options || {};
+  const { ownerId, organizationId, repoType, enabled } = options || {};
 
   return useQuery({
     queryKey: [...QUERY_KEYS.gitRepositories, ownerId, organizationId, repoType],
@@ -47,6 +47,7 @@ export function useGitRepositories(options?: { ownerId?: string; organizationId?
         return dateB - dateA; // Descending order
       });
     },
+    enabled: enabled ?? true,
   });
 }
 
