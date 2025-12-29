@@ -416,6 +416,125 @@ wireplumber
 
 Wolf auto-detects PipeWire and captures audio without additional configuration.
 
+## Q&A: Design Decisions
+
+### Q: Doesn't this add NVIDIA zero-copy complexity like Wolf had?
+
+Wolf's gst-wayland-display went to extraordinary lengths for NVIDIA DMA-BUF support. However, PipeWire screen-cast is battle-tested by:
+- **OBS Studio** - Professional streaming software
+- **Discord/Slack** - Screen sharing in production
+- **GNOME Remote Desktop** - RDP/VNC for GNOME
+- **Firefox WebRTC** - Browser screen sharing
+
+The DMA-BUF path through PipeWire is **more mature** than nested Wayland compositor support.
+
+### Q: Aren't we adding another layer of complexity?
+
+No - we're **replacing** poorly-supported nested Wayland with well-supported PipeWire:
+
+| Approach | Support Status |
+|----------|---------------|
+| Nested Wayland (`--nested`) | Removed in GNOME 49 |
+| PipeWire screen-cast | Production use in OBS, Discord, browsers |
+
+The video path complexity is similar, just using different (better supported) plumbing.
+
+### Q: Why not use GStreamer's waylandsink directly instead of custom Rust bridge?
+
+**Answer:** We ARE using GStreamer! The bridge is just a shell script:
+```bash
+gst-launch-1.0 pipewiresrc path=$NODE_ID ! waylandsink
+```
+
+No custom code needed - just orchestration of existing tools.
+
+## Future Exploration: Eliminate Wolf + Moonlight Entirely?
+
+### The Idea
+
+PipeWire + WebRTC could potentially replace Wolf + Moonlight:
+
+```
+Current architecture:
+  GNOME → PipeWire → Wolf → Moonlight protocol → moonlight-web → Browser
+
+Proposed simplified architecture:
+  GNOME → PipeWire → GStreamer WebRTC → Browser (direct)
+```
+
+### What We'd Need
+
+| Component | Current | Proposed |
+|-----------|---------|----------|
+| **Video** | Wolf compositor + Moonlight encoding | `pipewiresrc` → GStreamer WebRTC → browser |
+| **Audio** | Wolf audio capture + Moonlight | PipeWire → GStreamer → WebRTC |
+| **Input** | Moonlight → Wolf → Wayland | Browser → WebSocket → libei → GNOME |
+
+### Benefits
+
+- **Eliminate Wolf** - No custom Wayland compositor
+- **Eliminate Moonlight protocol** - Standard WebRTC
+- **Simpler deployment** - Fewer moving parts
+- **Browser-native** - No moonlight-web-stream binary
+
+### Challenges
+
+1. **Hardware encoding** - Wolf uses VAAPI/NVENC. GStreamer WebRTC needs same.
+2. **Latency** - Moonlight is optimized for low-latency gaming. WebRTC may have higher latency.
+3. **Input latency** - WebSocket → libei adds round-trips vs Moonlight's direct input.
+4. **Existing investment** - Wolf + moonlight-web-stream already work.
+
+### Existing Project: Selkies-GStreamer
+
+[Selkies-GStreamer](https://github.com/selkies-project/selkies) already does this!
+
+**What it is:**
+- Open-source GStreamer → WebRTC streaming platform
+- Started by Google engineers, now maintained by UCSD
+- Designed for containers/Kubernetes (no special devices needed)
+- GPU-accelerated encoding (NVENC for NVIDIA, VAAPI for AMD/Intel)
+
+**Technical stack:**
+- `gst-python` for GStreamer bindings
+- `webrtcbin` for WebRTC output
+- Opus codec for audio
+- Python signaling server + HTML5 web interface
+
+**Relevance to Helix:**
+- Could potentially **replace Wolf + moonlight-web-stream entirely**
+- Already handles GPU encoding, WebRTC, input
+- Would need integration with GNOME headless + EIS input
+
+### Reuse Wolf's Existing GStreamer Pipelines
+
+Wolf already has battle-tested GStreamer encoding pipelines for VAAPI/NVENC.
+We could literally swap the output sink:
+
+```
+# Wolf's existing pipeline (simplified):
+source → vaapih264enc → moonlight-encoder → network
+
+# Modified for WebRTC (same encoding!):
+pipewiresrc → vaapih264enc → webrtcbin → browser
+```
+
+**What this means:**
+- **Zero new encoding work** - Reuse Wolf's GPU encoder code
+- **Just change output** - From Moonlight protocol to WebRTC
+- **Input via signaling** - WebRTC data channels → libei
+- **Audio unchanged** - PipeWire → Opus → WebRTC
+
+### Research Needed
+
+- [ ] Evaluate Selkies-GStreamer as Wolf replacement
+- [ ] Compare latency: Selkies vs Moonlight protocol
+- [ ] Integration with GNOME headless mode
+- [ ] EIS input handling in Selkies (or add it)
+
+### Verdict
+
+Worth exploring as a **v2 architecture** but the Wolf + PipeWire bridge approach should work for v1.
+
 ## Conclusion
 
 The PipeWire bridge approach is **verified to support zero-copy DMA-BUF** across all components:
