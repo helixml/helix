@@ -360,7 +360,8 @@ func (m *Manager) RegisterProvider(ctx context.Context, providerID string) (Prov
 }
 
 // StartOAuthFlow initiates the OAuth flow for a provider
-func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL string) (string, error) {
+// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
+func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redirectURL, metadata string) (string, error) {
 	log.Debug().Str("provider_id", providerID).Str("user_id", userID).Msg("Initiating OAuth flow")
 
 	provider, err := m.GetProvider(providerID)
@@ -371,7 +372,7 @@ func (m *Manager) StartOAuthFlow(ctx context.Context, userID, providerID, redire
 
 	log.Debug().Str("provider_id", providerID).Str("provider_name", provider.GetName()).Str("user_id", userID).Msg("Found provider, getting authorization URL")
 
-	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL)
+	authURL, err := provider.GetAuthorizationURL(ctx, userID, redirectURL, metadata)
 	if err != nil {
 		log.Error().Err(err).Str("provider_id", providerID).Str("user_id", userID).Msg("Failed to generate authorization URL")
 		return "", err
@@ -567,11 +568,20 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 		client.Transport = transport
 	}
 
+	// Determine the API URL - use provider's AuthURL for GitHub Enterprise detection
+	// AuthURL format: https://github.example.com/login/oauth/authorize
+	apiURL := "https://api.github.com/user/repos?sort=updated&per_page=10"
+	if connection.Provider.AuthURL != "" && !strings.Contains(connection.Provider.AuthURL, "github.com") {
+		// GitHub Enterprise - extract base URL and construct API URL
+		baseURL := strings.TrimSuffix(connection.Provider.AuthURL, "/login/oauth/authorize")
+		apiURL = baseURL + "/api/v3/user/repos?sort=updated&per_page=10"
+	}
+
 	// Create the request
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://api.github.com/user/repos?sort=updated&per_page=10",
+		apiURL,
 		nil,
 	)
 	if err != nil {

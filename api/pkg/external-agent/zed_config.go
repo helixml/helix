@@ -155,31 +155,29 @@ func GenerateZedMCPConfig(
 		},
 	}
 
-	// 1. Add Helix native tools as helix-cli MCP proxy
+	// 1. Add Helix native tools via HTTP MCP gateway (APIs, Knowledge, Zapier)
+	// Uses the unified MCP gateway at /api/v1/mcp/helix instead of helix-cli
+	// This allows external agents in sandboxes to access Helix tools without needing helix-cli installed
 	if assistant != nil && hasNativeTools(*assistant) {
+		helixMCPURL := fmt.Sprintf("%s/api/v1/mcp/helix?app_id=%s&session_id=%s", helixAPIURL, app.ID, sessionID)
 		config.ContextServers["helix-native"] = ContextServerConfig{
-			Command: "helix-cli",
-			Args: []string{
-				"mcp", "run",
-				"--app-id", app.ID,
-				"--user-id", userID,
-				"--session-id", sessionID,
-			},
-			Env: map[string]string{
-				"HELIX_URL":   helixAPIURL,
-				"HELIX_TOKEN": helixToken,
+			URL: helixMCPURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
 			},
 		}
 	}
 
-	// 2. Add Kodit MCP server for code intelligence (via Helix API proxy)
+	// 2. Add Kodit MCP server for code intelligence (via unified MCP gateway)
 	// Only add if Kodit is enabled - otherwise Zed will get 501 errors
 	if koditEnabled {
-		// The Helix proxy at /api/v1/kodit/mcp authenticates users and forwards to Kodit
-		// Note: Authorization header is injected by settings-sync-daemon with user's API key
-		koditMCPURL := fmt.Sprintf("%s/api/v1/kodit/mcp", helixAPIURL)
+		// The Helix MCP gateway at /api/v1/mcp/kodit authenticates users and forwards to Kodit
+		koditMCPURL := fmt.Sprintf("%s/api/v1/mcp/kodit", helixAPIURL)
 		config.ContextServers["kodit"] = ContextServerConfig{
 			URL: koditMCPURL,
+			Headers: map[string]string{
+				"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+			},
 		}
 	}
 

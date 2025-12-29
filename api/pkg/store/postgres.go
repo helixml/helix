@@ -133,6 +133,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthProvider{},
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
+		&types.GitProviderConnection{},
+		&types.ServiceConnection{},
 		&types.UsageMetric{},
 		&types.Model{},
 		&types.DynamicModelInfo{},
@@ -177,6 +179,9 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.WolfInstance{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
+		&types.PromptHistoryEntry{},
+		&types.GlobalCounter{},
+		&types.CloneGroup{},
 	)
 	if err != nil {
 		return err
@@ -579,6 +584,24 @@ func (s *PostgresStore) IncrementProjectTaskNumber(ctx context.Context, projectI
 		return 0, fmt.Errorf("error incrementing project task number: %w", err)
 	}
 	return currentNumber, nil
+}
+
+// IncrementGlobalTaskNumber atomically increments the global task counter and returns the new value
+// Uses INSERT ON CONFLICT (upsert) to handle first-time creation, then UPDATE RETURNING for atomicity
+// Returns the value AFTER incrementing (so first task gets 1, second gets 2, etc.)
+func (s *PostgresStore) IncrementGlobalTaskNumber(ctx context.Context) (int, error) {
+	var newNumber int
+	err := s.gdb.WithContext(ctx).Raw(`
+		INSERT INTO global_counters (name, value, updated_at)
+		VALUES ('task_number', 1, NOW())
+		ON CONFLICT (name) DO UPDATE
+		SET value = global_counters.value + 1, updated_at = NOW()
+		RETURNING value
+	`).Scan(&newNumber).Error
+	if err != nil {
+		return 0, fmt.Errorf("error incrementing global task number: %w", err)
+	}
+	return newNumber, nil
 }
 
 // ListProjects lists all projects for a given user

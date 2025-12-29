@@ -84,7 +84,8 @@ func (p *OAuth2Provider) GetType() types.OAuthProviderType {
 }
 
 // GetAuthorizationURL generates the authorization URL for the OAuth flow
-func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redirectURL string) (string, error) {
+// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
+func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string) (string, error) {
 	// Generate a random state
 	state, err := p.store.GenerateRandomState(ctx)
 	if err != nil {
@@ -96,6 +97,7 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 		UserID:     userID,
 		ProviderID: p.config.ID,
 		State:      state,
+		Metadata:   metadata,
 		ExpiresAt:  time.Now().Add(30 * time.Minute),
 	}
 
@@ -176,6 +178,7 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 		ProviderUserEmail: userInfo.Email,
 		ProviderUsername:  userInfo.DisplayName,
 		Profile:           userInfo,
+		Metadata:          requestToken.Metadata, // Transfer metadata from request token (e.g., organization_url for ADO)
 	}
 
 	return connection, nil

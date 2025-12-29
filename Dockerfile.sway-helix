@@ -95,6 +95,17 @@ RUN dpkg -i /tmp/wlroots/libwlroots12*.deb && rm -rf /tmp/wlroots
 # own keyboard layout instead of syncing to the parent compositor's layout.
 ENV WLR_IGNORE_PARENT_KEYBOARD_LAYOUT=1
 
+# RADV debug options for AMD MxGPU crash prevention
+# hang: Enables syncshaders internally, which serializes GPU commands
+# This prevents race conditions that cause GPU crashes on AMD Radeon Pro V710 MxGPU (Azure NVv5)
+# See: design/2025-12-17-zed-gpu-crash-amd-vm-version-mismatch.md
+ENV RADV_DEBUG=hang
+
+# RadeonSI (OpenGL) debug options for GL apps (Firefox, GNOME apps)
+# sync_compile: Always compile shaders synchronously (prevents race conditions)
+# check_vm: Check VM faults and dump debug info
+ENV AMD_DEBUG=sync_compile,check_vm
+
 # Add passwordless sudo and basic tools
 RUN apt-get update && \
     apt-get install -y sudo wget curl ca-certificates gnupg software-properties-common && \
@@ -226,7 +237,8 @@ RUN chmod 644 /cfg/sway/SWAY-USER-GUIDE.md
 # Copy and setup Zed startup script and helper scripts
 ADD wolf/sway-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/sway-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
 
 # Copy GOW startup script
 ADD wolf/sway-config/startup-app.sh /opt/gow/startup-app.sh

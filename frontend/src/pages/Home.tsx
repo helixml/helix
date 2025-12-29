@@ -131,9 +131,7 @@ const Home: FC = () => {
   )
 
   const { data: projects = [] } = useListProjects(account.organizationTools.organization?.id || '')
-  const { data: repositories = [] } = useGitRepositories({ organizationId: account.organizationTools.organization?.id })
   const [bannerDismissed, setBannerDismissed] = useState(false)
-  const hasExternalRepos = repositories.some(r => r.external_url)
 
   useEffect(() => {
     apps.loadApps()
@@ -293,7 +291,8 @@ const Home: FC = () => {
                 paddingX: '0 !important',
               }}>
                 {/* CTA Banner - Connect Your Codebase */}
-                {!bannerDismissed && !hasExternalRepos && (
+                {/* Always show unless dismissed (X only hides until page reload) */}
+                {!bannerDismissed && (
                   <Paper
                     elevation={0}
                     sx={{

@@ -20,7 +20,7 @@ import ExternalRepoForm from './forms/ExternalRepoForm'
 interface LinkExternalRepositoryDialogProps {
   open: boolean
   onClose: () => void
-  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string) => Promise<void>
+  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string, gitlabBaseUrl?: string) => Promise<void>
   isCreating: boolean
 }
 
@@ -32,24 +32,26 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
 }) => {
   const [url, setUrl] = useState('')
   const [name, setName] = useState('')
-  const [type, setType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
+  const [type, setType] = useState<TypesExternalRepositoryType>(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
   const [koditIndexing, setKoditIndexing] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [organizationUrl, setOrganizationUrl] = useState('')
   const [token, setToken] = useState('')
+  const [gitlabBaseUrl, setGitlabBaseUrl] = useState('')
 
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
       setUrl('')
       setName('')
-      setType(TypesExternalRepositoryType.ExternalRepositoryTypeADO)
+      setType(TypesExternalRepositoryType.ExternalRepositoryTypeGitHub)
       setKoditIndexing(true)
       setUsername('')
       setPassword('')
       setOrganizationUrl('')
       setToken('')
+      setGitlabBaseUrl('')
     }
   }, [open])
 
@@ -62,7 +64,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
       [TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket]: 'other',
     }
     const submitType = typeMap[type]
-    await onSubmit(url, name, submitType, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined)
+    await onSubmit(url, name, submitType, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined, gitlabBaseUrl || undefined)
   }
 
   const isSubmitDisabled = !url.trim() || isCreating || (type === TypesExternalRepositoryType.ExternalRepositoryTypeADO && (!organizationUrl.trim() || !token.trim()))
@@ -91,6 +93,8 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
             onOrganizationUrlChange={setOrganizationUrl}
             token={token}
             onTokenChange={setToken}
+            gitlabBaseUrl={gitlabBaseUrl}
+            onGitlabBaseUrlChange={setGitlabBaseUrl}
             size="medium"
           />
 

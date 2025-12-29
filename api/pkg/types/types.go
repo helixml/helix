@@ -92,6 +92,12 @@ const (
 	FeedbackDislike Feedback = "dislike"
 )
 
+// DesiredState constants for session reconciliation
+const (
+	DesiredStateRunning = "running" // Container should exist, reconciler will restart if missing
+	DesiredStateStopped = "stopped" // Container can be terminated, no auto-restart
+)
+
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
 
@@ -366,6 +372,7 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
@@ -1843,6 +1850,12 @@ type ZedAgent struct {
 	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
 	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
 	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
+
+	// Branch configuration (for starting on correct branch)
+	BranchMode    string `json:"branch_mode,omitempty"`    // "new" or "existing"
+	BaseBranch    string `json:"base_branch,omitempty"`    // For new mode: branch to create from
+	WorkingBranch string `json:"working_branch,omitempty"` // For existing mode: branch to checkout; for new mode: new branch name
+
 	// Video settings for streaming (Phase 3.5) - defaults to 1080p
 	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 1920)
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1080)

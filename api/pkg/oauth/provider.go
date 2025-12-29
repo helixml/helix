@@ -17,7 +17,8 @@ type Provider interface {
 	GetType() types.OAuthProviderType
 
 	// OAuth flow
-	GetAuthorizationURL(ctx context.Context, userID, redirectURL string) (string, error)
+	// metadata is optional JSON string with provider-specific data (e.g., organization_url for Azure DevOps)
+	GetAuthorizationURL(ctx context.Context, userID, redirectURL, metadata string) (string, error)
 	CompleteAuthorization(ctx context.Context, userID, code string) (*types.OAuthConnection, error)
 
 	// Token management

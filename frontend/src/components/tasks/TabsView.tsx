@@ -1,0 +1,1175 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  Box,
+  Typography,
+  IconButton,
+  Tooltip,
+  TextField,
+  keyframes,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  CircularProgress,
+  Chip,
+  Alert,
+} from '@mui/material'
+import {
+  Close as CloseIcon,
+  Add as AddIcon,
+  Circle as CircleIcon,
+  SplitscreenOutlined as SplitHorizontalIcon,
+  ViewColumn as SplitVerticalIcon,
+  MoreVert as MoreIcon,
+  Create as CreateIcon,
+  PlayArrow as PlayIcon,
+  Description as SpecIcon,
+  CheckCircle as ApproveIcon,
+  Launch as LaunchIcon,
+} from '@mui/icons-material'
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
+
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../../api/api'
+import useSnackbar from '../../hooks/useSnackbar'
+import useApi from '../../hooks/useApi'
+import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { getBrowserLocale } from '../../hooks/useBrowserLocale'
+import SpecTaskDetailContent from './SpecTaskDetailContent'
+import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
+import ArchiveConfirmDialog from './ArchiveConfirmDialog'
+
+// Pulse animation for active agent indicator
+const activePulse = keyframes`
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.7;
+  }
+`
+
+// Helper to check if agent is active (session updated within last 10 seconds)
+const isAgentActive = (sessionUpdatedAt?: string): boolean => {
+  if (!sessionUpdatedAt) return false
+  const updatedTime = new Date(sessionUpdatedAt).getTime()
+  const now = Date.now()
+  const diffSeconds = (now - updatedTime) / 1000
+  return diffSeconds < 10
+}
+
+// Hook to periodically check agent activity status
+const useAgentActivityCheck = (
+  sessionUpdatedAt?: string,
+  enabled: boolean = true
+): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
+  const [tick, setTick] = useState(0)
+  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!enabled || !sessionUpdatedAt) return
+    const interval = setInterval(() => setTick(t => t + 1), 3000)
+    return () => clearInterval(interval)
+  }, [enabled, sessionUpdatedAt])
+
+  const isActive = isAgentActive(sessionUpdatedAt)
+  const needsAttention = !isActive && sessionUpdatedAt !== lastSeenTimestamp && !!sessionUpdatedAt
+
+  const markAsSeen = () => {
+    if (sessionUpdatedAt) setLastSeenTimestamp(sessionUpdatedAt)
+  }
+
+  useEffect(() => {
+    if (isActive && lastSeenTimestamp) setLastSeenTimestamp(null)
+  }, [isActive, lastSeenTimestamp])
+
+  return { isActive, needsAttention, markAsSeen }
+}
+
+// Generate unique panel IDs
+let panelIdCounter = 0
+const generatePanelId = () => `panel-${++panelIdCounter}`
+
+interface TabData {
+  id: string
+  task: TypesSpecTask
+}
+
+interface PanelData {
+  id: string
+  tabs: TabData[]
+  activeTabId: string | null
+}
+
+interface PanelTabProps {
+  tab: TabData
+  isActive: boolean
+  onSelect: () => void
+  onClose: (e: React.MouseEvent) => void
+  onRename: (newTitle: string) => void
+  onDragStart: (e: React.DragEvent, tabId: string) => void
+}
+
+const PanelTab: React.FC<PanelTabProps> = ({
+  tab,
+  isActive,
+  onSelect,
+  onClose,
+  onRename,
+  onDragStart,
+}) => {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState('')
+
+  const { data: refreshedTask } = useSpecTask(tab.id, {
+    enabled: true,
+    refetchInterval: 3000,
+  })
+  const displayTask = refreshedTask || tab.task
+
+  const hasSession = !!(displayTask.planning_session_id)
+  const { isActive: isAgentActiveState, needsAttention, markAsSeen } = useAgentActivityCheck(
+    displayTask.session_updated_at,
+    hasSession
+  )
+
+  const displayTitle = displayTask.user_short_title
+    || displayTask.short_title
+    || displayTask.name?.substring(0, 20)
+    || 'Task'
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditValue(displayTask.user_short_title || displayTask.short_title || displayTask.name || '')
+    setIsEditing(true)
+  }
+
+  const handleEditSubmit = () => {
+    if (editValue.trim()) onRename(editValue.trim())
+    setIsEditing(false)
+  }
+
+  const handleClick = () => {
+    markAsSeen()
+    onSelect()
+  }
+
+  return (
+    <Box
+      draggable
+      onDragStart={(e) => onDragStart(e, tab.id)}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.5,
+        px: 1.5,
+        py: 0.5,
+        minWidth: 100,
+        maxWidth: 180,
+        cursor: 'grab',
+        backgroundColor: isActive ? 'background.paper' : 'transparent',
+        borderBottom: isActive ? '2px solid' : '2px solid transparent',
+        borderBottomColor: isActive ? 'primary.main' : 'transparent',
+        opacity: 1,
+        transition: 'all 0.15s ease',
+        '&:hover': {
+          backgroundColor: isActive ? 'background.paper' : 'action.hover',
+        },
+        '&:active': {
+          cursor: 'grabbing',
+        },
+      }}
+    >
+      {/* Activity indicator */}
+      {hasSession && (
+        <Box sx={{ display: 'flex', alignItems: 'center', mr: 0.5 }}>
+          {isAgentActiveState ? (
+            <Tooltip title="Agent is working">
+              <Box
+                sx={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  backgroundColor: '#22c55e',
+                  animation: `${activePulse} 1.5s ease-in-out infinite`,
+                }}
+              />
+            </Tooltip>
+          ) : needsAttention ? (
+            <Tooltip title="Agent finished">
+              <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#f59e0b' }} />
+            </Tooltip>
+          ) : (
+            <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'text.disabled', opacity: 0.3 }} />
+          )}
+        </Box>
+      )}
+
+      {isEditing ? (
+        <TextField
+          size="small"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleEditSubmit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); handleEditSubmit() }
+            else if (e.key === 'Escape') setIsEditing(false)
+          }}
+          autoFocus
+          onClick={(e) => e.stopPropagation()}
+          sx={{
+            flex: 1,
+            '& .MuiInputBase-input': { py: 0, px: 0.5, fontSize: '0.75rem' },
+            '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+          }}
+        />
+      ) : (
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{
+            flex: 1,
+            fontSize: '0.75rem',
+            fontWeight: isActive ? 600 : 400,
+            color: isActive ? 'text.primary' : 'text.secondary',
+          }}
+        >
+          {displayTitle}
+        </Typography>
+      )}
+
+      <IconButton
+        size="small"
+        onClick={onClose}
+        sx={{ p: 0.25, opacity: 0.5, '&:hover': { opacity: 1 } }}
+      >
+        <CloseIcon sx={{ fontSize: 12 }} />
+      </IconButton>
+    </Box>
+  )
+}
+
+// Single resizable panel with its own tabs
+interface TaskPanelProps {
+  panel: PanelData
+  tasks: TypesSpecTask[]
+  projectId?: string
+  onTabSelect: (panelId: string, tabId: string) => void
+  onTabClose: (panelId: string, tabId: string) => void
+  onTabRename: (tabId: string, newTitle: string) => void
+  onAddTab: (panelId: string, task: TypesSpecTask) => void
+  onTaskCreated: (panelId: string, task: TypesSpecTask) => void
+  onSplitPanel: (panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => void
+  onDropTab: (panelId: string, tabId: string, fromPanelId: string) => void
+  onClosePanel: (panelId: string) => void
+  panelCount: number
+}
+
+const TaskPanel: React.FC<TaskPanelProps> = ({
+  panel,
+  tasks,
+  projectId,
+  onTabSelect,
+  onTabClose,
+  onTabRename,
+  onAddTab,
+  onTaskCreated,
+  onSplitPanel,
+  onDropTab,
+  onClosePanel,
+  panelCount,
+}) => {
+  const api = useApi()
+  const snackbar = useSnackbar()
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createPrompt, setCreatePrompt] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [isActioning, setIsActioning] = useState(false)
+  const [dragOverEdge, setDragOverEdge] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
+  const [draggedFromPanelId, setDraggedFromPanelId] = useState<string | null>(null)
+
+  // Design review viewer state
+  const [designReviewOpen, setDesignReviewOpen] = useState(false)
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
+
+  // Archive/reject confirmation dialog state
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
+
+  const activeTab = panel.tabs.find(t => t.id === panel.activeTabId)
+  const unopenedTasks = tasks.filter(t => !panel.tabs.some(tab => tab.id === t.id))
+
+  // Get refreshed task data for the active tab (from the tasks prop which is periodically refetched)
+  const activeTask = activeTab ? tasks.find(t => t.id === activeTab.id) || activeTab.task : null
+
+  // Helper to get status display info
+  const getStatusInfo = (task: TypesSpecTask) => {
+    const status = task.status || ''
+    switch (status) {
+      case 'backlog':
+        return { label: 'Backlog', color: 'default' as const }
+      case 'spec_generation':
+        return { label: 'Planning', color: 'warning' as const }
+      case 'spec_review':
+        return { label: 'Review Spec', color: 'info' as const }
+      case 'implementation':
+        return { label: 'In Progress', color: 'success' as const }
+      case 'implementation_review':
+        return { label: 'Review Code', color: 'info' as const }
+      case 'pull_request':
+        return { label: 'Pull Request', color: 'secondary' as const }
+      case 'done':
+        return { label: 'Complete', color: 'success' as const }
+      default:
+        return { label: status, color: 'default' as const }
+    }
+  }
+
+  // Handle creating a new task
+  const handleCreateTask = async () => {
+    if (!createPrompt.trim()) {
+      snackbar.error('Please describe what you want to get done')
+      return
+    }
+
+    if (!projectId) {
+      snackbar.error('No project selected')
+      return
+    }
+
+    setIsCreating(true)
+    try {
+      const createTaskRequest: TypesCreateTaskRequest = {
+        prompt: createPrompt.trim(),
+        priority: TypesSpecTaskPriority.SpecTaskPriorityMedium,
+        project_id: projectId,
+      }
+
+      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest)
+
+      if (response.data) {
+        snackbar.success('Task created!')
+        setCreateDialogOpen(false)
+        setCreatePrompt('')
+        // Add the new task to this panel
+        onTaskCreated(panel.id, response.data)
+      }
+    } catch (err: any) {
+      console.error('Failed to create task:', err)
+      snackbar.error(err?.message || 'Failed to create task')
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  // Handle starting planning for a task
+  const handleStartPlanning = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const { keyboardLayout, timezone } = getBrowserLocale()
+      const queryParams = new URLSearchParams()
+      if (keyboardLayout) queryParams.set('keyboard', keyboardLayout)
+      if (timezone) queryParams.set('timezone', timezone)
+      const queryString = queryParams.toString()
+      const url = `/api/v1/spec-tasks/${activeTask.id}/start-planning${queryString ? `?${queryString}` : ''}`
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.message || `Failed to start planning: ${response.statusText}`)
+      }
+
+      snackbar.success('Planning started! Agent session will begin shortly.')
+    } catch (err: any) {
+      console.error('Failed to start planning:', err)
+      snackbar.error(err?.message || 'Failed to start planning. Please try again.')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle reviewing spec - opens design review viewer
+  const handleReviewSpec = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(activeTask.id)
+      const reviews = response.data?.reviews || []
+      if (reviews.length > 0) {
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+        setActiveReviewId(latestReview.id)
+        setDesignReviewOpen(true)
+      } else {
+        snackbar.error('No design review found')
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error)
+      snackbar.error('Failed to load design review')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle approving implementation
+  const handleApproveImplementation = async () => {
+    if (!activeTask?.id) return
+
+    setIsActioning(true)
+    try {
+      const response = await api.getApiClient().v1SpecTasksApproveImplementationCreate(activeTask.id)
+      if (response.data?.pull_request_url) {
+        snackbar.success(`Pull request opened! View PR: ${response.data.pull_request_url}`)
+      } else if (response.data?.pull_request_id) {
+        snackbar.success('Pull request #' + response.data.pull_request_id + ' opened - awaiting merge')
+      } else {
+        snackbar.success('Implementation approved! Agent will merge to your primary branch...')
+      }
+    } catch (err: any) {
+      console.error('Failed to approve implementation:', err)
+      snackbar.error(err?.response?.data?.message || 'Failed to approve implementation')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  // Handle rejecting task - show confirmation dialog
+  const handleRejectTask = () => {
+    if (!activeTask?.id) return
+    setArchiveConfirmOpen(true)
+  }
+
+  // Actually perform the archive operation (called after confirmation)
+  const performArchive = async () => {
+    if (!activeTask?.id) return
+
+    setArchiveConfirmOpen(false)
+    setIsActioning(true)
+    try {
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(activeTask.id, { archived: true })
+      snackbar.success('Task rejected and archived')
+      // Close the tab after archiving
+      onTabClose(panel.id, activeTask.id)
+    } catch (err: any) {
+      console.error('Failed to reject task:', err)
+      snackbar.error(err?.response?.data?.message || 'Failed to reject task')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    e.dataTransfer.setData('tabId', tabId)
+    e.dataTransfer.setData('fromPanelId', panel.id)
+    setDraggedTabId(tabId)
+    setDraggedFromPanelId(panel.id)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    const edgeThreshold = 60
+
+    if (x < edgeThreshold) setDragOverEdge('left')
+    else if (x > rect.width - edgeThreshold) setDragOverEdge('right')
+    else if (y < edgeThreshold) setDragOverEdge('top')
+    else if (y > rect.height - edgeThreshold) setDragOverEdge('bottom')
+    else setDragOverEdge(null)
+  }
+
+  const handleDragLeave = () => setDragOverEdge(null)
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    const tabId = e.dataTransfer.getData('tabId')
+    const fromPanelId = e.dataTransfer.getData('fromPanelId')
+
+    if (dragOverEdge) {
+      // Split the panel
+      const direction = (dragOverEdge === 'left' || dragOverEdge === 'right') ? 'horizontal' : 'vertical'
+      onSplitPanel(panel.id, direction, tabId)
+    } else if (fromPanelId !== panel.id) {
+      // Move tab to this panel
+      onDropTab(panel.id, tabId, fromPanelId)
+    }
+
+    setDragOverEdge(null)
+    setDraggedTabId(null)
+    setDraggedFromPanelId(null)
+  }
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        position: 'relative',
+        backgroundColor: 'background.default',
+      }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drop zone indicators */}
+      {dragOverEdge && (
+        <Box
+          sx={{
+            position: 'absolute',
+            ...(dragOverEdge === 'left' && { left: 0, top: 0, bottom: 0, width: '50%' }),
+            ...(dragOverEdge === 'right' && { right: 0, top: 0, bottom: 0, width: '50%' }),
+            ...(dragOverEdge === 'top' && { top: 0, left: 0, right: 0, height: '50%' }),
+            ...(dragOverEdge === 'bottom' && { bottom: 0, left: 0, right: 0, height: '50%' }),
+            backgroundColor: 'primary.main',
+            opacity: 0.15,
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* Tab bar */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          backgroundColor: 'background.paper',
+          minHeight: 32,
+        }}
+      >
+        <Box sx={{ display: 'flex', flex: 1, overflowX: 'auto', '&::-webkit-scrollbar': { height: 2 } }}>
+          {panel.tabs.map(tab => (
+            <PanelTab
+              key={tab.id}
+              tab={tab}
+              isActive={tab.id === panel.activeTabId}
+              onSelect={() => onTabSelect(panel.id, tab.id)}
+              onClose={(e) => { e.stopPropagation(); onTabClose(panel.id, tab.id) }}
+              onRename={(title) => onTabRename(tab.id, title)}
+              onDragStart={handleDragStart}
+            />
+          ))}
+        </Box>
+
+        {/* Panel actions */}
+        <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5 }}>
+          <Tooltip title="Add task">
+            <IconButton
+              size="small"
+              onClick={(e) => setMenuAnchor(e.currentTarget)}
+              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              <AddIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Split panel">
+            <IconButton
+              size="small"
+              onClick={() => onSplitPanel(panel.id, 'horizontal')}
+              sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              <SplitVerticalIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          {panelCount > 1 && (
+            <Tooltip title="Close panel">
+              <IconButton
+                size="small"
+                onClick={() => onClosePanel(panel.id)}
+                sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
+              >
+                <CloseIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {/* Task picker menu */}
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={() => setMenuAnchor(null)}
+          slotProps={{ paper: { sx: { maxHeight: 350, width: 250 } } }}
+        >
+          {/* Create new task option */}
+          {projectId && (
+            <>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchor(null)
+                  setCreateDialogOpen(true)
+                }}
+                sx={{ color: 'primary.main' }}
+              >
+                <ListItemIcon>
+                  <CreateIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Create New Task"
+                  primaryTypographyProps={{ fontWeight: 500, fontSize: '0.875rem' }}
+                />
+              </MenuItem>
+              <Divider />
+            </>
+          )}
+          {unopenedTasks.length === 0 ? (
+            <MenuItem disabled>
+              <ListItemText primary="All tasks are open" />
+            </MenuItem>
+          ) : (
+            unopenedTasks.slice(0, 20).map(task => (
+              <MenuItem
+                key={task.id}
+                onClick={() => {
+                  onAddTab(panel.id, task)
+                  setMenuAnchor(null)
+                }}
+              >
+                <ListItemIcon>
+                  <CircleIcon
+                    sx={{
+                      fontSize: 8,
+                      color:
+                        task.status === 'implementation' || task.status === 'spec_generation'
+                          ? '#22c55e'
+                          : task.status === 'spec_review'
+                          ? '#3b82f6'
+                          : '#9ca3af',
+                    }}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary={task.user_short_title || task.short_title || task.name?.substring(0, 30) || 'Task'}
+                  primaryTypographyProps={{ noWrap: true, fontSize: '0.875rem' }}
+                />
+              </MenuItem>
+            ))
+          )}
+        </Menu>
+      </Box>
+
+      {/* Action bar - shows state and action buttons for active task */}
+      {activeTask && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            px: 1.5,
+            py: 0.75,
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            flexWrap: 'wrap',
+          }}
+        >
+          {/* Status chip */}
+          <Chip
+            label={getStatusInfo(activeTask).label}
+            color={getStatusInfo(activeTask).color}
+            size="small"
+            sx={{ height: 22, fontSize: '0.7rem' }}
+          />
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Action buttons based on state */}
+          {activeTask.status === 'backlog' && (
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <PlayIcon />}
+              disabled={isActioning}
+              onClick={handleStartPlanning}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              Start Planning
+            </Button>
+          )}
+
+          {activeTask.status === 'spec_review' && (
+            <Button
+              size="small"
+              variant="contained"
+              color="info"
+              startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <SpecIcon />}
+              disabled={isActioning}
+              onClick={handleReviewSpec}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              Review Spec
+            </Button>
+          )}
+
+          {activeTask.status === 'implementation' && (
+            <>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                disabled={isActioning}
+                onClick={handleRejectTask}
+                sx={{ height: 26, fontSize: '0.75rem' }}
+              >
+                Reject
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                startIcon={isActioning ? <CircularProgress size={14} color="inherit" /> : <ApproveIcon />}
+                disabled={isActioning}
+                onClick={handleApproveImplementation}
+                sx={{ height: 26, fontSize: '0.75rem' }}
+              >
+                Accept
+              </Button>
+            </>
+          )}
+
+          {activeTask.status === 'pull_request' && activeTask.pull_request_url && (
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<LaunchIcon />}
+              onClick={() => window.open(activeTask.pull_request_url, '_blank')}
+              sx={{ height: 26, fontSize: '0.75rem' }}
+            >
+              View PR
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {/* Content area */}
+      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        {activeTab ? (
+          <SpecTaskDetailContent
+            key={activeTab.id}
+            taskId={activeTab.id}
+          />
+        ) : (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              gap: 1,
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              No task selected
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              Drag a tab here or click + to add
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
+      {/* Create task dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => !isCreating && setCreateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Task</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            rows={3}
+            placeholder="Describe what you want to get done..."
+            value={createPrompt}
+            onChange={(e) => setCreatePrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.metaKey) {
+                e.preventDefault()
+                handleCreateTask()
+              }
+            }}
+            disabled={isCreating}
+            sx={{ mt: 1 }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            Press ⌘+Enter to create
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)} disabled={isCreating}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateTask}
+            variant="contained"
+            disabled={isCreating || !createPrompt.trim()}
+            startIcon={isCreating ? <CircularProgress size={16} /> : undefined}
+          >
+            {isCreating ? 'Creating...' : 'Create Task'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Design Review Viewer */}
+      {designReviewOpen && activeTask && activeReviewId && (
+        <DesignReviewViewer
+          open={designReviewOpen}
+          onClose={() => {
+            setDesignReviewOpen(false)
+            setActiveReviewId(null)
+          }}
+          specTaskId={activeTask.id!}
+          reviewId={activeReviewId}
+        />
+      )}
+
+      {/* Archive Confirmation Dialog */}
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => setArchiveConfirmOpen(false)}
+        onConfirm={performArchive}
+        taskName={activeTask?.name || activeTask?.description}
+        isArchiving={isActioning}
+      />
+    </Box>
+  )
+}
+
+// Resize handle component
+const ResizeHandle: React.FC<{ direction: 'horizontal' | 'vertical' }> = ({ direction }) => (
+  <PanelResizeHandle
+    style={{
+      width: direction === 'horizontal' ? 4 : '100%',
+      height: direction === 'horizontal' ? '100%' : 4,
+      backgroundColor: 'transparent',
+      cursor: direction === 'horizontal' ? 'col-resize' : 'row-resize',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'background-color 0.15s',
+    }}
+  >
+    <Box
+      sx={{
+        width: direction === 'horizontal' ? 2 : '30%',
+        height: direction === 'horizontal' ? '30%' : 2,
+        backgroundColor: 'divider',
+        borderRadius: 1,
+        transition: 'all 0.15s',
+        '&:hover': {
+          backgroundColor: 'primary.main',
+          width: direction === 'horizontal' ? 3 : '40%',
+          height: direction === 'horizontal' ? '40%' : 3,
+        },
+      }}
+    />
+  </PanelResizeHandle>
+)
+
+interface TabsViewProps {
+  projectId?: string
+  tasks: TypesSpecTask[]
+  onCreateTask?: () => void
+  onRefresh?: () => void
+}
+
+const TabsView: React.FC<TabsViewProps> = ({
+  projectId,
+  tasks,
+  onCreateTask,
+  onRefresh,
+}) => {
+  const snackbar = useSnackbar()
+  const updateSpecTask = useUpdateSpecTask()
+
+  // Layout state: array of panel rows, each row has panels
+  // For simplicity, start with a single panel
+  const [panels, setPanels] = useState<PanelData[]>([])
+  const [layoutDirection, setLayoutDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+
+  // Initialize with first task
+  useEffect(() => {
+    if (panels.length === 0 && tasks.length > 0) {
+      const sortedTasks = [...tasks].sort((a, b) => {
+        const aDate = new Date(a.updated_at || a.created_at || 0).getTime()
+        const bDate = new Date(b.updated_at || b.created_at || 0).getTime()
+        return bDate - aDate
+      })
+      const firstTask = sortedTasks[0]
+      if (firstTask?.id) {
+        setPanels([{
+          id: generatePanelId(),
+          tabs: [{ id: firstTask.id, task: firstTask }],
+          activeTabId: firstTask.id,
+        }])
+      }
+    }
+  }, [tasks, panels.length])
+
+  const handleTabSelect = useCallback((panelId: string, tabId: string) => {
+    setPanels(prev => prev.map(p =>
+      p.id === panelId ? { ...p, activeTabId: tabId } : p
+    ))
+  }, [])
+
+  const handleTabClose = useCallback((panelId: string, tabId: string) => {
+    setPanels(prev => {
+      const panel = prev.find(p => p.id === panelId)
+      if (!panel) return prev
+
+      const newTabs = panel.tabs.filter(t => t.id !== tabId)
+
+      // If panel has no tabs left, remove it (unless it's the only panel)
+      if (newTabs.length === 0 && prev.length > 1) {
+        return prev.filter(p => p.id !== panelId)
+      }
+
+      let newActiveTabId = panel.activeTabId
+      if (panel.activeTabId === tabId && newTabs.length > 0) {
+        const closedIndex = panel.tabs.findIndex(t => t.id === tabId)
+        const newActiveIndex = Math.min(closedIndex, newTabs.length - 1)
+        newActiveTabId = newTabs[newActiveIndex]?.id || null
+      } else if (newTabs.length === 0) {
+        newActiveTabId = null
+      }
+
+      return prev.map(p =>
+        p.id === panelId ? { ...p, tabs: newTabs, activeTabId: newActiveTabId } : p
+      )
+    })
+  }, [])
+
+  const handleTabRename = useCallback(async (tabId: string, newTitle: string) => {
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: tabId,
+        updates: { user_short_title: newTitle },
+      })
+      snackbar.success('Tab renamed')
+    } catch (err) {
+      console.error('Failed to rename tab:', err)
+      snackbar.error('Failed to rename tab')
+    }
+  }, [updateSpecTask, snackbar])
+
+  const handleAddTab = useCallback((panelId: string, task: TypesSpecTask) => {
+    if (!task.id) return
+    setPanels(prev => prev.map(p => {
+      if (p.id !== panelId) return p
+      // Check if tab already exists
+      if (p.tabs.some(t => t.id === task.id)) {
+        return { ...p, activeTabId: task.id }
+      }
+      return {
+        ...p,
+        tabs: [...p.tabs, { id: task.id, task }],
+        activeTabId: task.id,
+      }
+    }))
+  }, [])
+
+  const handleSplitPanel = useCallback((panelId: string, direction: 'horizontal' | 'vertical', taskId?: string) => {
+    setPanels(prev => {
+      const panelIndex = prev.findIndex(p => p.id === panelId)
+      if (panelIndex === -1) return prev
+
+      const sourcePanel = prev[panelIndex]
+      let tabToMove: TabData | undefined
+      let newSourceTabs = sourcePanel.tabs
+
+      if (taskId) {
+        tabToMove = sourcePanel.tabs.find(t => t.id === taskId)
+        if (tabToMove) {
+          newSourceTabs = sourcePanel.tabs.filter(t => t.id !== taskId)
+        }
+      }
+
+      const newPanel: PanelData = {
+        id: generatePanelId(),
+        tabs: tabToMove ? [tabToMove] : [],
+        activeTabId: tabToMove?.id || null,
+      }
+
+      // Update layout direction if needed
+      setLayoutDirection(direction)
+
+      // Update source panel and add new panel
+      const updatedPanels = [...prev]
+      updatedPanels[panelIndex] = {
+        ...sourcePanel,
+        tabs: newSourceTabs,
+        activeTabId: newSourceTabs.length > 0
+          ? (newSourceTabs.some(t => t.id === sourcePanel.activeTabId)
+              ? sourcePanel.activeTabId
+              : newSourceTabs[0].id)
+          : null,
+      }
+      updatedPanels.splice(panelIndex + 1, 0, newPanel)
+
+      return updatedPanels
+    })
+  }, [])
+
+  const handleDropTab = useCallback((targetPanelId: string, tabId: string, fromPanelId: string) => {
+    setPanels(prev => {
+      const sourcePanel = prev.find(p => p.id === fromPanelId)
+      const targetPanel = prev.find(p => p.id === targetPanelId)
+      if (!sourcePanel || !targetPanel) return prev
+
+      const tabToMove = sourcePanel.tabs.find(t => t.id === tabId)
+      if (!tabToMove) return prev
+
+      // Check if already in target
+      if (targetPanel.tabs.some(t => t.id === tabId)) return prev
+
+      return prev.map(p => {
+        if (p.id === fromPanelId) {
+          const newTabs = p.tabs.filter(t => t.id !== tabId)
+          return {
+            ...p,
+            tabs: newTabs,
+            activeTabId: newTabs.length > 0
+              ? (newTabs.some(t => t.id === p.activeTabId) ? p.activeTabId : newTabs[0].id)
+              : null,
+          }
+        }
+        if (p.id === targetPanelId) {
+          return {
+            ...p,
+            tabs: [...p.tabs, tabToMove],
+            activeTabId: tabId,
+          }
+        }
+        return p
+      }).filter(p => p.tabs.length > 0 || prev.length <= 1)
+    })
+  }, [])
+
+  const handleClosePanel = useCallback((panelId: string) => {
+    setPanels(prev => {
+      if (prev.length <= 1) return prev
+      return prev.filter(p => p.id !== panelId)
+    })
+  }, [])
+
+  // Handle task created - add it to the specified panel
+  const handleTaskCreated = useCallback((panelId: string, task: TypesSpecTask) => {
+    if (!task.id) return
+    setPanels(prev => prev.map(p => {
+      if (p.id !== panelId) return p
+      // Add new task as a tab and make it active
+      return {
+        ...p,
+        tabs: [...p.tabs, { id: task.id!, task }],
+        activeTabId: task.id!,
+      }
+    }))
+  }, [])
+
+  // When no panels exist, show an empty panel with just a + button
+  if (panels.length === 0) {
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* Tab bar with just the + button */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            minHeight: 32,
+          }}
+        >
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5 }}>
+            <Tooltip title="Create new task">
+              <IconButton
+                size="small"
+                onClick={onCreateTask}
+                sx={{ opacity: 0.8, '&:hover': { opacity: 1 } }}
+              >
+                <AddIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+        {/* Empty state content */}
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            No tasks to display
+          </Typography>
+          <Typography variant="body2" color="text.disabled">
+            Click + above to create a task
+          </Typography>
+        </Box>
+      </Box>
+    )
+  }
+
+  return (
+    <Box sx={{ height: '100%', overflow: 'hidden' }}>
+      <PanelGroup orientation={layoutDirection} style={{ height: '100%' }}>
+        {panels.map((panel, index) => (
+          <React.Fragment key={panel.id}>
+            {index > 0 && <ResizeHandle direction={layoutDirection} />}
+            <Panel defaultSize={100 / panels.length} minSize={15}>
+              <TaskPanel
+                panel={panel}
+                tasks={tasks}
+                projectId={projectId}
+                onTabSelect={handleTabSelect}
+                onTabClose={handleTabClose}
+                onTabRename={handleTabRename}
+                onAddTab={handleAddTab}
+                onTaskCreated={handleTaskCreated}
+                onSplitPanel={handleSplitPanel}
+                onDropTab={handleDropTab}
+                onClosePanel={handleClosePanel}
+                panelCount={panels.length}
+              />
+            </Panel>
+          </React.Fragment>
+        ))}
+      </PanelGroup>
+    </Box>
+  )
+}
+
+export default TabsView

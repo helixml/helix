@@ -1,8 +1,6 @@
 package server
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,23 +17,7 @@ import (
 
 // getEncryptionKey retrieves the encryption key from environment or generates a default one
 func (apiServer *HelixAPIServer) getEncryptionKey() ([]byte, error) {
-	// Try to get from environment first
-	if key := os.Getenv("HELIX_ENCRYPTION_KEY"); key != "" {
-		if len(key) == 64 { // Hex-encoded 32-byte key
-			decoded, err := hex.DecodeString(key)
-			if err == nil && len(decoded) == 32 {
-				return decoded, nil
-			}
-		}
-		// Use SHA-256 hash of the key if not exactly 32 bytes
-		hash := sha256.Sum256([]byte(key))
-		return hash[:], nil
-	}
-
-	// Fallback: use SHA-256 of a default value (not recommended for production)
-	log.Warn().Msg("HELIX_ENCRYPTION_KEY not set, using default encryption key (INSECURE)")
-	hash := sha256.Sum256([]byte("helix-default-encryption-key"))
-	return hash[:], nil
+	return crypto.GetEncryptionKey()
 }
 
 // @Summary List SSH keys

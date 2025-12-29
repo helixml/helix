@@ -65,6 +65,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
+import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
 import specTaskService, {
   SpecTask,
@@ -390,9 +391,37 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Keyboard shortcut for creating new task (Enter key)
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Only trigger if not in an input field
+      // Only trigger if not in an interactive element
       const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+
+      // Skip if in form elements
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+        return
+      }
+
+      // Skip if in iframe (video stream)
+      if (target.tagName === 'IFRAME') {
+        return
+      }
+
+      // Skip if element is contentEditable
+      if (target.isContentEditable) {
+        return
+      }
+
+      // Skip if inside an element with role that expects keyboard input
+      const role = target.getAttribute('role')
+      if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+        return
+      }
+
+      // Skip if inside MoonlightStreamViewer or any video container
+      if (target.closest('[data-video-container]') || target.closest('.moonlight-stream-viewer')) {
+        return
+      }
+
+      // Skip if inside prompt input area
+      if (target.closest('[data-prompt-input]') || target.closest('.prompt-input-container')) {
         return
       }
 
@@ -1184,7 +1213,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'rgba(0, 0, 0, 0.06)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
-            Tasks
+            Project Workspace
           </Typography>
           {onCreateTask && (
             <Tooltip title="Press Enter">
@@ -1352,55 +1381,23 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       </Dialog>
 
       {/* Archive Confirmation Dialog */}
-      <Dialog open={archiveConfirmOpen} onClose={() => setArchiveConfirmOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600, fontSize: '1.125rem' }}>Archive Task?</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2, border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-              Archiving this task will:
-            </Typography>
-            <ul style={{ marginTop: 0, marginBottom: 0, paddingLeft: 20 }}>
-              <li><Typography variant="body2">Stop any running external agents</Typography></li>
-              <li><Typography variant="body2">Lose any unsaved data in the desktop</Typography></li>
-              <li><Typography variant="body2">Hide the task from the board</Typography></li>
-            </ul>
-          </Alert>
-          <Typography variant="body2" color="text.secondary">
-            The conversation history will be preserved and you can restore the task later.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button
-            onClick={() => {
-              setArchiveConfirmOpen(false);
-              setTaskToArchive(null);
-            }}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 500,
-              color: 'text.secondary',
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              if (taskToArchive) {
-                // Close dialog immediately so user can continue working
-                setArchiveConfirmOpen(false);
-                const task = taskToArchive;
-                setTaskToArchive(null);
-                // Fire off archive (spinner shows on card via archivingTaskId)
-                performArchive(task, true);
-              }
-            }}
-            variant="contained"
-            color="warning"
-          >
-            Archive Task
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ArchiveConfirmDialog
+        open={archiveConfirmOpen}
+        onClose={() => {
+          setArchiveConfirmOpen(false);
+          setTaskToArchive(null);
+        }}
+        onConfirm={() => {
+          if (taskToArchive) {
+            setArchiveConfirmOpen(false);
+            const task = taskToArchive;
+            setTaskToArchive(null);
+            performArchive(task, true);
+          }
+        }}
+        taskName={taskToArchive?.name}
+        isArchiving={!!archivingTaskId}
+      />
     </Box>
   );
 };

@@ -145,6 +145,18 @@ needs_processing() {
     return 1
 }
 
+# Check if project name is already specified in args
+has_project_flag() {
+    for arg in "$@"; do
+        case "$arg" in
+            -p|--project-name|-p=*|--project-name=*)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
 # Main logic
 if needs_processing "$@"; then
     # Get list of compose files
@@ -233,8 +245,20 @@ if needs_processing "$@"; then
             done
         fi
 
+        # Add unique project name per session (if not already specified)
+        # This isolates each sandbox session's docker compose stacks
+        # Prefer HELIX_TASK_NUMBER for human-readable names, fallback to HELIX_SESSION_ID
+        project_args=()
+        if ! has_project_flag "${new_args[@]}"; then
+            if [[ -n "$HELIX_TASK_NUMBER" ]]; then
+                project_args=("-p" "helix-task-${HELIX_TASK_NUMBER}")
+            elif [[ -n "$HELIX_SESSION_ID" ]]; then
+                project_args=("-p" "helix-${HELIX_SESSION_ID}")
+            fi
+        fi
+
         # Run compose and capture exit code, then clean up temp files
-        "$COMPOSE_REAL" "$PLUGIN_NAME" "${new_args[@]}"
+        "$COMPOSE_REAL" "$PLUGIN_NAME" "${project_args[@]}" "${new_args[@]}"
         exit_code=$?
         cleanup_tmp_files
         exit $exit_code
@@ -242,4 +266,14 @@ if needs_processing "$@"; then
 fi
 
 # Fall through - no processing needed or no compose files
-exec "$COMPOSE_REAL" "$PLUGIN_NAME" "$@"
+# Add unique project name per session (if not already specified)
+# Prefer HELIX_TASK_NUMBER for human-readable names, fallback to HELIX_SESSION_ID
+project_args=()
+if ! has_project_flag "$@"; then
+    if [[ -n "$HELIX_TASK_NUMBER" ]]; then
+        project_args=("-p" "helix-task-${HELIX_TASK_NUMBER}")
+    elif [[ -n "$HELIX_SESSION_ID" ]]; then
+        project_args=("-p" "helix-${HELIX_SESSION_ID}")
+    fi
+fi
+exec "$COMPOSE_REAL" "$PLUGIN_NAME" "${project_args[@]}" "$@"

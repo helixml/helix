@@ -460,7 +460,8 @@ RUN for size in 16 24 32 48 64 128 256; do \
 # Copy Zed startup script and helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh
+ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh
 
 # Copy GOW startup script (creates autostart entries and state symlinks)
 ADD wolf/ubuntu-config/startup-app.sh /opt/gow/startup.sh

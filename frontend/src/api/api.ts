@@ -690,6 +690,15 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPromptPinRequest {
+  pinned?: boolean;
+}
+
+export interface ServerPromptTagsRequest {
+  /** JSON array of tags */
+  tags?: string;
+}
+
 export interface ServerPushPullResponse {
   branch?: string;
   message?: string;
@@ -1416,6 +1425,12 @@ export interface TypesAgentWorkQueueTrigger {
   work_config?: TypesAgentWorkConfig;
 }
 
+export enum TypesAgentWorkState {
+  AgentWorkStateIdle = "idle",
+  AgentWorkStateWorking = "working",
+  AgentWorkStateDone = "done",
+}
+
 export interface TypesAggregatedUsageMetric {
   completion_cost?: number;
   completion_tokens?: number;
@@ -1719,6 +1734,7 @@ export enum TypesAuditEventType {
   AuditEventTaskApproved = "task_approved",
   AuditEventTaskCompleted = "task_completed",
   AuditEventTaskArchived = "task_archived",
+  AuditEventTaskUnarchived = "task_unarchived",
   AuditEventAgentPrompt = "agent_prompt",
   AuditEventUserMessage = "user_message",
   AuditEventAgentStarted = "agent_started",
@@ -1729,6 +1745,10 @@ export enum TypesAuditEventType {
   AuditEventPRCreated = "pr_created",
   AuditEventPRMerged = "pr_merged",
   AuditEventGitPush = "git_push",
+  AuditEventProjectCreated = "project_created",
+  AuditEventProjectDeleted = "project_deleted",
+  AuditEventProjectSettingsUpdated = "project_settings_updated",
+  AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
 }
 
 export interface TypesAuditMetadata {
@@ -1749,6 +1769,8 @@ export interface TypesAuditMetadata {
   implementation_plan_hash?: string;
   /** For scrolling to specific interaction in session view */
   interaction_id?: string;
+  /** Project information */
+  project_name?: string;
   /** Pull request information */
   pull_request_id?: string;
   pull_request_url?: string;
@@ -1776,12 +1798,30 @@ export interface TypesAuthenticatedResponse {
 }
 
 export interface TypesAzureDevOps {
+  /** App registration client ID */
+  client_id?: string;
+  /** App registration client secret */
+  client_secret?: string;
   organization_url?: string;
   personal_access_token?: string;
+  /**
+   * Service Principal authentication (service-to-service via Azure AD/Entra ID)
+   * Uses OAuth 2.0 client credentials flow for automated system access
+   */
+  tenant_id?: string;
 }
 
 export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
+}
+
+export interface TypesBitbucket {
+  /** Bitbucket App Password (recommended over regular password) */
+  app_password?: string;
+  /** For Bitbucket Server/Data Center (empty for bitbucket.org) */
+  base_url?: string;
+  /** Bitbucket username (required for API auth) */
+  username?: string;
 }
 
 export interface TypesBoardSettings {
@@ -1791,6 +1831,19 @@ export interface TypesBoardSettings {
 export enum TypesBranchMode {
   BranchModeNew = "new",
   BranchModeExisting = "existing",
+}
+
+export interface TypesBrowseRemoteRepositoriesRequest {
+  /** Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server) */
+  base_url?: string;
+  /** Organization URL (required for Azure DevOps) */
+  organization_url?: string;
+  /** Provider type: "github", "gitlab", "ado", "bitbucket" */
+  provider_type?: TypesExternalRepositoryType;
+  /** Personal Access Token or App Password for authentication */
+  token?: string;
+  /** Username for authentication (required for Bitbucket) */
+  username?: string;
 }
 
 export interface TypesChatCompletionMessage {
@@ -1920,6 +1973,7 @@ export interface TypesCloneTaskResponse {
 
 export interface TypesCloneTaskResult {
   project_id?: string;
+  project_name?: string;
   /** "created", "started", "failed" */
   status?: string;
   task_id?: string;
@@ -2066,6 +2120,8 @@ export interface TypesCreateTaskRequest {
   type?: string;
   /** Optional: Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** Optional: User email for audit trail */
+  user_email?: string;
   user_id?: string;
   /** For existing mode: branch to continue working on */
   working_branch?: string;
@@ -2368,6 +2424,21 @@ export interface TypesGPUStatus {
   used_memory?: number;
 }
 
+export interface TypesGitHub {
+  /**
+   * GitHub App authentication (service-to-service)
+   * When AppID and PrivateKey are set, uses GitHub App installation tokens
+   */
+  app_id?: number;
+  /** For GitHub Enterprise instances (empty for github.com) */
+  base_url?: string;
+  /** Installation ID for the app on the org/repo */
+  installation_id?: number;
+  personal_access_token?: string;
+  /** PEM-encoded private key for JWT signing */
+  private_key?: string;
+}
+
 export interface TypesGitHubWorkConfig {
   access_token?: string;
   /** Comment when starting work */
@@ -2381,8 +2452,49 @@ export interface TypesGitHubWorkConfig {
   repo_owner?: string;
 }
 
+export interface TypesGitLab {
+  /** For self-hosted GitLab instances (empty for gitlab.com) */
+  base_url?: string;
+  personal_access_token?: string;
+}
+
+export interface TypesGitProviderConnection {
+  avatar_url?: string;
+  /** For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com) */
+  base_url?: string;
+  created_at?: string;
+  deleted_at?: GormDeletedAt;
+  email?: string;
+  id?: string;
+  /** Last successful connection test */
+  last_tested_at?: string;
+  /** Display name for the connection (e.g., "My GitHub Account") */
+  name?: string;
+  /** For Azure DevOps: organization URL */
+  organization_url?: string;
+  /** Provider type: github, gitlab, ado */
+  provider_type?: TypesExternalRepositoryType;
+  updated_at?: string;
+  /** User who owns this connection (PAT is personal, not org-level) */
+  user_id?: string;
+  /** User info from the provider (cached from last successful auth) */
+  username?: string;
+}
+
+export interface TypesGitProviderConnectionCreateRequest {
+  /** Username for authentication (required for Bitbucket) */
+  auth_username?: string;
+  base_url?: string;
+  name?: string;
+  organization_url?: string;
+  provider_type?: TypesExternalRepositoryType;
+  token?: string;
+}
+
 export interface TypesGitRepository {
+  /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
@@ -2393,6 +2505,8 @@ export interface TypesGitRepository {
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   id?: string;
   /** External repository fields */
   is_external?: boolean;
@@ -2404,6 +2518,11 @@ export interface TypesGitRepository {
   /** Stores Metadata as JSON */
   metadata?: Record<string, any>;
   name?: string;
+  /**
+   * OAuth connection ID - references an OAuthConnection for authentication
+   * When set, uses the OAuth access token instead of username/password or PAT
+   */
+  oauth_connection_id?: string;
   /** Organization ID - will be backfilled for existing repos */
   organization_id?: string;
   owner_id?: string;
@@ -2423,13 +2542,17 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
+  /** Provider-specific settings */
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   initial_files?: Record<string, string>;
   /** True for GitHub/GitLab/ADO, false for Helix-hosted */
   is_external?: boolean;
@@ -2437,6 +2560,8 @@ export interface TypesGitRepositoryCreateRequest {
   kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** OAuth connection ID - references an OAuthConnection for authentication */
+  oauth_connection_id?: string;
   /** Organization ID - required for access control */
   organization_id?: string;
   owner_id?: string;
@@ -2471,15 +2596,20 @@ export enum TypesGitRepositoryType {
 
 export interface TypesGitRepositoryUpdateRequest {
   azure_devops?: TypesAzureDevOps;
+  bitbucket?: TypesBitbucket;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
   external_type?: TypesExternalRepositoryType;
   external_url?: string;
+  github?: TypesGitHub;
+  gitlab?: TypesGitLab;
   /** Enable Kodit code intelligence indexing (pointer to distinguish unset from false) */
   kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
+  /** OAuth connection for authentication */
+  oauth_connection_id?: string;
   password?: string;
   username?: string;
 }
@@ -2868,6 +2998,14 @@ export enum TypesLLMCallStep {
 export interface TypesListCommitsResponse {
   commits?: TypesCommit[];
   external_status?: TypesExternalStatus;
+  page?: number;
+  per_page?: number;
+  /** Pagination info */
+  total?: number;
+}
+
+export interface TypesListOAuthRepositoriesResponse {
+  repositories?: TypesRepositoryInfo[];
 }
 
 export interface TypesLoginRequest {
@@ -3050,6 +3188,8 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeGoogle = "google",
   OAuthProviderTypeMicrosoft = "microsoft",
   OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeGitLab = "gitlab",
+  OAuthProviderTypeAzureDevOps = "azure_devops",
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
   OAuthProviderTypeHubSpot = "hubspot",
@@ -3064,6 +3204,8 @@ export interface TypesOAuthUserInfo {
   name?: string;
   /** Raw JSON response from provider */
   raw?: string;
+  /** Provider-specific username (e.g., GitHub login) */
+  username?: string;
 }
 
 export interface TypesOpenAIMessage {
@@ -3336,6 +3478,86 @@ export interface TypesProjectUpdateRequest {
   technologies?: string[];
 }
 
+export interface TypesPromptHistoryEntry {
+  /** Content */
+  content?: string;
+  /** Timestamps */
+  created_at?: string;
+  /** Composite primary key: ID is globally unique, but we also index by user+spec_task */
+  id?: string;
+  /**
+   * Interrupt indicates this message should interrupt the current conversation
+   * When false, message waits until current conversation completes
+   */
+  interrupt?: boolean;
+  /** Saved as a reusable template */
+  is_template?: boolean;
+  /** Last time reused */
+  last_used_at?: string;
+  /** Library features for prompt reuse */
+  pinned?: boolean;
+  /** For reference, but primary grouping is by spec_task */
+  project_id?: string;
+  /**
+   * QueuePosition tracks ordering for drag-and-drop reordering
+   * Lower values = earlier in queue. Null for sent messages.
+   */
+  queue_position?: number;
+  /** Optional - which session this was sent to */
+  session_id?: string;
+  spec_task_id?: string;
+  /**
+   * Status tracks whether this was successfully sent
+   * Values: "pending", "sent", "failed"
+   */
+  status?: string;
+  /** JSON array of user-defined tags */
+  tags?: string;
+  updated_at?: string;
+  /** How many times reused */
+  usage_count?: number;
+  user_id?: string;
+}
+
+export interface TypesPromptHistoryEntrySync {
+  content?: string;
+  id?: string;
+  /** If true, interrupts current conversation */
+  interrupt?: boolean;
+  /** If true, saved as a reusable template */
+  is_template?: boolean;
+  /** If true, pinned by user */
+  pinned?: boolean;
+  /** Position in queue for drag-and-drop ordering */
+  queue_position?: number;
+  session_id?: string;
+  status?: string;
+  /** JSON array of tags */
+  tags?: string;
+  /** Unix timestamp in milliseconds */
+  timestamp?: number;
+}
+
+export interface TypesPromptHistoryListResponse {
+  entries?: TypesPromptHistoryEntry[];
+  total?: number;
+}
+
+export interface TypesPromptHistorySyncRequest {
+  entries?: TypesPromptHistoryEntrySync[];
+  project_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesPromptHistorySyncResponse {
+  /** All entries for this user+project (for client merge) */
+  entries?: TypesPromptHistoryEntry[];
+  /** Number that already existed */
+  existing?: number;
+  /** Number of entries synced */
+  synced?: number;
+}
+
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
@@ -3507,6 +3729,19 @@ export interface TypesRegisterRequest {
   full_name?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesRepositoryInfo {
+  /** HTTPS clone URL */
+  clone_url?: string;
+  default_branch?: string;
+  description?: string;
+  /** e.g., "owner/repo" for GitHub or "group/project" for GitLab */
+  full_name?: string;
+  /** Web URL to view the repository */
+  html_url?: string;
+  name?: string;
+  private?: boolean;
 }
 
 export enum TypesResource {
@@ -3743,6 +3978,67 @@ export interface TypesServerConfigForFrontend {
   version?: string;
 }
 
+export interface TypesServiceConnectionCreateRequest {
+  ado_client_id?: string;
+  ado_client_secret?: string;
+  /** Azure DevOps Service Principal fields */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  /** Base URL for enterprise/self-hosted instances */
+  base_url?: string;
+  description?: string;
+  /** GitHub App fields */
+  github_app_id?: number;
+  github_installation_id?: number;
+  github_private_key?: string;
+  name?: string;
+  type?: TypesServiceConnectionType;
+}
+
+export interface TypesServiceConnectionResponse {
+  ado_client_id?: string;
+  /** Azure DevOps Service Principal (non-sensitive fields only) */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  base_url?: string;
+  created_at?: string;
+  description?: string;
+  /** GitHub App (non-sensitive fields only) */
+  github_app_id?: number;
+  github_installation_id?: number;
+  has_ado_client_secret?: boolean;
+  has_github_private_key?: boolean;
+  id?: string;
+  last_error?: string;
+  last_tested_at?: string;
+  name?: string;
+  organization_id?: string;
+  provider_type?: TypesExternalRepositoryType;
+  type?: TypesServiceConnectionType;
+  updated_at?: string;
+}
+
+export enum TypesServiceConnectionType {
+  ServiceConnectionTypeGitHubApp = "github_app",
+  ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
+}
+
+export interface TypesServiceConnectionUpdateRequest {
+  ado_client_id?: string;
+  ado_client_secret?: string;
+  /** Azure DevOps Service Principal fields (only update if provided) */
+  ado_organization_url?: string;
+  ado_tenant_id?: string;
+  /** Base URL for enterprise/self-hosted instances */
+  base_url?: string;
+  description?: string;
+  /** GitHub App fields (only update if provided) */
+  github_app_id?: number;
+  github_installation_id?: number;
+  github_private_key?: string;
+  name?: string;
+}
+
 export interface TypesSession {
   /** named config for backward compat */
   config?: TypesSessionMetadata;
@@ -3858,6 +4154,8 @@ export interface TypesSessionMetadata {
   avatar?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
+  /** "running" = should be running, "stopped" = can terminate */
+  desired_state?: string;
   document_group_id?: string;
   document_ids?: Record<string, string>;
   eval_automatic_reason?: string;
@@ -4044,6 +4342,8 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /** Current agent work state (idle/working/done) from activity tracking */
+  agent_work_state?: TypesAgentWorkState;
   /** Archive to hide from main view */
   archived?: boolean;
   /** The base branch this was created from */
@@ -4083,6 +4383,8 @@ export interface TypesSpecTask {
   /** Skip spec planning, go straight to implementation */
   just_do_it_mode?: boolean;
   labels?: string[];
+  /** Last prompt sent to agent (for continue functionality) */
+  last_prompt_content?: string;
   /** When branch was last pushed */
   last_push_at?: string;
   /** Git tracking */
@@ -4111,6 +4413,13 @@ export interface TypesSpecTask {
   pull_request_url?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
+  /** Agent activity tracking (computed from session/activity data, not stored) */
+  session_updated_at?: string;
+  /**
+   * Short title for tab display (auto-generated from agent writing short-title.txt)
+   * UserShortTitle takes precedence if set (user override)
+   */
+  short_title?: string;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;
@@ -4132,6 +4441,8 @@ export interface TypesSpecTask {
   updated_at?: string;
   /** Use host Docker socket (requires privileged sandbox) */
   use_host_docker?: boolean;
+  /** User override */
+  user_short_title?: string;
   workspace_config?: number[];
   /** Multi-session support */
   zed_instance_id?: string;
@@ -4388,6 +4699,8 @@ export interface TypesSpecTaskUpdateRequest {
   name?: string;
   priority?: TypesSpecTaskPriority;
   status?: TypesSpecTaskStatus;
+  /** User override for tab title (pointer to allow clearing with empty string) */
+  user_short_title?: string;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4804,6 +5117,37 @@ export enum TypesTriggerType {
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
   TriggerTypeAgentWorkQueue = "agent_work_queue",
+}
+
+export interface TypesUnifiedSearchResponse {
+  /** Echo back query */
+  query?: string;
+  results?: TypesUnifiedSearchResult[];
+  /** Total results across all types */
+  total?: number;
+}
+
+export interface TypesUnifiedSearchResult {
+  /** ISO timestamp */
+  created_at?: string;
+  /** Brief description/content preview */
+  description?: string;
+  /** Icon hint for UI */
+  icon?: string;
+  /** Entity ID */
+  id?: string;
+  /** Additional context (status, owner, etc) */
+  metadata?: Record<string, string>;
+  /** Relevance score */
+  score?: number;
+  /** Display title */
+  title?: string;
+  /** "project", "task", "session", "prompt" */
+  type?: string;
+  /** ISO timestamp */
+  updated_at?: string;
+  /** Frontend URL to navigate to */
+  url?: string;
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6801,6 +7145,99 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List all PAT-based git provider connections for the current user
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsList
+     * @summary List git provider connections
+     * @request GET:/api/v1/git-provider-connections
+     * @secure
+     */
+    v1GitProviderConnectionsList: (params: RequestParams = {}) =>
+      this.request<TypesGitProviderConnection[], TypesAPIError>({
+        path: `/api/v1/git-provider-connections`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new PAT-based git provider connection for the current user
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsCreate
+     * @summary Create git provider connection
+     * @request POST:/api/v1/git-provider-connections
+     * @secure
+     */
+    v1GitProviderConnectionsCreate: (request: TypesGitProviderConnectionCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesGitProviderConnection, TypesAPIError>({
+        path: `/api/v1/git-provider-connections`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a PAT-based git provider connection
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsDelete
+     * @summary Delete git provider connection
+     * @request DELETE:/api/v1/git-provider-connections/{id}
+     * @secure
+     */
+    v1GitProviderConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git-provider-connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List repositories from a saved PAT-based git provider connection
+     *
+     * @tags git-provider-connections
+     * @name V1GitProviderConnectionsRepositoriesDetail
+     * @summary Browse repositories from saved connection
+     * @request GET:/api/v1/git-provider-connections/{id}/repositories
+     * @secure
+     */
+    v1GitProviderConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/git-provider-connections/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials
+     *
+     * @tags git-repositories
+     * @name V1GitBrowseRemoteCreate
+     * @summary Browse remote repositories
+     * @request POST:/api/v1/git/browse-remote
+     * @secure
+     */
+    v1GitBrowseRemoteCreate: (request: TypesBrowseRemoteRepositoriesRequest, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/git/browse-remote`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all git repositories, optionally filtered by owner and type
      *
      * @tags git-repositories
@@ -7905,6 +8342,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsRepositoriesDetail
+     * @summary List repositories from an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}/repositories
+     * @secure
+     */
+    v1OauthConnectionsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesListOAuthRepositoriesResponse, any>({
+        path: `/api/v1/oauth/connections/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List OAuth providers for the user.
      *
      * @tags oauth
@@ -8662,6 +9117,173 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get prompt history entries for the current user
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryList
+     * @summary List prompt history
+     * @request GET:/api/v1/prompt-history
+     * @secure
+     */
+    v1PromptHistoryList: (
+      query: {
+        /** Spec Task ID (required) */
+        spec_task_id: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
+        /** Session ID (optional filter) */
+        session_id?: string;
+        /** Only entries after this timestamp (Unix milliseconds) */
+        since?: number;
+        /** Max entries to return (default 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryListResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pin or unpin a prompt for quick access
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinUpdate
+     * @summary Update prompt pin status
+     * @request PUT:/api/v1/prompt-history/{id}/pin
+     * @secure
+     */
+    v1PromptHistoryPinUpdate: (id: string, request: ServerPromptPinRequest, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/pin`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update tags for a prompt
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryTagsUpdate
+     * @summary Update prompt tags
+     * @request PUT:/api/v1/prompt-history/{id}/tags
+     * @secure
+     */
+    v1PromptHistoryTagsUpdate: (id: string, request: ServerPromptTagsRequest, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/tags`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Increment usage count when a prompt is reused
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryUseCreate
+     * @summary Increment prompt usage
+     * @request POST:/api/v1/prompt-history/{id}/use
+     * @secure
+     */
+    v1PromptHistoryUseCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, SystemHTTPError>({
+        path: `/api/v1/prompt-history/${id}/use`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all pinned prompts for the current user
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistoryPinnedList
+     * @summary List pinned prompts
+     * @request GET:/api/v1/prompt-history/pinned
+     * @secure
+     */
+    v1PromptHistoryPinnedList: (
+      query?: {
+        /** Filter by spec task ID */
+        spec_task_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+        path: `/api/v1/prompt-history/pinned`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search prompts by content
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistorySearchList
+     * @summary Search prompts
+     * @request GET:/api/v1/prompt-history/search
+     * @secure
+     */
+    v1PromptHistorySearchList: (
+      query: {
+        /** Search query */
+        q: string;
+        /** Max results (default 50) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPromptHistoryEntry[], SystemHTTPError>({
+        path: `/api/v1/prompt-history/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sync prompt history entries from the frontend (union merge - no deletes)
+     *
+     * @tags PromptHistory
+     * @name V1PromptHistorySyncCreate
+     * @summary Sync prompt history
+     * @request POST:/api/v1/prompt-history/sync
+     * @secure
+     */
+    v1PromptHistorySyncCreate: (request: TypesPromptHistorySyncRequest, params: RequestParams = {}) =>
+      this.request<TypesPromptHistorySyncResponse, SystemHTTPError>({
+        path: `/api/v1/prompt-history/sync`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -9188,30 +9810,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Search knowledges for a given app and prompt
+     * @description Search across projects, tasks, sessions, prompts, and code
      *
-     * @tags knowledge
+     * @tags Search
      * @name V1SearchList
-     * @summary Search knowledges
+     * @summary Unified search across Helix entities
      * @request GET:/api/v1/search
      * @secure
      */
     v1SearchList: (
       query: {
-        /** App ID */
-        app_id: string;
-        /** Knowledge ID */
-        knowledge_id?: string;
-        /** Search prompt */
-        prompt: string;
+        /** Search query */
+        q: string;
+        /** Entity types to search: projects, tasks, sessions, prompts, code */
+        types?: string[];
+        /** Max results per type (default 10) */
+        limit?: number;
+        /** Filter by organization ID */
+        org_id?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<TypesKnowledgeSearchResult[], any>({
+      this.request<TypesUnifiedSearchResponse, SystemHTTPError>({
         path: `/api/v1/search`,
         method: "GET",
         query: query,
         secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -9284,6 +9910,127 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all service connections (GitHub Apps, ADO Service Principals) for the organization
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsList
+     * @summary List service connections
+     * @request GET:/api/v1/service-connections
+     * @secure
+     */
+    v1ServiceConnectionsList: (
+      query?: {
+        /** Organization ID (optional, defaults to user's org) */
+        organization_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse[], TypesAPIError>({
+        path: `/api/v1/service-connections`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new service connection (GitHub App or ADO Service Principal)
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsCreate
+     * @summary Create service connection
+     * @request POST:/api/v1/service-connections
+     * @secure
+     */
+    v1ServiceConnectionsCreate: (request: TypesServiceConnectionCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDelete
+     * @summary Delete service connection
+     * @request DELETE:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific service connection by ID
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsDetail
+     * @summary Get service connection
+     * @request GET:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update a service connection
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsUpdate
+     * @summary Update service connection
+     * @request PUT:/api/v1/service-connections/{id}
+     * @secure
+     */
+    v1ServiceConnectionsUpdate: (
+      id: string,
+      request: TypesServiceConnectionUpdateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Test a service connection by attempting to authenticate
+     *
+     * @tags service-connections
+     * @name V1ServiceConnectionsTestCreate
+     * @summary Test service connection
+     * @request POST:/api/v1/service-connections/{id}/test
+     * @secure
+     */
+    v1ServiceConnectionsTestCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, TypesAPIError>({
+        path: `/api/v1/service-connections/${id}/test`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 
@@ -10450,10 +11197,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
      * @secure
      */
-    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+    v1SpecTasksStartPlanningCreate: (
+      taskId: string,
+      query?: {
+        /** XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection */
+        keyboard?: string;
+        /** IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection */
+        timezone?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesSpecTask, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/start-planning`,
         method: "POST",
+        query: query,
         secure: true,
         type: ContentType.Json,
         format: "json",

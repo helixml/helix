@@ -394,9 +394,26 @@ export function useCreateGitRepositoryPullRequest() {
       return response.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: ['git-repositories', variables.repositoryId, 'pull-requests'] 
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'pull-requests']
       });
+    },
+  });
+}
+
+// Browse remote repositories using PAT (Personal Access Token)
+export function useBrowseRemoteRepositories() {
+  const api = useApi();
+
+  return useMutation({
+    mutationFn: async (request: {
+      provider_type: 'github' | 'gitlab' | 'ado';
+      token: string;
+      organization_url?: string;
+      base_url?: string;
+    }) => {
+      const response = await api.getApiClient().v1GitBrowseRemoteCreate(request);
+      return response.data;
     },
   });
 }
@@ -558,6 +575,7 @@ const gitRepositoryService = {
   usePullFromRemote,
   useCreateBranch,
   useCreateGitRepositoryPullRequest,
+  useBrowseRemoteRepositories,
 
   // Helper functions
   getRepositoryTypeColor,

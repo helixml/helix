@@ -21,13 +21,15 @@ const Page: React.FC<{
   // if this is provided then we render a "Home : {title}" text in the topbar
   breadcrumbTitle?: string,
   breadcrumbShowHome?: boolean,
+  // override the default "Home" breadcrumb with a custom parent
+  breadcrumbParent?: IPageBreadcrumb,
   breadcrumbs?: IPageBreadcrumb[],
   // this means to use the org router for the breadcrumbs
   orgBreadcrumbs?: boolean,
   headerContent?: ReactNode,
   footerContent?: ReactNode,
   showDrawerButton?: boolean,
-  px?: number,  
+  px?: number,
   sx?: SxProps,
   children?: ReactNode,
 }> = ({
@@ -35,6 +37,7 @@ const Page: React.FC<{
   showTopbar = false,
   breadcrumbTitle,
   breadcrumbShowHome = true,
+  breadcrumbParent,
   breadcrumbs = [],
   orgBreadcrumbs = false,
   headerContent = null,
@@ -60,12 +63,13 @@ const Page: React.FC<{
   }
 
   if(useBreadcrumbTitles.length > 0 && breadcrumbShowHome) {
-    if(orgBreadcrumbs && account.organizationTools.organization) {   
+    if(orgBreadcrumbs && account.organizationTools.organization) {
       useBreadcrumbTitles.unshift({
         title: account.organizationTools.organization?.name || '',
       })
     }
-    useBreadcrumbTitles.unshift({
+    // Use custom parent breadcrumb if provided, otherwise default to "Home"
+    useBreadcrumbTitles.unshift(breadcrumbParent || {
       title: 'Home',
       routeName: 'home',
     })

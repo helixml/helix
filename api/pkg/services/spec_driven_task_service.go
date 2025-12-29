@@ -174,6 +174,26 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 		branchMode = types.BranchModeNew
 	}
 
+	// VALIDATION: Check for active tasks on the same branch
+	// This prevents multiple agents working on the same branch which causes confusion
+	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" {
+		existingTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+			ProjectID:  req.ProjectID,
+			BranchName: req.WorkingBranch,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("branch", req.WorkingBranch).Msg("Failed to check for existing tasks on branch")
+			// Continue anyway - don't block task creation on this check
+		} else {
+			// Check if any existing task is active (not completed, cancelled, or archived)
+			for _, existingTask := range existingTasks {
+				if !isTaskInactive(existingTask) {
+					return nil, fmt.Errorf("branch '%s' already has an active task: %s (%s). Complete or archive that task first, or create a new branch", req.WorkingBranch, existingTask.Name, existingTask.ID)
+				}
+			}
+		}
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -201,6 +221,19 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	err := s.store.CreateSpecTask(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %w", err)
+	}
+
+	// PR DETECTION: Check if the existing branch has an open PR
+	// If so, update the task to start in pull_request status
+	if branchMode == types.BranchModeExisting && req.WorkingBranch != "" && s.gitRepositoryService != nil {
+		prDetected := s.detectAndLinkExistingPR(ctx, task, req.ProjectID, req.WorkingBranch)
+		if prDetected {
+			log.Info().
+				Str("task_id", task.ID).
+				Str("branch", req.WorkingBranch).
+				Str("pr_id", task.PullRequestID).
+				Msg("Detected existing PR for branch, task starts in pull_request column")
+		}
 	}
 
 	// Log audit event for task creation
@@ -282,10 +315,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Msg("Starting spec generation")
 
 	// Assign task number and design doc path if not already set
-	if task.TaskNumber == 0 && task.ProjectID != "" {
-		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+	// Task numbers are globally unique across the entire deployment
+	if task.TaskNumber == 0 {
+		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
 		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
 			// Fallback: use a hash of task ID for uniqueness
 			taskNumber = 1
 		}
@@ -325,17 +359,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		log.Debug().Str("task_id", task.ID).Str("helix_app_id", task.HelixAppID).Msg("HelixAppID persisted to task")
 	}
 
-	// Get primary repo name for the planning prompt (to reference in Code-Ref commits)
-	primaryRepoName := ""
-	if project != nil && project.DefaultRepoID != "" {
-		repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
-		if err == nil && repo != nil {
-			primaryRepoName = repo.Name
-		}
-	}
-
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
-	planningPrompt := BuildPlanningPrompt(task, guidelines, primaryRepoName)
+	planningPrompt := BuildPlanningPrompt(task, guidelines)
 
 	// Get CodeAgentRuntime from the app config (needed for session resume to select correct agent)
 	codeAgentRuntime := s.getCodeAgentRuntimeForTask(ctx, task)
@@ -344,8 +369,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,           // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
+		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime,           // For open_thread on resume
+		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
 	session := &types.Session{
@@ -523,6 +549,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
 		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		// Branch configuration - startup script will checkout correct branch
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Str("helix_session_id", zedAgent.HelixSessionID).Msg("DEBUG: Created ZedAgent struct")
 
@@ -618,10 +648,11 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Msg("Starting Just Do It mode - skipping spec generation")
 
 	// Assign task number and design doc path if not already set
-	if task.TaskNumber == 0 && task.ProjectID != "" {
-		taskNumber, err := s.store.IncrementProjectTaskNumber(ctx, task.ProjectID)
+	// Task numbers are globally unique across the entire deployment
+	if task.TaskNumber == 0 {
+		taskNumber, err := s.store.IncrementGlobalTaskNumber(ctx)
 		if err != nil {
-			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get task number, using fallback")
+			log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to get global task number, using fallback")
 			taskNumber = 1
 		}
 		task.TaskNumber = taskNumber
@@ -693,8 +724,9 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,              // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
+		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI,        // For open_thread on resume
+		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
 	session := &types.Session{
@@ -792,40 +824,12 @@ Follow these guidelines when making changes:
 		}
 	}
 
-	// Build git instructions based on branch mode
-	var gitInstructions string
-	if task.BranchMode == types.BranchModeExisting {
-		// Continuing work on existing branch
-		gitInstructions = fmt.Sprintf(`**If making code changes:**
-1. git checkout %s  (continue on existing branch)
-2. Make your changes
-3. git push origin %s`, branchName, branchName)
-	} else {
-		// Creating new branch from base
-		baseBranch := task.BaseBranch
-		if baseBranch == "" {
-			// Use the primary repo's default branch as fallback
-			for _, repo := range projectRepos {
-				if repo.ID == primaryRepoID && repo.DefaultBranch != "" {
-					baseBranch = repo.DefaultBranch
-					break
-				}
-			}
-		}
-		if baseBranch == "" {
-			// Last resort: use "main" but log a warning
-			baseBranch = "main"
-			log.Warn().
-				Str("task_id", task.ID).
-				Str("project_id", task.ProjectID).
-				Msg("No base branch or default branch configured, falling back to 'main'")
-		}
-		gitInstructions = fmt.Sprintf(`**If making code changes:**
-1. git fetch origin && git checkout %s && git pull origin %s
-2. git checkout -b %s  (create new branch from %s)
-3. Make your changes
-4. git push origin %s`, baseBranch, baseBranch, branchName, baseBranch, branchName)
-	}
+	// Build git instructions - branch is already checked out by startup script (start-zed-helix.sh)
+	// Just tell agent to verify and push when done
+	gitInstructions := fmt.Sprintf(`**Branch already checked out:**
+- Verify: `+"`git branch --show-current`"+` should show %s
+- Make your changes
+- Push: `+"`git push origin %s`", branchName, branchName)
 
 	promptWithBranch := fmt.Sprintf(`%s
 %s
@@ -935,6 +939,10 @@ Follow these guidelines when making changes:
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
 		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		// Branch configuration - startup script will checkout correct branch
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
 
 	// Start the Zed agent via Wolf executor
@@ -1356,6 +1364,80 @@ func generateTaskNameFromPrompt(prompt string) string {
 	return prompt
 }
 
+// isTaskInactive returns true if the task is in a terminal/inactive state
+// (completed, failed, or archived) and should not block creating new tasks on the same branch
+func isTaskInactive(task *types.SpecTask) bool {
+	if task.Archived {
+		return true
+	}
+	switch task.Status {
+	case types.TaskStatusDone, types.TaskStatusSpecFailed, types.TaskStatusImplementationFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// detectAndLinkExistingPR checks if the branch has an open pull request and links it to the task
+// Returns true if a PR was found and linked, false otherwise
+// The task is updated in-place and saved to the database
+func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, task *types.SpecTask, projectID, branchName string) bool {
+	// Get project to find the default repository
+	project, err := s.store.GetProject(ctx, projectID)
+	if err != nil || project == nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project for PR detection")
+		return false
+	}
+
+	if project.DefaultRepoID == "" {
+		log.Debug().Str("project_id", projectID).Msg("Project has no default repo, skipping PR detection")
+		return false
+	}
+
+	// List PRs from the repository
+	prs, err := s.gitRepositoryService.ListPullRequests(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", project.DefaultRepoID).Msg("Failed to list PRs for detection")
+		return false
+	}
+
+	// Find an open PR with matching source branch
+	// ADO branch refs are like "refs/heads/branch-name"
+	branchRef := "refs/heads/" + branchName
+	for _, pr := range prs {
+		// Check if PR is open (ADO uses "active" status)
+		if pr.State != "active" {
+			continue
+		}
+
+		// Check if source branch matches
+		if pr.SourceBranch == branchRef || pr.SourceBranch == branchName {
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("pr_title", pr.Title).
+				Str("source_branch", pr.SourceBranch).
+				Str("target_branch", pr.TargetBranch).
+				Msg("Found existing PR for branch")
+
+			// Update task with PR info
+			task.PullRequestID = pr.ID
+			task.PullRequestURL = pr.URL
+			task.Status = types.TaskStatusPullRequest
+
+			// Save updated task
+			err = s.store.UpdateSpecTask(ctx, task)
+			if err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with PR info")
+				return false
+			}
+
+			return true
+		}
+	}
+
+	return false
+}
+
 func convertPriorityToInt(priority string) int {
 	switch priority {
 	case "critical":
@@ -1461,4 +1543,99 @@ func (s *SpecDrivenTaskService) getCodeAgentRuntimeForTask(ctx context.Context, 
 		Str("helix_app_id", task.HelixAppID).
 		Msg("No code agent runtime configured in app, defaulting to zed_agent")
 	return types.CodeAgentRuntimeZedAgent
+}
+
+// ResumeSession restarts a desktop container for an existing session
+// Used by the reconciler to restart sessions after Wolf crash or sandbox restart
+func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.SpecTask, session *types.Session) error {
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Msg("Resuming session after container loss")
+
+	// Get project for repository IDs
+	var repositoryIDs []string
+	var primaryRepoID string
+	if task.ProjectID != "" {
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for resume")
+		} else if project != nil {
+			repoIDs, err := s.store.GetRepositoriesForProject(ctx, project.ID)
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", project.ID).Msg("Failed to get project repositories")
+			} else {
+				repositoryIDs = repoIDs
+				// Set primary repo ID
+				if project.DefaultRepoID != "" {
+					primaryRepoID = project.DefaultRepoID
+				} else if len(repositoryIDs) > 0 {
+					primaryRepoID = repositoryIDs[0]
+				}
+			}
+		}
+	}
+
+	// Get or create API key for the user
+	userAPIKey, err := s.GetOrCreateSandboxAPIKey(ctx, &SandboxAPIKeyRequest{
+		UserID:     task.CreatedBy,
+		SpecTaskID: task.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get API key for resume: %w", err)
+	}
+
+	// Use display settings from session metadata or defaults
+	displayWidth := session.Metadata.AgentVideoWidth
+	displayHeight := session.Metadata.AgentVideoHeight
+	displayRefreshRate := session.Metadata.AgentVideoRefreshRate
+	if displayWidth == 0 {
+		displayWidth = 2560
+	}
+	if displayHeight == 0 {
+		displayHeight = 1600
+	}
+	if displayRefreshRate == 0 {
+		displayRefreshRate = 60
+	}
+
+	// Build the ZedAgent for restart
+	zedAgent := &types.ZedAgent{
+		SessionID:           session.ID,
+		HelixSessionID:      session.ID,
+		UserID:              task.CreatedBy,
+		Input:               "Resuming Zed development environment after container restart",
+		ProjectPath:         "workspace",
+		SpecTaskID:          task.ID,
+		PrimaryRepositoryID: primaryRepoID,
+		RepositoryIDs:       repositoryIDs,
+		UseHostDocker:       task.UseHostDocker,
+		DisplayWidth:        displayWidth,
+		DisplayHeight:       displayHeight,
+		DisplayRefreshRate:  displayRefreshRate,
+		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
+		ZoomLevel:           1.0,
+		DesktopType:         "sway", // Default to Sway
+		Env: []string{
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		},
+		BranchMode:    string(task.BranchMode),
+		BaseBranch:    task.BaseBranch,
+		WorkingBranch: task.BranchName,
+	}
+
+	// Start the desktop container
+	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
+	if err != nil {
+		return fmt.Errorf("failed to start desktop for resume: %w", err)
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", session.ID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("container_name", agentResp.ContainerName).
+		Msg("Successfully resumed session with new container")
+
+	return nil
 }

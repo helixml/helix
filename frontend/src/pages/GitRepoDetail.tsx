@@ -155,6 +155,7 @@ const GitRepoDetail: FC = () => {
   // Query parameters
   const branchFromQuery = router.params.branch || ''
   const commitFromQuery = router.params.commit || ''
+  const fileFromQuery = router.params.file || ''
   const currentBranch = branchFromQuery
   const commitsBranch = branchFromQuery  
 
@@ -219,14 +220,17 @@ const GitRepoDetail: FC = () => {
     }
   }
 
-  // List commits
+  // List commits with pagination
+  const [commitsPage, setCommitsPage] = useState(1)
+  const commitsPerPage = 20
   const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
     repoId || '',
     commitsBranch || undefined,
-    1,
-    100
+    commitsPage,
+    commitsPerPage
   )
   const commits = commitsData?.commits || []
+  const commitsTotal = commitsData?.total || 0
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -281,9 +285,16 @@ const GitRepoDetail: FC = () => {
     }
   }, [repository, branchFromQuery, branches])
 
-  // Auto-load README.md when repository loads
+  // Set file from query param (takes priority over README auto-load)
   React.useEffect(() => {
-    if (treeData?.entries && !selectedFile) {
+    if (fileFromQuery) {
+      setSelectedFile(fileFromQuery)
+    }
+  }, [fileFromQuery])
+
+  // Auto-load README.md when repository loads (only if no file specified in query)
+  React.useEffect(() => {
+    if (treeData?.entries && !selectedFile && !fileFromQuery) {
       const readme = treeData.entries.find(entry =>
         entry?.name?.toLowerCase() === 'readme.md' && !entry?.is_dir
       )
@@ -291,7 +302,7 @@ const GitRepoDetail: FC = () => {
         setSelectedFile(readme.path)
       }
     }
-  }, [treeData, selectedFile])
+  }, [treeData, selectedFile, fileFromQuery])
 
   const handleOpenEdit = () => {
     if (repository) {
@@ -939,13 +950,21 @@ const GitRepoDetail: FC = () => {
             <CommitsTab
               repository={repository}
               commitsBranch={commitsBranch}
-              setCommitsBranch={setCommitsBranch}
+              setCommitsBranch={(branch) => {
+                setCommitsBranch(branch)
+                setCommitsPage(1) // Reset to first page on branch change
+              }}
               branches={branches}
               commits={commits}
               commitsLoading={commitsLoading}
               handleCopySha={handleCopySha}
               copiedSha={copiedSha}
               onViewEnrichments={handleViewEnrichments}
+              // Pagination props
+              currentPage={commitsPage}
+              totalCount={commitsTotal}
+              perPage={commitsPerPage}
+              onPageChange={setCommitsPage}
             />
           )}
 

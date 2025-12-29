@@ -6,6 +6,7 @@ import {
   IconButton,
   Tooltip,
   Paper,
+  Pagination,
 } from '@mui/material'
 import {
   GitCommit,
@@ -25,6 +26,11 @@ interface CommitsTabProps {
   handleCopySha: (sha: string) => void
   copiedSha: string | null
   onViewEnrichments?: (commitSha: string) => void
+  // Pagination props
+  currentPage?: number
+  totalCount?: number
+  perPage?: number
+  onPageChange?: (page: number) => void
 }
 
 const CommitsTab: FC<CommitsTabProps> = ({
@@ -37,7 +43,12 @@ const CommitsTab: FC<CommitsTabProps> = ({
   handleCopySha,
   copiedSha,
   onViewEnrichments,
+  currentPage = 1,
+  totalCount = 0,
+  perPage = 20,
+  onPageChange,
 }) => {
+  const totalPages = Math.ceil(totalCount / perPage)
   return (
     <Box>
       <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
@@ -198,6 +209,32 @@ const CommitsTab: FC<CommitsTabProps> = ({
                 </Box>
               </Box>
             ))}
+          </Box>
+        )}
+
+        {/* Pagination */}
+        {!commitsLoading && totalPages > 1 && (
+          <Box sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            p: 2,
+            borderTop: 1,
+            borderColor: 'divider',
+            bgcolor: 'rgba(0, 0, 0, 0.02)'
+          }}>
+            <Typography variant="body2" color="text.secondary">
+              Showing {((currentPage - 1) * perPage) + 1}-{Math.min(currentPage * perPage, totalCount)} of {totalCount} commits
+            </Typography>
+            <Pagination
+              count={totalPages}
+              page={currentPage}
+              onChange={(_, page) => onPageChange?.(page)}
+              color="primary"
+              size="small"
+              showFirstButton
+              showLastButton
+            />
           </Box>
         )}
       </Paper>

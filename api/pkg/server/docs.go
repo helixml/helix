@@ -2709,6 +2709,250 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git-provider-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all PAT-based git provider connections for the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "List git provider connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitProviderConnection"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new PAT-based git provider connection for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Create git provider connection",
+                "parameters": [
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnectionCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitProviderConnection"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git-provider-connections/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a PAT-based git provider connection",
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Delete git provider connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git-provider-connections/{id}/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories from a saved PAT-based git provider connection",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-provider-connections"
+                ],
+                "summary": "Browse repositories from saved connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/browse-remote": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Browse remote repositories",
+                "parameters": [
+                    {
+                        "description": "Browse request with credentials",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.BrowseRemoteRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories": {
             "get": {
                 "security": [
@@ -5140,6 +5384,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/oauth/connections/{id}/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List repositories accessible via an OAuth connection (GitHub repos, GitLab projects, etc.)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "List repositories from an OAuth connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ListOAuthRepositoriesResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/providers": {
             "get": {
                 "security": [
@@ -6731,6 +7009,449 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/prompt-history": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get prompt history entries for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "List prompt history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID (required)",
+                        "name": "spec_task_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID (optional filter)",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID (optional filter)",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Only entries after this timestamp (Unix milliseconds)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max entries to return (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistoryListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/pinned": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all pinned prompts for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "List pinned prompts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by spec task ID",
+                        "name": "spec_task_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.PromptHistoryEntry"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Search prompts by content",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Search prompts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.PromptHistoryEntry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/sync": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Sync prompt history entries from the frontend (union merge - no deletes)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Sync prompt history",
+                "parameters": [
+                    {
+                        "description": "Prompt history entries to sync",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistorySyncRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PromptHistorySyncResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}/pin": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Pin or unpin a prompt for quick access",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Update prompt pin status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pin status",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PromptPinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}/tags": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Update tags for a prompt",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Update prompt tags",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Tags (JSON array)",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.PromptTagsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/prompt-history/{id}/use": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Increment usage count when a prompt is reused",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PromptHistory"
+                ],
+                "summary": "Increment prompt usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "boolean"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints": {
             "get": {
                 "security": [
@@ -7802,44 +8523,74 @@ const docTemplate = `{
             "get": {
                 "security": [
                     {
-                        "BearerAuth": []
+                        "ApiKeyAuth": []
                     }
                 ],
-                "description": "Search knowledges for a given app and prompt",
-                "tags": [
-                    "knowledge"
+                "description": "Search across projects, tasks, sessions, prompts, and code",
+                "consumes": [
+                    "application/json"
                 ],
-                "summary": "Search knowledges",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Search"
+                ],
+                "summary": "Unified search across Helix entities",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
+                        "description": "Search query",
+                        "name": "q",
                         "in": "query",
                         "required": true
                     },
                     {
-                        "type": "string",
-                        "description": "Knowledge ID",
-                        "name": "knowledge_id",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "Entity types to search: projects, tasks, sessions, prompts, code",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results per type (default 10)",
+                        "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Search prompt",
-                        "name": "prompt",
-                        "in": "query",
-                        "required": true
+                        "description": "Filter by organization ID",
+                        "name": "org_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.KnowledgeSearchResult"
-                            }
+                            "$ref": "#/definitions/types.UnifiedSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -7965,6 +8716,353 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Secret"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all service connections (GitHub Apps, ADO Service Principals) for the organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "List service connections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID (optional, defaults to user's org)",
+                        "name": "organization_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new service connection (GitHub App or ADO Service Principal)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Create service connection",
+                "parameters": [
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-connections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific service connection by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Get service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a service connection",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Update service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a service connection",
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Delete service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-connections/{id}/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Test a service connection by attempting to authenticate",
+                "tags": [
+                    "service-connections"
+                ],
+                "summary": "Test service connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -10928,6 +12026,18 @@ const docTemplate = `{
                         "name": "taskId",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "XKB keyboard layout code (e.g., 'us', 'fr', 'de') - for testing browser locale detection",
+                        "name": "keyboard",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA timezone (e.g., 'Europe/Paris') - for testing browser locale detection",
+                        "name": "timezone",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -15006,6 +16116,23 @@ const docTemplate = `{
                 }
             }
         },
+        "server.PromptPinRequest": {
+            "type": "object",
+            "properties": {
+                "pinned": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.PromptTagsRequest": {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "description": "JSON array of tags",
+                    "type": "string"
+                }
+            }
+        },
         "server.PushPullResponse": {
             "type": "object",
             "properties": {
@@ -17027,6 +18154,24 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AgentWorkState": {
+            "type": "string",
+            "enum": [
+                "idle",
+                "working",
+                "done"
+            ],
+            "x-enum-comments": {
+                "AgentWorkStateDone": "Agent finished its assigned task",
+                "AgentWorkStateIdle": "Agent connected but not actively working",
+                "AgentWorkStateWorking": "Agent actively processing a prompt"
+            },
+            "x-enum-varnames": [
+                "AgentWorkStateIdle",
+                "AgentWorkStateWorking",
+                "AgentWorkStateDone"
+            ]
+        },
         "types.AggregatedUsageMetric": {
             "type": "object",
             "properties": {
@@ -17713,6 +18858,7 @@ const docTemplate = `{
                 "task_approved",
                 "task_completed",
                 "task_archived",
+                "task_unarchived",
                 "agent_prompt",
                 "user_message",
                 "agent_started",
@@ -17722,7 +18868,11 @@ const docTemplate = `{
                 "review_comment_reply",
                 "pr_created",
                 "pr_merged",
-                "git_push"
+                "git_push",
+                "project_created",
+                "project_deleted",
+                "project_settings_updated",
+                "project_guidelines_updated"
             ],
             "x-enum-comments": {
                 "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
@@ -17730,6 +18880,10 @@ const docTemplate = `{
                 "AuditEventGitPush": "Git push detected",
                 "AuditEventPRCreated": "Pull request created",
                 "AuditEventPRMerged": "Pull request merged",
+                "AuditEventProjectCreated": "Project was created",
+                "AuditEventProjectDeleted": "Project was deleted",
+                "AuditEventProjectGuidelinesUpdated": "Project guidelines were modified",
+                "AuditEventProjectSettingsUpdated": "Project settings were modified",
                 "AuditEventReviewComment": "Comment added to design review",
                 "AuditEventReviewCommentReply": "Reply to a comment",
                 "AuditEventSpecGenerated": "Spec was generated",
@@ -17743,6 +18897,7 @@ const docTemplate = `{
                 "AuditEventTaskApproved",
                 "AuditEventTaskCompleted",
                 "AuditEventTaskArchived",
+                "AuditEventTaskUnarchived",
                 "AuditEventAgentPrompt",
                 "AuditEventUserMessage",
                 "AuditEventAgentStarted",
@@ -17752,7 +18907,11 @@ const docTemplate = `{
                 "AuditEventReviewCommentReply",
                 "AuditEventPRCreated",
                 "AuditEventPRMerged",
-                "AuditEventGitPush"
+                "AuditEventGitPush",
+                "AuditEventProjectCreated",
+                "AuditEventProjectDeleted",
+                "AuditEventProjectSettingsUpdated",
+                "AuditEventProjectGuidelinesUpdated"
             ]
         },
         "types.AuditMetadata": {
@@ -17793,6 +18952,10 @@ const docTemplate = `{
                 },
                 "interaction_id": {
                     "description": "For scrolling to specific interaction in session view",
+                    "type": "string"
+                },
+                "project_name": {
+                    "description": "Project information",
                     "type": "string"
                 },
                 "pull_request_id": {
@@ -17854,10 +19017,22 @@ const docTemplate = `{
         "types.AzureDevOps": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "description": "App registration client ID",
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "App registration client secret",
+                    "type": "string"
+                },
                 "organization_url": {
                     "type": "string"
                 },
                 "personal_access_token": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "description": "Service Principal authentication (service-to-service via Azure AD/Entra ID)\nUses OAuth 2.0 client credentials flow for automated system access",
                     "type": "string"
                 }
             }
@@ -17867,6 +19042,23 @@ const docTemplate = `{
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.Bitbucket": {
+            "type": "object",
+            "properties": {
+                "app_password": {
+                    "description": "Bitbucket App Password (recommended over regular password)",
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "For Bitbucket Server/Data Center (empty for bitbucket.org)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Bitbucket username (required for API auth)",
+                    "type": "string"
                 }
             }
         },
@@ -17892,6 +19084,35 @@ const docTemplate = `{
                 "BranchModeNew",
                 "BranchModeExisting"
             ]
+        },
+        "types.BrowseRemoteRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "description": "Base URL for self-hosted instances (for GitHub Enterprise, GitLab Enterprise, or Bitbucket Server)",
+                    "type": "string"
+                },
+                "organization_url": {
+                    "description": "Organization URL (required for Azure DevOps)",
+                    "type": "string"
+                },
+                "provider_type": {
+                    "description": "Provider type: \"github\", \"gitlab\", \"ado\", \"bitbucket\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "token": {
+                    "description": "Personal Access Token or App Password for authentication",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Username for authentication (required for Bitbucket)",
+                    "type": "string"
+                }
+            }
         },
         "types.ChatCompletionMessage": {
             "type": "object",
@@ -18215,6 +19436,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
                     "type": "string"
                 },
                 "status": {
@@ -18549,6 +19773,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Optional: Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_email": {
+                    "description": "Optional: User email for audit trail",
+                    "type": "string"
                 },
                 "user_id": {
                     "type": "string"
@@ -19297,6 +20525,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitHub": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "GitHub App authentication (service-to-service)\nWhen AppID and PrivateKey are set, uses GitHub App installation tokens",
+                    "type": "integer"
+                },
+                "base_url": {
+                    "description": "For GitHub Enterprise instances (empty for github.com)",
+                    "type": "string"
+                },
+                "installation_id": {
+                    "description": "Installation ID for the app on the org/repo",
+                    "type": "integer"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "description": "PEM-encoded private key for JWT signing",
+                    "type": "string"
+                }
+            }
+        },
         "types.GitHubWorkConfig": {
             "type": "object",
             "properties": {
@@ -19332,11 +20584,110 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitLab": {
+            "type": "object",
+            "properties": {
+                "base_url": {
+                    "description": "For self-hosted GitLab instances (empty for gitlab.com)",
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitProviderConnection": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "For GitHub Enterprise or GitLab Enterprise: base URL (empty = github.com/gitlab.com)",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_tested_at": {
+                    "description": "Last successful connection test",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the connection (e.g., \"My GitHub Account\")",
+                    "type": "string"
+                },
+                "organization_url": {
+                    "description": "For Azure DevOps: organization URL",
+                    "type": "string"
+                },
+                "provider_type": {
+                    "description": "Provider type: github, gitlab, ado",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "User who owns this connection (PAT is personal, not org-level)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "User info from the provider (cached from last successful auth)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitProviderConnectionCreateRequest": {
+            "type": "object",
+            "properties": {
+                "auth_username": {
+                    "description": "Username for authentication (required for Bitbucket)",
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_url": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.GitRepository": {
             "type": "object",
             "properties": {
                 "azure_devops": {
-                    "$ref": "#/definitions/types.AzureDevOps"
+                    "description": "Provider-specific settings",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AzureDevOps"
+                        }
+                    ]
+                },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
                 },
                 "branches": {
                     "type": "array",
@@ -19369,6 +20720,12 @@ const docTemplate = `{
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -19393,6 +20750,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection ID - references an OAuthConnection for authentication\nWhen set, uses the OAuth access token instead of username/password or PAT",
                     "type": "string"
                 },
                 "organization_id": {
@@ -19429,7 +20790,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "azure_devops": {
-                    "$ref": "#/definitions/types.AzureDevOps"
+                    "description": "Provider-specific settings",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AzureDevOps"
+                        }
+                    ]
+                },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
                 },
                 "default_branch": {
                     "type": "string"
@@ -19448,6 +20817,12 @@ const docTemplate = `{
                 "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
+                },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
                 },
                 "initial_files": {
                     "type": "object",
@@ -19468,6 +20843,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection ID - references an OAuthConnection for authentication",
                     "type": "string"
                 },
                 "organization_id": {
@@ -19552,6 +20931,9 @@ const docTemplate = `{
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOps"
                 },
+                "bitbucket": {
+                    "$ref": "#/definitions/types.Bitbucket"
+                },
                 "default_branch": {
                     "type": "string"
                 },
@@ -19569,6 +20951,12 @@ const docTemplate = `{
                 "external_url": {
                     "type": "string"
                 },
+                "github": {
+                    "$ref": "#/definitions/types.GitHub"
+                },
+                "gitlab": {
+                    "$ref": "#/definitions/types.GitLab"
+                },
                 "kodit_indexing": {
                     "description": "Enable Kodit code intelligence indexing (pointer to distinguish unset from false)",
                     "type": "boolean"
@@ -19578,6 +20966,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuth connection for authentication",
                     "type": "string"
                 },
                 "password": {
@@ -20505,6 +21897,27 @@ const docTemplate = `{
                 },
                 "external_status": {
                     "$ref": "#/definitions/types.ExternalStatus"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "description": "Pagination info",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ListOAuthRepositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RepositoryInfo"
+                    }
                 }
             }
         },
@@ -20930,6 +22343,8 @@ const docTemplate = `{
                 "google",
                 "microsoft",
                 "github",
+                "gitlab",
+                "azure_devops",
                 "slack",
                 "linkedin",
                 "hubspot",
@@ -20941,6 +22356,8 @@ const docTemplate = `{
                 "OAuthProviderTypeGoogle",
                 "OAuthProviderTypeMicrosoft",
                 "OAuthProviderTypeGitHub",
+                "OAuthProviderTypeGitLab",
+                "OAuthProviderTypeAzureDevOps",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
                 "OAuthProviderTypeHubSpot",
@@ -20967,6 +22384,10 @@ const docTemplate = `{
                 },
                 "raw": {
                     "description": "Raw JSON response from provider",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Provider-specific username (e.g., GitHub login)",
                     "type": "string"
                 }
             }
@@ -21646,6 +23067,164 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PromptHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Content",
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Composite primary key: ID is globally unique, but we also index by user+spec_task",
+                    "type": "string"
+                },
+                "interrupt": {
+                    "description": "Interrupt indicates this message should interrupt the current conversation\nWhen false, message waits until current conversation completes",
+                    "type": "boolean"
+                },
+                "is_template": {
+                    "description": "Saved as a reusable template",
+                    "type": "boolean"
+                },
+                "last_used_at": {
+                    "description": "Last time reused",
+                    "type": "string"
+                },
+                "pinned": {
+                    "description": "Library features for prompt reuse",
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "description": "For reference, but primary grouping is by spec_task",
+                    "type": "string"
+                },
+                "queue_position": {
+                    "description": "QueuePosition tracks ordering for drag-and-drop reordering\nLower values = earlier in queue. Null for sent messages.",
+                    "type": "integer"
+                },
+                "session_id": {
+                    "description": "Optional - which session this was sent to",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "JSON array of user-defined tags",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "usage_count": {
+                    "description": "How many times reused",
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PromptHistoryEntrySync": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interrupt": {
+                    "description": "If true, interrupts current conversation",
+                    "type": "boolean"
+                },
+                "is_template": {
+                    "description": "If true, saved as a reusable template",
+                    "type": "boolean"
+                },
+                "pinned": {
+                    "description": "If true, pinned by user",
+                    "type": "boolean"
+                },
+                "queue_position": {
+                    "description": "Position in queue for drag-and-drop ordering",
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "JSON array of tags",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Unix timestamp in milliseconds",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.PromptHistoryListResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntry"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.PromptHistorySyncRequest": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntrySync"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PromptHistorySyncResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "description": "All entries for this user+project (for client merge)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.PromptHistoryEntry"
+                    }
+                },
+                "existing": {
+                    "description": "Number that already existed",
+                    "type": "integer"
+                },
+                "synced": {
+                    "description": "Number of entries synced",
+                    "type": "integer"
+                }
+            }
+        },
         "types.Provider": {
             "type": "string",
             "enum": [
@@ -22071,6 +23650,35 @@ const docTemplate = `{
                 },
                 "password_confirm": {
                     "type": "string"
+                }
+            }
+        },
+        "types.RepositoryInfo": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "description": "HTTPS clone URL",
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "description": "e.g., \"owner/repo\" for GitHub or \"group/project\" for GitLab",
+                    "type": "string"
+                },
+                "html_url": {
+                    "description": "Web URL to view the repository",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "private": {
+                    "type": "boolean"
                 }
             }
         },
@@ -22667,6 +24275,157 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ServiceConnectionCreateRequest": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_client_secret": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal fields",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "Base URL for enterprise/self-hosted instances",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App fields",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "github_private_key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ServiceConnectionType"
+                }
+            }
+        },
+        "types.ServiceConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal (non-sensitive fields only)",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App (non-sensitive fields only)",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "has_ado_client_secret": {
+                    "type": "boolean"
+                },
+                "has_github_private_key": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_tested_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ServiceConnectionType"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ServiceConnectionType": {
+            "type": "string",
+            "enum": [
+                "github_app",
+                "ado_service_principal"
+            ],
+            "x-enum-varnames": [
+                "ServiceConnectionTypeGitHubApp",
+                "ServiceConnectionTypeADOServicePrincipal"
+            ]
+        },
+        "types.ServiceConnectionUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "ado_client_id": {
+                    "type": "string"
+                },
+                "ado_client_secret": {
+                    "type": "string"
+                },
+                "ado_organization_url": {
+                    "description": "Azure DevOps Service Principal fields (only update if provided)",
+                    "type": "string"
+                },
+                "ado_tenant_id": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "Base URL for enterprise/self-hosted instances",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_app_id": {
+                    "description": "GitHub App fields (only update if provided)",
+                    "type": "integer"
+                },
+                "github_installation_id": {
+                    "type": "integer"
+                },
+                "github_private_key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Session": {
             "type": "object",
             "properties": {
@@ -22926,6 +24685,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentRuntime"
                         }
                     ]
+                },
+                "desired_state": {
+                    "description": "\"running\" = should be running, \"stopped\" = can terminate",
+                    "type": "string"
                 },
                 "document_group_id": {
                     "type": "string"
@@ -23364,6 +25127,14 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
+                "agent_work_state": {
+                    "description": "Current agent work state (idle/working/done) from activity tracking",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkState"
+                        }
+                    ]
+                },
                 "archived": {
                     "description": "Archive to hide from main view",
                     "type": "boolean"
@@ -23456,6 +25227,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_prompt_content": {
+                    "description": "Last prompt sent to agent (for continue functionality)",
+                    "type": "string"
+                },
                 "last_push_at": {
                     "description": "When branch was last pushed",
                     "type": "string"
@@ -23516,6 +25291,14 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
+                "session_updated_at": {
+                    "description": "Agent activity tracking (computed from session/activity data, not stored)",
+                    "type": "string"
+                },
+                "short_title": {
+                    "description": "Short title for tab display (auto-generated from agent writing short-title.txt)\nUserShortTitle takes precedence if set (user override)",
+                    "type": "string"
+                },
                 "spec_approved_at": {
                     "type": "string"
                 },
@@ -23556,6 +25339,10 @@ const docTemplate = `{
                 "use_host_docker": {
                     "description": "Use host Docker socket (requires privileged sandbox)",
                     "type": "boolean"
+                },
+                "user_short_title": {
+                    "description": "User override",
+                    "type": "string"
                 },
                 "workspace_config": {
                     "type": "array",
@@ -24228,6 +26015,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/types.SpecTaskStatus"
+                },
+                "user_short_title": {
+                    "description": "User override for tab title (pointer to allow clearing with empty string)",
+                    "type": "string"
                 }
             }
         },
@@ -25256,6 +27047,73 @@ const docTemplate = `{
                 "TriggerTypeCron",
                 "TriggerTypeAgentWorkQueue"
             ]
+        },
+        "types.UnifiedSearchResponse": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "description": "Echo back query",
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.UnifiedSearchResult"
+                    }
+                },
+                "total": {
+                    "description": "Total results across all types",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.UnifiedSearchResult": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "ISO timestamp",
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Brief description/content preview",
+                    "type": "string"
+                },
+                "icon": {
+                    "description": "Icon hint for UI",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Entity ID",
+                    "type": "string"
+                },
+                "metadata": {
+                    "description": "Additional context (status, owner, etc)",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "score": {
+                    "description": "Relevance score",
+                    "type": "number"
+                },
+                "title": {
+                    "description": "Display title",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"project\", \"task\", \"session\", \"prompt\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "description": "ISO timestamp",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Frontend URL to navigate to",
+                    "type": "string"
+                }
+            }
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
             "type": "object",

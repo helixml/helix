@@ -37,8 +37,6 @@ interface MoonlightStreamViewerProps {
   wolfLobbyId?: string;
   hostId?: number;
   appId?: number;
-  showLoadingOverlay?: boolean; // Show loading overlay (for restart/reconnect scenarios)
-  isRestart?: boolean; // Whether this is a restart (vs first start)
   onConnectionChange?: (isConnected: boolean) => void;
   onError?: (error: string) => void;
   onClientIdCalculated?: (clientId: string) => void; // Callback when client unique ID is calculated
@@ -46,6 +44,9 @@ interface MoonlightStreamViewerProps {
   height?: number;
   fps?: number;
   className?: string;
+  // When true, suppress the connection overlay (parent component is showing its own overlay)
+  // This prevents multiple spinners stacking when Wolf container state changes
+  suppressOverlay?: boolean;
 }
 
 /**
@@ -65,8 +66,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   wolfLobbyId,
   hostId = 0,
   appId = 1,
-  showLoadingOverlay = false,
-  isRestart = false,
   onConnectionChange,
   onError,
   onClientIdCalculated,
@@ -74,6 +73,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   height = 1080,
   fps = 60,
   className = '',
+  suppressOverlay = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
@@ -114,6 +114,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
+  const [reconnectClicked, setReconnectClicked] = useState(false); // Immediate feedback when button clicked
+  const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [pendingAutoJoin, setPendingAutoJoin] = useState(false); // Wait for video before auto-join
@@ -129,7 +131,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const manualBitrateSelectionTimeRef = useRef<number>(0); // Track when user manually selected bitrate (20s cooldown before auto-reduce)
   // Bandwidth recommendation state - instead of auto-switching, we show a recommendation popup
   const [bitrateRecommendation, setBitrateRecommendation] = useState<{
-    type: 'decrease' | 'increase';
+    type: 'decrease' | 'increase' | 'screenshot';
     targetBitrate: number;
     reason: string;
     frameDrift?: number; // Current frame drift for decrease recommendations
@@ -144,13 +146,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high');
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability on high-latency connections
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Track whether we're waiting for first screenshot after entering screenshot mode
+  // This is used to hide the loading overlay - using a ref instead of checking screenshotUrl
+  // to avoid race conditions when switching modes rapidly
+  const waitingForFirstScreenshotRef = useRef(false);
   // Adaptive JPEG quality control - targets 2 FPS (500ms max per frame)
   const [screenshotQuality, setScreenshotQuality] = useState(70); // JPEG quality 10-90
   const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
@@ -197,6 +203,110 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const VIDEO_START_TIMEOUT_MS = 15000; // 15 seconds to start video after connection
   const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // STREAM REGISTRY: Track all active streaming connections for debugging
+  // This helps catch bugs where we accidentally have multiple streams active
+  //
+  // The streaming architecture has these connection types:
+  // - 'websocket-stream': WebSocketStream instance (provides input, optionally video)
+  // - 'websocket-video-enabled': WS video is enabled on the WebSocket stream
+  // - 'sse-video': SSE EventSource for video (used with websocket-stream for input)
+  // - 'screenshot-polling': Screenshot HTTP polling for video (used with websocket-stream for input)
+  // - 'webrtc-stream': WebRTC peer connection (provides both input and video)
+  //
+  // Valid combinations:
+  // - [websocket-stream, websocket-video-enabled] - WebSocket mode, high quality
+  // - [websocket-stream, sse-video] - WebSocket mode, SSE quality
+  // - [websocket-stream, screenshot-polling] - WebSocket mode, low quality
+  // - [webrtc-stream] - WebRTC mode
+  //
+  type ActiveConnection = {
+    id: string;           // Unique ID (timestamp-based)
+    type: 'websocket-stream' | 'websocket-video-enabled' | 'sse-video' | 'screenshot-polling' | 'webrtc-stream';
+    createdAt: number;    // Timestamp for ordering
+  };
+  const activeConnectionsRef = useRef<ActiveConnection[]>([]);
+  const [activeConnectionsDisplay, setActiveConnectionsDisplay] = useState<ActiveConnection[]>([]);
+
+  // Helper to generate unique stream ID
+  const generateStreamId = useCallback(() => {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }, []);
+
+  // Validate that current connections are in a valid state
+  const validateConnectionState = useCallback(() => {
+    const connections = activeConnectionsRef.current;
+    const types = connections.map(c => c.type);
+
+    // Check for invalid combinations
+    const hasWebSocket = types.includes('websocket-stream');
+    const hasWebRtc = types.includes('webrtc-stream');
+    const hasWsVideo = types.includes('websocket-video-enabled');
+    const hasSseVideo = types.includes('sse-video');
+    const hasScreenshot = types.includes('screenshot-polling');
+
+    const videoSourceCount = [hasWsVideo, hasSseVideo, hasScreenshot].filter(Boolean).length;
+
+    // Invalid: both WebSocket and WebRTC active
+    if (hasWebSocket && hasWebRtc) {
+      console.error('[StreamRegistry] INVALID: Both WebSocket and WebRTC streams active!', types);
+      return false;
+    }
+
+    // Invalid: multiple video sources
+    if (videoSourceCount > 1) {
+      console.error('[StreamRegistry] INVALID: Multiple video sources active!', types);
+      return false;
+    }
+
+    // Invalid: video source without transport
+    if ((hasWsVideo || hasSseVideo || hasScreenshot) && !hasWebSocket) {
+      console.error('[StreamRegistry] INVALID: Video source without WebSocket transport!', types);
+      return false;
+    }
+
+    return true;
+  }, []);
+
+  // Register a new connection
+  const registerConnection = useCallback((type: ActiveConnection['type']): string => {
+    const id = generateStreamId();
+    const connection: ActiveConnection = { id, type, createdAt: Date.now() };
+    activeConnectionsRef.current.push(connection);
+    setActiveConnectionsDisplay([...activeConnectionsRef.current]);
+
+    console.log(`[StreamRegistry] Registered: ${type}:${id}`);
+    validateConnectionState();
+    return id;
+  }, [generateStreamId, validateConnectionState]);
+
+  // Unregister a connection
+  const unregisterConnection = useCallback((id: string) => {
+    const before = activeConnectionsRef.current.length;
+    const removed = activeConnectionsRef.current.find(c => c.id === id);
+    activeConnectionsRef.current = activeConnectionsRef.current.filter(c => c.id !== id);
+    setActiveConnectionsDisplay([...activeConnectionsRef.current]);
+    const after = activeConnectionsRef.current.length;
+    if (before !== after && removed) {
+      console.log(`[StreamRegistry] Unregistered: ${removed.type}:${id} (${before} → ${after} active)`);
+    }
+  }, []);
+
+  // Clear all connections (used on disconnect)
+  const clearAllConnections = useCallback(() => {
+    if (activeConnectionsRef.current.length > 0) {
+      console.log(`[StreamRegistry] Clearing all: ${activeConnectionsRef.current.map(c => c.type).join(', ')}`);
+      activeConnectionsRef.current = [];
+      setActiveConnectionsDisplay([]);
+    }
+  }, []);
+
+  // Track IDs of current connections for cleanup
+  const currentWebSocketStreamIdRef = useRef<string | null>(null);
+  const currentWebSocketVideoIdRef = useRef<string | null>(null);
+  const currentSseVideoIdRef = useRef<string | null>(null);
+  const currentScreenshotVideoIdRef = useRef<string | null>(null);
+  const currentWebRtcStreamIdRef = useRef<string | null>(null);
+
   // Show clipboard toast notification
   const showClipboardToast = useCallback((message: string, type: 'success' | 'error') => {
     // Clear any existing timeout
@@ -219,6 +329,62 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Connect to stream
   const connect = useCallback(async () => {
+    // CRITICAL: Close any existing stream FIRST to prevent duplicate streams
+    // This is a belt-and-suspenders check - reconnect() should have called disconnect(),
+    // but this ensures we never have two streams active at once even if connect() is
+    // called directly or there's a race condition
+    if (streamRef.current) {
+      console.log('[MoonlightStreamViewer] Closing existing stream before creating new one');
+      try {
+        if (streamRef.current instanceof WebSocketStream) {
+          streamRef.current.close();
+        } else {
+          // WebRTC Stream
+          if ((streamRef.current as any).ws) {
+            (streamRef.current as any).ws.close();
+          }
+          if ((streamRef.current as any).peer) {
+            (streamRef.current as any).peer.close();
+          }
+        }
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Error closing existing stream:', err);
+      }
+      streamRef.current = null;
+    }
+
+    // Also clean up any SSE resources from previous connection
+    if (sseEventSourceRef.current) {
+      console.log('[MoonlightStreamViewer] Closing existing SSE EventSource before new connection');
+      try {
+        sseEventSourceRef.current.close();
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Error closing SSE EventSource:', err);
+      }
+      sseEventSourceRef.current = null;
+    }
+    if (sseVideoDecoderRef.current) {
+      console.log('[MoonlightStreamViewer] Closing existing SSE decoder before new connection');
+      if (sseVideoDecoderRef.current.state !== 'closed') {
+        try {
+          sseVideoDecoderRef.current.close();
+        } catch (err) {
+          console.warn('[MoonlightStreamViewer] Error closing SSE decoder:', err);
+        }
+      }
+      sseVideoDecoderRef.current = null;
+    }
+    sseReceivedFirstKeyframeRef.current = false;
+    hasInitializedSseRef.current = false;
+
+    // Clear all connection registrations from previous connection
+    clearAllConnections();
+    currentWebSocketStreamIdRef.current = null;
+    currentWebSocketVideoIdRef.current = null;
+    currentSseVideoIdRef.current = null;
+    currentScreenshotVideoIdRef.current = null;
+    currentWebRtcStreamIdRef.current = null;
+
     // Reset explicit close flag - we're starting a new connection
     isExplicitlyClosingRef.current = false;
 
@@ -483,6 +649,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setRetryAttemptDisplay(0);
           onConnectionChange?.(true);
 
+          // Register WebSocket stream connection
+          if (currentWebSocketStreamIdRef.current) {
+            unregisterConnection(currentWebSocketStreamIdRef.current);
+          }
+          currentWebSocketStreamIdRef.current = registerConnection('websocket-stream');
+
           // Start video timeout - if video doesn't start within 15 seconds, Wolf pipeline likely failed
           // This catches GStreamer errors like resolution mismatches that cause silent hangs
           if (videoStartTimeoutRef.current) {
@@ -502,6 +674,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // - 'low' mode: wait for first screenshot (handled in screenshot polling)
           if (qualityMode === 'low') {
             setStatus('Waiting for screenshot...');
+            // Mark that we're waiting for first screenshot - this is checked by the
+            // screenshot polling effect to know when to hide the loading overlay
+            waitingForFirstScreenshotRef.current = true;
+            // CRITICAL: Disable video on server when starting in screenshot mode
+            // This prevents the server from sending video frames we can't render
+            // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
+            if (stream instanceof WebSocketStream) {
+              console.log('[MoonlightStreamViewer] Starting in low mode - disabling WS video');
+              stream.setVideoEnabled(false);
+            }
           } else {
             setStatus('Waiting for video...');
           }
@@ -522,6 +704,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             clearTimeout(videoStartTimeoutRef.current);
             videoStartTimeoutRef.current = null;
           }
+          // Register WebSocket video enabled (unregister any previous)
+          if (currentWebSocketVideoIdRef.current) {
+            unregisterConnection(currentWebSocketVideoIdRef.current);
+          }
+          currentWebSocketVideoIdRef.current = registerConnection('websocket-video-enabled');
           setIsConnecting(false);
           setStatus('Streaming active');
         } else if (data.type === 'error') {
@@ -780,8 +967,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setPendingAutoJoin(false); // Reset auto-join state on disconnect
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
+
+    // Clear all connection registrations
+    clearAllConnections();
+    currentWebSocketStreamIdRef.current = null;
+    currentWebSocketVideoIdRef.current = null;
+    currentSseVideoIdRef.current = null;
+    currentScreenshotVideoIdRef.current = null;
+    currentWebRtcStreamIdRef.current = null;
+
     console.log('[MoonlightStreamViewer] disconnect() completed');
-  }, []);
+  }, [clearAllConnections]);
 
   // Ref to connect function for use in setTimeout (avoids stale closure issues)
   const connectRef = useRef(connect);
@@ -845,6 +1041,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const sseEventSourceRef = useRef<EventSource | null>(null);
   const sseVideoDecoderRef = useRef<VideoDecoder | null>(null);
   const sseReceivedFirstKeyframeRef = useRef(false);
+  const hasInitializedSseRef = useRef(false); // Track if SSE was initialized for initial connection
 
   // Handle streaming mode changes - reconnect when switching between websocket and webrtc
   // Note: SSE video is now controlled by qualityMode, not streamingMode
@@ -855,6 +1052,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const newMode = streamingMode;
     console.log('[MoonlightStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
     previousStreamingModeRef.current = newMode;
+
+    // CRITICAL: Reset qualityMode to 'high' when switching streaming modes
+    // This prevents state bleeding (e.g., screenshot polling continuing in WebRTC mode)
+    // qualityMode only applies to websocket streaming, so reset it to default when changing protocols
+    if (qualityMode !== 'high') {
+      console.log('[MoonlightStreamViewer] Resetting qualityMode to high for streaming mode switch');
+      setQualityMode('high');
+      previousQualityModeRef.current = 'high';
+      setIsOnFallback(false);
+    }
+
+    // CRITICAL: Explicitly clean up SSE resources before reconnecting
+    // The disconnect() call inside reconnect may race with qualityMode effects
+    if (sseEventSourceRef.current) {
+      console.log('[MoonlightStreamViewer] Closing SSE EventSource for streaming mode switch');
+      sseEventSourceRef.current.close();
+      sseEventSourceRef.current = null;
+    }
+    if (sseVideoDecoderRef.current) {
+      if (sseVideoDecoderRef.current.state !== 'closed') {
+        try {
+          sseVideoDecoderRef.current.close();
+        } catch (err) {
+          console.warn('[MoonlightStreamViewer] Error closing SSE decoder:', err);
+        }
+      }
+      sseVideoDecoderRef.current = null;
+    }
+    // Unregister SSE video connection if it was active
+    if (currentSseVideoIdRef.current) {
+      unregisterConnection(currentSseVideoIdRef.current);
+      currentSseVideoIdRef.current = null;
+    }
+    sseReceivedFirstKeyframeRef.current = false;
+    hasInitializedSseRef.current = false;
 
     // Switching between websocket and webrtc requires full reconnect (different protocols)
     console.log('[MoonlightStreamViewer] Full reconnect needed for mode switch');
@@ -910,17 +1142,32 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }
         sseVideoDecoderRef.current = null;
       }
+      // Unregister SSE video connection
+      if (currentSseVideoIdRef.current) {
+        unregisterConnection(currentSseVideoIdRef.current);
+        currentSseVideoIdRef.current = null;
+      }
     } else if (prevMode === 'high') {
       // Disable WS video (will be re-enabled if switching back to 'high')
       console.log('[MoonlightStreamViewer] Disabling WS video for quality mode switch');
       wsStream.setVideoEnabled(false);
+      // Unregister WebSocket video connection
+      if (currentWebSocketVideoIdRef.current) {
+        unregisterConnection(currentWebSocketVideoIdRef.current);
+        currentWebSocketVideoIdRef.current = null;
+      }
     }
     // 'low' mode: screenshot polling will auto-stop via shouldPollScreenshots becoming false
+    // (the screenshot polling effect's cleanup will unregister the connection)
 
     // Step 2: Setup new mode's video source
     if (newMode === 'high') {
       // Enable WS video
       console.log('[MoonlightStreamViewer] Enabling WS video for high mode');
+      // Show loading overlay while waiting for first video frame
+      // The videoStarted event will hide it (handler already exists for initial connection)
+      setIsConnecting(true);
+      setStatus('Switching to video stream...');
       wsStream.setVideoEnabled(true);
       if (canvasRef.current) {
         wsStream.setCanvas(canvasRef.current);
@@ -930,6 +1177,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // This is redundant if coming from 'high' (already disabled above) but ensures
       // WS video is definitely off regardless of previous mode
       console.log('[MoonlightStreamViewer] Disabling WS video before SSE setup');
+      // Show loading overlay while waiting for first SSE video frame
+      setIsConnecting(true);
+      setStatus('Switching to SSE stream...');
       wsStream.setVideoEnabled(false);
 
       // Defensive cleanup: close any stale SSE resources before opening new ones
@@ -1000,6 +1250,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
             const decoder = new VideoDecoder({
               output: (frame: VideoFrame) => {
+                // CRITICAL: Check if this decoder is still the active one
+                // This prevents old decoders from rendering after a new one is created
+                if (sseVideoDecoderRef.current !== decoder) {
+                  frame.close();
+                  return;
+                }
                 if (ctx && canvas.width > 0 && canvas.height > 0) {
                   ctx.drawImage(frame, 0, 0);
                 }
@@ -1023,6 +1279,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 }
                 sseVideoDecoderRef.current = null;
                 sseReceivedFirstKeyframeRef.current = false;
+                // Unregister SSE video connection
+                if (currentSseVideoIdRef.current) {
+                  unregisterConnection(currentSseVideoIdRef.current);
+                  currentSseVideoIdRef.current = null;
+                }
                 // Reconnect with the same mode (reconnect preserves qualityMode)
                 setTimeout(() => reconnectRef.current(1000), 500);
               },
@@ -1074,6 +1335,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 clearTimeout(videoStartTimeoutRef.current);
                 videoStartTimeoutRef.current = null;
               }
+              // Register SSE video connection (unregister any previous)
+              if (currentSseVideoIdRef.current) {
+                unregisterConnection(currentSseVideoIdRef.current);
+              }
+              currentSseVideoIdRef.current = registerConnection('sse-video');
               // Hide the connecting overlay now that video is visible
               setIsConnecting(false);
               setStatus('Streaming active');
@@ -1135,6 +1401,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
             sseVideoDecoderRef.current = null;
           }
+          // Unregister SSE video connection
+          if (currentSseVideoIdRef.current) {
+            unregisterConnection(currentSseVideoIdRef.current);
+            currentSseVideoIdRef.current = null;
+          }
         });
 
         eventSource.onerror = (err) => {
@@ -1145,6 +1416,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // CRITICAL: Disable WS video for screenshot mode to prevent video streaming
       // This is redundant with the video control effect but ensures WS video is definitely off
       console.log('[MoonlightStreamViewer] Disabling WS video for screenshot mode');
+      // Show loading overlay while waiting for first screenshot
+      // This prevents a black screen gap between video disappearing and screenshot appearing
+      setIsConnecting(true);
+      setStatus('Switching to screenshots...');
+      // Mark that we're waiting for first screenshot - this is used by the polling effect
+      // to know when to hide the overlay (more reliable than checking screenshotUrl state)
+      waitingForFirstScreenshotRef.current = true;
       wsStream.setVideoEnabled(false);
       // Screenshot polling will auto-start via shouldPollScreenshots becoming true
     }
@@ -1153,7 +1431,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Handle initial connection with SSE quality mode
   // The hot-switch handler above only triggers on qualityMode CHANGES, not initial state
   // This effect runs once when first connected and sets up SSE if that's the initial mode
-  const hasInitializedSseRef = useRef(false);
+  // NOTE: hasInitializedSseRef is defined earlier (with other SSE refs) for use by streaming mode effect
   useEffect(() => {
     // Only run once when first connected with SSE mode
     if (hasInitializedSseRef.current || !isConnected || qualityMode !== 'sse') {
@@ -1230,6 +1508,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           const decoder = new VideoDecoder({
             output: (frame: VideoFrame) => {
+              // CRITICAL: Check if this decoder is still the active one
+              // This prevents old decoders from rendering after a new one is created
+              if (sseVideoDecoderRef.current !== decoder) {
+                frame.close();
+                return;
+              }
               if (ctx && canvas.width > 0 && canvas.height > 0) {
                 ctx.drawImage(frame, 0, 0);
               }
@@ -1254,6 +1538,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               sseVideoDecoderRef.current = null;
               sseReceivedFirstKeyframeRef.current = false;
               hasInitializedSseRef.current = false; // Allow re-initialization
+              // Unregister SSE video connection
+              if (currentSseVideoIdRef.current) {
+                unregisterConnection(currentSseVideoIdRef.current);
+                currentSseVideoIdRef.current = null;
+              }
               // Reconnect with the same mode (reconnect preserves qualityMode)
               setTimeout(() => reconnectRef.current(1000), 500);
             },
@@ -1305,6 +1594,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               clearTimeout(videoStartTimeoutRef.current);
               videoStartTimeoutRef.current = null;
             }
+            // Register SSE video connection (unregister any previous)
+            if (currentSseVideoIdRef.current) {
+              unregisterConnection(currentSseVideoIdRef.current);
+            }
+            currentSseVideoIdRef.current = registerConnection('sse-video');
             // Hide the connecting overlay now that video is visible
             setIsConnecting(false);
             setStatus('Streaming active');
@@ -1365,6 +1659,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }
           }
           sseVideoDecoderRef.current = null;
+        }
+        // Unregister SSE video connection
+        if (currentSseVideoIdRef.current) {
+          unregisterConnection(currentSseVideoIdRef.current);
+          currentSseVideoIdRef.current = null;
         }
       });
 
@@ -1502,15 +1801,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return BITRATE_OPTIONS[pessimisticIndex];
   }, []);
 
-  // Auto-connect when wolfLobbyId becomes available
+  // Auto-connect when wolfLobbyId becomes available AND component is visible
   // wolfLobbyId is fetched asynchronously from session data, so it's undefined on initial render
   // If we connect before it's available, we use the wrong app_id (apps mode instead of lobbies mode)
+  // NEW: Wait for visibility before connecting (saves bandwidth when component not in view)
   // NEW: Probe bandwidth FIRST, then connect at optimal bitrate (avoids reconnect on startup)
   const hasConnectedRef = useRef(false);
   const hasEverConnectedRef = useRef(false); // True after first successful connection (distinguishes initial vs reconnect)
   useEffect(() => {
     // Only auto-connect once
     if (hasConnectedRef.current) return;
+
+    // Wait for component to become visible before connecting
+    // This prevents wasting bandwidth on hidden tabs/components
+    if (!isVisible) {
+      console.log('[MoonlightStreamViewer] Waiting for component to become visible before connecting...');
+      return;
+    }
 
     // If wolfLobbyId prop is expected but not yet loaded, wait for it
     // We detect this by checking if sessionId is provided (external agent mode)
@@ -1546,7 +1853,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     probeAndConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wolfLobbyId, sessionId]); // Only trigger on props, not on function identity changes
+  }, [wolfLobbyId, sessionId, isVisible]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1565,18 +1872,34 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
+  // Reset reconnectClicked when isConnecting becomes true (connection attempt has started)
+  // This provides immediate button feedback: click → disable → wait for isConnecting
+  useEffect(() => {
+    if (isConnecting) {
+      setReconnectClicked(false);
+    }
+  }, [isConnecting]);
+
   // Screenshot polling for low-quality mode (manual screenshot fallback)
   // Targets 2 FPS minimum (500ms max per frame)
   // Dynamically adjusts JPEG quality based on fetch time
-  const shouldPollScreenshots = qualityMode === 'low';
+  // IMPORTANT: Only poll in websocket mode - not in webrtc mode (qualityMode persists across streaming mode changes)
+  const shouldPollScreenshots = qualityMode === 'low' && streamingMode === 'websocket';
 
   // Notify server to pause/resume video based on quality mode
   // - 'high': WS video enabled (main video source)
   // - 'sse': WS video disabled (SSE is the video source, handled by SSE setup)
   // - 'low': WS video disabled (screenshots are the video source)
+  // NOTE: This effect only applies to websocket streaming mode
   useEffect(() => {
     const stream = streamRef.current;
     if (!stream || !(stream instanceof WebSocketStream) || !isConnected) {
+      return;
+    }
+
+    // Only apply quality mode changes in websocket streaming mode
+    // WebRTC has its own congestion control and doesn't use qualityMode
+    if (streamingMode !== 'websocket') {
       return;
     }
 
@@ -1590,7 +1913,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       stream.setVideoEnabled(true);
     }
     // SSE mode: do nothing here - SSE setup/hot-switch handles video state
-  }, [qualityMode, isConnected]);
+  }, [qualityMode, isConnected, streamingMode]);
 
   useEffect(() => {
     // Only poll screenshots when needed
@@ -1608,6 +1931,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
 
     console.log('[MoonlightStreamViewer] Starting screenshot polling (low mode)');
+
+    // Register screenshot polling connection
+    if (currentScreenshotVideoIdRef.current) {
+      unregisterConnection(currentScreenshotVideoIdRef.current);
+    }
+    const screenshotId = registerConnection('screenshot-polling');
+    currentScreenshotVideoIdRef.current = screenshotId;
 
     let isPolling = true;
     let lastFrameTime = Date.now();
@@ -1672,18 +2002,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Preload image before displaying
         const img = new Image();
         img.onload = () => {
-          setScreenshotUrl((oldUrl) => {
-            // Hide connecting overlay on first screenshot
-            if (!oldUrl) {
-              console.log('[Screenshot] First screenshot received - hiding connecting overlay');
-              // Clear video start timeout - screenshot arrived successfully
-              if (videoStartTimeoutRef.current) {
-                clearTimeout(videoStartTimeoutRef.current);
-                videoStartTimeoutRef.current = null;
-              }
-              setIsConnecting(false);
-              setStatus('Streaming active');
+          // Hide connecting overlay on first screenshot after entering screenshot mode
+          // IMPORTANT: Do this OUTSIDE setScreenshotUrl callback to avoid nested state update issues
+          if (waitingForFirstScreenshotRef.current) {
+            console.log('[Screenshot] First screenshot received - hiding connecting overlay');
+            // Clear video start timeout - screenshot arrived successfully
+            if (videoStartTimeoutRef.current) {
+              clearTimeout(videoStartTimeoutRef.current);
+              videoStartTimeoutRef.current = null;
             }
+            waitingForFirstScreenshotRef.current = false;
+            setIsConnecting(false);
+            setStatus('Streaming active');
+          }
+
+          setScreenshotUrl((oldUrl) => {
             if (oldUrl) URL.revokeObjectURL(oldUrl);
             return newUrl;
           });
@@ -1714,8 +2047,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     return () => {
       isPolling = false;
+      // Unregister screenshot polling connection
+      if (screenshotId) {
+        unregisterConnection(screenshotId);
+        if (currentScreenshotVideoIdRef.current === screenshotId) {
+          currentScreenshotVideoIdRef.current = null;
+        }
+      }
     };
-  }, [shouldPollScreenshots, isConnected, sessionId]);
+  }, [shouldPollScreenshots, isConnected, sessionId, registerConnection, unregisterConnection]);
 
   // Cleanup screenshot URL on unmount
   useEffect(() => {
@@ -1812,13 +2152,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       return;
     }
 
-    const CHECK_INTERVAL_MS = 1000;       // Check every second
-    const REDUCE_COOLDOWN_MS = 10000;     // Don't reduce again within 10 seconds
-    const INCREASE_COOLDOWN_MS = 30000;   // Don't increase again within 30 seconds
-    const MANUAL_SELECTION_COOLDOWN_MS = 20000;  // Don't auto-reduce within 20s of user manually selecting bitrate
+    const CHECK_INTERVAL_MS = 1000;       // Check every second (for congestion detection)
+    const REDUCE_COOLDOWN_MS = 300000;    // Don't show another recommendation within 5 minutes
+    const INCREASE_COOLDOWN_MS = 300000;  // Don't show another recommendation within 5 minutes
+    const MANUAL_SELECTION_COOLDOWN_MS = 60000;  // Don't auto-reduce within 60s of user manually selecting bitrate
     const BITRATE_OPTIONS = [5, 10, 20, 40, 80]; // Available bitrates in ascending order
     const MIN_BITRATE = 5;
-    const STABLE_CHECKS_FOR_INCREASE = 20; // Need 20 seconds of low frame drift before trying increase
+    const STABLE_CHECKS_FOR_INCREASE = 300; // Need 5 minutes of low frame drift before running bandwidth probe
     const CONGESTION_CHECKS_FOR_REDUCE = 3; // Need 3 consecutive high drift samples before reducing (dampening)
     const FRAME_DRIFT_THRESHOLD = 200;    // Reduce if frames arriving > 200ms late (positive drift = behind)
 
@@ -1889,6 +2229,31 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               congestionCheckCountRef.current = 0;
               return;
             }
+          }
+        }
+      } else if (congestionDetected && currentBitrate === MIN_BITRATE) {
+        // Already at minimum bitrate but still experiencing congestion
+        // Recommend switching to screenshot mode for better reliability
+        congestionCheckCountRef.current++;
+        stableCheckCountRef.current = 0;
+
+        if (congestionCheckCountRef.current >= CONGESTION_CHECKS_FOR_REDUCE) {
+          const timeSinceLastChange = now - lastBitrateChangeRef.current;
+
+          if (timeSinceLastChange > REDUCE_COOLDOWN_MS) {
+            console.log(`[AdaptiveBitrate] At minimum bitrate (${MIN_BITRATE}Mbps) but still experiencing congestion (${frameDrift.toFixed(0)}ms drift), recommending screenshot mode`);
+
+            setBitrateRecommendation({
+              type: 'screenshot',
+              targetBitrate: MIN_BITRATE, // Keep same bitrate, just switch mode
+              reason: `Video streaming is struggling even at ${MIN_BITRATE}Mbps`,
+              frameDrift: frameDrift,
+            });
+
+            lastBitrateChangeRef.current = now;
+            stableCheckCountRef.current = 0;
+            congestionCheckCountRef.current = 0;
+            return;
           }
         }
       } else {
@@ -2002,6 +2367,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
   }, []);
+
+  // Track visibility for deferred connection - only connect when component is visible
+  // This saves bandwidth and avoids connection issues on high-latency networks
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && !isVisible) {
+          console.log('[MoonlightStreamViewer] Component became visible - will trigger connection');
+          setIsVisible(true);
+        }
+        // Note: we don't set isVisible=false when hidden - once connected, stay connected
+      },
+      { threshold: 0.1 } // Trigger when 10% visible
+    );
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isVisible]);
 
   // Calculate proper canvas display size to maintain aspect ratio
   useEffect(() => {
@@ -2174,9 +2561,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [audioEnabled]);
 
-  // Poll WebRTC stats when stats overlay is visible
+  // Poll WebRTC stats when stats overlay or charts are visible
   useEffect(() => {
-    if (!showStats || !streamRef.current) {
+    if ((!showStats && !showCharts) || !streamRef.current) {
       return;
     }
 
@@ -2227,6 +2614,26 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             decodeQueueSize: isSSE ? 0 : wsStats.decodeQueueSize,
             maxDecodeQueueSize: isSSE ? 0 : wsStats.maxDecodeQueueSize,
             framesSkippedToKeyframe: isSSE ? 0 : wsStats.framesSkippedToKeyframe,
+          },
+          // Input buffer stats (detects TCP send buffer congestion)
+          input: {
+            bufferBytes: wsStats.inputBufferBytes,
+            maxBufferBytes: wsStats.maxInputBufferBytes,
+            avgBufferBytes: wsStats.avgInputBufferBytes,
+            inputsSent: wsStats.inputsSent,
+            inputsDropped: wsStats.inputsDroppedDueToCongestion,
+            congested: wsStats.inputCongested,
+            // Send latency (should be ~0 if ws.send is truly non-blocking)
+            lastSendMs: wsStats.lastSendDurationMs,
+            maxSendMs: wsStats.maxSendDurationMs,
+            avgSendMs: wsStats.avgSendDurationMs,
+            bufferBeforeSend: wsStats.bufferedAmountBeforeSend,
+            bufferAfterSend: wsStats.bufferedAmountAfterSend,
+            bufferStaleMs: wsStats.bufferStaleMs,
+            // Event loop latency (detects main thread blocking)
+            eventLoopLatencyMs: wsStats.eventLoopLatencyMs,
+            maxEventLoopLatencyMs: wsStats.maxEventLoopLatencyMs,
+            avgEventLoopLatencyMs: wsStats.avgEventLoopLatencyMs,
           },
           connection: {
             transport: isForcedLow
@@ -2338,7 +2745,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       clearInterval(interval);
       lastBytesRef.current = null; // Reset for next time
     };
-  }, [showStats, streamingMode, width, height, qualityMode]);
+  }, [showStats, showCharts, streamingMode, width, height, qualityMode]);
 
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
@@ -2829,7 +3236,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   return (
     <Box
       ref={containerRef}
-      className={className}
+      className={`${className} moonlight-stream-viewer`}
+      data-video-container="true"
       tabIndex={0}
       onClick={handleContainerClick}
       sx={{
@@ -2871,11 +3279,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           <span>
             <IconButton
               size="small"
-              onClick={() => reconnect(1000, 'Reconnecting...')}
+              onClick={() => {
+                setReconnectClicked(true);
+                reconnect(1000, 'Reconnecting...');
+              }}
               sx={{ color: 'white' }}
-              disabled={isConnecting}
+              disabled={reconnectClicked || isConnecting}
             >
-              <Refresh fontSize="small" />
+              {reconnectClicked || isConnecting ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <Refresh fontSize="small" />}
             </IconButton>
           </span>
         </Tooltip>
@@ -3014,7 +3425,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           onClose={() => setBitrateMenuAnchor(null)}
           container={containerRef.current} // Render in main container (not transformed toolbar) for correct positioning + fullscreen support
           slotProps={{ paper: { sx: { bgcolor: 'rgba(0,0,0,0.9)', color: 'white' } } }}
-          sx={{ zIndex: 100001 }} // Above floating modals (z-index 9999+)
         >
           {[5, 10, 20, 40, 80].map((bitrate) => (
             <MenuItem
@@ -3045,6 +3455,61 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
           </IconButton>
         </Tooltip>
+        {/* Discreet bandwidth recommendation indicator */}
+        {bitrateRecommendation && isConnected && (
+          <Tooltip
+            title={`${bitrateRecommendation.reason}. Click to switch.`}
+            arrow
+            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
+          >
+            <Button
+              size="small"
+              onClick={() => {
+                if (bitrateRecommendation.type === 'screenshot') {
+                  // Switch to screenshot mode
+                  setQualityMode('low');
+                  addChartEvent('reduce', 'User switched to screenshot mode');
+                } else {
+                  // Change bitrate
+                  setUserBitrate(bitrateRecommendation.targetBitrate);
+                  addChartEvent(
+                    bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
+                    `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
+                  );
+                }
+                manualBitrateSelectionTimeRef.current = Date.now();
+                setBitrateRecommendation(null);
+              }}
+              sx={{
+                backgroundColor: bitrateRecommendation.type === 'screenshot'
+                  ? 'rgba(244, 67, 54, 0.9)' // Red for screenshot recommendation
+                  : bitrateRecommendation.type === 'decrease'
+                    ? 'rgba(255, 152, 0, 0.9)'
+                    : 'rgba(76, 175, 80, 0.9)',
+                color: 'white',
+                fontSize: '0.65rem',
+                px: 1,
+                py: 0.25,
+                minWidth: 'auto',
+                textTransform: 'none',
+                borderRadius: 1,
+                '&:hover': {
+                  backgroundColor: bitrateRecommendation.type === 'screenshot'
+                    ? 'rgba(244, 67, 54, 1)'
+                    : bitrateRecommendation.type === 'decrease'
+                      ? 'rgba(255, 152, 0, 1)'
+                      : 'rgba(76, 175, 80, 1)',
+                },
+              }}
+            >
+              {bitrateRecommendation.type === 'screenshot'
+                ? 'Struggling · Try screenshots'
+                : bitrateRecommendation.type === 'decrease'
+                  ? `Slow connection · Try ${bitrateRecommendation.targetBitrate}M`
+                  : `Improved · Try ${bitrateRecommendation.targetBitrate}M`}
+            </Button>
+          </Tooltip>
+        )}
       </Box>
 
       {/* Screenshot Mode / High Latency Warning Banner */}
@@ -3077,132 +3542,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </Box>
       )}
 
-      {/* Bandwidth Recommendation Popup */}
-      {bitrateRecommendation && isConnected && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: shouldPollScreenshots ? 90 : 50, // Below screenshot banner if visible
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 999,
-            backgroundColor: bitrateRecommendation.type === 'decrease'
-              ? 'rgba(255, 152, 0, 0.95)' // Orange for decrease warning
-              : 'rgba(76, 175, 80, 0.95)', // Green for increase opportunity
-            color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-            padding: '8px 16px',
-            borderRadius: 2,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 1,
-            fontFamily: 'monospace',
-            fontSize: '0.8rem',
-            maxWidth: '90%',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {bitrateRecommendation.type === 'decrease' ? (
-              <SignalCellularAlt sx={{ fontSize: 18 }} />
-            ) : (
-              <Speed sx={{ fontSize: 18 }} />
-            )}
-            <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
-              {bitrateRecommendation.type === 'decrease'
-                ? 'Slow connection detected'
-                : 'Connection improved'}
-            </Typography>
-          </Box>
-          <Typography variant="caption" sx={{ textAlign: 'center', opacity: 0.9 }}>
-            {bitrateRecommendation.reason}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => {
-                // Apply the recommended bitrate
-                setUserBitrate(bitrateRecommendation.targetBitrate);
-                manualBitrateSelectionTimeRef.current = Date.now();
-                addChartEvent(
-                  bitrateRecommendation.type === 'decrease' ? 'reduce' : 'increase',
-                  `User accepted: ${userBitrate ?? requestedBitrate}→${bitrateRecommendation.targetBitrate} Mbps`
-                );
-                setBitrateRecommendation(null);
-              }}
-              sx={{
-                backgroundColor: bitrateRecommendation.type === 'decrease' ? '#d84315' : '#2e7d32',
-                color: 'white',
-                fontSize: '0.7rem',
-                px: 2,
-                py: 0.5,
-                textTransform: 'none',
-                '&:hover': {
-                  backgroundColor: bitrateRecommendation.type === 'decrease' ? '#bf360c' : '#1b5e20',
-                },
-              }}
-            >
-              Switch to {bitrateRecommendation.targetBitrate} Mbps
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => {
-                console.log(`[AdaptiveBitrate] User dismissed ${bitrateRecommendation.type} recommendation`);
-                setBitrateRecommendation(null);
-              }}
-              sx={{
-                borderColor: bitrateRecommendation.type === 'decrease' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
-                color: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-                fontSize: '0.7rem',
-                px: 1.5,
-                py: 0.5,
-                textTransform: 'none',
-                '&:hover': {
-                  borderColor: bitrateRecommendation.type === 'decrease' ? 'black' : 'white',
-                  backgroundColor: 'rgba(0,0,0,0.1)',
-                },
-              }}
-            >
-              Dismiss
-            </Button>
-          </Box>
-        </Box>
-      )}
-
-      {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
-      {showLoadingOverlay && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            zIndex: 2000,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 3,
-          }}
-        >
-          <CircularProgress size={60} sx={{ color: 'primary.main' }} />
-          <Typography variant="h6" sx={{ color: 'white' }}>
-            {isRestart ? 'Restarting session...' : 'Starting session...'}
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'grey.400' }}>
-            {isRestart
-              ? 'Stopping old session and starting with fresh startup script'
-              : 'Creating new session and running startup script'}
-          </Typography>
-        </Box>
-      )}
-
-      {/* Disconnected Overlay - prominent reconnection indicator */}
-      {!isConnecting && !isConnected && !error && retryCountdown === null && !showLoadingOverlay && (
+      {/* Unified Connection Status Overlay - single overlay for all connection states */}
+      {/* Suppressed when parent component (ExternalAgentDesktopViewer) is showing its own overlay */}
+      {!suppressOverlay && (!isConnected || isConnecting || error || retryCountdown !== null) && (
         <Box
           sx={{
             position: 'absolute',
@@ -3211,44 +3553,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            zIndex: 1500,
+            zIndex: 1000,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
+            textAlign: 'center',
             gap: 2,
           }}
         >
-          <Typography variant="h6" sx={{ color: 'white' }}>
-            Disconnected
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
-            {status || 'Connection lost'}
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => reconnect(1000, 'Reconnecting...')}
-            startIcon={<Refresh />}
-            sx={{ mt: 2 }}
-          >
-            Reconnect Now
-          </Button>
-        </Box>
-      )}
-
-      {/* Status Overlay */}
-      {(isConnecting || error || retryCountdown !== null) && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 999,
-            textAlign: 'center',
-          }}
-        >
+          {/* Connecting state - spinner with status message */}
           {isConnecting && (
             <Box sx={{ color: 'white' }}>
               <CircularProgress size={40} sx={{ mb: 2 }} />
@@ -3256,13 +3570,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </Box>
           )}
 
-          {retryCountdown !== null && (
+          {/* Retry countdown - waiting before retry */}
+          {retryCountdown !== null && !isConnecting && (
             <Alert severity="warning" sx={{ maxWidth: 400 }}>
               Stream busy (attempt {retryAttemptDisplay}) - retrying in {retryCountdown} second{retryCountdown !== 1 ? 's' : ''}...
             </Alert>
           )}
 
-          {error && retryCountdown === null && (
+          {/* Disconnected state - no active connection, no error, not connecting */}
+          {!isConnecting && !isConnected && !error && retryCountdown === null && (
+            <>
+              <Typography variant="h6" sx={{ color: 'white' }}>
+                Disconnected
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'grey.400', textAlign: 'center', maxWidth: 300 }}>
+                {status || 'Connection lost'}
+              </Typography>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => {
+                  setReconnectClicked(true);
+                  reconnect(500, 'Reconnecting...');
+                }}
+                disabled={reconnectClicked}
+                startIcon={reconnectClicked ? <CircularProgress size={20} /> : <Refresh />}
+                sx={{ mt: 2 }}
+              >
+                {reconnectClicked ? 'Reconnecting...' : 'Reconnect Now'}
+              </Button>
+            </>
+          )}
+
+          {/* Error state - show error with reconnect option */}
+          {error && retryCountdown === null && !isConnecting && (
             <Alert
               severity="error"
               sx={{ maxWidth: 400 }}
@@ -3270,12 +3611,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 <Button
                   color="inherit"
                   size="small"
+                  disabled={reconnectClicked}
                   onClick={() => {
+                    setReconnectClicked(true);
                     setError(null);
-                    connect();
+                    reconnect(500, 'Reconnecting...');
                   }}
+                  startIcon={reconnectClicked ? <CircularProgress size={14} color="inherit" /> : undefined}
                 >
-                  Reconnect
+                  {reconnectClicked ? 'Reconnecting...' : 'Reconnect'}
                 </Button>
               }
             >
@@ -3305,6 +3649,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               clearTimeout(videoStartTimeoutRef.current);
               videoStartTimeoutRef.current = null;
             }
+            // Register WebRTC stream connection (unregister any previous)
+            if (currentWebRtcStreamIdRef.current) {
+              unregisterConnection(currentWebRtcStreamIdRef.current);
+            }
+            currentWebRtcStreamIdRef.current = registerConnection('webrtc-stream');
             setIsConnecting(false);
             setStatus('Streaming active');
           }
@@ -3465,6 +3814,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
             <div><strong>Transport:</strong> {streamingMode === 'websocket' ? (qualityMode === 'sse' ? 'SSE Video + WebSocket Input' : 'WebSocket (L7)') : 'WebRTC'}</div>
+            {/* Active Connections Registry - shows all active streaming connections */}
+            <div>
+              <strong>Active:</strong>{' '}
+              {activeConnectionsDisplay.length === 0 ? (
+                <span style={{ color: '#888' }}>none</span>
+              ) : (
+                activeConnectionsDisplay.map((c, i) => (
+                  <span key={c.id}>
+                    {i > 0 && ', '}
+                    <span style={{
+                      color: activeConnectionsDisplay.length > 2 ? '#ff6b6b' : '#00ff00'
+                    }}>
+                      {c.type.replace(/-/g, ' ')}
+                    </span>
+                  </span>
+                ))
+              )}
+              {activeConnectionsDisplay.length > 2 && (
+                <span style={{ color: '#ff6b6b' }}> ⚠️ TOO MANY!</span>
+              )}
+            </div>
             {stats?.video?.codec && (
               <>
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
@@ -3536,6 +3906,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                   </>
                 )}
               </>
+            )}
+            {/* Input stats (WebSocket mode) - detects TCP send buffer congestion */}
+            {streamingMode === 'websocket' && stats?.input && (
+              <div style={{ marginTop: 8, borderTop: '1px solid rgba(0, 255, 0, 0.3)', paddingTop: 8 }}>
+                <strong style={{ color: '#00ff00' }}>⌨️ Input</strong>
+                <div>
+                  <strong>Send Buffer:</strong> {stats.input.bufferBytes} bytes
+                  {stats.input.maxBufferBytes > 1000 && (
+                    <span style={{ color: '#888' }}> (peak: {(stats.input.maxBufferBytes / 1024).toFixed(1)}KB)</span>
+                  )}
+                  {stats.input.congested && (
+                    <span style={{ color: '#ff6b6b' }}> ⚠️ Stale {stats.input.bufferStaleMs?.toFixed(0)}ms</span>
+                  )}
+                </div>
+                <div>
+                  <strong>Sent:</strong> {stats.input.inputsSent}
+                  {stats.input.inputsDropped > 0 && (
+                    <span style={{ color: '#ff9800' }}> (skipped: {stats.input.inputsDropped})</span>
+                  )}
+                </div>
+                {stats.input.maxSendMs > 1 && (
+                  <div>
+                    <strong>Send Latency:</strong> {stats.input.avgSendMs.toFixed(2)}ms
+                    <span style={{ color: '#888' }}> (peak: {stats.input.maxSendMs.toFixed(1)}ms)</span>
+                    {stats.input.maxSendMs > 5 && <span style={{ color: '#ff6b6b' }}> ⚠️ Blocking</span>}
+                  </div>
+                )}
+                <div>
+                  <strong>Event Loop:</strong> {stats.input.avgEventLoopLatencyMs?.toFixed(1) || 0}ms
+                  {stats.input.maxEventLoopLatencyMs > 10 && (
+                    <span style={{ color: '#888' }}> (peak: {stats.input.maxEventLoopLatencyMs?.toFixed(0)}ms)</span>
+                  )}
+                  {stats.input.maxEventLoopLatencyMs > 50 && <span style={{ color: '#ff6b6b' }}> ⚠️ Main thread blocked</span>}
+                </div>
+              </div>
             )}
             {!stats?.video?.codec && !shouldPollScreenshots && <div>Waiting for video data...</div>}
             {/* Screenshot mode stats */}
@@ -3738,10 +4143,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               </Box>
             </Box>
           </Box>
-
-          <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#666', fontStyle: 'italic' }}>
-            Test with Chrome DevTools → Network → Throttling → "Fast 4G" or "Slow 4G" to see adaptive behavior
-          </Typography>
         </Box>
         );
       })()}

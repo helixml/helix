@@ -121,6 +121,7 @@ type HelixAPIServer struct {
 	sampleProjectCodeService  *services.SampleProjectCodeService
 	gitRepositoryService      *services.GitRepositoryService
 	koditService              *services.KoditService
+	mcpGateway                *MCPGateway
 	gitHTTPServer             *services.GitHTTPServer
 	moonlightProxy            *moonlight.MoonlightProxy
 	moonlightServer           *moonlight.MoonlightServer
@@ -345,6 +346,17 @@ func NewServer(
 		log.Info().Msg("Kodit code intelligence service disabled")
 	}
 
+	// Initialize MCP Gateway for authenticated MCP proxying
+	apiServer.mcpGateway = NewMCPGateway()
+
+	// Register Kodit MCP backend (code intelligence)
+	apiServer.mcpGateway.RegisterBackend("kodit", NewKoditMCPBackend(&cfg.Kodit))
+
+	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
+	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, controller))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit and Helix backends")
+
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
@@ -455,10 +467,15 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	}
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
-		WriteTimeout:      time.Minute * 30,
-		ReadTimeout:       time.Minute * 30,
-		ReadHeaderTimeout: time.Minute * 30,
+		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
+		// WriteTimeout and ReadTimeout set to 0 (no timeout) to support:
+		// - Large git clone/push operations that can take a long time
+		// - Long-running streaming responses (SSE, WebSocket upgrades)
+		// - LLM inference streaming that can take minutes
+		// Note: ReadHeaderTimeout is kept to prevent slowloris attacks
+		WriteTimeout:      0,
+		ReadTimeout:       0,
+		ReadHeaderTimeout: time.Second * 60,
 		IdleTimeout:       time.Minute * 60,
 		Handler:           apiServer.router,
 	}
@@ -623,6 +640,18 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/ssh-keys", system.Wrapper(apiServer.createSSHKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/ssh-keys/generate", system.Wrapper(apiServer.generateSSHKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/ssh-keys/{id}", system.Wrapper(apiServer.deleteSSHKey)).Methods(http.MethodDelete)
+
+	// Prompt history endpoints (cross-device sync)
+	authRouter.HandleFunc("/prompt-history", system.Wrapper(apiServer.listPromptHistory)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/prompt-history/sync", system.Wrapper(apiServer.syncPromptHistory)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/prompt-history/pinned", system.Wrapper(apiServer.listPinnedPrompts)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/prompt-history/search", system.Wrapper(apiServer.searchPrompts)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/prompt-history/{id}/pin", system.Wrapper(apiServer.updatePromptPin)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/prompt-history/{id}/tags", system.Wrapper(apiServer.updatePromptTags)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/prompt-history/{id}/use", system.Wrapper(apiServer.incrementPromptUsage)).Methods(http.MethodPost)
+
+	// Unified search endpoint
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.unifiedSearch)).Methods(http.MethodGet)
 
 	// Zed config endpoints
 	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
@@ -1081,13 +1110,35 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.listGitRepositoryPullRequests).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/pull-requests", apiServer.createGitRepositoryPullRequest).Methods(http.MethodPost)
 
+	// Browse remote repositories using PAT credentials (without needing OAuth)
+	authRouter.HandleFunc("/git/browse-remote", apiServer.browseRemoteRepositories).Methods(http.MethodPost)
+
+	// Git provider connections - persistent PAT-based connections for browsing repositories
+	authRouter.HandleFunc("/git-provider-connections", apiServer.listGitProviderConnections).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git-provider-connections", apiServer.createGitProviderConnection).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git-provider-connections/{id}", apiServer.deleteGitProviderConnection).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/git-provider-connections/{id}/repositories", apiServer.browseGitProviderConnectionRepositories).Methods(http.MethodGet)
+
+	// Service connections - admin-configured GitHub Apps, ADO Service Principals, etc.
+	authRouter.HandleFunc("/service-connections", apiServer.listServiceConnections).Methods(http.MethodGet)
+	authRouter.HandleFunc("/service-connections", apiServer.createServiceConnection).Methods(http.MethodPost)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.getServiceConnection).Methods(http.MethodGet)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.updateServiceConnection).Methods(http.MethodPut)
+	authRouter.HandleFunc("/service-connections/{id}", apiServer.deleteServiceConnection).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/service-connections/{id}/test", apiServer.testServiceConnectionEndpoint).Methods(http.MethodPost)
+
 	// Git repository access grant routes
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
 
-	// Kodit MCP proxy routes - expose Kodit's MCP server through Helix API with user auth
+	// MCP Gateway routes - unified endpoint for all MCP backends (Kodit, Helix native, etc.)
 	// Supports both streamable HTTP and SSE transports for MCP protocol
+	// Route: /api/v1/mcp/{server}/{path...} where server is "kodit", "helix", etc.
+	authRouter.HandleFunc("/mcp/{server}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+	authRouter.HandleFunc("/mcp/{server}/{path:.*}", apiServer.mcpGatewayHandler).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
+
+	// Legacy Kodit MCP routes (redirect to gateway) - keep for backwards compatibility
 	authRouter.HandleFunc("/kodit/mcp", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 	authRouter.HandleFunc("/kodit/mcp/{path:.*}", apiServer.koditMCPProxy).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)
 
@@ -1317,8 +1368,8 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Create HTTP server
 	srv := &http.Server{
 		Handler:      router,
-		ReadTimeout:  time.Minute * 30, // Increased from 15 to 30 minutes
-		WriteTimeout: time.Minute * 30, // Increased from 15 to 30 minutes
+		ReadTimeout:  0, // No timeout for long-running operations
+		WriteTimeout: 0, // No timeout for streaming responses
 	}
 
 	log.Info().Str("socket", socketPath).Msg("starting embeddings socket server")
