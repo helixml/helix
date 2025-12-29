@@ -144,9 +144,8 @@ custom_launcher() {
     export XDG_SESSION_DESKTOP=sway
     export XDG_SESSION_TYPE=wayland
 
-    # Copy waybar default config and customize it
+    # Create waybar config directory (config files generated inline below)
     mkdir -p $HOME/.config/waybar
-    cp -u /cfg/waybar/* $HOME/.config/waybar/
 
     # Create custom waybar CSS for better workspace visibility
     cat > $HOME/.config/waybar/style.css << 'WAYBAR_CSS'
@@ -383,8 +382,7 @@ EOF
     sed -i 's/set \$mod Mod4/set $mod Mod1/' $HOME/.config/sway/config
     echo "[Sway] Changed modifier key from Super (Mod4) to Alt (Mod1)"
 
-    # Copy our custom Helix configuration (included by GOW base config on line 2)
-    cp /cfg/sway/custom-cfg $HOME/.config/sway/custom-cfg
+    # Note: Custom configuration is added inline below (no separate custom-cfg file)
 
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
