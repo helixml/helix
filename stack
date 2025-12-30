@@ -343,17 +343,17 @@ function build-zed() {
     sudo chown -R "$USER:$USER" "$ZED_OUTPUT_DIR"
   fi
 
-  echo "🐳 Building Zed inside Ubuntu 22.04 container..."
+  echo "🐳 Building Zed inside Ubuntu 25.10 container..."
   echo "   Source: $ZED_SOURCE_DIR"
   echo "   Output: $ZED_OUTPUT_DIR"
   echo "   Mode: $BUILD_TYPE"
 
   # Build the builder image if needed
-  if ! docker image inspect zed-builder:ubuntu22 &> /dev/null; then
-    echo "📦 Building zed-builder:ubuntu22 image (first time only, ~2-3 min)..."
-    docker build -t zed-builder:ubuntu22 -f Dockerfile.zed-build .
+  if ! docker image inspect zed-builder:ubuntu25 &> /dev/null; then
+    echo "📦 Building zed-builder:ubuntu25 image (first time only, ~2-3 min)..."
+    docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
     if [ $? -ne 0 ]; then
-      echo "❌ Failed to build zed-builder:ubuntu22 image"
+      echo "❌ Failed to build zed-builder:ubuntu25 image"
       return 1
     fi
   fi
@@ -366,11 +366,10 @@ function build-zed() {
   mkdir -p "$CARGO_CACHE/registry" "$CARGO_CACHE/git" "$RUSTUP_CACHE"
 
   # Build command based on type
-  # Use a separate target directory to avoid conflicts with host-compiled build scripts
-  # (host build scripts link against glibc 2.39+ which doesn't exist in Ubuntu 22.04)
+  # Use a separate target directory to avoid conflicts with host builds
   local BUILD_CMD
   local BINARY_PATH
-  local TARGET_DIR="target-ubuntu22"
+  local TARGET_DIR="target-ubuntu25"
   if [ "$BUILD_TYPE" = "release" ]; then
     echo "🔨 Building in release mode (optimized, stripped, slower build)..."
     BUILD_CMD="CARGO_TARGET_DIR=$TARGET_DIR RUSTFLAGS='-C link-arg=-s' cargo build --release --features external_websocket_sync"
@@ -406,7 +405,7 @@ function build-zed() {
     -v "$RUSTUP_CACHE:/root/.rustup" \
     -v "$OUTPUT_ABS_PATH:/output" \
     -w /zed \
-    zed-builder:ubuntu22 \
+    zed-builder:ubuntu25 \
     bash -c "$BUILD_CMD && cp $BINARY_PATH /output/zed.new && chmod +x /output/zed.new"
 
   if [ $? -ne 0 ]; then
