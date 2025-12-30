@@ -466,10 +466,11 @@ if [ -x /usr/local/bin/screenshot-server ]; then
 fi
 
 # For PipeWire mode: start RemoteDesktop session (video + input) and report to Wolf
+# CRITICAL: Uses Python script with persistent D-Bus connection to keep session alive
+# Shell gdbus calls create new connections which GNOME cleans up after disconnect
 if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
   gow_log "[start] Starting RemoteDesktop session (video + input)..."
-  # RemoteDesktop provides ScreenCast (video) + input injection via D-Bus
-  /opt/gow/start-remotedesktop-session.sh >> /tmp/remotedesktop-session.log 2>&1 &
+  /opt/gow/remotedesktop-session.py >> /tmp/remotedesktop-session.log 2>&1 &
   gow_log "[start] RemoteDesktop session started in background"
 fi
 
@@ -521,9 +522,10 @@ ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.s
 ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
 ADD wolf/ubuntu-config/start-remotedesktop-session.sh /opt/gow/start-remotedesktop-session.sh
+ADD wolf/ubuntu-config/remotedesktop-session.py /opt/gow/remotedesktop-session.py
 ADD wolf/ubuntu-config/input-bridge.py /opt/gow/input-bridge.py
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/input-bridge.py
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/remotedesktop-session.py /opt/gow/input-bridge.py
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

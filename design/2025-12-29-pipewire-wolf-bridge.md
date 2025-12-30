@@ -1187,3 +1187,23 @@ Moonlight → Wolf input_handler → InputBridge* classes → Unix socket → in
 - **input-bridge.py**: Python daemon that deserializes JSON and calls Mutter D-Bus API
 
 The pattern using `std::visit` with lambdas is preferred because it automatically handles all variant types. Functions using `holds_alternative` + `if/else if` must be updated when new variant types are added.
+
+### Critical Fix: D-Bus Connection Persistence (2025-12-30)
+
+**Problem:** The original `start-remotedesktop-session.sh` script used shell `gdbus call` commands to create the RemoteDesktop session. Each `gdbus call` creates a NEW D-Bus connection. When the connection closes after the command returns, GNOME Mutter cleans up the session because the creating client disconnected.
+
+**Symptom:** Log shows "D-Bus client with active sessions vanished" repeatedly, and the ScreenCast CreateSession fails with "No remote desktop session found".
+
+**Root Cause:**
+```
+gdbus call --session ... CreateSession   # Creates session, returns path
+# Connection closes here - GNOME sees client vanish
+gdbus call --session ... CreateSession   # Tries to link ScreenCast - session already gone!
+```
+
+**Solution:** Replaced the shell script with `remotedesktop-session.py` which uses Python GLib D-Bus bindings (`Gio.bus_get_sync()`) to maintain a PERSISTENT D-Bus connection throughout the session lifecycle.
+
+**Files changed:**
+- Added `wolf/ubuntu-config/remotedesktop-session.py` - Python script with persistent D-Bus
+- Updated `wolf/ubuntu-config/startup-app.sh` - Use Python script instead of shell
+- Updated `Dockerfile.ubuntu-helix` - Copy and chmod the new Python script
