@@ -239,25 +239,44 @@ class RemoteDesktopSession:
         )
         log("Session started")
 
-        # Give PipeWire a moment to set up the stream
-        time.sleep(0.5)
-
-        # Now get the PipeWire node ID (only available after session starts)
+        # Get the PipeWire node ID with retry
+        # The node ID may take a moment to become available after Start()
         log("Getting PipeWire node ID...")
-        node_id_variant = self.sc_stream_proxy.get_cached_property("PipeWireNodeId")
-        if node_id_variant:
-            self.node_id = node_id_variant.unpack()
-        else:
-            # Properties might not be cached yet, fetch directly
-            props = self.sc_stream_proxy.call_sync(
-                "org.freedesktop.DBus.Properties.Get",
-                GLib.Variant("(ss)", (SCREEN_CAST_STREAM_IFACE, "PipeWireNodeId")),
-                Gio.DBusCallFlags.NONE,
-                -1, None
-            )
-            self.node_id = props.unpack()[0]
+        for attempt in range(10):
+            time.sleep(0.5)
 
-        log(f"PipeWire node ID: {self.node_id}")
+            # Re-create the stream proxy to refresh cached properties
+            self.sc_stream_proxy = Gio.DBusProxy.new_sync(
+                self.bus,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                SCREEN_CAST_BUS,
+                self.sc_stream_path,
+                SCREEN_CAST_STREAM_IFACE,
+                None
+            )
+
+            node_id_variant = self.sc_stream_proxy.get_cached_property("PipeWireNodeId")
+            if node_id_variant:
+                self.node_id = node_id_variant.unpack()
+                log(f"PipeWire node ID: {self.node_id} (attempt {attempt + 1})")
+                return
+
+            # Try fetching directly
+            try:
+                props = self.sc_stream_proxy.call_sync(
+                    "org.freedesktop.DBus.Properties.Get",
+                    GLib.Variant("(ss)", (SCREEN_CAST_STREAM_IFACE, "PipeWireNodeId")),
+                    Gio.DBusCallFlags.NONE,
+                    -1, None
+                )
+                self.node_id = props.unpack()[0]
+                log(f"PipeWire node ID: {self.node_id} (attempt {attempt + 1}, via GetProperty)")
+                return
+            except Exception as e:
+                log(f"Attempt {attempt + 1}: PipeWireNodeId not available yet: {e}")
+
+        raise Exception("Failed to get PipeWire node ID after 10 attempts")
 
     def report_to_wolf(self):
         """Report node ID and input socket to Wolf."""
