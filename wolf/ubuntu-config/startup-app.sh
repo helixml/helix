@@ -596,27 +596,30 @@ echo "Cursor environment variables set (WLR_NO_HARDWARE_CURSORS=1)"
 # ============================================================================
 # GNOME Session Startup (Mutter SDK for GNOME 49)
 # ============================================================================
-# GNOME 49 removed --nested mode. We use --devkit (Mutter SDK) which:
-# 1. Runs GNOME Shell and creates wayland-0 for client apps
-# 2. Spawns mutter-devkit (the SDK viewer) which:
-#    - Connects to Mutter via ScreenCast D-Bus API
-#    - Renders the screen content to its inherited WAYLAND_DISPLAY
+# GNOME 49 removed --nested mode. We support two video source modes:
 #
-# CRITICAL: mutter-devkit IS the bridge! It reads from GNOME via ScreenCast
-# and outputs to Wolf's Wayland display. No custom GStreamer bridge needed.
+# 1. "wayland" mode (default, for backward compatibility):
+#    - gnome-shell --devkit spawns mutter-devkit
+#    - mutter-devkit renders to Wolf's Wayland display
+#    - Wolf uses waylanddisplaysrc to capture
+#
+# 2. "pipewire" mode (new, for pure pipewiresrc capture):
+#    - gnome-shell --devkit runs standalone
+#    - Container creates ScreenCast session and reports PipeWire node ID
+#    - Wolf uses pipewiresrc to capture directly from PipeWire
+#
 # See: design/2025-12-29-pipewire-wolf-bridge.md
 
-# Save Wolf's Wayland display - mutter-devkit will output here
-export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
-echo "Wolf Wayland display: $WOLF_WAYLAND_DISPLAY (mutter-devkit will render here)"
+# Determine video source mode from Wolf environment variable
+VIDEO_SOURCE_MODE="${WOLF_VIDEO_SOURCE_MODE:-wayland}"
+echo "Video source mode: $VIDEO_SOURCE_MODE"
 
-# DO NOT change WAYLAND_DISPLAY here - gnome-shell --devkit needs to inherit
-# Wolf's display so that mutter-devkit outputs to Wolf, not to wayland-0.
-# Client apps (Zed, etc.) will be launched with WAYLAND_DISPLAY=wayland-0 explicitly.
+# Save Wolf's Wayland display
+export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+echo "Wolf Wayland display: $WOLF_WAYLAND_DISPLAY"
 
 # Create a script that runs inside dbus-run-session
 # This ensures all D-Bus dependent services have access to the session bus
-# Note: Using unquoted heredoc to expand WOLF_WAYLAND_DISPLAY at script creation time
 cat > /tmp/gnome-session.sh << GNOME_SESSION_EOF
 #!/bin/bash
 set -e
@@ -625,24 +628,33 @@ set -e
 export WOLF_WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
 export HELIX_API_BASE_URL="$HELIX_API_BASE_URL"
 export USER_API_TOKEN="$USER_API_TOKEN"
-
-# CRITICAL: Keep WAYLAND_DISPLAY pointing to Wolf's display!
-# gnome-shell --devkit spawns mutter-devkit which inherits this.
-# mutter-devkit is the SDK viewer that reads GNOME's screen via ScreenCast
-# and outputs to this display (Wolf's Wayland compositor).
-export WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
+export WOLF_SESSION_ID="$WOLF_SESSION_ID"
+export XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"
+VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
 
 echo "[gnome-session] Starting inside dbus-run-session..."
-echo "[gnome-session] WAYLAND_DISPLAY=\$WAYLAND_DISPLAY (mutter-devkit outputs here)"
+echo "[gnome-session] Video source mode: \$VIDEO_SOURCE_MODE"
 
-# Start PipeWire + WirePlumber (need D-Bus for portal integration)
+# Set WAYLAND_DISPLAY based on video source mode
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    # PipeWire mode: Don't inherit Wolf's Wayland display
+    # mutter-devkit will have nowhere to output (which is fine - we use pipewiresrc)
+    unset WAYLAND_DISPLAY
+    echo "[gnome-session] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
+else
+    # Wayland mode: mutter-devkit outputs to Wolf's display
+    export WAYLAND_DISPLAY="\$WOLF_WAYLAND_DISPLAY"
+    echo "[gnome-session] Wayland mode: WAYLAND_DISPLAY=\$WAYLAND_DISPLAY (mutter-devkit outputs here)"
+fi
+
+# Start PipeWire + WirePlumber (needed for both modes)
 echo "[gnome-session] Starting PipeWire + WirePlumber..."
 pipewire &
 sleep 0.5
 wireplumber &
 sleep 0.5
 
-# Start Helix services FIRST - they need wayland-0 (Mutter's client socket)
+# Start Helix services - they need wayland-0 (Mutter's client socket)
 # Note: wayland-0 is created by gnome-shell, so we start these with a delay
 (
     echo "[gnome-session] Waiting for Mutter to create wayland-0..."
@@ -653,6 +665,13 @@ sleep 0.5
         fi
         sleep 0.5
     done
+
+    # For PipeWire mode: Start the screencast session to report node ID to Wolf
+    if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+        echo "[gnome-session] Starting PipeWire ScreenCast session..."
+        /opt/gow/start-pipewire-screencast.sh >> /tmp/pipewire-screencast.log 2>&1 &
+        echo "[gnome-session] PipeWire ScreenCast started (PID: \$!)"
+    fi
 
     if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
         echo "[gnome-session] Starting settings-sync-daemon..."
@@ -675,13 +694,10 @@ sleep 0.5
 
 echo "[gnome-session] Starting GNOME Shell in devkit mode..."
 echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
-echo "[gnome-session] mutter-devkit will inherit WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
 
 # Start GNOME Shell in devkit mode with virtual monitor at correct resolution
 # --virtual-monitor WxH creates a persistent virtual monitor at the specified size
-# gnome-shell creates wayland-0 for client apps and spawns mutter-devkit
-# mutter-devkit inherits our WAYLAND_DISPLAY ($WOLF_WAYLAND_DISPLAY) and outputs to Wolf
-# This is the Mutter SDK approach - no custom GStreamer bridge needed!
+# gnome-shell creates wayland-0 for client apps
 gnome-shell --devkit --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}
 GNOME_SESSION_EOF
 

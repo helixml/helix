@@ -1,7 +1,7 @@
 # PipeWire-Wolf Bridge: GPU-Accelerated GNOME Streaming
 
 **Date:** 2025-12-29
-**Status:** Implementation Complete
+**Status:** In Progress - pipewiresrc implementation needed
 **Author:** Claude
 
 ## Executive Summary
@@ -9,6 +9,21 @@
 This document explores a pure Wayland approach for running GNOME Shell inside Wolf's streaming architecture. Instead of XWayland (which adds X11 overhead), we can use **GNOME Remote Desktop's PipeWire screen-cast** and bridge it to Wolf's Wayland compositor.
 
 **Key insight:** GNOME 49's `--devkit` mode (Mutter SDK) provides this bridge out of the box! The `mutter-devkit` viewer reads GNOME's screen via ScreenCast D-Bus API and renders to any Wayland display - including Wolf's.
+
+## Desktop-Specific Approach
+
+| Desktop | Video Source | Reason |
+|---------|--------------|--------|
+| **GNOME** | pipewiresrc (direct) | GNOME 49 removed --nested, mutter-devkit has fullscreen issues on Smithay |
+| **KDE** | Nested Wayland | KWin supports nested mode, working correctly |
+| **Sway** | Nested Wayland | wlroots supports nested mode, working correctly |
+
+**GNOME-only pipewiresrc:** The pipewiresrc direct approach is only needed for GNOME because:
+1. GNOME 49 removed `--nested` mode
+2. The replacement `--devkit` mode spawns mutter-devkit which doesn't properly fullscreen on Wolf's Smithay compositor
+3. Going direct from PipeWire to Wolf's encoder bypasses the fullscreen window problem entirely
+
+**Sway/KDE keep nested:** These desktops support nested Wayland mode which works correctly with Wolf's compositor.
 
 ## GNOME 49 Mutter SDK Solution (Recommended)
 
@@ -598,15 +613,18 @@ pipewiresrc → vaapih264enc → webrtcbin → browser
 
 Worth exploring as a **v2 architecture** but the Wolf + PipeWire bridge approach should work for v1.
 
-## V2 Architecture: PipeWire Direct to Wolf Encoder (No Compositor)
+## PipeWire Direct to Wolf Encoder (GNOME Only)
 
-> **STATUS: Future Exploration**
+> **STATUS: Implementation In Progress**
 >
-> This section documents a potential simplification for future consideration.
-> The current V1 implementation uses the GStreamer bridge (pipewiresrc → waylandsink).
-> V2 would eliminate gst-wayland-display entirely by feeding PipeWire directly into Wolf's encoder.
+> This approach is being implemented for GNOME desktops only.
+> Sway and KDE continue using nested Wayland mode with gst-wayland-display.
 
-**Key Insight:** If `pipewiresrc` is a GStreamer element, we can feed PipeWire directly into Wolf's encoder pipeline, **eliminating gst-wayland-display entirely**.
+**Key Insight:** For GNOME (where nested Wayland was removed), we feed PipeWire directly into Wolf's encoder pipeline, **bypassing the fullscreen window problem with mutter-devkit**.
+
+**Per-Lobby Toggle:** Wolf will support a per-lobby setting to choose between:
+- `pipewiresrc` - For GNOME desktops (PipeWire node ID from container)
+- `wlroot-src` - For Sway/KDE (nested Wayland mode, current default)
 
 ### Current vs Proposed Architecture
 
@@ -721,24 +739,46 @@ Moonlight input → Wolf → input subsystem → desktop → apps
 
 For Sway/wlroots, we can use `/dev/uinput` directly or the `wtype` tool, which doesn't require EIS.
 
-### Implementation Steps
+### Implementation Steps (GNOME Only)
 
-1. **Add pipewiresrc to Wolf's GStreamer pipeline**
-   - Replace `wlroot-src` with `pipewiresrc`
-   - Pass PipeWire node ID from container
+#### Phase 1: Wolf Config Changes
 
-2. **Container startup changes**
-   - Start GNOME in `--devkit` mode
-   - Get PipeWire node ID from ScreenCast D-Bus
-   - Pass node ID back to Wolf
+1. **Add `video_source_mode` option to App config**
+   ```toml
+   [[apps]]
+   title = "GNOME Desktop"
+   start_virtual_compositor = false
+   video_source_mode = "pipewire"  # NEW: "wayland" (default) or "pipewire"
+   ```
 
-3. **Add libei input forwarding**
+2. **Add pipewiresrc producer pipeline**
+   - When `video_source_mode = "pipewire"`:
+     - Don't start waylanddisplaysrc
+     - Start pipewiresrc with node ID from container
+   - Pipeline: `pipewiresrc path={node_id} ! interpipesink name={session_id}_video`
+
+3. **PipeWire socket sharing**
+   - Mount container's PipeWire socket into Wolf's namespace
+   - Or use PipeWire remote protocol over TCP
+
+#### Phase 2: Container Protocol
+
+4. **Container reports PipeWire node ID**
+   - Container runs GNOME with ScreenCast session (using gnome-screencast-screenshot.sh approach)
+   - Container writes node ID to shared file or calls Wolf API
+   - Wolf reads node ID and starts pipewiresrc
+
+5. **Lifecycle management**
+   - Wolf waits for node ID before starting encoder pipeline
+   - Container cleanup closes ScreenCast session
+
+#### Phase 3: Input Forwarding (Future)
+
+6. **Add libei input forwarding**
    - Wolf receives Moonlight input events
    - Forward to container via EIS socket
 
-4. **Keep gst-wayland-display for legacy**
-   - Some apps may still need Wayland compositor
-   - Can be enabled per-container if needed
+**Note:** Sway/KDE continue using `start_virtual_compositor = true` (waylanddisplaysrc path).
 
 ### GPU Considerations
 
