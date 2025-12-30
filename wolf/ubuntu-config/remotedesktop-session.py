@@ -162,13 +162,14 @@ class RemoteDesktopSession:
 
         # Create linked ScreenCast session
         log("Creating linked ScreenCast session...")
-        options = GLib.Variant("a{sv}", {
+        # Build the options dict with proper GLib.Variant values
+        options_dict = {
             "remote-desktop-session-id": GLib.Variant("s", session_id_str)
-        })
+        }
 
         result = self.sc_proxy.call_sync(
             "CreateSession",
-            GLib.Variant("(a{sv})", (options.unpack(),)),
+            GLib.Variant("(a{sv})", (options_dict,)),
             Gio.DBusCallFlags.NONE,
             -1, None
         )
@@ -189,14 +190,15 @@ class RemoteDesktopSession:
 
         # Record virtual display
         log("Recording virtual display...")
-        options = GLib.Variant("a{sv}", {
+        # Build options dict with proper GLib.Variant values
+        record_options = {
             "cursor-mode": GLib.Variant("u", 1)  # Embedded cursor
-        })
+        }
 
         try:
             result = self.sc_session_proxy.call_sync(
                 "RecordVirtual",
-                GLib.Variant("(a{sv})", (options.unpack(),)),
+                GLib.Variant("(a{sv})", (record_options,)),
                 Gio.DBusCallFlags.NONE,
                 -1, None
             )
@@ -204,7 +206,7 @@ class RemoteDesktopSession:
             log(f"RecordVirtual failed, trying RecordMonitor: {e}")
             result = self.sc_session_proxy.call_sync(
                 "RecordMonitor",
-                GLib.Variant("(sa{sv})", ("", options.unpack())),
+                GLib.Variant("(sa{sv})", ("", record_options)),
                 Gio.DBusCallFlags.NONE,
                 -1, None
             )
