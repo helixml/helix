@@ -923,3 +923,119 @@ V2:       GNOME → PipeWire → pipewiresrc → Wolf Encoder (directly)
 - [PipeWire DMA-BUF](https://docs.pipewire.org/page_dma_buf.html) - DMA-BUF support docs
 - [libei](https://gitlab.freedesktop.org/libinput/libei) - Input subsystem for headless
 - [zwp_linux_dmabuf_v1](https://wayland.app/protocols/linux-dmabuf-v1) - Wayland DMA-BUF protocol
+- [XDG RemoteDesktop Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) - Combined video+input portal
+- [liboeffis](https://libinput.pages.freedesktop.org/libei/api/group__liboeffis.html) - XDG RemoteDesktop portal wrapper for libei
+
+---
+
+## Roadmap: Use RemoteDesktop Portal for Combined Video + Input (2025-12-30)
+
+### Current Approach vs Recommended Approach
+
+**Current approach (ScreenCast + inputtino):**
+```
+Video:  ScreenCast portal → PipeWire → pipewirezerocopysrc → Wolf
+Input:  Wolf → inputtino (kernel evdev) → fake-udev → container
+```
+
+**Problem:** Input via inputtino/fake-udev has been flaky. Wolf's input stack has numerous issues.
+
+**Recommended approach (RemoteDesktop portal):**
+```
+Video:  RemoteDesktop portal → ScreenCast.SelectSources → PipeWire → pipewirezerocopysrc → Wolf
+Input:  Wolf → ConnectToEIS → libei → GNOME Shell (via RemoteDesktop portal)
+```
+
+### Why RemoteDesktop Portal is Better
+
+1. **Unified session** - One D-Bus session handles both video and input
+2. **Battle-tested** - Used by gnome-remote-desktop, Chrome Remote Desktop, RustDesk
+3. **Coordinate mapping** - `mapping_id` property correlates PipeWire streams with libei regions
+4. **No fake devices** - Input goes directly to compositor via EIS, not kernel evdev
+
+### Implementation Steps
+
+1. **Replace ScreenCast with RemoteDesktop session:**
+   ```python
+   # Instead of:
+   session = ScreenCast.CreateSession()
+
+   # Do:
+   session = RemoteDesktop.CreateSession()
+   ScreenCast.SelectSources(session)  # Video on same session
+   RemoteDesktop.Start(session)
+   ```
+
+2. **Get video stream (same as before):**
+   ```python
+   fd = ScreenCast.OpenPipeWireRemote(session)
+   # Pass node_id to Wolf's pipewirezerocopysrc
+   ```
+
+3. **Get input via EIS instead of inputtino:**
+   ```python
+   eis_fd = RemoteDesktop.ConnectToEIS(session)
+   # Connect libei sender to this fd
+   # Forward Wolf's input events via libei
+   ```
+
+4. **Coordinate mapping:**
+   - Get `mapping_id` from PipeWire stream properties
+   - Match with libei device regions for correct absolute positioning
+
+### Container-Side Changes
+
+The container startup script needs to:
+1. Create RemoteDesktop session (not just ScreenCast)
+2. Report both PipeWire node_id AND EIS socket to Wolf
+3. Possibly run a small daemon that forwards EIS events
+
+### Wolf-Side Changes
+
+1. Accept EIS socket path in addition to PipeWire node_id
+2. Replace inputtino with libei sender
+3. Forward keyboard/mouse events via libei instead of fake evdev
+
+### References
+
+- [XDG RemoteDesktop Portal docs](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html)
+- [ConnectToEIS method](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) - Returns fd for libei
+- [liboeffis](https://libinput.pages.freedesktop.org/libei/api/group__liboeffis.html) - Helper library for RemoteDesktop + libei
+
+---
+
+## CRITICAL: Test on Virtualized AMD GPUs
+
+**This is a critical roadmap item.**
+
+All PipeWire/DMA-BUF work MUST be tested on virtualized AMD GPUs before considering complete. Reasons:
+
+1. **Different DMA-BUF behavior** - AMD's amdgpu driver handles DMA-BUF differently than NVIDIA
+2. **SR-IOV virtualization** - AMD GPUs with SR-IOV may have different memory sharing semantics
+3. **Mesa vs proprietary** - AMD uses Mesa, NVIDIA uses proprietary drivers
+4. **GBM allocation** - AMD uses GBM for buffer allocation, NVIDIA uses EGLStreams (legacy) or GBM
+
+### Test Matrix
+
+| GPU Type | Virtualization | Priority |
+|----------|----------------|----------|
+| AMD Radeon (bare metal) | None | High |
+| AMD Radeon (SR-IOV) | KVM/QEMU | **Critical** |
+| AMD Radeon (MxGPU) | VMware/Citrix | Medium |
+| Intel Arc (bare metal) | None | Medium |
+| Intel (SR-IOV) | KVM/QEMU | Medium |
+
+### What to Test
+
+1. **DMA-BUF export** - Can PipeWire export DMA-BUF from AMD GPU?
+2. **Zero-copy path** - Does pipewirezerocopysrc achieve zero-copy on AMD?
+3. **VA-API encoding** - Does vapostproc + vaapih264enc work correctly?
+4. **Multi-GPU** - What happens if AMD render GPU differs from Wolf's GPU?
+5. **Memory pressure** - Does DMA-BUF sharing work under memory pressure?
+
+### Known Differences from NVIDIA
+
+- AMD doesn't need CUDA context sharing (uses VA-API instead)
+- AMD uses `video/x-raw(memory:DMABuf)` caps, not `video/x-raw(memory:CUDAMemory)`
+- AMD may need `vapostproc` element instead of `cudaupload`
+- AMD SR-IOV guests may have limited DMA-BUF modifier support
