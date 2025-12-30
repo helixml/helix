@@ -225,21 +225,8 @@ class RemoteDesktopSession:
             None
         )
 
-        # Get PipeWire node ID
-        node_id_variant = self.sc_stream_proxy.get_cached_property("PipeWireNodeId")
-        if node_id_variant:
-            self.node_id = node_id_variant.unpack()
-        else:
-            # Try calling GetProperties
-            props = self.sc_stream_proxy.call_sync(
-                "org.freedesktop.DBus.Properties.Get",
-                GLib.Variant("(ss)", (SCREEN_CAST_STREAM_IFACE, "PipeWireNodeId")),
-                Gio.DBusCallFlags.NONE,
-                -1, None
-            )
-            self.node_id = props.unpack()[0]
-
-        log(f"PipeWire node ID: {self.node_id}")
+        # NOTE: PipeWire node ID is not available until after Start() is called
+        # It will be retrieved in start() method
 
     def start(self):
         """Start the RemoteDesktop session."""
@@ -252,8 +239,25 @@ class RemoteDesktopSession:
         )
         log("Session started")
 
-        # Give PipeWire a moment to set up
+        # Give PipeWire a moment to set up the stream
         time.sleep(0.5)
+
+        # Now get the PipeWire node ID (only available after session starts)
+        log("Getting PipeWire node ID...")
+        node_id_variant = self.sc_stream_proxy.get_cached_property("PipeWireNodeId")
+        if node_id_variant:
+            self.node_id = node_id_variant.unpack()
+        else:
+            # Properties might not be cached yet, fetch directly
+            props = self.sc_stream_proxy.call_sync(
+                "org.freedesktop.DBus.Properties.Get",
+                GLib.Variant("(ss)", (SCREEN_CAST_STREAM_IFACE, "PipeWireNodeId")),
+                Gio.DBusCallFlags.NONE,
+                -1, None
+            )
+            self.node_id = props.unpack()[0]
+
+        log(f"PipeWire node ID: {self.node_id}")
 
     def report_to_wolf(self):
         """Report node ID and input socket to Wolf."""
