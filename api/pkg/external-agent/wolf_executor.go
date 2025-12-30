@@ -1147,6 +1147,13 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 			Msg("Created isolated Docker instance via Hydra")
 	}
 
+	// Determine video source mode based on desktop type
+	// GNOME 49+ (Ubuntu) uses pipewiresrc, KDE/Sway use waylanddisplaysrc
+	videoSourceMode := "wayland" // Default for KDE/Sway
+	if desktopType == "ubuntu" || desktopType == "gnome" {
+		videoSourceMode = "pipewire" // GNOME 49+ uses pipewiresrc
+	}
+
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
@@ -1161,6 +1168,7 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 			WaylandRenderNode:       "",
 			RunnerRenderNode:        "",
 			VideoProducerBufferCaps: "",
+			VideoSourceMode:         videoSourceMode,
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,

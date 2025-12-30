@@ -421,19 +421,31 @@ export DESKTOP_SESSION=gnome
 
 # GNOME 49 Mutter SDK (--devkit) Architecture:
 # =============================================
-# When gnome-shell runs with --devkit, it:
-# 1. Creates wayland-0 for client applications (Zed, nautilus, etc.)
-# 2. Spawns mutter-devkit (the SDK viewer) which:
-#    - Connects to Mutter via ScreenCast D-Bus API
-#    - Renders the screen content to its WAYLAND_DISPLAY
+# Two video source modes:
+# 1. "wayland" (default): mutter-devkit renders to Wolf's Wayland display
+#    - gnome-shell --devkit spawns mutter-devkit
+#    - mutter-devkit outputs to WAYLAND_DISPLAY (Wolf's display)
+#    - Wolf uses waylanddisplaysrc to capture
 #
-# CRITICAL: mutter-devkit must output to Wolf's wayland display, not wayland-0!
-# So we keep WAYLAND_DISPLAY pointing to Wolf's display for gnome-shell --devkit.
-# Client apps will be launched with WAYLAND_DISPLAY=wayland-0 explicitly.
+# 2. "pipewire": Wolf uses pipewiresrc to read directly from PipeWire
+#    - gnome-shell --devkit runs without a display target
+#    - Container creates ScreenCast session via D-Bus
+#    - Container reports PipeWire node ID to Wolf via API
+#    - Wolf uses pipewiresrc to capture
 #
-# This eliminates the need for a custom GStreamer bridge - mutter-devkit IS the bridge!
+# Mode is set by WOLF_VIDEO_SOURCE_MODE environment variable
 
-gow_log "[start] Wolf display: $WOLF_WAYLAND_DISPLAY (mutter-devkit will render here)"
+VIDEO_SOURCE_MODE="\${WOLF_VIDEO_SOURCE_MODE:-wayland}"
+gow_log "[start] Video source mode: \$VIDEO_SOURCE_MODE"
+
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    # PipeWire mode: mutter-devkit has nowhere to render (which is fine)
+    unset WAYLAND_DISPLAY
+    gow_log "[start] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
+else
+    # Wayland mode: keep Wolf's display for mutter-devkit to render to
+    gow_log "[start] Wayland mode: WAYLAND_DISPLAY=$WOLF_WAYLAND_DISPLAY (mutter-devkit renders here)"
+fi
 
 gow_log "[start] Starting PipeWire + WirePlumber"
 pipewire &
@@ -451,6 +463,14 @@ if [ -x /usr/local/bin/screenshot-server ]; then
   gow_log "[start] Starting screenshot server with GNOME environment..."
   # Uses org.gnome.Shell.Screenshot D-Bus API
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+fi
+
+# For PipeWire mode: start ScreenCast session and report node ID to Wolf
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+  gow_log "[start] Starting PipeWire ScreenCast session..."
+  # This script waits for GNOME Shell, creates ScreenCast session, and reports node ID to Wolf
+  /opt/gow/start-pipewire-screencast.sh >> /tmp/pipewire-screencast.log 2>&1 &
+  gow_log "[start] PipeWire ScreenCast started in background"
 fi
 
 # Launch Zed after GNOME Shell is ready - it needs wayland-0
@@ -496,8 +516,9 @@ ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
+ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
