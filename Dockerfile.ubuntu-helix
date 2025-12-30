@@ -465,12 +465,12 @@ if [ -x /usr/local/bin/screenshot-server ]; then
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
 fi
 
-# For PipeWire mode: start ScreenCast session and report node ID to Wolf
+# For PipeWire mode: start RemoteDesktop session (video + input) and report to Wolf
 if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-  gow_log "[start] Starting PipeWire ScreenCast session..."
-  # This script waits for GNOME Shell, creates ScreenCast session, and reports node ID to Wolf
-  /opt/gow/start-pipewire-screencast.sh >> /tmp/pipewire-screencast.log 2>&1 &
-  gow_log "[start] PipeWire ScreenCast started in background"
+  gow_log "[start] Starting RemoteDesktop session (video + input)..."
+  # RemoteDesktop provides ScreenCast (video) + input injection via D-Bus
+  /opt/gow/start-remotedesktop-session.sh >> /tmp/remotedesktop-session.log 2>&1 &
+  gow_log "[start] RemoteDesktop session started in background"
 fi
 
 # Launch Zed after GNOME Shell is ready - it needs wayland-0
@@ -511,14 +511,19 @@ dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
 _STARTUP
 RUN chmod +x /opt/gow/startup.sh
 
+# Python GLib D-Bus bindings for input bridge
+RUN apt-get update && apt-get install -y python3-gi python3-dbus && rm -rf /var/lib/apt/lists/*
+
 # Helix helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
+ADD wolf/ubuntu-config/start-remotedesktop-session.sh /opt/gow/start-remotedesktop-session.sh
+ADD wolf/ubuntu-config/input-bridge.py /opt/gow/input-bridge.py
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/input-bridge.py
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

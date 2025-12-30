@@ -1,7 +1,7 @@
 # PipeWire-Wolf Bridge: GPU-Accelerated GNOME Streaming
 
-**Date:** 2025-12-29
-**Status:** In Progress - pipewiresrc implementation needed
+**Date:** 2025-12-29 (Updated 2025-12-30)
+**Status:** ✅ Implemented - RemoteDesktop Portal for video + input
 **Author:** Claude
 
 ## Executive Summary
@@ -1002,6 +1002,79 @@ The container startup script needs to:
 - [ConnectToEIS method](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) - Returns fd for libei
 - [liboeffis](https://libinput.pages.freedesktop.org/libei/api/group__liboeffis.html) - Helper library for RemoteDesktop + libei
 
+### Implementation Status (2025-12-30)
+
+**✅ IMPLEMENTED** - The RemoteDesktop Portal approach has been fully implemented.
+
+**Approach Taken:** Instead of using libei directly (which would require significant Wolf changes), we use the **Mutter RemoteDesktop D-Bus API** which provides simpler input injection methods:
+
+- `NotifyPointerMotion(dx, dy)` - Relative mouse movement
+- `NotifyPointerMotionAbsolute(stream, x, y)` - Absolute mouse positioning
+- `NotifyPointerButton(button, state)` - Mouse button press/release
+- `NotifyPointerAxisDiscrete(axis, value)` - Scroll wheel
+- `NotifyKeyboardKeycode(keycode, state)` - Key press/release
+
+This D-Bus API is simpler than libei and doesn't require adding libei as a dependency to Wolf.
+
+**Files Created:**
+
+1. **Container scripts:**
+   - `wolf/ubuntu-config/start-remotedesktop-session.sh` - Creates RemoteDesktop session, links ScreenCast for video, starts input bridge
+   - `wolf/ubuntu-config/input-bridge.py` - Python daemon using GLib D-Bus bindings for efficient input forwarding
+
+2. **Wolf C++ code:**
+   - `src/core/src/platforms/linux/input-bridge/input_bridge.hpp` - InputBridge, InputBridgeMouse, InputBridgeKeyboard, InputBridgeTouchScreen classes
+   - `src/core/src/platforms/linux/input-bridge/input_bridge.cpp` - Implementation connecting to container via Unix socket
+   - `src/core/src/platforms/linux/input-bridge/CMakeLists.txt` - Build configuration
+
+**Files Modified:**
+
+1. **Wolf:**
+   - `events/events.hpp` - Added InputBridge* types to MouseTypes/KeyboardTypes/TouchScreenTypes variants, added SetInputSocketEvent
+   - `api/lobby_socket_server.cpp` - Added `/set-input-socket` endpoint
+   - `sessions/lobbies.cpp` - Added SetInputSocketEvent handler, updated JoinLobbyEvent to use InputBridge when connected
+
+2. **Container:**
+   - `Dockerfile.ubuntu-helix` - Added Python GLib packages, copies new scripts
+   - `startup-app.sh` - Uses start-remotedesktop-session.sh instead of start-pipewire-screencast.sh
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Wolf Host                                                                   │
+│                                                                              │
+│  ┌──────────────────┐     Unix Socket       ┌──────────────────────────────┐│
+│  │  Wolf            │  ──────────────────→  │  GNOME Container             ││
+│  │  InputBridge     │  JSON input events    │                              ││
+│  │  (C++ client)    │                       │  ┌────────────────────────┐  ││
+│  └──────────────────┘                       │  │  input-bridge.py       │  ││
+│                                             │  │  (Python daemon)       │  ││
+│                                             │  └──────────┬─────────────┘  ││
+│                                             │             │ D-Bus          ││
+│                                             │             ↓                ││
+│                                             │  ┌────────────────────────┐  ││
+│                                             │  │  org.gnome.Mutter.     │  ││
+│                                             │  │  RemoteDesktop.Session │  ││
+│                                             │  │  NotifyPointerMotion   │  ││
+│                                             │  │  NotifyKeyboardKeycode │  ││
+│                                             │  └────────────────────────┘  ││
+│                                             └──────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**JSON Protocol (Wolf → Container):**
+```json
+{"type": "mouse_move_rel", "dx": 10, "dy": -5}
+{"type": "mouse_move_abs", "x": 100, "y": 200}
+{"type": "button", "button": 1, "state": true}
+{"type": "scroll", "dx": 0, "dy": -1}
+{"type": "key", "keycode": 36, "state": true}
+{"type": "touch_down", "slot": 0, "x": 100, "y": 200}
+{"type": "touch_motion", "slot": 0, "x": 150, "y": 250}
+{"type": "touch_up", "slot": 0}
+```
+
 ---
 
 ## CRITICAL: Test on Virtualized AMD GPUs
@@ -1039,3 +1112,78 @@ All PipeWire/DMA-BUF work MUST be tested on virtualized AMD GPUs before consider
 - AMD uses `video/x-raw(memory:DMABuf)` caps, not `video/x-raw(memory:CUDAMemory)`
 - AMD may need `vapostproc` element instead of `cudaupload`
 - AMD SR-IOV guests may have limited DMA-BUF modifier support
+
+---
+
+## Code Review Findings (2025-12-30)
+
+A comprehensive code review of the PipeWire RemoteDesktop implementation identified and fixed several critical bugs.
+
+### Critical Bugs Fixed
+
+| Bug | Location | Impact | Fix |
+|-----|----------|--------|-----|
+| Missing `InputBridgeMouse` handler | `input_handler.cpp:279-316` | **Mouse clicks silently dropped** | Added `else if` for `InputBridgeMouse` |
+| Missing `InputBridgeTouchScreen` handler | `input_handler.cpp:499-516` | **Touch events silently dropped** | Added `else if constexpr` for `InputBridgeTouchScreen` |
+| `touch_motion` for first touch | `input_bridge.cpp:175-199` | Mutter rejects touch motion without prior touch_down | Added slot tracking via `active_slots_` array |
+| Touch coordinates not converted | `input_bridge.cpp:119-131` | Mutter expects screen pixels, not 0..1 normalized | Convert `x * screen_width`, `y * screen_height` |
+
+### Root Cause Analysis
+
+The `mouse_button` function used `std::holds_alternative` pattern with `if/else if` but only handled two of the three variant types in `MouseTypes`. The third type (`InputBridgeMouse`) was silently ignored.
+
+The `touch` function used `std::visit` with `if constexpr` but similarly only handled two of three variant types in `TouchScreenTypes`.
+
+Other functions (`mouse_move_rel`, `mouse_move_abs`, `mouse_scroll`, `keyboard_key`) correctly use `std::visit` with lambdas, which automatically works for all variant types because all types share the same interface.
+
+### Files Modified
+
+1. **`wolf/src/moonlight-server/control/input_handler.cpp`**
+   - Added `InputBridgeMouse` handler in `mouse_button()` (lines 312-318)
+   - Added `InputBridgeTouchScreen` handler in `touch()` (lines 499-515)
+
+2. **`wolf/src/core/src/platforms/linux/input-bridge/input_bridge.hpp`**
+   - Added `#include <array>`
+   - Added `std::array<bool, 10> active_slots_` member to `InputBridgeTouchScreen`
+
+3. **`wolf/src/core/src/platforms/linux/input-bridge/input_bridge.cpp`**
+   - Fixed `touch_down()` and `touch_motion()` to convert 0..1 coordinates to screen pixels
+   - Updated `InputBridgeTouchScreen::place_finger()` to track slot state and send proper `touch_down` vs `touch_motion`
+   - Updated `InputBridgeTouchScreen::release_finger()` to clear slot state
+
+### Smooth Scrolling Support
+
+Added smooth scrolling support for trackpad input:
+
+1. **C++ side** (`input_bridge.cpp`):
+   - `vertical_scroll()` and `horizontal_scroll()` now send `scroll_smooth` events
+   - Values passed through 1:1 (frontend already scales appropriately)
+
+2. **Python side** (`input-bridge.py`):
+   - Added `scroll_smooth` event handler
+   - Uses `NotifyPointerAxis` with `flags=4` (SOURCE_FINGER) for smooth scrolling feel
+
+### Verification Checklist
+
+Before deploying, verify:
+
+- [ ] Mouse clicks work in PipeWire mode (left, right, middle buttons)
+- [ ] Mouse movement works (both relative and absolute)
+- [ ] Keyboard input works
+- [ ] Scroll wheel works (vertical and horizontal)
+- [ ] Trackpad smooth scrolling works
+- [ ] Touch input works (multi-touch with proper down/motion/up sequence)
+
+### Architectural Notes
+
+The implementation follows a clean separation:
+
+```
+Moonlight → Wolf input_handler → InputBridge* classes → Unix socket → input-bridge.py → Mutter D-Bus
+```
+
+- **input_handler.cpp**: Receives Moonlight packets, dispatches to polymorphic input devices
+- **InputBridge classes**: C++ wrappers that serialize to JSON and send over socket
+- **input-bridge.py**: Python daemon that deserializes JSON and calls Mutter D-Bus API
+
+The pattern using `std::visit` with lambdas is preferred because it automatically handles all variant types. Functions using `holds_alternative` + `if/else if` must be updated when new variant types are added.

@@ -666,11 +666,12 @@ sleep 0.5
         sleep 0.5
     done
 
-    # For PipeWire mode: Start the screencast session to report node ID to Wolf
+    # For PipeWire mode: Start the RemoteDesktop session to report node ID + input socket to Wolf
+    # RemoteDesktop provides both ScreenCast (video) and input injection via D-Bus
     if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-        echo "[gnome-session] Starting PipeWire ScreenCast session..."
-        /opt/gow/start-pipewire-screencast.sh >> /tmp/pipewire-screencast.log 2>&1 &
-        echo "[gnome-session] PipeWire ScreenCast started (PID: \$!)"
+        echo "[gnome-session] Starting RemoteDesktop session (video + input)..."
+        /opt/gow/start-remotedesktop-session.sh >> /tmp/remotedesktop-session.log 2>&1 &
+        echo "[gnome-session] RemoteDesktop session started (PID: \$!)"
     fi
 
     if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
