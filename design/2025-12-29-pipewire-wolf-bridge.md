@@ -1207,3 +1207,41 @@ gdbus call --session ... CreateSession   # Tries to link ScreenCast - session al
 - Added `wolf/ubuntu-config/remotedesktop-session.py` - Python script with persistent D-Bus
 - Updated `wolf/ubuntu-config/startup-app.sh` - Use Python script instead of shell
 - Updated `Dockerfile.ubuntu-helix` - Copy and chmod the new Python script
+
+### Critical Fix: ODR Conflict with LobbySetNodeIdRequest (2025-12-30)
+
+**Problem:** The `/set-pipewire-node-id` API endpoint was returning `{"error":"Invalid JSON: Field named 'lobby_id' not found."}` even though the Python script was correctly sending just `{"node_id": 43}`.
+
+**Root Cause:** Two structs with the same name `SetPipeWireNodeIdRequest`:
+- `api.hpp:126` - Requires `lobby_id` + `node_id` (for general API)
+- `lobby_socket_server.cpp:14` - Only requires `node_id` (per-lobby context)
+
+The rfl::json reflection library was using the wrong struct definition due to One Definition Rule (ODR) violation with reflection macros.
+
+**Solution:** Renamed the local struct in `lobby_socket_server.cpp` from `SetPipeWireNodeIdRequest` to `LobbySetNodeIdRequest` to ensure uniqueness.
+
+**Files changed:**
+- `wolf/src/moonlight-server/api/lobby_socket_server.cpp` - Renamed struct to `LobbySetNodeIdRequest`
+
+### Critical Fix: InputBridge Socket Path Translation (2025-12-30)
+
+**Problem:** InputBridge failed to connect to the input socket reported by the container. The container reported `/run/user/1000/wolf-input.sock` but Wolf tried to access this path directly, which doesn't exist in Wolf's filesystem namespace.
+
+**Root Cause:** Path translation was missing. The container's XDG_RUNTIME_DIR (`/run/user/1000`) is bind-mounted to `<runner_state_folder_path>/pipewire/` on the host. The socket at `/run/user/1000/wolf-input.sock` is accessible from Wolf at `<runner_state_folder_path>/pipewire/wolf-input.sock`.
+
+**Solution:** Added path translation in `SetInputSocketEvent` handler:
+
+```cpp
+// Extract filename from container path
+std::string socket_filename = "wolf-input.sock";
+auto last_slash = container_path.rfind('/');
+if (last_slash != std::string::npos) {
+  socket_filename = container_path.substr(last_slash + 1);
+}
+
+// Build host-accessible path
+host_socket_path = lobby->runner_state_folder_path + "/pipewire/" + socket_filename;
+```
+
+**Files changed:**
+- `wolf/src/moonlight-server/sessions/lobbies.cpp` - Added path translation in `SetInputSocketEvent` handler

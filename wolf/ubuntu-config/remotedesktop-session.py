@@ -229,7 +229,22 @@ class RemoteDesktopSession:
         # It will be retrieved in start() method
 
     def start(self):
-        """Start the RemoteDesktop session."""
+        """Start the RemoteDesktop session and get PipeWire node ID via signal."""
+        log("Setting up PipeWireStreamAdded signal handler...")
+
+        # The node ID is delivered via the PipeWireStreamAdded signal on the Stream
+        # We need to subscribe to this signal BEFORE calling Start()
+        node_id_received = threading.Event()
+
+        def on_signal(proxy, sender_name, signal_name, parameters):
+            if signal_name == "PipeWireStreamAdded":
+                self.node_id = parameters.unpack()[0]
+                log(f"Received PipeWireStreamAdded signal: node_id={self.node_id}")
+                node_id_received.set()
+
+        # Connect to g-signal on the stream proxy
+        self.sc_stream_proxy.connect("g-signal", on_signal)
+
         log("Starting RemoteDesktop session...")
         self.rd_session_proxy.call_sync(
             "Start",
@@ -237,46 +252,24 @@ class RemoteDesktopSession:
             Gio.DBusCallFlags.NONE,
             -1, None
         )
-        log("Session started")
+        log("Session started, waiting for PipeWireStreamAdded signal...")
 
-        # Get the PipeWire node ID with retry
-        # The node ID may take a moment to become available after Start()
-        log("Getting PipeWire node ID...")
-        for attempt in range(10):
-            time.sleep(0.5)
+        # Wait for the signal (with timeout)
+        # We need to run the GLib main loop iteration to receive signals
+        timeout = 10.0  # seconds
+        start_time = time.time()
+        while not node_id_received.is_set():
+            # Process pending D-Bus events
+            context = GLib.MainContext.default()
+            while context.pending():
+                context.iteration(False)
 
-            # Re-create the stream proxy to refresh cached properties
-            self.sc_stream_proxy = Gio.DBusProxy.new_sync(
-                self.bus,
-                Gio.DBusProxyFlags.NONE,
-                None,
-                SCREEN_CAST_BUS,
-                self.sc_stream_path,
-                SCREEN_CAST_STREAM_IFACE,
-                None
-            )
+            if time.time() - start_time > timeout:
+                raise Exception(f"Timeout waiting for PipeWireStreamAdded signal after {timeout}s")
 
-            node_id_variant = self.sc_stream_proxy.get_cached_property("PipeWireNodeId")
-            if node_id_variant:
-                self.node_id = node_id_variant.unpack()
-                log(f"PipeWire node ID: {self.node_id} (attempt {attempt + 1})")
-                return
+            time.sleep(0.1)
 
-            # Try fetching directly
-            try:
-                props = self.sc_stream_proxy.call_sync(
-                    "org.freedesktop.DBus.Properties.Get",
-                    GLib.Variant("(ss)", (SCREEN_CAST_STREAM_IFACE, "PipeWireNodeId")),
-                    Gio.DBusCallFlags.NONE,
-                    -1, None
-                )
-                self.node_id = props.unpack()[0]
-                log(f"PipeWire node ID: {self.node_id} (attempt {attempt + 1}, via GetProperty)")
-                return
-            except Exception as e:
-                log(f"Attempt {attempt + 1}: PipeWireNodeId not available yet: {e}")
-
-        raise Exception("Failed to get PipeWire node ID after 10 attempts")
+        log(f"PipeWire node ID: {self.node_id}")
 
     def report_to_wolf(self):
         """Report node ID and input socket to Wolf."""
