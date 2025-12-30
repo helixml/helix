@@ -28,11 +28,12 @@ import (
 type DesktopType string
 
 const (
-	DesktopSway   DesktopType = "sway"
-	DesktopZorin  DesktopType = "zorin"
-	DesktopUbuntu DesktopType = "ubuntu"
-	DesktopXFCE   DesktopType = "xfce"
-	DesktopKDE    DesktopType = "kde"
+	DesktopSway     DesktopType = "sway"
+	DesktopZorin    DesktopType = "zorin"
+	DesktopUbuntu   DesktopType = "ubuntu"
+	DesktopXFCE     DesktopType = "xfce"
+	DesktopKDE      DesktopType = "kde"
+	DesktopHyprland DesktopType = "hyprland"
 )
 
 // parseDesktopType converts a string to DesktopType, defaulting to Sway
@@ -46,6 +47,8 @@ func parseDesktopType(s string) DesktopType {
 		return DesktopXFCE
 	case "kde":
 		return DesktopKDE
+	case "hyprland":
+		return DesktopHyprland
 	default:
 		return DesktopSway
 	}
@@ -63,9 +66,9 @@ func getDesktopEnvVars(desktop DesktopType) []string {
 	case DesktopSway:
 		// Sway needs RUN_SWAY=1 for GOW launcher to start Sway compositor
 		return []string{"RUN_SWAY=1"}
-	case DesktopZorin, DesktopUbuntu, DesktopXFCE, DesktopKDE:
-		// GNOME (Zorin), XFCE (Ubuntu/XFCE), and KDE don't need special flags
-		// GOW base images detect the desktop environment automatically
+	case DesktopZorin, DesktopUbuntu, DesktopXFCE, DesktopKDE, DesktopHyprland:
+		// GNOME (Zorin), XFCE (Ubuntu/XFCE), KDE, and Hyprland don't need special flags
+		// Hyprland uses pipewiresrc mode (not nested Wayland)
 		return []string{}
 	default:
 		return []string{}
@@ -76,10 +79,11 @@ func getDesktopEnvVars(desktop DesktopType) []string {
 // Different GOW base images have different startup architectures:
 // - Sway base: Has both startup.sh → startup-app.sh (two-stage)
 // - Zorin/Ubuntu bases: Only have startup.sh (single-stage, no startup-app.sh)
+// - Hyprland: Uses startup-app.sh (custom entrypoint, not GOW base)
 func getDesktopMountPath(desktop DesktopType) string {
 	switch desktop {
-	case DesktopSway, DesktopKDE:
-		// Sway and KDE base: startup.sh calls startup-app.sh
+	case DesktopSway, DesktopKDE, DesktopHyprland:
+		// Sway, KDE, and Hyprland: startup.sh calls startup-app.sh
 		return "/opt/gow/startup-app.sh"
 	case DesktopZorin, DesktopUbuntu, DesktopXFCE:
 		// Zorin/Ubuntu/XFCE base: startup.sh IS the main script (no startup-app.sh)
@@ -288,6 +292,8 @@ func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, wolfI
 		prefix = "helix-xfce"
 	case DesktopKDE:
 		prefix = "helix-kde"
+	case DesktopHyprland:
+		prefix = "helix-hyprland"
 	}
 
 	// Version is a Docker image hash (e.g., "sha256:abc123def...")
@@ -397,6 +403,8 @@ func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.A
 			configDir = "xfce-config"
 		} else if config.DesktopType == DesktopKDE {
 			configDir = "kde-config"
+		} else if config.DesktopType == DesktopHyprland {
+			configDir = "hyprland-config"
 		}
 
 		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
@@ -1148,10 +1156,10 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	}
 
 	// Determine video source mode based on desktop type
-	// GNOME 49+ (Ubuntu) uses pipewiresrc, KDE/Sway use waylanddisplaysrc
+	// GNOME 49+ (Ubuntu) and Hyprland use pipewiresrc, KDE/Sway use waylanddisplaysrc
 	videoSourceMode := "wayland" // Default for KDE/Sway
-	if desktopType == "ubuntu" || desktopType == "gnome" {
-		videoSourceMode = "pipewire" // GNOME 49+ uses pipewiresrc
+	if desktopType == DesktopUbuntu || desktopType == DesktopHyprland {
+		videoSourceMode = "pipewire" // GNOME 49+ and Hyprland use pipewiresrc
 	}
 
 	lobbyReq := &wolf.CreateLobbyRequest{

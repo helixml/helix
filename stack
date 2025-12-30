@@ -1116,7 +1116,7 @@ function build-desktop() {
 
   if [ -z "$DESKTOP_NAME" ]; then
     echo "Usage: ./stack build-desktop <name>"
-    echo "Available: sway, zorin, ubuntu, xfce"
+    echo "Available: sway, zorin, ubuntu, xfce, kde, hyprland"
     exit 1
   fi
 
@@ -1385,6 +1385,14 @@ function build-kde() {
 
 function transfer-kde-to-sandbox() {
   transfer-desktop-to-sandbox kde
+}
+
+function build-hyprland() {
+  build-desktop hyprland
+}
+
+function transfer-hyprland-to-sandbox() {
+  transfer-desktop-to-sandbox hyprland
 }
 
 function build-moonlight-web() {
@@ -2182,8 +2190,9 @@ function help() {
   echo "  build-and-push-helix-code [tag] - Build ALL Helix Code images and push to registry (optional tag override)"
   echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
   echo "  build-wolf         - Build Wolf container with latest source code"
-  echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce)"
+  echo "  build-desktop <name> - Build desktop container (sway, kde, zorin, ubuntu, xfce, hyprland)"
   echo "  build-sway         - Build Sway+Zed container (alias for build-desktop sway)"
+  echo "  build-hyprland     - Build Hyprland+Zed container (alias for build-desktop hyprland)"
   echo "  build-kde          - Build KDE Plasma+Zed container (alias for build-desktop kde)"
   echo "  build-zorin        - Build Zorin+Zed container (alias for build-desktop zorin)"
   echo "  build-ubuntu       - Build Ubuntu+Zed container (alias for build-desktop ubuntu)"
