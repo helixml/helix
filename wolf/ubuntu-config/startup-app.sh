@@ -674,13 +674,15 @@ sleep 0.5
 ) &
 
 echo "[gnome-session] Starting GNOME Shell in devkit mode..."
+echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
 echo "[gnome-session] mutter-devkit will inherit WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
 
-# Start GNOME Shell in devkit mode
+# Start GNOME Shell in devkit mode with virtual monitor at correct resolution
+# --virtual-monitor WxH creates a persistent virtual monitor at the specified size
 # gnome-shell creates wayland-0 for client apps and spawns mutter-devkit
 # mutter-devkit inherits our WAYLAND_DISPLAY ($WOLF_WAYLAND_DISPLAY) and outputs to Wolf
 # This is the Mutter SDK approach - no custom GStreamer bridge needed!
-gnome-shell --devkit
+gnome-shell --devkit --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}
 GNOME_SESSION_EOF
 
 chmod +x /tmp/gnome-session.sh
