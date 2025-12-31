@@ -1412,6 +1412,7 @@ export default function DesignReviewViewer({
             unresolvedCount={unresolvedCount}
             startingImplementation={startingImplementation}
             implementationStarted={
+              task?.status === TypesSpecTaskStatus.TaskStatusSpecApproved ||
               task?.status === TypesSpecTaskStatus.TaskStatusImplementation ||
               task?.status === TypesSpecTaskStatus.TaskStatusImplementationQueued ||
               task?.status === TypesSpecTaskStatus.TaskStatusImplementationReview ||
