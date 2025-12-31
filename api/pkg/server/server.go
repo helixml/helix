@@ -193,6 +193,13 @@ func NewServer(
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
 		}
 		oidcClient = client
+	} else if cfg.Auth.Provider == types.AuthProviderKeycloak {
+		// For keycloak mode, get the OIDC client from the authenticator.
+		// KeycloakAuthenticator creates its own OIDC client during initialization.
+		oidcClient = authenticator.GetOIDCClient()
+		if oidcClient == nil {
+			return nil, fmt.Errorf("keycloak authenticator did not provide OIDC client")
+		}
 	}
 
 	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{

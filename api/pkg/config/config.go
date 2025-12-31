@@ -170,7 +170,7 @@ type Regular struct {
 type Keycloak struct {
 	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"false"`
 	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
+	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8180/auth"`
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
 	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
 	ClientSecret        string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API

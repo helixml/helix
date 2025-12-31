@@ -1,0 +1,88 @@
+# Standalone Keycloak for local development testing
+#
+# Usage:
+#   # Start keycloak
+#   docker compose -f docker-compose.keycloak.yaml up -d
+#
+#   # Then configure Helix to use it (see comments below for .env settings)
+#
+# Keycloak Admin Console: http://localhost:8180/auth/admin
+# Username: admin
+# Password: admin (or KEYCLOAK_ADMIN_PASSWORD from .env)
+
+services:
+  keycloak:
+    # Build locally with Helix theme (multi-arch via base image)
+    build:
+      context: .
+      dockerfile: Dockerfile.keycloak
+    image: helix-keycloak:local
+    restart: unless-stopped
+    ports:
+      - "8180:8080" # Use 8180 to avoid conflict with Helix API on 8080
+    environment:
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://keycloak-postgres:5432/keycloak
+      - KC_DB_USERNAME=postgres
+      - KC_DB_PASSWORD=${KEYCLOAK_POSTGRES_PASSWORD:-keycloak}
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
+      - KC_PROXY_HEADERS=forwarded|xforwarded
+      - KC_HEALTH_ENABLED=true
+      - KC_HOSTNAME_PATH=/auth
+      - KC_HTTP_RELATIVE_PATH=/auth/
+      # Use browser-accessible URL for all Keycloak URLs (login, registration, etc.)
+      # The API will connect via internal URL (keycloak:8080) but accept this issuer
+      # Use direct Keycloak URL (localhost:8180/auth) - Keycloak on separate port
+      - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8180/auth}/
+      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8180/auth}/
+      # Force Keycloak to use KC_HOSTNAME_URL instead of request Host header
+      - KC_HOSTNAME_STRICT=true
+      # Theme development settings - disable caching
+      - KC_SPI_THEME_CACHE_THEMES=false
+      - KC_SPI_THEME_CACHE_TEMPLATES=false
+      - KC_SPI_THEME_STATIC_MAX_AGE=-1
+    volumes:
+      # Mount themes directory for development
+      - ./themes:/opt/keycloak/themes
+    command: [ "start-dev" ]
+    healthcheck:
+      test: [ "CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /auth/health/ready HTTP/1.1\\r\\nhost: http://localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3;grep 'HTTP/1.1 200 OK' <&3" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    networks:
+      - keycloak-net
+      - helix_default # Join Helix network so API can reach keycloak
+
+  keycloak-postgres:
+    image: postgres:12.13-alpine
+    restart: unless-stopped
+    volumes:
+      - keycloak-postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${KEYCLOAK_POSTGRES_PASSWORD:-keycloak}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d keycloak" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - keycloak-net
+
+volumes:
+  keycloak-postgres-data:
+
+
+networks:
+  keycloak-net:
+    name: keycloak_network
+  helix_default:
+    external: true
+    name: helix_default

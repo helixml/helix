@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coreos/go-oidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -37,6 +37,12 @@ type OIDCConfig struct {
 	Audience     string
 	Scopes       []string
 	Store        store.Store
+	// ExpectedIssuer allows the OIDC provider to return a different issuer than the ProviderURL.
+	// This is useful when the API connects to Keycloak via an internal URL (e.g., keycloak:8080)
+	// but Keycloak is configured with an external URL (e.g., localhost:8180) for browser access.
+	// If set, the OIDC client will accept tokens with this issuer even though discovery
+	// was done via ProviderURL.
+	ExpectedIssuer string
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -91,7 +97,21 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 func (c *OIDCClient) getProvider() (*oidc.Provider, error) {
 	if c.provider == nil {
 		log.Trace().Str("provider_url", c.cfg.ProviderURL).Msg("Getting provider")
-		provider, err := oidc.NewProvider(context.Background(), c.cfg.ProviderURL)
+
+		// If ExpectedIssuer is set, use InsecureIssuerURLContext to allow the provider
+		// to return a different issuer than the discovery URL. This is needed when
+		// the API connects to Keycloak via an internal URL but Keycloak is configured
+		// with an external URL for browser access.
+		ctx := context.Background()
+		if c.cfg.ExpectedIssuer != "" {
+			log.Info().
+				Str("discovery_url", c.cfg.ProviderURL).
+				Str("expected_issuer", c.cfg.ExpectedIssuer).
+				Msg("Using InsecureIssuerURLContext to allow different issuer")
+			ctx = oidc.InsecureIssuerURLContext(ctx, c.cfg.ExpectedIssuer)
+		}
+
+		provider, err := oidc.NewProvider(ctx, c.cfg.ProviderURL)
 		if err != nil {
 			// Wrap error to indicate provider not ready (used to return 503 instead of 401)
 			return nil, fmt.Errorf("%w: %v", ErrProviderNotReady, err)
@@ -108,13 +128,14 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 			log.Error().Err(err).Msg("Failed to get provider")
 			return nil, err
 		}
-		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", provider.Endpoint()).Msg("Getting oauth2 config")
+		endpoint := provider.Endpoint()
+		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
 		c.oauth2Config = &oauth2.Config{
 			ClientID:     c.cfg.ClientID,
 			ClientSecret: c.cfg.ClientSecret,
 			RedirectURL:  c.cfg.RedirectURL,
 			Scopes:       c.cfg.Scopes,
-			Endpoint:     provider.Endpoint(),
+			Endpoint:     endpoint,
 		}
 	}
 	return c.oauth2Config, nil
@@ -236,14 +257,43 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 
 	userInfo, err := c.GetUserInfo(ctx, accessToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
+		return nil, fmt.Errorf("invalid access token (could not get user info): %w", err)
 	}
 
+	// Try to get the user from the database by their OIDC subject ID
 	user, err := c.store.GetUser(ctx, &store.GetUserQuery{
-		Email: userInfo.Email,
+		ID: userInfo.Subject,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("invalid access token (database error): %w", err)
+	}
+
+	// Extract full name from userinfo
+	fullName := userInfo.Name
+	if fullName == "" && userInfo.GivenName != "" && userInfo.FamilyName != "" {
+		fullName = userInfo.GivenName + " " + userInfo.FamilyName
+	}
+	if fullName == "" {
+		fullName = userInfo.Email
+	}
+
+	// If user doesn't exist, create them (first login after OIDC registration)
+	if user == nil {
+		log.Info().
+			Str("subject", userInfo.Subject).
+			Str("email", userInfo.Email).
+			Msg("Creating new user from OIDC token")
+
+		user, err = c.store.CreateUser(ctx, &types.User{
+			ID:        userInfo.Subject,
+			Username:  userInfo.Subject,
+			Email:     userInfo.Email,
+			FullName:  fullName,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
 	}
 
 	// Determine admin status:
@@ -255,7 +305,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		ID:          userInfo.Subject,
 		Username:    userInfo.Subject,
 		Email:       userInfo.Email,
-		FullName:    userInfo.Name,
+		FullName:    fullName,
 		Token:       accessToken,
 		TokenType:   types.TokenTypeOIDC,
 		Type:        types.OwnerTypeUser,

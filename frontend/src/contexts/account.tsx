@@ -246,18 +246,43 @@ export const useAccountContext = (): IAccountContext => {
 
   const onLogin = useCallback(async () => {
     try {
-      fetch(`/api/v1/auth/login`, {
+      // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
+      // which would fail due to CORS when redirecting to Keycloak
+      const response = await fetch(`/api/v1/auth/login`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           redirect_uri: window.location.href,
         }),
-      })
-        .then(response => {
-          console.log(response);
-          if (response.redirected) {
-            window.location.href = response.url;
-          }
+        redirect: 'manual',
+      });
+
+      // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
+      // We can't read the Location header, but response.url contains the redirect target
+      if (response.type === 'opaqueredirect') {
+        // For opaque redirects, we need to get the URL from the server differently
+        // The response.url will be empty for opaque redirects, so we make another request
+        // to get the redirect URL as JSON
+        const urlResponse = await fetch(`/api/v1/auth/login?get_url=true`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            redirect_uri: window.location.href,
+          }),
         });
+        if (urlResponse.ok) {
+          const data = await urlResponse.json();
+          if (data.url) {
+            window.location.href = data.url;
+          }
+        }
+      } else if (response.redirected) {
+        window.location.href = response.url;
+      }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
@@ -265,6 +290,7 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [
     api,
+    snackbar,
   ])
 
   const onLogout = useCallback(() => {
