@@ -152,6 +152,14 @@ RUN apt-get update -y && \
     libglvnd0 libgl1 libglx0 libegl1 libgles2 xwayland hwdata \
     && rm -rf /var/lib/apt/lists/*
 
+# PipeWire runtime dependencies for gst-pipewire-zerocopy
+# Used for GNOME 49+ ScreenCast capture
+# Install full pipewire package to get client.conf (required for PipeWire context creation)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    pipewire \
+    && rm -rf /var/lib/apt/lists/*
+
 # Docker + NVIDIA Container Toolkit (from wolf.Dockerfile lines 154-182)
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
