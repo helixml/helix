@@ -1,0 +1,12 @@
+FROM quay.io/keycloak/keycloak:23.0
+
+# Copy our custom theme into the Keycloak themes directory
+COPY themes/helix /opt/keycloak/themes/helix
+
+# Set proper ownership and permissions
+USER root
+RUN chown -R keycloak:keycloak /opt/keycloak/themes/helix
+USER keycloak
+
+# Build the theme cache (optional but recommended for production)
+RUN /opt/keycloak/bin/kc.sh build

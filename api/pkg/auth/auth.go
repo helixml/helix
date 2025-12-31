@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"github.com/coreos/go-oidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -25,6 +25,11 @@ type Authenticator interface {
 
 	RequestPasswordReset(ctx context.Context, email string) error
 	PasswordResetComplete(ctx context.Context, token, newPassword string) error
+
+	// GetOIDCClient returns the OIDC client for this authenticator.
+	// For KeycloakAuthenticator, this returns the internal OIDC client.
+	// For HelixAuthenticator, this returns nil (no OIDC support).
+	GetOIDCClient() OIDC
 }
 
 type OIDC interface {

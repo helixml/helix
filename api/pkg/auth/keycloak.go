@@ -59,9 +59,11 @@ func NewKeycloakAuthenticator(cfg *config.ServerConfig, store store.Store) (*Key
 		return nil, err
 	}
 
-	keycloakURL, err := url.Parse(cfg.Auth.Keycloak.KeycloakFrontEndURL)
+	// Use internal KeycloakURL for OIDC discovery (server-to-server communication)
+	// KeycloakFrontEndURL is used by Keycloak for browser-facing URLs (set via KC_HOSTNAME_URL)
+	keycloakURL, err := url.Parse(cfg.Auth.Keycloak.KeycloakURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
+		return nil, fmt.Errorf("failed to parse keycloak url: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -71,15 +73,35 @@ func NewKeycloakAuthenticator(cfg *config.ServerConfig, store store.Store) (*Key
 	// Strip any trailing slashes from the path
 	keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
 	keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Auth.Keycloak.Realm)
+
+	// Build the expected issuer URL from the frontend URL
+	// This allows the API to connect to Keycloak via internal URL (keycloak:8080)
+	// while Keycloak is configured with external URL (localhost:8180) for browser access
+	var expectedIssuer string
+	if cfg.Auth.Keycloak.KeycloakFrontEndURL != "" && cfg.Auth.Keycloak.KeycloakFrontEndURL != cfg.Auth.Keycloak.KeycloakURL {
+		frontendURL, err := url.Parse(cfg.Auth.Keycloak.KeycloakFrontEndURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse keycloak frontend url: %w", err)
+		}
+		frontendURL.Path = strings.TrimRight(frontendURL.Path, "/")
+		frontendURL.Path = fmt.Sprintf("%s/realms/%s", frontendURL.Path, cfg.Auth.Keycloak.Realm)
+		expectedIssuer = frontendURL.String()
+		log.Info().
+			Str("internal_url", keycloakURL.String()).
+			Str("expected_issuer", expectedIssuer).
+			Msg("Using separate issuer URL for browser-facing Keycloak")
+	}
+
 	client, err := NewOIDCClient(ctx, OIDCConfig{
-		ProviderURL:  keycloakURL.String(),
-		ClientID:     cfg.Auth.Keycloak.APIClientID,
-		ClientSecret: cfg.Auth.Keycloak.ClientSecret,
-		RedirectURL:  helixRedirectURL,
-		AdminUserIDs: cfg.WebServer.AdminUserIDs,
-		Audience:     "account",
-		Scopes:       []string{"openid", "profile", "email"},
-		Store:        store,
+		ProviderURL:    keycloakURL.String(),
+		ClientID:       cfg.Auth.Keycloak.APIClientID,
+		ClientSecret:   cfg.Auth.Keycloak.ClientSecret,
+		RedirectURL:    helixRedirectURL,
+		AdminUserIDs:   cfg.WebServer.AdminUserIDs,
+		Audience:       "account",
+		Scopes:         []string{"openid", "profile", "email"},
+		Store:          store,
+		ExpectedIssuer: expectedIssuer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keycloak client: %w", err)
@@ -376,14 +398,11 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 		}
 	}
 
-	// Initialize attributes if not set
-	if realm.Attributes == nil {
-		realm.Attributes = &map[string]string{}
-	}
-
-	attributes := *realm.Attributes
-	attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
-	*realm.Attributes = attributes
+	// NOTE: We intentionally do NOT set the realm's frontendUrl attribute here.
+	// The realm's frontendUrl would override the issuer in the OIDC discovery document,
+	// causing an issuer mismatch when the API verifies tokens.
+	// Instead, we handle browser redirects by overriding the authorization URL
+	// in the OIDC client (see AuthURLOverride in NewKeycloakAuthenticator).
 
 	// Set login theme to "helix" for both new and existing deployments
 	if realm.LoginTheme == nil || *realm.LoginTheme != "helix" {
@@ -400,7 +419,6 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 
 	log.Info().
 		Str("realm", cfg.Realm).
-		Str("frontend_url", cfg.KeycloakFrontEndURL).
 		Str("login_theme", gocloak.PString(realm.LoginTheme)).
 		Msg("Configured realm")
 
@@ -595,6 +613,13 @@ func (k *KeycloakAuthenticator) RequestPasswordReset(ctx context.Context, email 
 func (k *KeycloakAuthenticator) PasswordResetComplete(ctx context.Context, token, newPassword string) error {
 	// Not implemented
 	return fmt.Errorf("passwordReset: not implemented")
+}
+
+// GetOIDCClient returns the OIDC client used by KeycloakAuthenticator.
+// This is needed because the server needs access to the OIDC client for
+// authentication flows (login redirect, callback, logout, token refresh).
+func (k *KeycloakAuthenticator) GetOIDCClient() OIDC {
+	return k.oidcClient
 }
 
 func addr[T any](t T) *T { return &t }

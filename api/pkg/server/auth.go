@@ -566,6 +566,14 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Trace().Str("auth_url", redirectURL).Msg("Redirecting to auth URL")
+
+		// If get_url=true query param is set, return the URL as JSON instead of redirecting
+		// This is needed because browsers can't follow cross-origin redirects from fetch()
+		if r.URL.Query().Get("get_url") == "true" {
+			writeResponse(w, map[string]string{"url": redirectURL}, http.StatusOK)
+			return
+		}
+
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
