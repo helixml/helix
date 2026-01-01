@@ -208,6 +208,39 @@ export class WebSocketStream {
   private pendingMouseMove: { dx: number; dy: number } | null = null
   private mouseThrottleTimeoutId: ReturnType<typeof setTimeout> | null = null
 
+  // Input send buffer congestion detection
+  // Skip mouse moves immediately if buffer hasn't drained - prevents "ghost moves"
+  // that arrive late and make it look like something else is controlling the cursor
+  private lastBufferDrainTime = 0         // When we last saw bufferedAmount == 0
+  private lastBufferedAmount = 0          // Current send buffer size
+  private maxBufferedAmount = 0           // Peak buffer size seen
+  private inputsDroppedDueToCongestion = 0 // Count of mouse moves skipped
+  private inputsSent = 0                  // Total inputs sent
+  private inputBufferSamples: number[] = [] // Recent buffer samples for averaging
+  private readonly MAX_INPUT_BUFFER_SAMPLES = 30
+  private bufferStaleMs = 0               // How long buffer has been non-empty
+
+  // Input send latency tracking
+  // Measures time from ws.send() call to completion (should be ~0 if non-blocking)
+  // and tracks bufferedAmount changes to detect TCP-level queueing
+  private lastSendDurationMs = 0          // How long ws.send() took (should be ~0)
+  private maxSendDurationMs = 0           // Peak send duration seen
+  private sendDurationSamples: number[] = []
+  private readonly MAX_SEND_DURATION_SAMPLES = 30
+  private bufferedAmountBeforeSend = 0    // Buffer size before send
+  private bufferedAmountAfterSend = 0     // Buffer size after send (shows what we added)
+
+  // Event loop latency tracking
+  // Uses periodic setTimeout(0) heartbeat to measure actual event loop responsiveness
+  // If event loop is blocked (video decoding, DOM operations, etc.), setTimeout(0) is delayed
+  private eventLoopCheckScheduledAt = 0    // When we scheduled setTimeout(0)
+  private eventLoopLatencyMs = 0           // Current event loop latency (excess delay)
+  private maxEventLoopLatencyMs = 0        // Peak latency seen
+  private eventLoopLatencySamples: number[] = []
+  private readonly MAX_EVENT_LOOP_SAMPLES = 30
+  private readonly EVENT_LOOP_CHECK_INTERVAL_MS = 100  // Check every 100ms
+  private eventLoopCheckTimeoutId: ReturnType<typeof setTimeout> | null = null
+
   constructor(
     api: Api,
     hostId: number,
@@ -384,6 +417,9 @@ export class WebSocketStream {
     // Start RTT measurement pings
     this.startPingInterval()
 
+    // Start event loop latency tracking
+    this.startEventLoopTracking()
+
     // Send initialization message
     this.sendInit()
   }
@@ -400,6 +436,9 @@ export class WebSocketStream {
 
     // Stop RTT pings
     this.stopPingInterval()
+
+    // Stop event loop tracking
+    this.stopEventLoopTracking()
 
     this.dispatchInfoEvent({ type: "disconnected" })
 
@@ -687,6 +726,13 @@ export class WebSocketStream {
   }
 
   private renderVideoFrame(frame: VideoFrame) {
+    // CRITICAL: Prevent rendering after stream is closed
+    // This prevents duplicate streams from writing to the same canvas
+    if (this.closed) {
+      frame.close()
+      return
+    }
+
     if (!this.canvas || !this.canvasCtx) {
       frame.close()
       this.framesDropped++
@@ -1202,15 +1248,95 @@ export class WebSocketStream {
   // Input Handling - WebSocket transport
   // ============================================================================
 
+  /**
+   * Check if the input send buffer is congested
+   * Returns true if we should skip non-critical inputs (mouse moves)
+   *
+   * Strategy: Skip mouse moves if buffer hasn't drained since last send.
+   * This prevents "ghost moves" - stale positions that arrive late and make
+   * it look like something else is controlling the cursor.
+   *
+   * We allow ONE mouse move to queue (to detect congestion), then skip
+   * all subsequent moves until the buffer drains completely.
+   */
+  private isInputBufferCongested(): boolean {
+    if (!this.ws) return false
+
+    const now = performance.now()
+    const buffered = this.ws.bufferedAmount
+
+    if (buffered === 0) {
+      // Buffer is empty - network is keeping up, safe to send
+      this.lastBufferDrainTime = now
+      this.bufferStaleMs = 0
+      return false
+    }
+
+    // Buffer has data - track how long
+    if (this.lastBufferDrainTime === 0) {
+      this.lastBufferDrainTime = now
+    }
+    this.bufferStaleMs = now - this.lastBufferDrainTime
+
+    // Skip immediately if buffer hasn't drained - don't pile up stale moves
+    // The one move already in the buffer will transmit; we'll send fresh
+    // position when buffer drains
+    return true
+  }
+
+  /**
+   * Track WebSocket send buffer stats for input latency monitoring
+   */
+  private trackInputBuffer() {
+    if (!this.ws) return
+
+    const buffered = this.ws.bufferedAmount
+    this.lastBufferedAmount = buffered
+
+    // Track peak
+    if (buffered > this.maxBufferedAmount) {
+      this.maxBufferedAmount = buffered
+    }
+
+    // Keep recent samples for averaging
+    this.inputBufferSamples.push(buffered)
+    if (this.inputBufferSamples.length > this.MAX_INPUT_BUFFER_SAMPLES) {
+      this.inputBufferSamples.shift()
+    }
+  }
+
   private sendInputMessage(type: number, payload: Uint8Array) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return
     }
 
+    // Track buffer stats before sending
+    this.trackInputBuffer()
+    this.bufferedAmountBeforeSend = this.ws.bufferedAmount
+
     const message = new Uint8Array(1 + payload.length)
     message[0] = type
     message.set(payload, 1)
+
+    // Measure how long ws.send() takes (should be ~0 if truly non-blocking)
+    const sendStart = performance.now()
     this.ws.send(message.buffer)
+    const sendDuration = performance.now() - sendStart
+
+    // Track send duration
+    this.lastSendDurationMs = sendDuration
+    if (sendDuration > this.maxSendDurationMs) {
+      this.maxSendDurationMs = sendDuration
+    }
+    this.sendDurationSamples.push(sendDuration)
+    if (this.sendDurationSamples.length > this.MAX_SEND_DURATION_SAMPLES) {
+      this.sendDurationSamples.shift()
+    }
+
+    // Track buffer after send
+    this.bufferedAmountAfterSend = this.ws.bufferedAmount
+
+    this.inputsSent++
   }
 
   // WebSocket-specific input methods that mirror StreamInput API
@@ -1232,6 +1358,22 @@ export class WebSocketStream {
     const now = performance.now()
     const elapsed = now - this.lastMouseSendTime
 
+    // Check for input buffer congestion - if buffer is backing up, accumulate instead of sending
+    // This prevents input queueing that causes mouse lag even when video latency is low
+    if (this.isInputBufferCongested()) {
+      // Accumulate movement for when buffer clears
+      if (this.pendingMouseMove) {
+        this.pendingMouseMove.dx += movementX
+        this.pendingMouseMove.dy += movementY
+      } else {
+        this.pendingMouseMove = { dx: movementX, dy: movementY }
+      }
+      this.inputsDroppedDueToCongestion++
+      // Schedule flush when buffer might be clearer
+      this.scheduleMouseFlush(this.mouseThrottleMs)
+      return
+    }
+
     if (elapsed >= this.mouseThrottleMs) {
       // Enough time has passed - send immediately
       this.sendMouseMoveImmediate(movementX, movementY)
@@ -1250,6 +1392,63 @@ export class WebSocketStream {
     }
   }
 
+  // ============================================================================
+  // Event Loop Latency Tracking
+  // ============================================================================
+
+  /**
+   * Start periodic event loop latency measurement using setTimeout(0)
+   * The idea: schedule a callback for "immediate" execution and measure actual delay
+   * If event loop is blocked, the callback is delayed proportionally
+   */
+  private startEventLoopTracking() {
+    this.stopEventLoopTracking()
+    this.scheduleEventLoopCheck()
+  }
+
+  private stopEventLoopTracking() {
+    if (this.eventLoopCheckTimeoutId) {
+      clearTimeout(this.eventLoopCheckTimeoutId)
+      this.eventLoopCheckTimeoutId = null
+    }
+  }
+
+  private scheduleEventLoopCheck() {
+    if (this.closed) return
+
+    this.eventLoopCheckScheduledAt = performance.now()
+
+    // Use setTimeout(0) which should fire "immediately" - any excess delay is event loop latency
+    this.eventLoopCheckTimeoutId = setTimeout(() => {
+      const actualTime = performance.now()
+      const elapsed = actualTime - this.eventLoopCheckScheduledAt
+
+      // setTimeout(0) has ~4ms minimum delay in browsers, so only count excess beyond that
+      // Also account for timer coalescing which can add a few more ms
+      const baselineDelay = 8  // Expected delay for setTimeout(0) with coalescing
+      const excessLatency = Math.max(0, elapsed - baselineDelay)
+
+      this.eventLoopLatencyMs = excessLatency
+
+      if (excessLatency > this.maxEventLoopLatencyMs) {
+        this.maxEventLoopLatencyMs = excessLatency
+      }
+
+      this.eventLoopLatencySamples.push(excessLatency)
+      if (this.eventLoopLatencySamples.length > this.MAX_EVENT_LOOP_SAMPLES) {
+        this.eventLoopLatencySamples.shift()
+      }
+
+      // Schedule next check after interval
+      if (!this.closed) {
+        this.eventLoopCheckTimeoutId = setTimeout(
+          () => this.scheduleEventLoopCheck(),
+          this.EVENT_LOOP_CHECK_INTERVAL_MS
+        )
+      }
+    }, 0)
+  }
+
   private sendMouseMoveImmediate(movementX: number, movementY: number) {
     // Format: subType(1) + dx(2) + dy(2)
     this.inputBuffer[0] = 0 // sub-type for relative
@@ -1261,6 +1460,16 @@ export class WebSocketStream {
   sendMousePosition(x: number, y: number, refWidth: number, refHeight: number) {
     const now = performance.now()
     const elapsed = now - this.lastMouseSendTime
+
+    // Check for input buffer congestion - if buffer is backing up, just store latest position
+    // Absolute positions replace each other so we just keep the newest one
+    if (this.isInputBufferCongested()) {
+      this.pendingMousePosition = { x, y, refW: refWidth, refH: refHeight }
+      this.inputsDroppedDueToCongestion++
+      // Schedule flush when buffer might be clearer
+      this.scheduleMouseFlush(this.mouseThrottleMs)
+      return
+    }
 
     if (elapsed >= this.mouseThrottleMs) {
       // Enough time has passed - send immediately
@@ -1291,6 +1500,13 @@ export class WebSocketStream {
 
     this.mouseThrottleTimeoutId = setTimeout(() => {
       this.mouseThrottleTimeoutId = null
+
+      // If still congested, reschedule for later
+      if (this.isInputBufferCongested()) {
+        this.scheduleMouseFlush(this.mouseThrottleMs)
+        return
+      }
+
       this.lastMouseSendTime = performance.now()
 
       // Send any pending mouse data
@@ -1372,6 +1588,24 @@ export class WebSocketStream {
     framesSkippedToKeyframe: number  // Frames flushed when skipping to keyframe
     // Codec info
     codecString: string              // Human-readable codec name (H.264, HEVC, AV1, etc.)
+    // Input buffer stats (detects if input is queueing up)
+    inputBufferBytes: number         // Current WebSocket send buffer size
+    maxInputBufferBytes: number      // Peak send buffer size seen
+    avgInputBufferBytes: number      // Average send buffer size
+    inputsSent: number               // Total inputs sent
+    inputsDroppedDueToCongestion: number  // Mouse moves skipped due to buffer congestion
+    inputCongested: boolean          // True if input buffer is currently congested
+    bufferStaleMs: number            // How long buffer has been non-empty (0 = draining fine)
+    // Send latency stats (should be ~0 if ws.send is truly non-blocking)
+    lastSendDurationMs: number       // How long last ws.send() took
+    maxSendDurationMs: number        // Peak send duration seen
+    avgSendDurationMs: number        // Average send duration
+    bufferedAmountBeforeSend: number // Buffer size before last send
+    bufferedAmountAfterSend: number  // Buffer size after last send
+    // Event loop latency (detects if main thread is blocked)
+    eventLoopLatencyMs: number       // Current excess delay for setTimeout(0)
+    maxEventLoopLatencyMs: number    // Peak event loop latency seen
+    avgEventLoopLatencyMs: number    // Average event loop latency
   } {
     // Calculate batching metrics
     const totalFrames = this.batchedFramesReceived + this.individualFramesReceived
@@ -1407,6 +1641,30 @@ export class WebSocketStream {
       framesSkippedToKeyframe: this.framesSkippedToKeyframe,
       // Codec info
       codecString: codecToDisplayName(this.lastVideoCodec),
+      // Input buffer stats
+      inputBufferBytes: this.lastBufferedAmount,
+      maxInputBufferBytes: this.maxBufferedAmount,
+      avgInputBufferBytes: this.inputBufferSamples.length > 0
+        ? Math.round(this.inputBufferSamples.reduce((a, b) => a + b, 0) / this.inputBufferSamples.length)
+        : 0,
+      inputsSent: this.inputsSent,
+      inputsDroppedDueToCongestion: this.inputsDroppedDueToCongestion,
+      inputCongested: this.isInputBufferCongested(),
+      bufferStaleMs: this.bufferStaleMs,
+      // Send latency stats (should be ~0 if ws.send is truly non-blocking)
+      lastSendDurationMs: this.lastSendDurationMs,
+      maxSendDurationMs: this.maxSendDurationMs,
+      avgSendDurationMs: this.sendDurationSamples.length > 0
+        ? this.sendDurationSamples.reduce((a, b) => a + b, 0) / this.sendDurationSamples.length
+        : 0,
+      bufferedAmountBeforeSend: this.bufferedAmountBeforeSend,
+      bufferedAmountAfterSend: this.bufferedAmountAfterSend,
+      // Event loop latency
+      eventLoopLatencyMs: this.eventLoopLatencyMs,
+      maxEventLoopLatencyMs: this.maxEventLoopLatencyMs,
+      avgEventLoopLatencyMs: this.eventLoopLatencySamples.length > 0
+        ? this.eventLoopLatencySamples.reduce((a, b) => a + b, 0) / this.eventLoopLatencySamples.length
+        : 0,
     }
   }
 
@@ -1607,8 +1865,14 @@ export class WebSocketStream {
   close() {
     console.log("[WebSocketStream] Closing")
 
-    // Mark as explicitly closed to prevent reconnection
+    // Mark as explicitly closed to prevent reconnection and rendering
     this.closed = true
+
+    // CRITICAL: Clear canvas references FIRST to prevent any further rendering
+    // This must happen before decoder cleanup to ensure no frames are drawn
+    // after close() is called (even if decoder has frames in queue)
+    this.canvas = null
+    this.canvasCtx = null
 
     // Cancel any pending reconnection
     if (this.reconnectTimeoutId) {
@@ -1624,6 +1888,9 @@ export class WebSocketStream {
 
     // Stop RTT pings
     this.stopPingInterval()
+
+    // Stop event loop tracking
+    this.stopEventLoopTracking()
 
     // Cancel pending mouse throttle flush
     if (this.mouseThrottleTimeoutId) {

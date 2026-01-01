@@ -27,12 +27,30 @@ const QuestionSets: FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingQuestionSetId, setEditingQuestionSetId] = useState<string | undefined>()
 
+  const isLoggedIn = !!account.user
+
+  // Single helper to check login and show dialog if needed
+  const requireLogin = React.useCallback((): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }, [account])
+
+  // Show login dialog on mount if not logged in (only after account is initialized)
+  useEffect(() => {
+    if (account.initialized && !isLoggedIn) {
+      account.setShowLoginWindow(true)
+    }
+  }, [account.initialized, isLoggedIn])
+
   const orgId = account.organizationTools.organization?.id || ''
 
   const { data: questionSets, isLoading, refetch } = useListQuestionSets(
     orgId || undefined,
     {
-      enabled: !!account.user,
+      enabled: isLoggedIn,
     }
   )
 
@@ -66,6 +84,7 @@ const QuestionSets: FC = () => {
   }, [])
 
   const handleEditQuestionSet = (questionSet: TypesQuestionSet) => {
+    if (!requireLogin()) return
     if (questionSet.id) {
       setEditingQuestionSetId(questionSet.id)
       setDialogOpen(true)
@@ -76,6 +95,7 @@ const QuestionSets: FC = () => {
   }
 
   const handleCreateQuestionSet = () => {
+    if (!requireLogin()) return
     setEditingQuestionSetId(undefined)
     setDialogOpen(true)
     const url = new URL(window.location.href)
@@ -93,6 +113,7 @@ const QuestionSets: FC = () => {
   }
 
   const handleDeleteQuestionSet = (questionSet: TypesQuestionSet) => {
+    if (!requireLogin()) return
     setDeletingQuestionSet(questionSet)
   }
 

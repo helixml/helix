@@ -28,3 +28,6 @@ scripts/init-moonlight-web.sh:curl-auth-user:64
 
 # Wolf development certificate (local development only)
 wolf/key.pem:private-key:1
+
+# Keycloak docker-compose - PostgreSQL connection string (not a secret, just port/dbname)
+docker-compose.keycloak.yaml:generic-api-key:25

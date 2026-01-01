@@ -9,7 +9,7 @@ Customer on Helix 2.5.25 reported TLS certificate errors when using a database-c
 
 ```
 ERR app/api/pkg/openai/openai_client.go:256 > failed to list models from OpenAI compatible API
-error="failed to send request to provider's models endpoint: Get \"https://frlas5ap1-0085.axa-im.intraxa:8010/v1/models\":
+error="failed to send request to provider's models endpoint: Get \"https://internal-server.customer.example:8010/v1/models\":
 tls: failed to verify certificate: x509: certificate signed by unknown authority"
 ```
 

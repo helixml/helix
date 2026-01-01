@@ -1,5 +1,5 @@
 import React, { FC } from 'react'
-import { Kanban, GitBranch, FileText } from 'lucide-react'
+import { Kanban, GitBranch, FileText, MessageSquare } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
@@ -18,7 +18,7 @@ const ProjectsSidebar: FC = () => {
       items: [
         {
           id: 'projects',
-          label: 'Boards',
+          label: 'Workspaces',
           icon: <Kanban size={18} />,
           isActive: currentView === 'projects',
           onClick: () => handleNavigationClick('projects')
@@ -36,6 +36,13 @@ const ProjectsSidebar: FC = () => {
           icon: <FileText size={18} />,
           isActive: currentView === 'guidelines',
           onClick: () => handleNavigationClick('guidelines')
+        },
+        {
+          id: 'prompts',
+          label: 'Prompts',
+          icon: <MessageSquare size={18} />,
+          isActive: currentView === 'prompts',
+          onClick: () => handleNavigationClick('prompts')
         }
       ]
     }

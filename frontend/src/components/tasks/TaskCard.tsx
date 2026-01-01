@@ -63,6 +63,58 @@ const spin = keyframes`
   }
 `
 
+// Pulse animation for active agent indicator
+const activePulse = keyframes`
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.7;
+  }
+`
+
+// Agent work state from backend (replaces timestamp-based heuristics)
+type AgentWorkState = 'idle' | 'working' | 'done'
+
+// Hook to manage agent activity status and attention state
+// Uses backend-tracked agent_work_state instead of timestamp heuristics
+const useAgentActivityCheck = (
+  agentWorkState?: AgentWorkState,
+  enabled: boolean = true
+): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
+  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(null)
+
+  // Agent is active if backend reports it's working
+  const isActive = enabled && agentWorkState === 'working'
+
+  // Agent needs attention if:
+  // 1. It's idle or done (not actively working)
+  // 2. User hasn't marked the current state as seen
+  // 3. There IS an agent work state (undefined means no session yet)
+  const needsAttention = enabled &&
+    agentWorkState !== undefined &&
+    agentWorkState !== 'working' &&
+    agentWorkState !== lastSeenState
+
+  const markAsSeen = () => {
+    if (agentWorkState) {
+      setLastSeenState(agentWorkState)
+    }
+  }
+
+  // Reset seen state when agent becomes active again
+  // (so if it goes idle again later, attention dot reappears)
+  useEffect(() => {
+    if (isActive && lastSeenState) {
+      setLastSeenState(null)
+    }
+  }, [isActive, lastSeenState])
+
+  return { isActive, needsAttention, markAsSeen }
+}
+
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'pull_request' | 'completed'
 
 interface SpecTaskWithExtras {
@@ -85,6 +137,9 @@ interface SpecTaskWithExtras {
   // Branch tracking for direct-push detection
   base_branch?: string
   branch_name?: string
+  // Agent activity tracking
+  session_updated_at?: string
+  agent_work_state?: 'idle' | 'working' | 'done' // Backend-tracked work state
 }
 
 interface KanbanColumn {
@@ -437,6 +492,12 @@ export default function TaskCard({
     refetchInterval: 5000, // Refresh every 5 seconds for live updates
   })
 
+  // Check agent activity status using backend-tracked work state
+  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
+    task.agent_work_state,
+    showProgress && !!task.planning_session_id
+  )
+
   const runningDuration = useRunningDuration(
     task.started_at,
     task.status === 'implementation'
@@ -481,6 +542,8 @@ export default function TaskCard({
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
+    // Mark attention dot as seen when user clicks to view the task
+    markAsSeen()
     if (onTaskClick) {
       onTaskClick(task)
     }
@@ -650,6 +713,39 @@ export default function TaskCard({
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
                 • {runningDuration}
               </Typography>
+            )}
+            {/* Attention indicator for tasks with sessions */}
+            {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
+              <>
+                {isActive ? (
+                  // Active: pulsing green dot
+                  <Tooltip title="Agent is working">
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: '#22c55e',
+                        animation: `${activePulse} 1.5s ease-in-out infinite`,
+                        ml: 0.5,
+                      }}
+                    />
+                  </Tooltip>
+                ) : needsAttention ? (
+                  // Needs attention: amber dot (dismissed when card is clicked)
+                  <Tooltip title="Agent finished - click card to dismiss">
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: '#f59e0b',
+                        ml: 0.5,
+                      }}
+                    />
+                  </Tooltip>
+                ) : null}
+              </>
             )}
           </Box>
         </Box>

@@ -44,6 +44,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      # Encryption key for secrets at rest (SSH keys, PATs, etc.)
+      - HELIX_ENCRYPTION_KEY=${HELIX_ENCRYPTION_KEY:-dev-encryption-key-do-not-use-in-prod}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
@@ -124,6 +126,7 @@ services:
     depends_on:
       - postgres
       - postgres-mcp
+      - chrome
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
@@ -167,7 +170,6 @@ services:
 
   # Kodit code indexing service
   kodit:
-    profiles: [kodit]
     image: registry.helixml.tech/helix/kodit:0.5.16
     # ports:
     #   - 8632:8632
@@ -199,7 +201,6 @@ services:
 
   # Kodit PostgreSQL database with pgvector
   vectorchord-kodit:
-    profiles: [kodit]
     image: tensorchord/vchord-suite:pg17-20250601
     restart: always
     environment:
@@ -335,6 +336,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
       - ./moonlight-web-config:/app/server:rw
@@ -457,6 +459,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
       - ./moonlight-web-config:/app/server:rw
@@ -577,6 +580,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
       - ./moonlight-web-config:/app/server:rw

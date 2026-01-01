@@ -391,10 +391,6 @@ while [[ $# -gt 0 ]]; do
             QDRANT=true
             shift
             ;;
-        --kodit)
-            KODIT=true
-            shift
-            ;;
         --code)
             CODE=true
             shift
@@ -1472,6 +1468,22 @@ generate_moonlight_pin() {
     fi
 }
 
+# Function to generate 64-character hex encryption key (32 bytes for AES-256)
+generate_encryption_key() {
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        # Try PowerShell for proper crypto random on Windows
+        if command -v powershell.exe &> /dev/null; then
+            powershell.exe -Command "[System.BitConverter]::ToString((1..32 | ForEach-Object { Get-Random -Maximum 256 })).Replace('-','')" 2>/dev/null | tr -d '\r\n' | head -c 64
+        else
+            # Fallback: Use current time + hostname hash (less secure)
+            echo -n "$(hostname)$(date +%s%N)" | sha256sum | head -c 64
+        fi
+    else
+        # Use openssl for crypto-secure random bytes
+        openssl rand -hex 32
+    fi
+}
+
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     echo -e "\nDownloading docker-compose.yaml..."
@@ -1561,6 +1573,7 @@ EOF
         POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
+        HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
 
         # Preserve API keys if not provided as command line arguments
         if [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -1580,6 +1593,7 @@ EOF
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
+        HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
 
         # Generate Code credentials if --code flag is set
         if [[ -n "$CODE" ]]; then
@@ -1595,9 +1609,6 @@ EOF
     COMPOSE_PROFILES=""
     if [[ -n "$HAYSTACK" ]]; then
         COMPOSE_PROFILES="haystack"
-    fi
-    if [[ -n "$KODIT" ]]; then
-        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
     fi
 
     # Set RAG provider
@@ -1615,6 +1626,10 @@ KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
+
+# Encryption key for secrets at rest (SSH keys, PATs, etc.)
+# 64-character hex string (32 bytes for AES-256-GCM)
+HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/

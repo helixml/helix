@@ -191,6 +191,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
+	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error) // Batch fetch for efficiency
 	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
@@ -198,6 +199,7 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+	ListSessionsWithDesiredState(ctx context.Context, desiredState string) ([]*types.Session, error) // For reconciliation
 
 	// interactions
 	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
@@ -328,6 +330,21 @@ type Store interface {
 	GetOAuthRequestTokenByState(ctx context.Context, state string) ([]*types.OAuthRequestToken, error)
 	DeleteOAuthRequestToken(ctx context.Context, id string) error
 	GenerateRandomState(ctx context.Context) (string, error)
+
+	// Git Provider Connection methods (PAT-based connections)
+	CreateGitProviderConnection(ctx context.Context, connection *types.GitProviderConnection) error
+	GetGitProviderConnection(ctx context.Context, id string) (*types.GitProviderConnection, error)
+	ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error)
+	DeleteGitProviderConnection(ctx context.Context, id string) error
+
+	// Service Connection methods (GitHub Apps, ADO Service Principals, etc.)
+	CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error)
+	ListServiceConnections(ctx context.Context, organizationID string) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
+	ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error)
+	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
+	DeleteServiceConnection(ctx context.Context, id string) error
 
 	CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error)
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
@@ -649,6 +666,20 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
+	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
+	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	MarkPromptAsPending(ctx context.Context, promptID string) error
+	MarkPromptAsSent(ctx context.Context, promptID string) error
+	MarkPromptAsFailed(ctx context.Context, promptID string) error
+	UpdatePromptPin(ctx context.Context, promptID string, pinned bool) error
+	UpdatePromptTags(ctx context.Context, promptID string, tags string) error
+	ListPinnedPrompts(ctx context.Context, userID, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	IncrementPromptUsage(ctx context.Context, promptID string) error
+	SearchPrompts(ctx context.Context, userID, query string, limit int) ([]*types.PromptHistoryEntry, error)
+	UnifiedSearch(ctx context.Context, userID string, req *types.UnifiedSearchRequest) (*types.UnifiedSearchResponse, error)
 }
 
 type EmbeddingsStore interface {

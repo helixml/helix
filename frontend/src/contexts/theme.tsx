@@ -67,10 +67,11 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
-        // Adding dark style to the menus
+        // Adding dark style to the menus + high z-index for dialogs
         MuiMenu: {
           styleOverrides: {
             root: {
+              zIndex: 100003, // Above dialogs (z-index 100002)
               '& .MuiMenu-list': {
                 padding: 0,
                 backgroundColor: 'rgba(26, 26, 26, 0.97)',
@@ -124,7 +125,39 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
               transition: 'all 0.2s ease-in-out',
             },
             root: {
+              zIndex: 100002, // Above floating windows (z-index 9999) and tooltips (100001)
               transition: 'all 0.2s ease-in-out',
+            },
+          },
+        },
+        // Ensure tooltips appear above floating windows (z-index 9999) and modals
+        MuiTooltip: {
+          defaultProps: {
+            // Higher z-index ensures tooltips appear above floating windows
+            slotProps: {
+              popper: {
+                sx: {
+                  zIndex: 100001,
+                },
+              },
+            },
+          },
+        },
+        // Ensure popovers (including Select dropdowns) appear above dialogs
+        MuiPopover: {
+          styleOverrides: {
+            root: {
+              zIndex: 100003,
+            },
+          },
+        },
+        // Ensure Select menus appear above dialogs
+        MuiSelect: {
+          defaultProps: {
+            MenuProps: {
+              sx: {
+                zIndex: 100003,
+              },
             },
           },
         },

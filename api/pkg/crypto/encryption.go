@@ -6,14 +6,39 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"os"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 )
+
+// GetEncryptionKey retrieves the encryption key from the HELIX_ENCRYPTION_KEY environment variable.
+// If not set, returns a default key with a warning (not recommended for production).
+func GetEncryptionKey() ([]byte, error) {
+	if key := os.Getenv("HELIX_ENCRYPTION_KEY"); key != "" {
+		if len(key) == 64 { // Hex-encoded 32-byte key
+			decoded, err := hex.DecodeString(key)
+			if err == nil && len(decoded) == 32 {
+				return decoded, nil
+			}
+		}
+		// Use SHA-256 hash of the key if not exactly 32 bytes hex
+		hash := sha256.Sum256([]byte(key))
+		return hash[:], nil
+	}
+
+	// Fallback: use SHA-256 of a default value (not recommended for production)
+	log.Warn().Msg("HELIX_ENCRYPTION_KEY not set, using default encryption key (INSECURE)")
+	hash := sha256.Sum256([]byte("helix-default-encryption-key"))
+	return hash[:], nil
+}
 
 // EncryptAES256GCM encrypts data using AES-256-GCM with the provided key
 func EncryptAES256GCM(plaintext []byte, key []byte) (string, error) {

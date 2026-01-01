@@ -1073,6 +1073,17 @@ definitions:
       status:
         type: string
     type: object
+  server.PromptPinRequest:
+    properties:
+      pinned:
+        type: boolean
+    type: object
+  server.PromptTagsRequest:
+    properties:
+      tags:
+        description: JSON array of tags
+        type: string
+    type: object
   server.PushPullResponse:
     properties:
       branch:
@@ -2432,6 +2443,20 @@ definitions:
         - $ref: '#/definitions/types.AgentWorkConfig'
         description: Work item configuration
     type: object
+  types.AgentWorkState:
+    enum:
+    - idle
+    - working
+    - done
+    type: string
+    x-enum-comments:
+      AgentWorkStateDone: Agent finished its assigned task
+      AgentWorkStateIdle: Agent connected but not actively working
+      AgentWorkStateWorking: Agent actively processing a prompt
+    x-enum-varnames:
+    - AgentWorkStateIdle
+    - AgentWorkStateWorking
+    - AgentWorkStateDone
   types.AggregatedUsageMetric:
     properties:
       completion_cost:
@@ -3060,15 +3085,38 @@ definitions:
     type: object
   types.AzureDevOps:
     properties:
+      client_id:
+        description: App registration client ID
+        type: string
+      client_secret:
+        description: App registration client secret
+        type: string
       organization_url:
         type: string
       personal_access_token:
+        type: string
+      tenant_id:
+        description: |-
+          Service Principal authentication (service-to-service via Azure AD/Entra ID)
+          Uses OAuth 2.0 client credentials flow for automated system access
         type: string
     type: object
   types.AzureDevOpsTrigger:
     properties:
       enabled:
         type: boolean
+    type: object
+  types.Bitbucket:
+    properties:
+      app_password:
+        description: Bitbucket App Password (recommended over regular password)
+        type: string
+      base_url:
+        description: For Bitbucket Server/Data Center (empty for bitbucket.org)
+        type: string
+      username:
+        description: Bitbucket username (required for API auth)
+        type: string
     type: object
   types.BoardSettings:
     properties:
@@ -3086,6 +3134,26 @@ definitions:
     x-enum-varnames:
     - BranchModeNew
     - BranchModeExisting
+  types.BrowseRemoteRepositoriesRequest:
+    properties:
+      base_url:
+        description: Base URL for self-hosted instances (for GitHub Enterprise, GitLab
+          Enterprise, or Bitbucket Server)
+        type: string
+      organization_url:
+        description: Organization URL (required for Azure DevOps)
+        type: string
+      provider_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: 'Provider type: "github", "gitlab", "ado", "bitbucket"'
+      token:
+        description: Personal Access Token or App Password for authentication
+        type: string
+      username:
+        description: Username for authentication (required for Bitbucket)
+        type: string
+    type: object
   types.ChatCompletionMessage:
     properties:
       content:
@@ -3302,6 +3370,8 @@ definitions:
   types.CloneTaskResult:
     properties:
       project_id:
+        type: string
+      project_name:
         type: string
       status:
         description: '"created", "started", "failed"'
@@ -4040,6 +4110,25 @@ definitions:
         description: Used memory in bytes
         type: integer
     type: object
+  types.GitHub:
+    properties:
+      app_id:
+        description: |-
+          GitHub App authentication (service-to-service)
+          When AppID and PrivateKey are set, uses GitHub App installation tokens
+        type: integer
+      base_url:
+        description: For GitHub Enterprise instances (empty for github.com)
+        type: string
+      installation_id:
+        description: Installation ID for the app on the org/repo
+        type: integer
+      personal_access_token:
+        type: string
+      private_key:
+        description: PEM-encoded private key for JWT signing
+        type: string
+    type: object
   types.GitHubWorkConfig:
     properties:
       access_token:
@@ -4064,10 +4153,76 @@ definitions:
       repo_owner:
         type: string
     type: object
+  types.GitLab:
+    properties:
+      base_url:
+        description: For self-hosted GitLab instances (empty for gitlab.com)
+        type: string
+      personal_access_token:
+        type: string
+    type: object
+  types.GitProviderConnection:
+    properties:
+      avatar_url:
+        type: string
+      base_url:
+        description: 'For GitHub Enterprise or GitLab Enterprise: base URL (empty
+          = github.com/gitlab.com)'
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      email:
+        type: string
+      id:
+        type: string
+      last_tested_at:
+        description: Last successful connection test
+        type: string
+      name:
+        description: Display name for the connection (e.g., "My GitHub Account")
+        type: string
+      organization_url:
+        description: 'For Azure DevOps: organization URL'
+        type: string
+      provider_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: 'Provider type: github, gitlab, ado'
+      updated_at:
+        type: string
+      user_id:
+        description: User who owns this connection (PAT is personal, not org-level)
+        type: string
+      username:
+        description: User info from the provider (cached from last successful auth)
+        type: string
+    type: object
+  types.GitProviderConnectionCreateRequest:
+    properties:
+      auth_username:
+        description: Username for authentication (required for Bitbucket)
+        type: string
+      base_url:
+        type: string
+      name:
+        type: string
+      organization_url:
+        type: string
+      provider_type:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      token:
+        type: string
+    type: object
   types.GitRepository:
     properties:
       azure_devops:
-        $ref: '#/definitions/types.AzureDevOps'
+        allOf:
+        - $ref: '#/definitions/types.AzureDevOps'
+        description: Provider-specific settings
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       branches:
         items:
           type: string
@@ -4088,6 +4243,10 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       id:
         type: string
       is_external:
@@ -4106,6 +4265,11 @@ definitions:
         description: Stores Metadata as JSON
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: |-
+          OAuth connection ID - references an OAuthConnection for authentication
+          When set, uses the OAuth access token instead of username/password or PAT
         type: string
       organization_id:
         description: Organization ID - will be backfilled for existing repos
@@ -4134,7 +4298,11 @@ definitions:
   types.GitRepositoryCreateRequest:
     properties:
       azure_devops:
-        $ref: '#/definitions/types.AzureDevOps'
+        allOf:
+        - $ref: '#/definitions/types.AzureDevOps'
+        description: Provider-specific settings
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       default_branch:
         type: string
       description:
@@ -4146,6 +4314,10 @@ definitions:
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       initial_files:
         additionalProperties:
           type: string
@@ -4160,6 +4332,9 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: OAuth connection ID - references an OAuthConnection for authentication
         type: string
       organization_id:
         description: Organization ID - required for access control
@@ -4218,6 +4393,8 @@ definitions:
     properties:
       azure_devops:
         $ref: '#/definitions/types.AzureDevOps'
+      bitbucket:
+        $ref: '#/definitions/types.Bitbucket'
       default_branch:
         type: string
       description:
@@ -4228,6 +4405,10 @@ definitions:
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
+      github:
+        $ref: '#/definitions/types.GitHub'
+      gitlab:
+        $ref: '#/definitions/types.GitLab'
       kodit_indexing:
         description: Enable Kodit code intelligence indexing (pointer to distinguish
           unset from false)
@@ -4236,6 +4417,9 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      oauth_connection_id:
+        description: OAuth connection for authentication
         type: string
       password:
         type: string
@@ -4898,6 +5082,20 @@ definitions:
         type: array
       external_status:
         $ref: '#/definitions/types.ExternalStatus'
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        description: Pagination info
+        type: integer
+    type: object
+  types.ListOAuthRepositoriesResponse:
+    properties:
+      repositories:
+        items:
+          $ref: '#/definitions/types.RepositoryInfo'
+        type: array
     type: object
   types.LoginRequest:
     properties:
@@ -5194,6 +5392,8 @@ definitions:
     - google
     - microsoft
     - github
+    - gitlab
+    - azure_devops
     - slack
     - linkedin
     - hubspot
@@ -5205,6 +5405,8 @@ definitions:
     - OAuthProviderTypeGoogle
     - OAuthProviderTypeMicrosoft
     - OAuthProviderTypeGitHub
+    - OAuthProviderTypeGitLab
+    - OAuthProviderTypeAzureDevOps
     - OAuthProviderTypeSlack
     - OAuthProviderTypeLinkedIn
     - OAuthProviderTypeHubSpot
@@ -5223,6 +5425,9 @@ definitions:
         type: string
       raw:
         description: Raw JSON response from provider
+        type: string
+      username:
+        description: Provider-specific username (e.g., GitHub login)
         type: string
     type: object
   types.OpenAIMessage:
@@ -5703,9 +5908,28 @@ definitions:
         description: 'Composite primary key: ID is globally unique, but we also index
           by user+spec_task'
         type: string
+      interrupt:
+        description: |-
+          Interrupt indicates this message should interrupt the current conversation
+          When false, message waits until current conversation completes
+        type: boolean
+      is_template:
+        description: Saved as a reusable template
+        type: boolean
+      last_used_at:
+        description: Last time reused
+        type: string
+      pinned:
+        description: Library features for prompt reuse
+        type: boolean
       project_id:
         description: For reference, but primary grouping is by spec_task
         type: string
+      queue_position:
+        description: |-
+          QueuePosition tracks ordering for drag-and-drop reordering
+          Lower values = earlier in queue. Null for sent messages.
+        type: integer
       session_id:
         description: Optional - which session this was sent to
         type: string
@@ -5716,8 +5940,14 @@ definitions:
           Status tracks whether this was successfully sent
           Values: "pending", "sent", "failed"
         type: string
+      tags:
+        description: JSON array of user-defined tags
+        type: string
       updated_at:
         type: string
+      usage_count:
+        description: How many times reused
+        type: integer
       user_id:
         type: string
     type: object
@@ -5727,9 +5957,24 @@ definitions:
         type: string
       id:
         type: string
+      interrupt:
+        description: If true, interrupts current conversation
+        type: boolean
+      is_template:
+        description: If true, saved as a reusable template
+        type: boolean
+      pinned:
+        description: If true, pinned by user
+        type: boolean
+      queue_position:
+        description: Position in queue for drag-and-drop ordering
+        type: integer
       session_id:
         type: string
       status:
+        type: string
+      tags:
+        description: JSON array of tags
         type: string
       timestamp:
         description: Unix timestamp in milliseconds
@@ -6068,6 +6313,26 @@ definitions:
         type: string
       password_confirm:
         type: string
+    type: object
+  types.RepositoryInfo:
+    properties:
+      clone_url:
+        description: HTTPS clone URL
+        type: string
+      default_branch:
+        type: string
+      description:
+        type: string
+      full_name:
+        description: e.g., "owner/repo" for GitHub or "group/project" for GitLab
+        type: string
+      html_url:
+        description: Web URL to view the repository
+        type: string
+      name:
+        type: string
+      private:
+        type: boolean
     type: object
   types.Resource:
     enum:
@@ -6490,6 +6755,109 @@ definitions:
       version:
         type: string
     type: object
+  types.ServiceConnectionCreateRequest:
+    properties:
+      ado_client_id:
+        type: string
+      ado_client_secret:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal fields
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        description: Base URL for enterprise/self-hosted instances
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App fields
+        type: integer
+      github_installation_id:
+        type: integer
+      github_private_key:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/types.ServiceConnectionType'
+    type: object
+  types.ServiceConnectionResponse:
+    properties:
+      ado_client_id:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal (non-sensitive fields only)
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App (non-sensitive fields only)
+        type: integer
+      github_installation_id:
+        type: integer
+      has_ado_client_secret:
+        type: boolean
+      has_github_private_key:
+        type: boolean
+      id:
+        type: string
+      last_error:
+        type: string
+      last_tested_at:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      provider_type:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      type:
+        $ref: '#/definitions/types.ServiceConnectionType'
+      updated_at:
+        type: string
+    type: object
+  types.ServiceConnectionType:
+    enum:
+    - github_app
+    - ado_service_principal
+    type: string
+    x-enum-varnames:
+    - ServiceConnectionTypeGitHubApp
+    - ServiceConnectionTypeADOServicePrincipal
+  types.ServiceConnectionUpdateRequest:
+    properties:
+      ado_client_id:
+        type: string
+      ado_client_secret:
+        type: string
+      ado_organization_url:
+        description: Azure DevOps Service Principal fields (only update if provided)
+        type: string
+      ado_tenant_id:
+        type: string
+      base_url:
+        description: Base URL for enterprise/self-hosted instances
+        type: string
+      description:
+        type: string
+      github_app_id:
+        description: GitHub App fields (only update if provided)
+        type: integer
+      github_installation_id:
+        type: integer
+      github_private_key:
+        type: string
+      name:
+        type: string
+    type: object
   types.Session:
     properties:
       config:
@@ -6673,6 +7041,9 @@ definitions:
         - $ref: '#/definitions/types.CodeAgentRuntime'
         description: Which code agent runtime is used (zed_agent, qwen_code, claude_code,
           etc.)
+      desired_state:
+        description: '"running" = should be running, "stopped" = can terminate'
+        type: string
       document_group_id:
         type: string
       document_ids:
@@ -6987,6 +7358,10 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      agent_work_state:
+        allOf:
+        - $ref: '#/definitions/types.AgentWorkState'
+        description: Current agent work state (idle/working/done) from activity tracking
       archived:
         description: Archive to hide from main view
         type: boolean
@@ -7053,6 +7428,9 @@ definitions:
         items:
           type: string
         type: array
+      last_prompt_content:
+        description: Last prompt sent to agent (for continue functionality)
+        type: string
       last_push_at:
         description: When branch was last pushed
         type: string
@@ -7097,6 +7475,15 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
+      session_updated_at:
+        description: Agent activity tracking (computed from session/activity data,
+          not stored)
+        type: string
+      short_title:
+        description: |-
+          Short title for tab display (auto-generated from agent writing short-title.txt)
+          UserShortTitle takes precedence if set (user override)
+        type: string
       spec_approved_at:
         type: string
       spec_approved_by:
@@ -7128,6 +7515,9 @@ definitions:
       use_host_docker:
         description: Use host Docker socket (requires privileged sandbox)
         type: boolean
+      user_short_title:
+        description: User override
+        type: string
       workspace_config:
         items:
           type: integer
@@ -7611,6 +8001,10 @@ definitions:
         $ref: '#/definitions/types.SpecTaskPriority'
       status:
         $ref: '#/definitions/types.SpecTaskStatus'
+      user_short_title:
+        description: User override for tab title (pointer to allow clearing with empty
+          string)
+        type: string
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -8318,20 +8712,68 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
+  types.UnifiedSearchResponse:
+    properties:
+      query:
+        description: Echo back query
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/types.UnifiedSearchResult'
+        type: array
+      total:
+        description: Total results across all types
+        type: integer
+    type: object
+  types.UnifiedSearchResult:
+    properties:
+      created_at:
+        description: ISO timestamp
+        type: string
+      description:
+        description: Brief description/content preview
+        type: string
+      icon:
+        description: Icon hint for UI
+        type: string
+      id:
+        description: Entity ID
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        description: Additional context (status, owner, etc)
+        type: object
+      score:
+        description: Relevance score
+        type: number
+      title:
+        description: Display title
+        type: string
+      type:
+        description: '"project", "task", "session", "prompt"'
+        type: string
+      updated_at:
+        description: ISO timestamp
+        type: string
+      url:
+        description: Frontend URL to navigate to
+        type: string
+    type: object
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -10620,6 +11062,162 @@ paths:
       summary: View filestore files
       tags:
       - filestore
+  /api/v1/git-provider-connections:
+    get:
+      description: List all PAT-based git provider connections for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitProviderConnection'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List git provider connections
+      tags:
+      - git-provider-connections
+    post:
+      consumes:
+      - application/json
+      description: Create a new PAT-based git provider connection for the current
+        user
+      parameters:
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.GitProviderConnectionCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.GitProviderConnection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create git provider connection
+      tags:
+      - git-provider-connections
+  /api/v1/git-provider-connections/{id}:
+    delete:
+      description: Delete a PAT-based git provider connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete git provider connection
+      tags:
+      - git-provider-connections
+  /api/v1/git-provider-connections/{id}/repositories:
+    get:
+      description: List repositories from a saved PAT-based git provider connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Browse repositories from saved connection
+      tags:
+      - git-provider-connections
+  /api/v1/git/browse-remote:
+    post:
+      consumes:
+      - application/json
+      description: List repositories from a remote provider (GitHub, GitLab, Azure
+        DevOps) using PAT credentials
+      parameters:
+      - description: Browse request with credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.BrowseRemoteRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Browse remote repositories
+      tags:
+      - git-repositories
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner and type
@@ -12174,6 +12772,28 @@ paths:
       summary: Refresh an OAuth connection
       tags:
       - oauth
+  /api/v1/oauth/connections/{id}/repositories:
+    get:
+      description: List repositories accessible via an OAuth connection (GitHub repos,
+        GitLab projects, etc.)
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListOAuthRepositoriesResponse'
+      security:
+      - BearerAuth: []
+      summary: List repositories from an OAuth connection
+      tags:
+      - oauth
   /api/v1/oauth/providers:
     get:
       description: List OAuth providers for the user.
@@ -13232,6 +13852,202 @@ paths:
       summary: List prompt history
       tags:
       - PromptHistory
+  /api/v1/prompt-history/{id}/pin:
+    put:
+      consumes:
+      - application/json
+      description: Pin or unpin a prompt for quick access
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pin status
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PromptPinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update prompt pin status
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}/tags:
+    put:
+      consumes:
+      - application/json
+      description: Update tags for a prompt
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Tags (JSON array)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.PromptTagsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update prompt tags
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/{id}/use:
+    post:
+      consumes:
+      - application/json
+      description: Increment usage count when a prompt is reused
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Increment prompt usage
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/pinned:
+    get:
+      consumes:
+      - application/json
+      description: Get all pinned prompts for the current user
+      parameters:
+      - description: Filter by spec task ID
+        in: query
+        name: spec_task_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PromptHistoryEntry'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List pinned prompts
+      tags:
+      - PromptHistory
+  /api/v1/prompt-history/search:
+    get:
+      consumes:
+      - application/json
+      description: Search prompts by content
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Max results (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PromptHistoryEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Search prompts
+      tags:
+      - PromptHistory
   /api/v1/prompt-history/sync:
     post:
       consumes:
@@ -13942,34 +14758,55 @@ paths:
       - dashboard
   /api/v1/search:
     get:
-      description: Search knowledges for a given app and prompt
+      consumes:
+      - application/json
+      description: Search across projects, tasks, sessions, prompts, and code
       parameters:
-      - description: App ID
+      - description: Search query
         in: query
-        name: app_id
+        name: q
         required: true
         type: string
-      - description: Knowledge ID
+      - collectionFormat: csv
+        description: 'Entity types to search: projects, tasks, sessions, prompts,
+          code'
         in: query
-        name: knowledge_id
-        type: string
-      - description: Search prompt
+        items:
+          type: string
+        name: types
+        type: array
+      - description: Max results per type (default 10)
         in: query
-        name: prompt
-        required: true
+        name: limit
+        type: integer
+      - description: Filter by organization ID
+        in: query
+        name: org_id
         type: string
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.KnowledgeSearchResult'
-            type: array
+            $ref: '#/definitions/types.UnifiedSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
       security:
-      - BearerAuth: []
-      summary: Search knowledges
+      - ApiKeyAuth: []
+      summary: Unified search across Helix entities
       tags:
-      - knowledge
+      - Search
   /api/v1/secrets:
     get:
       description: List secrets for the user.
@@ -14047,6 +14884,229 @@ paths:
       summary: Update an existing secret
       tags:
       - secrets
+  /api/v1/service-connections:
+    get:
+      description: List all service connections (GitHub Apps, ADO Service Principals)
+        for the organization
+      parameters:
+      - description: Organization ID (optional, defaults to user's org)
+        in: query
+        name: organization_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ServiceConnectionResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List service connections
+      tags:
+      - service-connections
+    post:
+      consumes:
+      - application/json
+      description: Create a new service connection (GitHub App or ADO Service Principal)
+      parameters:
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ServiceConnectionCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create service connection
+      tags:
+      - service-connections
+  /api/v1/service-connections/{id}:
+    delete:
+      description: Delete a service connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete service connection
+      tags:
+      - service-connections
+    get:
+      description: Get a specific service connection by ID
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get service connection
+      tags:
+      - service-connections
+    put:
+      consumes:
+      - application/json
+      description: Update a service connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ServiceConnectionUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update service connection
+      tags:
+      - service-connections
+  /api/v1/service-connections/{id}/test:
+    post:
+      description: Test a service connection by attempting to authenticate
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Test service connection
+      tags:
+      - service-connections
   /api/v1/sessions:
     get:
       description: List sessions

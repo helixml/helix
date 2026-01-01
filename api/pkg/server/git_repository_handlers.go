@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/github"
+	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -1403,4 +1407,151 @@ func (s *HelixAPIServer) getOrCreateUserAPIKey(ctx context.Context, user *types.
 	}
 
 	return "", fmt.Errorf("no personal API key found")
+}
+
+// browseRemoteRepositories lists repositories from a remote provider using PAT credentials
+// @Summary Browse remote repositories
+// @Description List repositories from a remote provider (GitHub, GitLab, Azure DevOps) using PAT credentials
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param request body types.BrowseRemoteRepositoriesRequest true "Browse request with credentials"
+// @Success 200 {object} types.ListOAuthRepositoriesResponse
+// @Failure 400 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/browse-remote [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var request types.BrowseRemoteRepositoriesRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if request.Token == "" {
+		http.Error(w, "Token is required", http.StatusBadRequest)
+		return
+	}
+
+	var repos []types.RepositoryInfo
+
+	switch request.ProviderType {
+	case types.ExternalRepositoryTypeGitHub:
+		ghClient := github.NewClientWithPATAndBaseURL(request.Token, request.BaseURL)
+		ghRepos, err := ghClient.ListRepositories(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list GitHub repositories")
+			http.Error(w, fmt.Sprintf("Failed to list GitHub repositories: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		for _, repo := range ghRepos {
+			repos = append(repos, types.RepositoryInfo{
+				Name:          repo.GetName(),
+				FullName:      repo.GetFullName(),
+				CloneURL:      repo.GetCloneURL(),
+				HTMLURL:       repo.GetHTMLURL(),
+				Description:   repo.GetDescription(),
+				Private:       repo.GetPrivate(),
+				DefaultBranch: repo.GetDefaultBranch(),
+			})
+		}
+
+	case types.ExternalRepositoryTypeGitLab:
+		glClient, err := gitlab.NewClientWithPAT(request.BaseURL, request.Token)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create GitLab client")
+			http.Error(w, fmt.Sprintf("Failed to create GitLab client: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		glProjects, err := glClient.ListProjects(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list GitLab projects")
+			http.Error(w, fmt.Sprintf("Failed to list GitLab projects: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		for _, project := range glProjects {
+			repos = append(repos, types.RepositoryInfo{
+				Name:          project.Name,
+				FullName:      project.PathWithNamespace,
+				CloneURL:      project.HTTPURLToRepo,
+				HTMLURL:       project.WebURL,
+				Description:   project.Description,
+				Private:       project.Visibility != "public",
+				DefaultBranch: project.DefaultBranch,
+			})
+		}
+
+	case types.ExternalRepositoryTypeADO:
+		if request.OrganizationURL == "" {
+			http.Error(w, "Organization URL is required for Azure DevOps", http.StatusBadRequest)
+			return
+		}
+
+		adoClient := azuredevops.NewAzureDevOpsClient(request.OrganizationURL, request.Token)
+		adoRepos, err := adoClient.ListRepositories(ctx, "") // Empty string = all projects
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list Azure DevOps repositories")
+			http.Error(w, fmt.Sprintf("Failed to list Azure DevOps repositories: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		for _, repo := range adoRepos {
+			name := ""
+			fullName := ""
+			cloneURL := ""
+			htmlURL := ""
+			defaultBranch := ""
+
+			if repo.Name != nil {
+				name = *repo.Name
+			}
+			if repo.Project != nil && repo.Project.Name != nil {
+				fullName = *repo.Project.Name + "/" + name
+			} else {
+				fullName = name
+			}
+			if repo.RemoteUrl != nil {
+				cloneURL = *repo.RemoteUrl
+				htmlURL = *repo.RemoteUrl
+			}
+			if repo.DefaultBranch != nil {
+				// ADO returns "refs/heads/main", we want just "main"
+				defaultBranch = strings.TrimPrefix(*repo.DefaultBranch, "refs/heads/")
+			}
+
+			repos = append(repos, types.RepositoryInfo{
+				Name:          name,
+				FullName:      fullName,
+				CloneURL:      cloneURL,
+				HTMLURL:       htmlURL,
+				Description:   "", // ADO repos don't have description in the basic response
+				Private:       true, // ADO repos are private by default
+				DefaultBranch: defaultBranch,
+			})
+		}
+
+	default:
+		http.Error(w, fmt.Sprintf("Unsupported provider type: %s", request.ProviderType), http.StatusBadRequest)
+		return
+	}
+
+	log.Info().
+		Str("provider_type", string(request.ProviderType)).
+		Int("repository_count", len(repos)).
+		Msg("Listed repositories from remote provider using PAT")
+
+	response := &types.ListOAuthRepositoriesResponse{
+		Repositories: repos,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Error().Err(err).Msg("Failed to encode response")
+	}
 }

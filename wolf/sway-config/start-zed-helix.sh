@@ -378,6 +378,22 @@ else
 fi
 
 # =========================================
+# Install Helix Git Hooks
+# =========================================
+# Source the git hooks helper and install commit-msg hooks
+# These automatically add Code-Ref and Spec-Ref trailers to commits
+# Check /usr/local/bin first (production), then /helix-dev/shared (dev mode)
+if [ -f "/usr/local/bin/helix-git-hooks.sh" ]; then
+    source "/usr/local/bin/helix-git-hooks.sh"
+    install_helix_git_hooks
+elif [ -f "/helix-dev/shared/helix-git-hooks.sh" ]; then
+    source "/helix-dev/shared/helix-git-hooks.sh"
+    install_helix_git_hooks
+else
+    echo "⚠️  helix-git-hooks.sh not found - git hooks not installed"
+fi
+
+# =========================================
 # Additional Setup
 # =========================================
 echo "========================================="

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // listSecrets godoc
@@ -63,9 +65,22 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
+	// Encrypt the secret value before storing
+	encryptionKey, err := s.getEncryptionKey()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get encryption key for secret")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
+	encryptedValue, err := crypto.EncryptAES256GCM([]byte(secretReq.Value), encryptionKey)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt secret value")
+		return nil, system.NewHTTPError500("Failed to encrypt secret")
+	}
+
 	secret := &types.Secret{
 		Name:  secretReq.Name,
-		Value: []byte(secretReq.Value),
+		Value: []byte(encryptedValue),
 	}
 	secret.Owner = user.ID
 	secret.OwnerType = types.OwnerTypeUser
@@ -116,6 +131,22 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	var secret types.Secret
 	if err := json.NewDecoder(r.Body).Decode(&secret); err != nil {
 		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	// Encrypt the secret value if provided
+	if len(secret.Value) > 0 {
+		encryptionKey, err := s.getEncryptionKey()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get encryption key for secret update")
+			return nil, system.NewHTTPError500("Failed to encrypt secret")
+		}
+
+		encryptedValue, err := crypto.EncryptAES256GCM(secret.Value, encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encrypt secret value")
+			return nil, system.NewHTTPError500("Failed to encrypt secret")
+		}
+		secret.Value = []byte(encryptedValue)
 	}
 
 	secret.ID = id

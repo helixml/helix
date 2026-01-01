@@ -121,6 +121,12 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 
 // cloneTaskToProject creates a copy of a task in the target project
 func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart bool) (*types.CloneTaskResult, error) {
+	// Get project to include its name in the result
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get target project: %w", err)
+	}
+
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                 system.GenerateSpecTaskID(),
@@ -154,9 +160,10 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 	}
 
 	result := &types.CloneTaskResult{
-		TaskID:    newTask.ID,
-		ProjectID: projectID,
-		Status:    "created",
+		TaskID:      newTask.ID,
+		ProjectID:   projectID,
+		ProjectName: project.Name,
+		Status:      "created",
 	}
 
 	// Auto-start if requested

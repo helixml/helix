@@ -23,6 +23,21 @@ type ExternalAgentWSManager struct {
 	connections map[string]*ExternalAgentWSConnection
 	mu          sync.RWMutex
 	upgrader    websocket.Upgrader
+
+	// Session readiness tracking - prevents sending messages before agent is ready
+	readinessState map[string]*SessionReadinessState
+	readinessMu    sync.RWMutex
+}
+
+// SessionReadinessState tracks whether an agent session is ready to receive messages
+// This prevents race conditions where we send prompts before Zed has loaded the agent
+type SessionReadinessState struct {
+	IsReady       bool                         // True when agent_ready received
+	ReadyAt       time.Time                    // When agent became ready
+	PendingQueue  []types.ExternalAgentCommand // Commands queued before ready
+	TimeoutTimer  *time.Timer                  // Fallback timeout (60s)
+	SessionID     string                       // For logging
+	NeedsContinue bool                         // Whether to send continue prompt when ready
 }
 
 type ExternalAgentWSConnection struct {
@@ -36,7 +51,8 @@ type ExternalAgentWSConnection struct {
 
 func NewExternalAgentWSManager() *ExternalAgentWSManager {
 	return &ExternalAgentWSManager{
-		connections: make(map[string]*ExternalAgentWSConnection),
+		connections:    make(map[string]*ExternalAgentWSConnection),
+		readinessState: make(map[string]*SessionReadinessState),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // TODO: Add proper origin validation
@@ -323,6 +339,21 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					Msg("🔧 [HELIX] Restored contextMappings from session metadata (ensures message routing after restart)")
 			}
 
+			// Check if agent was working before disconnect (to determine if continue prompt needed)
+			needsContinue := false
+			activity, actErr := apiServer.Store.GetExternalAgentActivity(ctx, helixSessionID)
+			if actErr == nil && activity != nil && activity.AgentWorkState == types.AgentWorkStateWorking {
+				needsContinue = true
+				log.Info().
+					Str("session_id", helixSessionID).
+					Msg("🔄 [READINESS] Agent was working before disconnect, will send continue prompt when ready")
+			}
+
+			// Initialize readiness tracking - we'll wait for agent_ready before sending continue prompt
+			// This prevents race conditions where we send prompts before the agent is ready
+			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
+			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
+
 			// Find the waiting interaction
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 				SessionID:    helixSessionID,
@@ -384,6 +415,13 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 									Str("request_id", requestID).
 									Str("helix_session_id", helixSessionID).
 									Msg("✅ [HELIX] Sent initial chat_message to Zed")
+								// Update agent work state to working
+								if activity, actErr := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID); actErr == nil && activity != nil {
+									activity.AgentWorkState = types.AgentWorkStateWorking
+									activity.LastPromptContent = fullMessage
+									activity.LastInteraction = time.Now()
+									apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+								}
 							default:
 								log.Warn().
 									Str("agent_session_id", agentID).
@@ -538,8 +576,12 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleChatResponseDone(sessionID, syncMsg)
 	case "message_completed":
 		return apiServer.handleMessageCompleted(sessionID, syncMsg)
+	case "thread_load_error":
+		return apiServer.handleThreadLoadError(sessionID, syncMsg)
 	case "chat_response_error":
 		return apiServer.handleChatResponseError(sessionID, syncMsg)
+	case "agent_ready":
+		return apiServer.handleAgentReady(sessionID, syncMsg)
 	case "ping":
 		return nil
 	default:
@@ -1199,6 +1241,22 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 			Str("session_id", sessionID).
 			Str("command_type", command.Type).
 			Msg("✅ Sent command to specific external Zed agent")
+
+		// Update agent work state to working when sending chat messages
+		if command.Type == "chat_message" {
+			msg, _ := command.Data["message"].(string) // Safe type assertion
+			go func(sid string, promptContent string) {
+				activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sid)
+				if err == nil && activity != nil {
+					activity.AgentWorkState = types.AgentWorkStateWorking
+					if promptContent != "" {
+						activity.LastPromptContent = promptContent
+					}
+					activity.LastInteraction = time.Now()
+					apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+				}
+			}(sessionID, msg)
+		}
 		return nil
 	default:
 		return fmt.Errorf("external agent send channel full for session %s", sessionID)
@@ -1249,6 +1307,166 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 		})
 	}
 	return connections
+}
+
+// Session Readiness Management
+// These methods track whether the agent in a session is ready to receive messages.
+// This prevents race conditions where we send prompts before Zed has loaded the agent.
+
+// initReadinessState initializes readiness tracking for a session
+// Returns a callback that should be called when agent_ready is received (or on timeout)
+func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) {
+	manager.readinessMu.Lock()
+	defer manager.readinessMu.Unlock()
+
+	// Clean up any existing state for this session
+	if existing, exists := manager.readinessState[sessionID]; exists && existing.TimeoutTimer != nil {
+		existing.TimeoutTimer.Stop()
+	}
+
+	state := &SessionReadinessState{
+		IsReady:       false,
+		SessionID:     sessionID,
+		PendingQueue:  make([]types.ExternalAgentCommand, 0),
+		NeedsContinue: needsContinue,
+	}
+
+	// Set up fallback timeout (60 seconds)
+	// If we don't receive agent_ready within 60s, assume ready and send anyway
+	state.TimeoutTimer = time.AfterFunc(60*time.Second, func() {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("⏰ [READINESS] Timeout waiting for agent_ready, proceeding with queued messages")
+		manager.markSessionReady(sessionID, onReady)
+	})
+
+	manager.readinessState[sessionID] = state
+
+	log.Info().
+		Str("session_id", sessionID).
+		Bool("needs_continue", needsContinue).
+		Msg("🔧 [READINESS] Initialized readiness tracking for session (waiting for agent_ready)")
+}
+
+// markSessionReady marks a session as ready and flushes pending messages
+func (manager *ExternalAgentWSManager) markSessionReady(sessionID string, onReady func()) {
+	manager.readinessMu.Lock()
+
+	state, exists := manager.readinessState[sessionID]
+	if !exists {
+		manager.readinessMu.Unlock()
+		log.Debug().Str("session_id", sessionID).Msg("No readiness state found for session")
+		return
+	}
+
+	if state.IsReady {
+		manager.readinessMu.Unlock()
+		log.Debug().Str("session_id", sessionID).Msg("Session already marked as ready")
+		return
+	}
+
+	// Stop the timeout timer
+	if state.TimeoutTimer != nil {
+		state.TimeoutTimer.Stop()
+	}
+
+	state.IsReady = true
+	state.ReadyAt = time.Now()
+	pendingQueue := state.PendingQueue
+	state.PendingQueue = nil // Clear the queue
+
+	manager.readinessMu.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("pending_count", len(pendingQueue)).
+		Msg("✅ [READINESS] Session marked as ready, flushing pending messages")
+
+	// Flush pending messages (after releasing lock to avoid deadlock)
+	if len(pendingQueue) > 0 {
+		conn, exists := manager.getConnection(sessionID)
+		if exists {
+			for _, cmd := range pendingQueue {
+				select {
+				case conn.SendChan <- cmd:
+					log.Debug().
+						Str("session_id", sessionID).
+						Str("type", cmd.Type).
+						Msg("📤 [READINESS] Sent queued message")
+				default:
+					log.Warn().
+						Str("session_id", sessionID).
+						Str("type", cmd.Type).
+						Msg("⚠️ [READINESS] SendChan full, dropped queued message")
+				}
+			}
+		}
+	}
+
+	// Call the onReady callback (e.g., to send continue prompt)
+	if onReady != nil {
+		onReady()
+	}
+}
+
+// isSessionReady checks if a session is ready to receive messages
+func (manager *ExternalAgentWSManager) isSessionReady(sessionID string) bool {
+	manager.readinessMu.RLock()
+	defer manager.readinessMu.RUnlock()
+
+	state, exists := manager.readinessState[sessionID]
+	if !exists {
+		// No readiness tracking = assume ready (for backward compatibility)
+		return true
+	}
+	return state.IsReady
+}
+
+// queueOrSend queues a command if session isn't ready, or sends immediately if ready
+func (manager *ExternalAgentWSManager) queueOrSend(sessionID string, cmd types.ExternalAgentCommand) bool {
+	manager.readinessMu.Lock()
+	state, exists := manager.readinessState[sessionID]
+	if !exists || state.IsReady {
+		manager.readinessMu.Unlock()
+		// Session is ready or not tracked - send immediately
+		conn, connExists := manager.getConnection(sessionID)
+		if !connExists {
+			log.Warn().Str("session_id", sessionID).Msg("No connection found for session")
+			return false
+		}
+		select {
+		case conn.SendChan <- cmd:
+			return true
+		default:
+			log.Warn().Str("session_id", sessionID).Msg("SendChan full, could not send command")
+			return false
+		}
+	}
+
+	// Session not ready - queue the message
+	state.PendingQueue = append(state.PendingQueue, cmd)
+	manager.readinessMu.Unlock()
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("type", cmd.Type).
+		Int("queue_size", len(state.PendingQueue)).
+		Msg("📥 [READINESS] Queued message (waiting for agent_ready)")
+	return true
+}
+
+// cleanupReadinessState removes readiness tracking for a session
+func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string) {
+	manager.readinessMu.Lock()
+	defer manager.readinessMu.Unlock()
+
+	if state, exists := manager.readinessState[sessionID]; exists {
+		if state.TimeoutTimer != nil {
+			state.TimeoutTimer.Stop()
+		}
+		delete(manager.readinessState, sessionID)
+		log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
+	}
 }
 
 // handleChatResponse processes complete chat response from external agent
@@ -1531,6 +1749,18 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
+	// Update agent work state to idle (agent is done working on this message)
+	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), helixSessionID)
+	if err == nil && activity != nil {
+		activity.AgentWorkState = types.AgentWorkStateIdle
+		activity.LastInteraction = time.Now()
+		if updateErr := apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity); updateErr != nil {
+			log.Warn().Err(updateErr).Str("session_id", helixSessionID).Msg("Failed to update agent work state to idle")
+		} else {
+			log.Debug().Str("session_id", helixSessionID).Msg("Updated agent work state to idle")
+		}
+	}
+
 	// FINALIZE COMMENT RESPONSE
 	// PRIMARY APPROACH: Use request_id from message data (echoed back by agent)
 	// This is the definitive link to the comment and doesn't rely on session ID matching
@@ -1614,6 +1844,301 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
+	// Process next non-interrupt prompt from queue (if any)
+	go apiServer.processPromptQueue(context.Background(), helixSessionID)
+
+	return nil
+}
+
+// processPromptQueue checks for pending non-interrupt prompts and sends the next one
+// This is called after a message is completed to process queued non-interrupt messages
+func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Get the next pending non-interrupt prompt for this session
+	nextPrompt, err := apiServer.Store.GetNextPendingPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get next pending prompt")
+		return
+	}
+
+	if nextPrompt == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No pending non-interrupt prompts in queue")
+		return
+	}
+
+	isRetry := nextPrompt.Status == "failed"
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Bool("is_retry", isRetry).
+		Msg("📤 [QUEUE] Processing next non-interrupt prompt from queue")
+
+	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
+	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	}
+
+	// Send the prompt to the session
+	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("prompt_id", nextPrompt.ID).
+			Msg("Failed to send queued prompt to session")
+
+		// Mark as failed
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+		}
+		return
+	}
+
+	// Mark as sent
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Msg("✅ [QUEUE] Successfully sent queued prompt to session")
+}
+
+// processAnyPendingPrompt checks for any pending prompt (interrupt or non-interrupt) and sends it
+// This is used when the session is idle to process ALL pending prompts, not just non-interrupt ones
+func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, sessionID string) {
+	// Get the next pending prompt (any type)
+	nextPrompt, err := apiServer.Store.GetAnyPendingPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get any pending prompt")
+		return
+	}
+
+	if nextPrompt == nil {
+		log.Debug().Str("session_id", sessionID).Msg("No pending prompts in queue")
+		return
+	}
+
+	isRetry := nextPrompt.Status == "failed"
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Bool("interrupt", nextPrompt.Interrupt).
+		Bool("is_retry", isRetry).
+		Msg("📤 [QUEUE] Processing pending prompt")
+
+	// Mark as pending before sending (in case it was 'failed', this prevents race conditions)
+	if err := apiServer.Store.MarkPromptAsPending(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as pending before send")
+	}
+
+	// Send the prompt to the session
+	err = apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("prompt_id", nextPrompt.ID).
+			Msg("Failed to send pending prompt to session")
+
+		// Mark as failed
+		if markErr := apiServer.Store.MarkPromptAsFailed(ctx, nextPrompt.ID); markErr != nil {
+			log.Error().Err(markErr).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as failed")
+		}
+		return
+	}
+
+	// Mark as sent
+	if err := apiServer.Store.MarkPromptAsSent(ctx, nextPrompt.ID); err != nil {
+		log.Error().Err(err).Str("prompt_id", nextPrompt.ID).Msg("Failed to mark prompt as sent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Bool("interrupt", nextPrompt.Interrupt).
+		Msg("✅ [QUEUE] Successfully sent pending prompt to session")
+}
+
+// sendQueuedPromptToSession sends a queued prompt to an external agent session
+// CRITICAL: Creates an interaction BEFORE sending so that agent responses have somewhere to go
+func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, sessionID string, prompt *types.PromptHistoryEntry) error {
+	// Get the session to retrieve the ZedThreadID and owner
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// CRITICAL: Create an interaction BEFORE sending the message
+	// This ensures that when the agent responds, handleMessageAdded has an interaction to update
+	interaction := &types.Interaction{
+		ID:            "", // Will be generated
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Scheduled:     time.Now(),
+		SessionID:     sessionID,
+		UserID:        session.Owner,
+		Mode:          types.SessionModeInference,
+		PromptMessage: prompt.Content,
+		State:         types.InteractionStateWaiting,
+	}
+
+	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		return fmt.Errorf("failed to create interaction for queue prompt: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", createdInteraction.ID).
+		Str("content_preview", truncateString(prompt.Content, 30)).
+		Msg("✅ [QUEUE] Created interaction for queue prompt")
+
+	// CRITICAL: Store the mapping so handleMessageAdded can find this interaction
+	apiServer.contextMappingsMutex.Lock()
+	if apiServer.sessionToWaitingInteraction == nil {
+		apiServer.sessionToWaitingInteraction = make(map[string]string)
+	}
+	apiServer.sessionToWaitingInteraction[sessionID] = createdInteraction.ID
+	apiServer.contextMappingsMutex.Unlock()
+
+	// Determine agent name
+	agentName := apiServer.getAgentNameForSession(ctx, session)
+
+	// Use interaction ID as request ID for better tracing
+	requestID := createdInteraction.ID
+
+	// Create the command to send to the external agent
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"acp_thread_id": session.Metadata.ZedThreadID,
+			"message":       prompt.Content,
+			"request_id":    requestID,
+			"agent_name":    agentName,
+			"from_queue":    true, // Indicate this came from the queue
+		},
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("interaction_id", createdInteraction.ID).
+		Str("acp_thread_id", session.Metadata.ZedThreadID).
+		Str("content_preview", truncateString(prompt.Content, 30)).
+		Msg("📤 [QUEUE] Sending queued prompt via sendCommandToExternalAgent")
+
+	// Use the unified sendCommandToExternalAgent which handles connection lookup,
+	// adds session_id to data, and updates agent work state
+	return apiServer.sendCommandToExternalAgent(sessionID, command)
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// handleThreadLoadError handles thread load failures from Zed
+// This happens when Zed tries to load an existing thread but fails (e.g., session already active via UI)
+// We need to treat this like a completion so the UI clears the text box and shows an error
+func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("⚠️ [HELIX] RECEIVED THREAD_LOAD_ERROR FROM EXTERNAL AGENT")
+
+	// Extract error details
+	acpThreadID, _ := syncMsg.Data["acp_thread_id"].(string)
+	requestID, _ := syncMsg.Data["request_id"].(string)
+	errorMsg, _ := syncMsg.Data["error"].(string)
+
+	log.Error().
+		Str("acp_thread_id", acpThreadID).
+		Str("request_id", requestID).
+		Str("error", errorMsg).
+		Msg("❌ [HELIX] Thread load failed in Zed - session may be active via UI click")
+
+	// Look up helix_session_id from context mapping (if thread was previously mapped)
+	var helixSessionID string
+	if acpThreadID != "" {
+		apiServer.contextMappingsMutex.RLock()
+		helixSessionID = apiServer.contextMappings[acpThreadID]
+		apiServer.contextMappingsMutex.RUnlock()
+	}
+
+	// If we have a request_id, try to send error to the done channel
+	// This allows the HTTP streaming to complete with an error message
+	if requestID != "" {
+		lookupSessionID := helixSessionID
+		if lookupSessionID == "" {
+			// Fall back to the WebSocket session ID
+			lookupSessionID = sessionID
+		}
+
+		_, doneChan, errorChan, exists := apiServer.getResponseChannel(lookupSessionID, requestID)
+		if exists {
+			// Send error message
+			if errorChan != nil {
+				select {
+				case errorChan <- fmt.Errorf("thread load failed: %s", errorMsg):
+					log.Info().
+						Str("request_id", requestID).
+						Msg("✅ [HELIX] Sent error to error channel")
+				default:
+					log.Debug().Msg("Error channel full")
+				}
+			}
+
+			// Send completion signal so UI clears
+			if doneChan != nil {
+				select {
+				case doneChan <- true:
+					log.Info().
+						Str("request_id", requestID).
+						Msg("✅ [HELIX] Sent done signal (after error)")
+				default:
+					log.Debug().Msg("Done channel full")
+				}
+			}
+		}
+	}
+
+	// If we have a helix session, update the interaction to show error
+	if helixSessionID != "" {
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err == nil && helixSession != nil {
+			// Find the waiting interaction and mark it with error
+			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1000,
+			})
+			if err == nil {
+				for i := len(interactions) - 1; i >= 0; i-- {
+					if interactions[i].State == types.InteractionStateWaiting {
+						interactions[i].State = types.InteractionStateError
+						interactions[i].Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
+						interactions[i].Updated = time.Now()
+						interactions[i].Completed = time.Now()
+						apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interactions[i])
+
+						log.Info().
+							Str("helix_session_id", helixSessionID).
+							Str("interaction_id", interactions[i].ID).
+							Msg("✅ [HELIX] Marked interaction as error due to thread load failure")
+						break
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1643,6 +2168,59 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 	default:
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
 	}
+
+	return nil
+}
+
+// handleAgentReady processes the agent_ready event from Zed
+// This is sent when the agent (e.g., qwen-code) has finished initialization and is ready for prompts
+func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Interface("data", syncMsg.Data).
+		Msg("🚀 [READINESS] Received agent_ready event from Zed")
+
+	// Extract optional metadata from the ready event
+	agentName, _ := syncMsg.Data["agent_name"].(string)
+	threadID, _ := syncMsg.Data["thread_id"].(string)
+
+	// Mark the session as ready, which will:
+	// 1. Flush any queued messages
+	// 2. Trigger the onReady callback (which sends continue prompt if needed)
+	apiServer.externalAgentWSManager.readinessMu.RLock()
+	state, exists := apiServer.externalAgentWSManager.readinessState[sessionID]
+	apiServer.externalAgentWSManager.readinessMu.RUnlock()
+
+	if !exists {
+		// No readiness tracking for this session - that's fine, just log
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("No readiness state found for session (may be already ready or legacy connection)")
+		return nil
+	}
+
+	// Get the connection for sending continue prompt
+	wsConn, connExists := apiServer.externalAgentWSManager.getConnection(sessionID)
+
+	// Create the onReady callback that will send the continue prompt
+	var onReadyCallback func()
+	if state.NeedsContinue && connExists {
+		onReadyCallback = func() {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("agent_name", agentName).
+				Str("thread_id", threadID).
+				Msg("🔄 [READINESS] Agent ready, now sending continue prompt")
+			apiServer.sendContinuePromptIfNeeded(context.Background(), sessionID, wsConn)
+		}
+	}
+
+	// Mark as ready (this flushes queued messages and calls onReady)
+	apiServer.externalAgentWSManager.markSessionReady(sessionID, onReadyCallback)
+
+	// Process any pending prompts (including interrupt=true ones)
+	// When agent is ready/idle, we should process ALL pending prompts, not just non-interrupt ones
+	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
 }
@@ -1894,4 +2472,70 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 	}
 
 	return nil
+}
+
+// sendContinuePromptIfNeeded checks agent work state and sends continue prompt if agent was working
+// Called when WebSocket reconnects after container restart
+func (apiServer *HelixAPIServer) sendContinuePromptIfNeeded(ctx context.Context, sessionID string, wsConn *ExternalAgentWSConnection) {
+	// Get activity record to check work state
+	activity, err := apiServer.Store.GetExternalAgentActivity(ctx, sessionID)
+	if err != nil || activity == nil {
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("No activity record found, skipping continue prompt")
+		return
+	}
+
+	// Only send continue prompt if agent was actively working
+	if activity.AgentWorkState != types.AgentWorkStateWorking {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("work_state", string(activity.AgentWorkState)).
+			Msg("Agent was not working, no continue prompt needed")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("spec_task_id", activity.SpecTaskID).
+		Msg("Agent was working before disconnect, sending continue prompt")
+
+	// Get session for thread ID and agent config
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for continue prompt")
+		return
+	}
+
+	// Determine agent name from session config
+	agentName := apiServer.getAgentNameForSession(ctx, session)
+
+	// Build continue prompt
+	continueMessage := `The sandbox was restarted. Please continue working on your current task.
+
+If you were in the middle of something, please resume from where you left off.
+If you need to verify the current state, check the git status and any running processes.`
+
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":       continueMessage,
+			"request_id":    system.GenerateRequestID(),
+			"acp_thread_id": session.Metadata.ZedThreadID,
+			"agent_name":    agentName,
+			"is_continue":   true, // Flag so agent knows this is a recovery prompt
+		},
+	}
+
+	// Send via channel
+	select {
+	case wsConn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("Sent continue prompt to agent after reconnect")
+	default:
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("Failed to send continue prompt - channel full")
+	}
 }

@@ -185,7 +185,7 @@ export const useDetachRepositoryFromProject = (projectId: string) => {
 /**
  * Hook to list all sample projects (using simple in-memory list)
  */
-export const useListSampleProjects = () => {
+export const useListSampleProjects = (options?: { enabled?: boolean }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
 
@@ -195,6 +195,7 @@ export const useListSampleProjects = () => {
       const response = await apiClient.v1SampleProjectsSimpleList();
       return response.data || [];
     },
+    enabled: options?.enabled ?? true,
   });
 };
 

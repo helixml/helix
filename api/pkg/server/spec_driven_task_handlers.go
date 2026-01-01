@@ -130,6 +130,21 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Populate agent activity data (work state for reconciliation UI)
+	if task.PlanningSessionID != "" {
+		// Get SessionUpdatedAt from session
+		session, err := s.Store.GetSession(ctx, task.PlanningSessionID)
+		if err == nil && session != nil {
+			task.SessionUpdatedAt = &session.Updated
+		}
+		// Get AgentWorkState from activity record
+		activity, err := s.Store.GetExternalAgentActivity(ctx, task.PlanningSessionID)
+		if err == nil && activity != nil {
+			task.AgentWorkState = activity.AgentWorkState
+			task.LastPromptContent = activity.LastPromptContent
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -198,6 +213,42 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 					if task.PullRequestID != "" && task.PullRequestURL == "" {
 						task.PullRequestURL = fmt.Sprintf("%s/pullrequest/%s", repo.ExternalURL, task.PullRequestID)
 					}
+				}
+			}
+		}
+	}
+
+	// Populate SessionUpdatedAt and AgentWorkState for agent activity detection
+	// Collect all session IDs and batch query for efficiency
+	sessionIDs := make([]string, 0)
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			sessionIDs = append(sessionIDs, task.PlanningSessionID)
+		}
+	}
+	if len(sessionIDs) > 0 {
+		sessions, err := s.Store.GetSessionsByIDs(ctx, sessionIDs)
+		if err == nil {
+			// Build a map for quick lookup
+			sessionMap := make(map[string]*types.Session)
+			for _, session := range sessions {
+				sessionMap[session.ID] = session
+			}
+			// Populate SessionUpdatedAt on each task
+			for _, task := range tasks {
+				if session, ok := sessionMap[task.PlanningSessionID]; ok {
+					task.SessionUpdatedAt = &session.Updated
+				}
+			}
+		}
+
+		// Also populate AgentWorkState and LastPromptContent from activity records
+		for _, task := range tasks {
+			if task.PlanningSessionID != "" {
+				activity, err := s.Store.GetExternalAgentActivity(ctx, task.PlanningSessionID)
+				if err == nil && activity != nil {
+					task.AgentWorkState = activity.AgentWorkState
+					task.LastPromptContent = activity.LastPromptContent
 				}
 			}
 		}
@@ -604,6 +655,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
+	}
+	// Update user short title (pointer allows clearing with empty string)
+	if updateReq.UserShortTitle != nil {
+		task.UserShortTitle = *updateReq.UserShortTitle
 	}
 
 	// Update in store

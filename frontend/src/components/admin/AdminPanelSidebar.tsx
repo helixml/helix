@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography'
 import ApiIcon from '@mui/icons-material/Api'
 import DnsIcon from '@mui/icons-material/Dns'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import LinkIcon from '@mui/icons-material/Link'
 import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -51,6 +52,13 @@ const AdminPanelSidebar: FC = () => {
           icon: <VpnKeyIcon />,
           isActive: currentTab === 'oauth_providers',
           onClick: () => handleNavigationClick('oauth_providers')
+        },
+        {
+          id: 'service_connections',
+          label: 'Service Connections',
+          icon: <LinkIcon />,
+          isActive: currentTab === 'service_connections',
+          onClick: () => handleNavigationClick('service_connections')
         },
         {
           id: 'runners',

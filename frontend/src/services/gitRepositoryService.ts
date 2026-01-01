@@ -27,9 +27,9 @@ export const QUERY_KEYS = {
 
 // Custom hooks for git repository operations
 
-export function useGitRepositories(options?: { ownerId?: string; organizationId?: string; repoType?: string }) {
+export function useGitRepositories(options?: { ownerId?: string; organizationId?: string; repoType?: string; enabled?: boolean }) {
   const api = useApi();
-  const { ownerId, organizationId, repoType } = options || {};
+  const { ownerId, organizationId, repoType, enabled } = options || {};
 
   return useQuery({
     queryKey: [...QUERY_KEYS.gitRepositories, ownerId, organizationId, repoType],
@@ -47,6 +47,7 @@ export function useGitRepositories(options?: { ownerId?: string; organizationId?
         return dateB - dateA; // Descending order
       });
     },
+    enabled: enabled ?? true,
   });
 }
 
@@ -393,9 +394,26 @@ export function useCreateGitRepositoryPullRequest() {
       return response.data;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ 
-        queryKey: ['git-repositories', variables.repositoryId, 'pull-requests'] 
+      queryClient.invalidateQueries({
+        queryKey: ['git-repositories', variables.repositoryId, 'pull-requests']
       });
+    },
+  });
+}
+
+// Browse remote repositories using PAT (Personal Access Token)
+export function useBrowseRemoteRepositories() {
+  const api = useApi();
+
+  return useMutation({
+    mutationFn: async (request: {
+      provider_type: 'github' | 'gitlab' | 'ado';
+      token: string;
+      organization_url?: string;
+      base_url?: string;
+    }) => {
+      const response = await api.getApiClient().v1GitBrowseRemoteCreate(request);
+      return response.data;
     },
   });
 }
@@ -557,6 +575,7 @@ const gitRepositoryService = {
   usePullFromRemote,
   useCreateBranch,
   useCreateGitRepositoryPullRequest,
+  useBrowseRemoteRepositories,
 
   // Helper functions
   getRepositoryTypeColor,

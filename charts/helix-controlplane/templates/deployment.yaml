@@ -66,6 +66,16 @@ spec:
             - name: RUNNER_TOKEN
               value: {{ .Values.controlplane.runnerToken | quote }}
             {{- end }}
+            {{- if .Values.controlplane.encryptionKeyExistingSecret }}
+            - name: HELIX_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.encryptionKeyExistingSecret }}
+                  key: {{ .Values.controlplane.encryptionKeyExistingSecretKey | default "encryption-key" }}
+            {{- else if .Values.controlplane.encryptionKey }}
+            - name: HELIX_ENCRYPTION_KEY
+              value: {{ .Values.controlplane.encryptionKey | quote }}
+            {{- end }}
             - name: AUTH_PROVIDER
               value: {{ .Values.controlplane.authProvider | quote }}
             {{- if .Values.controlplane.licenseKeyExistingSecret }}

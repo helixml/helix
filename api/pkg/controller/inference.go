@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
@@ -869,7 +870,13 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 		return app, nil
 	}
 
-	return enrichAppWithSecrets(app, filteredSecrets)
+	// Decrypt secrets before using them
+	decryptedSecrets, err := decryptSecrets(filteredSecrets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt secrets: %w", err)
+	}
+
+	return enrichAppWithSecrets(app, decryptedSecrets)
 }
 
 func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, error) {
@@ -896,6 +903,36 @@ func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, 
 	}
 
 	return &enrichedApp, nil
+}
+
+// decryptSecrets decrypts all secret values using the encryption key
+func decryptSecrets(secrets []*types.Secret) ([]*types.Secret, error) {
+	encryptionKey, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get encryption key: %w", err)
+	}
+
+	decrypted := make([]*types.Secret, len(secrets))
+	for i, secret := range secrets {
+		// Create a copy to avoid modifying the original
+		decryptedSecret := *secret
+
+		// The value is stored as encrypted base64 string in the []byte field
+		if len(secret.Value) > 0 {
+			decryptedValue, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
+			if err != nil {
+				log.Warn().Err(err).Str("secret_name", secret.Name).Msg("Failed to decrypt secret, using raw value")
+				// If decryption fails, use the raw value (for backwards compatibility during migration)
+				decryptedSecret.Value = secret.Value
+			} else {
+				decryptedSecret.Value = decryptedValue
+			}
+		}
+
+		decrypted[i] = &decryptedSecret
+	}
+
+	return decrypted, nil
 }
 
 func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {

@@ -133,6 +133,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthProvider{},
 		&types.OAuthConnection{},
 		&types.OAuthRequestToken{},
+		&types.GitProviderConnection{},
+		&types.ServiceConnection{},
 		&types.UsageMetric{},
 		&types.Model{},
 		&types.DynamicModelInfo{},
@@ -179,6 +181,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},
 		&types.GlobalCounter{},
+		&types.CloneGroup{},
 	)
 	if err != nil {
 		return err

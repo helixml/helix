@@ -663,6 +663,26 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		}
 	}
 
+	// Get spec directory name and task number for git hooks (Spec-Ref trailer)
+	var specDirName string
+	var taskNumber int
+	if agent.SpecTaskID != "" {
+		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get spec task for design doc path")
+		} else if specTask != nil {
+			taskNumber = specTask.TaskNumber
+			if specTask.DesignDocPath != "" {
+				specDirName = specTask.DesignDocPath
+			}
+			log.Debug().
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("spec_dir_name", specDirName).
+				Int("task_number", taskNumber).
+				Msg("Spec task info for git hooks and docker compose project naming")
+		}
+	}
+
 	log.Info().
 		Str("wolf_app_id", wolfAppID).
 		Str("workspace_dir", workspaceDir).
@@ -749,6 +769,16 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	// Add primary repository name for design docs worktree setup
 	if primaryRepoName != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", primaryRepoName))
+	}
+
+	// Add spec directory name for git hooks (Spec-Ref trailer includes this)
+	if specDirName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_SPEC_DIR_NAME=%s", specDirName))
+	}
+
+	// Add task number for docker compose project naming (human-readable isolation)
+	if taskNumber > 0 {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_TASK_NUMBER=%d", taskNumber))
 	}
 
 	// Pass repository information for startup script to clone
@@ -2003,6 +2033,33 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 		Msg("No external agent container found for this Helix session ID")
 
 	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
+}
+
+// HasRunningContainer checks if Wolf has a running container for this session
+// Used by the reconciler to determine if a session needs to be restarted
+func (w *WolfExecutor) HasRunningContainer(ctx context.Context, sessionID string) bool {
+	// Try in-memory cache first (fast path)
+	w.mutex.RLock()
+	for _, session := range w.sessions {
+		if session.HelixSessionID == sessionID || session.SessionID == sessionID {
+			w.mutex.RUnlock()
+			return true
+		}
+	}
+	w.mutex.RUnlock()
+
+	// In-memory cache miss - try to find container by session ID
+	// This handles API restarts where in-memory map is cleared but containers are still running
+	containerName, err := w.FindContainerBySessionID(ctx, sessionID)
+	if err != nil {
+		log.Trace().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("HasRunningContainer: container not found")
+		return false
+	}
+
+	return containerName != ""
 }
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents

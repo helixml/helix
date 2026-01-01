@@ -295,3 +295,9 @@ func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.Us
 
 	return tokenString, nil
 }
+
+// GetOIDCClient returns nil for HelixAuthenticator as it doesn't use OIDC.
+// This satisfies the Authenticator interface.
+func (h *HelixAuthenticator) GetOIDCClient() OIDC {
+	return nil
+}

@@ -1,235 +1,232 @@
-# Git Flow for Agent Fleets: How We Solved Branch Sync for Parallel AI Coding Agents
+# Every Branch Has a Direction: Git Flow for AI Agent Fleets
 
-**Date:** 2025-12-18
-**Author:** Luke Marsden
+*What happens when you can't just give AI agents your Azure DevOps credentials*
 
-## The Problem Nobody Talks About
+---
 
-Everyone's building AI coding agents. What nobody's talking about is what happens when you have *multiple* agents working on the same codebase simultaneously.
+We're [Helix](https://github.com/helixml/helix), a bootstrapped team selling AI agent infrastructure to enterprises. The pitch: run 10 coding agents in parallel on your codebase, connected to Azure DevOps, behind your firewall.
 
-At Helix, we're building an enterprise platform where teams can run fleets of AI agents working in parallel on different tasks. Think 10 agents, each working on separate features, all pushing to the same repository that's connected to Azure DevOps or GitHub.
+The constraint: enterprise security won't give AI agents direct git credentials. This isn't paranoia - [GitGuardian's 2025 report](https://blog.gitguardian.com/agentic-ai-secdays-france/) found repositories with Copilot active have 40% higher incidence of secret leaks. One hallucinating agent with push access to production is one too many.
 
-The naive approach fails immediately:
+So we built a middle layer:
 
 ```
-Agent 1: git checkout main && git checkout -b feature/add-login
-Agent 2: git checkout main && git checkout -b feature/add-signup
-Agent 3: git checkout main && git checkout -b feature/fix-auth
-
-# Meanwhile, a human merges a PR on GitHub...
-
-Agent 4: git checkout main  # Wait, which main? Local or remote?
+Customer's Repo (ADO/GitHub)  ←→  Helix Bare Repo  ←→  Agent Sandboxes
+            │                           │                     │
+       source of truth           we control this         no git creds
 ```
 
-## The Single-Direction Branch Strategy
+Agents push to our bare repo. We sync with the customer's repo using credentials they control. The agent sandbox never sees their git credentials.
 
-After weeks of debugging weird divergence errors and race conditions, we landed on a simple principle: **every branch type has exactly ONE direction**.
+**The problem:** both sides can make changes. Customer merges a PR on ADO. Meanwhile, agents are pushing feature branches. Now there's a conflict in our middle repo.
+
+And here's what nobody tells you about bare repositories: **you can't merge in them**. There's no working directory. No `git merge`. No `git checkout --theirs`. You'd need to build an entire conflict resolution UI, or clone to a temp directory, resolve, push back. For every conflict. At scale.
+
+We haven't built that. So we needed a different approach.
+
+## The Constraint That Fixed Everything
+
+After weeks of debugging, we realized we were fighting git instead of working with it. The problem was bidirectional sync - trying to make branches flow both ways through the middle repo.
+
+So we stopped. **Every branch type now has exactly one direction:**
 
 | Branch Type | Direction | Why |
 |-------------|-----------|-----|
-| Main/default | PULL-ONLY | External repo is source of truth. Protected on enterprise repos. |
-| Config branch (`helix-specs`) | PUSH-ONLY | Helix owns this branch. Never pull from upstream. |
-| Feature branches | PUSH-ONLY | Created by agents. Don't pull upstream changes mid-work. |
+| `main` | PULL-ONLY | Customer's ADO/GitHub is source of truth. We only read. |
+| `helix-specs` | PUSH-ONLY | Our design docs branch. Customer never writes to it. |
+| Feature branches | PUSH-ONLY | Agents create and push. They never pull updates. |
 
-This sounds obvious in retrospect, but it took us a while to get here.
+This is a type system for git branches. Once you declare a direction, the code enforces it. Conflicts in the middle repo become structurally impossible.
 
-## The Divergence Problem
+Conflicts still happen - but they happen in the PR on GitHub/ADO, where they belong, where the customer's existing tooling handles them.
 
-Here's the scenario that kept breaking:
+## Main Branch: Pull-Only, Fast-Forward Only
 
-1. Import external repo from Azure DevOps
-2. Agent creates feature branch from main
-3. Human merges a different PR on ADO (main advances)
-4. Agent finishes work, tries to push
-5. Next task starts, tries to sync main, gets **divergence error**
-
-The divergence happens because we had a stale local `main` and the upstream `main` had moved. Git's merge-base algorithm detects this correctly, but the error message was useless:
-
-```
-error: cannot sync - local has 1 commit not in upstream
-```
-
-## Fast-Forward Only for Main
-
-Our solution: main branch is **pull-only** and must always fast-forward.
+Before any agent starts a new task, we sync main. But only via fast-forward:
 
 ```go
-// SyncBaseBranch - runs before starting any new task
-func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branchName string) error {
-    // Fetch to remote-tracking ref first (non-destructive)
-    fetchRefSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
-    repo.Fetch(fetchOpts)
-
-    // Get local and remote refs
-    localRef, _ := repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
-    remoteRef, _ := repo.Reference(plumbing.NewRemoteReferenceName("origin", branchName), true)
-
-    // Check for divergence
-    ahead, behind, _ := s.countCommitsDiff(repo, localRef.Hash(), remoteRef.Hash())
-
-    // If local has commits not in remote = DIVERGENCE
-    if ahead > 0 {
-        return &BranchDivergenceError{
-            BranchName:  branchName,
-            LocalAhead:  ahead,
-            LocalBehind: behind,
-        }
-    }
-
-    // Fast-forward: just move the ref pointer
-    newLocalRef := plumbing.NewHashReference(plumbing.NewBranchReferenceName(branchName), remoteRef.Hash())
-    repo.Storer.SetReference(newLocalRef)
+// If local has commits not in remote = something is deeply wrong
+if ahead > 0 {
+    return &BranchDivergenceError{BranchName: branchName}
 }
+
+// Fast-forward: just move the ref pointer. No merge commits.
+newLocalRef := plumbing.NewHashReference(
+    plumbing.NewBranchReferenceName(branchName),
+    remoteRef.Hash(),
+)
+repo.Storer.SetReference(newLocalRef)
 ```
 
-## The Orphan Branch Trick: A Forward-Only Lab Notebook
+If main has diverged, we refuse to continue. This has caught bugs where agents accidentally committed to main instead of their feature branch.
 
-Another problem: startup scripts and agent config need to live *somewhere*, but enterprises protect their main branch. You can't push to main on Azure DevOps without a PR.
+The error handling was critical. Our first implementation just said "divergence detected." Useless. Now we report exactly how many commits are ahead/behind and on which branch. Debugging went from hours to minutes.
 
-But there's a deeper issue. We're doing **spec-driven development** - similar to AWS's [Kiro](https://kiro.dev/) approach where agents first write requirements, design docs, and implementation plans before coding. These specs need to live somewhere persistent.
+## The Lab Notebook Problem
 
-The problem with putting specs in feature branches:
+We do spec-driven development - agents write requirements and design docs before coding (similar to AWS's [Kiro](https://kiro.dev/)). These specs need to live somewhere.
+
+"Just put them in the feature branch."
+
+No. Here's what actually happens during development:
 
 ```
-Agent works on feature/add-auth:
-  - Writes requirements.md, design.md, tasks.md
-  - Implements the feature
-  - PR gets merged, feature branch deleted
-  - 💨 Design docs gone forever
+Agent debugging auth:
+  - Writes notes in feature/add-auth/design.md
+  - Tries different approach, creates feature/add-auth-v2
+  - Reverts some commits that didn't work
+  - Checks out main to reproduce bug
+  - Creates fix/auth-edge-case from different base
+  - 💨 Where are the notes? Which branch has the current thinking?
 ```
 
-Development involves constantly jumping between branches. You might have 5 agents on 5 different feature branches. But your **design documentation should be a forward-only lab notebook** - an append-only record of all the thinking, decisions, and learnings that happened across all tasks.
+Development is messy. You switch branches, revert commits, try different approaches. But your **thinking shouldn't switch with your code**. Your notes are a lab notebook - the paper you keep beside you while debugging across 5 branches in 3 repos. You don't rip out pages when you `git checkout`.
 
-Solution: an **orphan branch** called `helix-specs` that has no shared history with main.
+**The trick:** an orphan branch called `helix-specs` with no shared history with main.
 
 ```go
-// Create empty tree (no files)
-emptyTree := object.Tree{}
-emptyTreeObj := repo.Storer.NewEncodedObject()
-emptyTree.Encode(emptyTreeObj)
-emptyTreeHash, _ := repo.Storer.SetEncodedObject(emptyTreeObj)
-
-// Create orphan commit (no parents)
+// Orphan commit = no parents = completely separate history
 commit := &object.Commit{
     Message:  "Initialize helix-specs branch",
     TreeHash: emptyTreeHash,
-    // Note: no ParentHashes - this is an orphan commit
+    // No ParentHashes - this branch exists in a parallel universe
 }
 ```
 
-This gives us:
+This is undersold in git tutorials. An orphan branch is essentially a separate repository living inside your repo. It never merges with main. It never conflicts with your code. It's a completely independent namespace.
 
-1. **A branch we fully control** - agents push directly, no PR review needed
-2. **Persistent design history** - specs survive feature branch deletion
-3. **Forward-only append** - helix-specs only moves forward, never syncs from upstream
-4. **Separation of concerns** - code history stays clean, design history is separate
-5. **No markdown pollution in code PRs** - some of our developers *hated* when agents dumped huge piles of markdown into the codebase alongside code changes. The separate branch keeps design artifacts out of code reviews entirely.
-
-The structure inside helix-specs:
+The structure:
 
 ```
 helix-specs/
-├── .helix/
-│   └── startup.sh           # Environment setup script
-└── design/
-    └── tasks/
-        ├── 2025-12-18_add-auth_42/
-        │   ├── requirements.md
-        │   ├── design.md
-        │   └── tasks.md
-        └── 2025-12-18_fix-login_43/
-            ├── requirements.md
-            ├── design.md
-            └── tasks.md
+├── .helix/startup.sh           # Agent environment setup
+└── design/tasks/
+    ├── 2025-12-18_add-auth_42/
+    │   ├── requirements.md
+    │   ├── design.md
+    │   └── tasks.md
+    └── ...
 ```
 
-Each task gets a dated directory. When an agent marks a task complete in `tasks.md`, it commits and pushes to helix-specs. The lab notebook grows monotonically - you never lose the record of what the agent was thinking when it made decisions.
+Each task gets a dated directory. The notebook grows monotonically. You never lose the record of what the agent was thinking.
 
-## Feature Branches: Don't Pull Mid-Work
+**Side benefit:** No markdown pollution in code PRs. Some of our devs *hated* when agents dumped huge piles of design docs alongside code changes. Separate branch = clean code reviews.
 
-The trickiest insight was about feature branches. When Agent A is building on top of Agent B's WIP branch:
+## Feature Branches: Push-Only
+
+Agents can start work in three ways:
+
+1. **New branch from main.** Easy. Pull main, branch, work, push.
+2. **Continue on existing branch.** Easy. Pull the branch, work, push.
+3. **New branch from existing branch.** Hard. This is where directionality matters.
+
+Case 3 is the problem:
 
 ```
 Agent B: feature/add-auth (commits A, B, C)
-Agent A: git checkout feature/add-auth && git checkout -b feature/add-login
-Agent A: (makes commits D, E, F)
+Agent A: checks out add-auth, branches to feature/add-login
+Agent A: makes commits D, E, F
 
-# Meanwhile Agent B pushes more commits (G, H) to feature/add-auth
+# Meanwhile Agent B pushes commits G, H to add-auth
+# Should Agent A pull G, H?
 
-# Should Agent A pull? NO!
+NO.
 ```
 
-If Agent A pulls mid-work, you get merge conflicts in the middle of an AI's work session. The agent isn't equipped to resolve merge conflicts intelligently.
+Agents CAN resolve conflicts - they're actually pretty good at it. But remember the architecture: there's a bare repo between agents and your external repo. If Agent A pulls while working, that pull has to flow through our middle repo, potentially conflicting with what Agent B is pushing.
 
-Instead:
-1. Agent A pushes their feature branch when done
-2. Merge happens at PR merge time (GitHub/ADO handles this)
-3. If conflicts, the human resolves them in the PR UI
+The alternative we're considering: surface upstream's branch under a different name (like `upstream/feature/add-auth`) so the agent sees both versions and can merge locally. We haven't built that yet.
+
+For now, once an agent branches off, they don't pull updates from the parent. The flow is simple:
+
+1. Agent finishes work, pushes to Helix
+2. Helix pushes to your repo
+3. Conflicts? Resolve them in the PR UI like a normal human
 
 ```go
-// Only sync if this is the default branch
 if branchToSync != repo.DefaultBranch {
-    log.Info().
-        Str("branch", branchToSync).
-        Msg("Skipping sync for non-default branch (feature branches are PUSH-ONLY)")
+    // Feature branches are PUSH-ONLY. No sync needed.
     continue
 }
 ```
 
-## Bare Repositories as the Source of Truth
+## Why Bare Repos?
 
-We store external repos as **bare git repositories** on our server:
+This is the part most people don't think about. We use a bare git repo (no working directory) as the middle layer because:
 
-```
-External Repo (ADO/GitHub)     Helix Bare Repo        Agent Sandbox
-        │                            │                      │
-        │◄────── initial clone ──────┤                      │
-        │                            │◄──── agent pushes ───┤
-        │◄────── helix pushes ───────┤                      │
-```
+- **Concurrent pushes work.** Multiple agents can push via HTTP simultaneously without checkout conflicts.
+- **No disk space for working copies.** Repositories can be huge. We only store objects.
+- **Security isolation.** The bare repo is just plumbing. No scripts execute, no hooks run (we control that).
 
-Bare repos have no working directory, which means:
-- No working directory conflicts
-- Multiple agents can push via HTTP simultaneously
-- We control when to sync with upstream
+The tradeoff is brutal: you lose `git merge`, `git checkout`, `git diff` with working tree. Everything is ref manipulation and object storage. The go-git library helps, but you're operating at the plumbing level.
 
-## We're All Managers Now
+This constraint - no merge in bare repos - is what drove the entire single-direction design. If we could merge easily, we might have built bidirectional sync. The limitation forced a better architecture.
 
-Let's be clear: this isn't about fully automating software development. We're not trying to fire developers and replace them with agents.
+## Why Humans Resolve Conflicts
 
-The better mental model is **pair programming with a fleet**. You're still the engineer. You still make architectural decisions. You still review the code. But now you're coordinating multiple AI pair programmers working in parallel on different parts of your system.
+We're not building autonomous agents that replace developers. We tried. The error rate was unacceptable for enterprise customers who actually care about their codebase.
 
-Some of our team joke that "we're all managers now" - and there's truth to it. Instead of writing every line of code yourself, you're:
-- Defining tasks clearly enough for agents to execute
-- Reviewing design docs before implementation starts
-- Monitoring agent progress on the Kanban board
-- Stepping in when an agent gets stuck or goes off-track
-- Merging PRs and resolving conflicts
+The model is **pair programming with a fleet**. You're still the engineer. You define tasks, review designs, approve implementations. The agents do the typing.
 
-The git flow we've built assumes humans are in the loop. That's why feature branches are PUSH-ONLY (humans resolve conflicts in PR reviews), why helix-specs keeps design docs visible (humans review specs before approving implementation), and why we have a Kanban board showing all agent work in progress.
+This means humans are the natural place to resolve conflicts:
 
-The agents do the grunt work. You do the thinking.
+- Feature branches are PUSH-ONLY → conflicts surface in the PR, where humans review anyway
+- helix-specs is PUSH-ONLY → humans approve designs before agents start coding
+- Main is PULL-ONLY → agents always work from the latest blessed version
 
-## The Stats
+Every design decision assumes a human is in the loop - even if they're supervising a fleet of 10 agents in parallel. Our enterprise customers wanted it that way. Fully autonomous agents pushing to production without review is a horror story waiting to happen.
 
-After implementing this:
-- Zero divergence errors in production (was ~5% of task starts before)
-- 10+ agents can work on same repo simultaneously
-- Average sync time: 200ms for repos up to 1GB
+## Results
 
-## What's Next
+Before single-direction branches:
+- ~5% of task starts hit divergence errors
+- Confusing error messages that told us nothing
+- Hours debugging race conditions in sync logic
 
-We're still figuring out:
-1. What to do when upstream renames their default branch (master → main)
-2. Better UX for showing divergence state to users
-3. Automatic conflict resolution for simple cases
+After:
+- Zero divergence errors in production
+- 10+ agents working on same repo simultaneously
+- 200ms average sync time for repos up to 1GB
+- Sync code went from ~800 lines to ~200 lines
 
-## Try It
-
-Helix is open source: https://github.com/helixml/helix
-
-The git sync code is in `api/pkg/services/git_repository_service_pull.go` if you want to steal our approach.
+The constraint (single direction per branch) turned out to be a feature, not a limitation. The code got simpler. The bugs disappeared. The mental model became obvious.
 
 ---
 
-*Luke Marsden is the founder of Helix. Previously he worked on container orchestration at Weaveworks and storage at ClusterHQ.*
+## How Others Are Solving This
+
+We're not the only ones thinking about multi-agent git coordination:
+
+**Devin's MultiDevin** uses a manager/worker model - one "manager" Devin distributes tasks to up to 10 "worker" Devins, then merges all successful changes into one branch. This works well for repeated, isolated tasks (lint fixes, migrations). It sidesteps the coordination problem by having a single merge point. [Cognition's approach](https://docs.devin.ai/release-notes/overview) is agent-centric - the manager agent handles conflicts, not infrastructure.
+
+**Git worktrees** are another approach. [Nick Mitchinson wrote](https://www.nrmitchi.com/2025/10/using-git-worktrees-for-multi-feature-development-with-ai-agents/) about using worktrees for AI agent isolation - each agent gets a persistent working directory for its branch. This eliminates context switching friction and gives agents bounded workspaces. We haven't tried this yet but it's compelling.
+
+**GitHub Copilot's agent** takes a different approach: branch protections still apply, and the agent's PRs require human approval before any CI/CD runs. [The agent spins up secure dev environments](https://news.ycombinator.com/item?id=44031432) via GitHub Actions. Similar to our human-in-loop model, but tighter integration with GitHub's existing permissions.
+
+We chose the middle bare repo approach because we need to work with any git host (ADO, GitHub, GitLab, Bitbucket) and can't assume specific platform features.
+
+## Open Questions
+
+We're not certain this is the right design. Some things we're still thinking about:
+
+1. **Bidirectional sync.** Single-direction is restrictive. We could surface upstream changes as `upstream/<branch>` and let agents merge. That's significant infrastructure.
+
+2. **Manager agent for merging.** Devin's approach - have a manager agent consolidate worker outputs - is interesting. Could we add a "coordinator" agent that handles merges in our architecture?
+
+3. **Git worktrees.** Would worktrees solve some of our problems more elegantly than the bare repo approach? We haven't experimented with this yet.
+
+4. **Orphan branches for design docs.** Useful pattern or weird hack? We're biased. But it's worked for 6 months now.
+
+---
+
+## The Code
+
+Helix is source available: [github.com/helixml/helix](https://github.com/helixml/helix)
+
+The git sync code is in `api/pkg/services/git_repository_service_pull.go`.
+
+---
+
+*We're a bootstrapped company selling AI agent infrastructure to enterprises. We need this to work correctly more than we need it to be elegant. If you have better ideas, we're listening. If you want to tell us we're doing it wrong, you're probably right.*
+
+*— Luke*

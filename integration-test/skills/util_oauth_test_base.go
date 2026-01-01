@@ -517,7 +517,8 @@ func (suite *BaseOAuthTestSuite) StartOAuthFlow(providerID, callbackURL string) 
 	suite.logger.Info().Msg("Starting OAuth flow via OAuth manager")
 
 	// Call OAuth manager directly instead of making HTTP request
-	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL)
+	// Pass empty metadata - tests don't need provider-specific metadata like ADO organization URL
+	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, providerID, callbackURL, "")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start OAuth flow: %w", err)
 	}

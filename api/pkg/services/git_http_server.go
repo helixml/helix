@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -407,6 +408,17 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 	user := s.getUser(r)
+
+	// Log the clone/fetch attempt with details (helps debug "expected packfile" issues)
+	log.Info().
+		Str("repo_id", repoID).
+		Str("user_id", user.ID).
+		Str("remote_addr", r.RemoteAddr).
+		Int64("content_length", r.ContentLength).
+		Str("user_agent", r.Header.Get("User-Agent")).
+		Str("git_protocol", r.Header.Get("Git-Protocol")).
+		Msg("Git upload-pack request (clone/fetch) started")
+
 	if !s.hasReadAccess(r.Context(), user, repoID) {
 		log.Warn().
 			Str("user_id", user.ID).
@@ -452,7 +464,20 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found")
-		http.Error(w, "Repository not found", http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Repository not found: %s (repo_id=%s)", err.Error(), repoID), http.StatusNotFound)
+		return
+	}
+
+	// Pre-flight checks: verify repository is healthy before starting transfer
+	// This catches issues that would otherwise cause "expected packfile" errors mid-stream
+	repoHealthErr := s.checkRepositoryHealth(repo.LocalPath, repoID)
+	if repoHealthErr != nil {
+		log.Error().
+			Err(repoHealthErr).
+			Str("repo_id", repoID).
+			Str("repo_path", repo.LocalPath).
+			Msg("Repository health check failed - cannot serve git request")
+		http.Error(w, fmt.Sprintf("Repository health check failed: %s", repoHealthErr.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -526,8 +551,24 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	cmd.Env = env
 
 	// Pipe request body to git http-backend stdin
+	// Handle gzip-compressed request bodies (git clients compress large requests)
 	if r.ContentLength != 0 {
-		cmd.Stdin = r.Body
+		body := r.Body
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gzReader, gzErr := gzip.NewReader(r.Body)
+			if gzErr != nil {
+				log.Error().Err(gzErr).Str("repo_id", repoID).Msg("Failed to create gzip reader for request body")
+				http.Error(w, "Failed to decompress request", http.StatusBadRequest)
+				return
+			}
+			defer gzReader.Close()
+			body = gzReader
+			log.Debug().
+				Str("repo_id", repoID).
+				Int64("compressed_size", r.ContentLength).
+				Msg("Decompressing gzip-encoded git request body")
+		}
+		cmd.Stdin = body
 	}
 
 	// Capture stderr separately for error logging
@@ -556,11 +597,25 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		stdout.Close()
 		if err := cmd.Wait(); err != nil {
 			stderrStr := stderrBuf.String()
+			// Log detailed error info to help debug "expected packfile" and similar issues
 			log.Error().
 				Err(err).
 				Str("repo_id", repoID).
+				Str("repo_path", repo.LocalPath).
+				Str("git_path", gitPath).
+				Str("method", r.Method).
 				Str("stderr", stderrStr).
-				Msg("Git http-backend exited with error")
+				Str("content_type", r.Header.Get("Content-Type")).
+				Int64("content_length", r.ContentLength).
+				Msg("Git http-backend exited with error - this may cause 'expected packfile' on client")
+
+			// If stderr has useful info, also log it at warn level with context
+			if stderrStr != "" {
+				log.Warn().
+					Str("repo_id", repoID).
+					Str("git_stderr", stderrStr).
+					Msg("Git http-backend stderr output (may explain client-side errors)")
+			}
 		}
 	}()
 
@@ -611,16 +666,40 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 	// Write status code and stream body
 	w.WriteHeader(statusCode)
 
-	// Stream the body directly to the response writer
+	// CRITICAL: Flush headers immediately to start the HTTP response
+	// Without this, Go may buffer the response and git client times out waiting
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	// Stream the body directly to the response writer with periodic flushing
 	// This handles large packfiles without buffering in memory
-	bytesWritten, err := io.Copy(w, reader)
+	// Use flushingCopy to ensure data flows continuously to git client
+	bytesWritten, err := flushingCopy(w, reader)
 	if err != nil {
-		// Client may have disconnected, log but don't try to write error response
-		log.Warn().
+		// Get stderr immediately to capture any error output from git-http-backend
+		stderrStr := stderrBuf.String()
+
+		// Client may have disconnected, or there may be a server-side issue
+		// Log extensively to help debug "expected packfile" errors
+		log.Error().
 			Err(err).
 			Str("repo_id", repoID).
+			Str("repo_path", repo.LocalPath).
+			Str("git_path", gitPath).
+			Str("method", r.Method).
 			Int64("bytes_written", bytesWritten).
-			Msg("Error streaming git response (client may have disconnected)")
+			Int("status_code", statusCode).
+			Str("stderr", stderrStr).
+			Msg("Error streaming git response - this WILL cause 'expected packfile' error on client")
+
+		if stderrStr != "" {
+			log.Error().
+				Str("repo_id", repoID).
+				Str("git_stderr", stderrStr).
+				Msg("Git http-backend stderr at time of streaming failure")
+		}
+
 		// Kill the process to avoid hanging
 		cmd.Process.Kill()
 		return
@@ -632,12 +711,18 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 		go s.handlePostPushHook(context.Background(), repoID, repo.LocalPath)
 	}
 
-	log.Debug().
+	// Calculate data rate for debugging slow transfers
+	sizeMB := float64(bytesWritten) / (1024 * 1024)
+
+	log.Info().
 		Str("repo_id", repoID).
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
-		Int64("response_size", bytesWritten).
-		Msg("Git HTTP request completed via http-backend")
+		Str("git_path", gitPath).
+		Int64("response_bytes", bytesWritten).
+		Float64("response_mb", sizeMB).
+		Int("status_code", statusCode).
+		Msg("Git HTTP request completed successfully")
 }
 
 // handlePostPushHook processes commits after a successful push
@@ -1775,10 +1860,100 @@ func (s *GitHTTPServer) CreateAPIKeyForRepository(ctx context.Context, userID st
 	return "", fmt.Errorf("use existing Helix API keys for git access - no repository-specific keys needed")
 }
 
+// checkRepositoryHealth verifies a git repository is healthy before serving
+// This catches common issues that would otherwise cause cryptic "expected packfile" errors
+func (s *GitHTTPServer) checkRepositoryHealth(repoPath, repoID string) error {
+	// Check if repository path exists
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return fmt.Errorf("repository path does not exist: %s", repoPath)
+	}
+
+	// Check if it's a valid git repository by running git rev-parse
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("not a valid git repository: %s (git rev-parse output: %s)", err.Error(), strings.TrimSpace(string(output)))
+	}
+
+	// Check if repository has at least one object (empty repos can cause issues)
+	// For bare repos, objects are in objects/ directory
+	objectsPath := filepath.Join(repoPath, "objects")
+	if _, err := os.Stat(objectsPath); os.IsNotExist(err) {
+		return fmt.Errorf("repository objects directory missing: %s", objectsPath)
+	}
+
+	// NOTE: We intentionally do NOT run git fsck or calculate repo size here -
+	// both are O(n) operations that would add unacceptable latency for large repos.
+	// The checks above catch the most common issues (missing path, not a git repo,
+	// missing objects dir).
+
+	log.Debug().
+		Str("repo_id", repoID).
+		Str("repo_path", repoPath).
+		Msg("Repository health check passed")
+
+	return nil
+}
+
 // Helper function for min
 func min(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+// flushingCopy copies from src to dst while flushing periodically
+// This ensures git clients receive data continuously without buffering delays
+// which would otherwise cause "expected packfile" errors
+func flushingCopy(dst io.Writer, src io.Reader) (int64, error) {
+	// Get flusher if available
+	flusher, canFlush := dst.(http.Flusher)
+
+	// Use 32KB buffer for efficient copying
+	buf := make([]byte, 32*1024)
+	var totalWritten int64
+	var bytesSinceFlush int64
+
+	// Flush every 64KB to balance efficiency with responsiveness
+	const flushThreshold = 64 * 1024
+
+	for {
+		nr, readErr := src.Read(buf)
+		if nr > 0 {
+			nw, writeErr := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if writeErr == nil {
+					writeErr = io.ErrShortWrite
+				}
+			}
+			totalWritten += int64(nw)
+			bytesSinceFlush += int64(nw)
+
+			if writeErr != nil {
+				return totalWritten, writeErr
+			}
+			if nr != nw {
+				return totalWritten, io.ErrShortWrite
+			}
+
+			// Flush periodically to ensure data flows to client
+			if canFlush && bytesSinceFlush >= flushThreshold {
+				flusher.Flush()
+				bytesSinceFlush = 0
+			}
+		}
+		if readErr != nil {
+			// Final flush before returning
+			if canFlush && bytesSinceFlush > 0 {
+				flusher.Flush()
+			}
+			if readErr == io.EOF {
+				return totalWritten, nil
+			}
+			return totalWritten, readErr
+		}
+	}
 }

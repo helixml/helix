@@ -53,10 +53,17 @@ type GitRepository struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
-	// TODO: OAuth support using our providers
-	// TODO: SSH key
-
+	// Provider-specific settings
 	AzureDevOps *AzureDevOps `gorm:"type:jsonb;serializer:json" json:"azure_devops"`
+	GitHub      *GitHub      `gorm:"type:jsonb;serializer:json" json:"github"`
+	GitLab      *GitLab      `gorm:"type:jsonb;serializer:json" json:"gitlab"`
+	Bitbucket   *Bitbucket   `gorm:"type:jsonb;serializer:json" json:"bitbucket"`
+
+	// OAuth connection ID - references an OAuthConnection for authentication
+	// When set, uses the OAuth access token instead of username/password or PAT
+	OAuthConnectionID string `gorm:"index" json:"oauth_connection_id"`
+
+	// TODO: SSH key support
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
@@ -65,6 +72,37 @@ type GitRepository struct {
 type AzureDevOps struct {
 	OrganizationURL     string `json:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token"`
+
+	// Service Principal authentication (service-to-service via Azure AD/Entra ID)
+	// Uses OAuth 2.0 client credentials flow for automated system access
+	TenantID     string `json:"tenant_id,omitempty"`     // Azure AD tenant ID
+	ClientID     string `json:"client_id,omitempty"`     // App registration client ID
+	ClientSecret string `json:"client_secret,omitempty"` // App registration client secret
+}
+
+// GitHub contains GitHub-specific authentication settings
+type GitHub struct {
+	PersonalAccessToken string `json:"personal_access_token"`
+	BaseURL             string `json:"base_url"` // For GitHub Enterprise instances (empty for github.com)
+
+	// GitHub App authentication (service-to-service)
+	// When AppID and PrivateKey are set, uses GitHub App installation tokens
+	AppID          int64  `json:"app_id,omitempty"`          // GitHub App ID
+	InstallationID int64  `json:"installation_id,omitempty"` // Installation ID for the app on the org/repo
+	PrivateKey     string `json:"private_key,omitempty"`     // PEM-encoded private key for JWT signing
+}
+
+// GitLab contains GitLab-specific authentication settings
+type GitLab struct {
+	PersonalAccessToken string `json:"personal_access_token"`
+	BaseURL             string `json:"base_url"` // For self-hosted GitLab instances (empty for gitlab.com)
+}
+
+// Bitbucket contains Bitbucket-specific authentication settings
+type Bitbucket struct {
+	Username string `json:"username"`            // Bitbucket username (required for API auth)
+	AppPassword string `json:"app_password"`     // Bitbucket App Password (recommended over regular password)
+	BaseURL  string `json:"base_url"`            // For Bitbucket Server/Data Center (empty for bitbucket.org)
 }
 
 // TableName overrides the table name
@@ -100,7 +138,14 @@ type GitRepositoryCreateRequest struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
+	// Provider-specific settings
 	AzureDevOps *AzureDevOps `json:"azure_devops,omitempty"`
+	GitHub      *GitHub      `json:"github,omitempty"`
+	GitLab      *GitLab      `json:"gitlab,omitempty"`
+	Bitbucket   *Bitbucket   `json:"bitbucket,omitempty"`
+
+	// OAuth connection ID - references an OAuthConnection for authentication
+	OAuthConnectionID string `json:"oauth_connection_id,omitempty"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 
@@ -123,6 +168,10 @@ type GitRepositoryUpdateRequest struct {
 	ExternalURL   string                 `json:"external_url,omitempty"`
 	ExternalType  ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
 	AzureDevOps   *AzureDevOps           `json:"azure_devops,omitempty"`
+	GitHub        *GitHub                `json:"github,omitempty"`
+	GitLab        *GitLab                `json:"gitlab,omitempty"`
+	Bitbucket     *Bitbucket             `json:"bitbucket,omitempty"`
+	OAuthConnectionID *string            `json:"oauth_connection_id,omitempty"` // OAuth connection for authentication
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 	KoditIndexing *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)
 }
@@ -188,6 +237,10 @@ type ListCommitsRequest struct {
 type ListCommitsResponse struct {
 	Commits        []*Commit      `json:"commits"`
 	ExternalStatus ExternalStatus `json:"external_status"`
+	// Pagination info
+	Total   int `json:"total"`
+	Page    int `json:"page"`
+	PerPage int `json:"per_page"`
 }
 
 type ExternalStatus struct {
