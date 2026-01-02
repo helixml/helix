@@ -391,7 +391,7 @@ export class StreamInput {
     }
     // Note: button = StreamMouseButton.
     sendMouseButton(isDown: boolean, button: number) {
-        console.log(`[INPUT_DEBUG] sendMouseButton: isDown=${isDown} button=${button} (0=left, 1=middle, 2=right, 3=X1, 4=X2)`);
+        console.log(`[INPUT_DEBUG] sendMouseButton: isDown=${isDown} button=${button} (1=left, 2=middle, 3=right, 4=X1, 5=X2)`);
 
         this.buffer.reset()
 
