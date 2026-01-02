@@ -425,7 +425,7 @@ class RemoteDesktopSession:
                 log(f"[INPUT_DEBUG] Button event: evdev_button={button} state={state}")
                 self.rd_session_proxy.call_sync(
                     "NotifyPointerButton",
-                    GLib.Variant("(ib)", (button, state)),
+                    GLib.Variant("(ub)", (button, state)),  # Must be unsigned int, not signed
                     Gio.DBusCallFlags.NONE,
                     -1, None
                 )
