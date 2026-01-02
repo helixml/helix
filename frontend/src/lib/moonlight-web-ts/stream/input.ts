@@ -363,10 +363,25 @@ export class StreamInput {
 
         trySendChannel(this.mouseAbsolute, this.buffer)
     }
+    // Debug logging counter for mouse position
+    private mousePositionLogCount = 0;
+
     sendMousePositionClientCoordinates(clientX: number, clientY: number, rect: DOMRect, mouseButton?: number) {
         const position = this.calcNormalizedPosition(clientX, clientY, rect)
         if (position) {
             const [x, y] = position
+
+            // Debug logging: log first 5 and then every 100th
+            this.mousePositionLogCount++;
+            if (this.mousePositionLogCount <= 5 || this.mousePositionLogCount % 100 === 0) {
+                console.log(`[INPUT_DEBUG] sendMousePosition #${this.mousePositionLogCount}: ` +
+                    `client=(${clientX.toFixed(1)},${clientY.toFixed(1)}) ` +
+                    `rect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)} ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) ` +
+                    `normalized=(${x.toFixed(4)},${y.toFixed(4)}) ` +
+                    `moonlight=(${(x * 4096).toFixed(0)},${(y * 4096).toFixed(0)} ref=4096x4096) ` +
+                    `streamerSize=(${this.streamerSize[0]}x${this.streamerSize[1]})`);
+            }
+
             this.sendMousePosition(x * 4096.0, y * 4096.0, 4096.0, 4096.0)
 
             if (mouseButton != undefined) {
@@ -376,6 +391,8 @@ export class StreamInput {
     }
     // Note: button = StreamMouseButton.
     sendMouseButton(isDown: boolean, button: number) {
+        console.log(`[INPUT_DEBUG] sendMouseButton: isDown=${isDown} button=${button} (0=left, 1=middle, 2=right, 3=X1, 4=X2)`);
+
         this.buffer.reset()
 
         this.buffer.putU8(2)

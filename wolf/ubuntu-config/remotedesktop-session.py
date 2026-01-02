@@ -88,6 +88,8 @@ class RemoteDesktopSession:
         self.wolf_session_id = os.environ.get("WOLF_SESSION_ID", "")
         self.xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")
         self.input_socket = f"{self.xdg_runtime_dir}/wolf-input.sock"
+        self.input_server = None  # Socket server, created by create_input_socket()
+        self.mouse_move_count = 0  # Counter for debug logging
 
         if not self.wolf_session_id:
             log("ERROR: WOLF_SESSION_ID not set")
@@ -193,6 +195,18 @@ class RemoteDesktopSession:
         # We use RecordMonitor instead of RecordVirtual because:
         # - RecordVirtual creates its OWN virtual monitor at PipeWire-negotiated size (defaults to 1280x720)
         # - RecordMonitor captures the EXISTING virtual monitor created by --virtual-monitor at correct resolution
+
+        # Try to list available monitors for debugging
+        try:
+            import subprocess
+            monitors_result = subprocess.run(
+                ["gnome-randr", "query"],
+                capture_output=True, text=True, timeout=5
+            )
+            log(f"Available monitors:\n{monitors_result.stdout}")
+        except Exception as e:
+            log(f"Could not query monitors (gnome-randr): {e}")
+
         log("Recording virtual monitor Meta-0...")
         record_options = {
             "cursor-mode": GLib.Variant("u", 1)  # Embedded cursor
@@ -200,12 +214,17 @@ class RemoteDesktopSession:
 
         # Use Meta-0 which is the first virtual monitor created by --virtual-monitor
         virtual_monitor_connector = "Meta-0"
-        result = self.sc_session_proxy.call_sync(
-            "RecordMonitor",
-            GLib.Variant("(sa{sv})", (virtual_monitor_connector, record_options)),
-            Gio.DBusCallFlags.NONE,
-            -1, None
-        )
+        try:
+            result = self.sc_session_proxy.call_sync(
+                "RecordMonitor",
+                GLib.Variant("(sa{sv})", (virtual_monitor_connector, record_options)),
+                Gio.DBusCallFlags.NONE,
+                -1, None
+            )
+        except Exception as e:
+            log(f"ERROR: RecordMonitor failed for {virtual_monitor_connector}: {e}")
+            log("This usually means the virtual monitor name is incorrect. Check gnome-shell --virtual-monitor output.")
+            raise
 
         self.sc_stream_path = result.unpack()[0]
         log(f"Stream: {self.sc_stream_path}")
@@ -269,6 +288,12 @@ class RemoteDesktopSession:
 
     def report_to_wolf(self):
         """Report node ID and input socket to Wolf."""
+        log(f"Session summary:")
+        log(f"  RemoteDesktop session: {self.rd_session_path}")
+        log(f"  ScreenCast stream: {self.sc_stream_path}")
+        log(f"  PipeWire node ID: {self.node_id}")
+        log(f"  Input socket: {self.input_socket}")
+
         if os.path.exists(self.wolf_socket):
             # Report node ID
             log("Reporting node ID to Wolf...")
@@ -288,9 +313,9 @@ class RemoteDesktopSession:
         else:
             log(f"WARNING: Wolf socket not found at {self.wolf_socket}")
 
-    def run_input_bridge(self):
-        """Run the input bridge in the main thread."""
-        log(f"Starting input bridge on {self.input_socket}...")
+    def create_input_socket(self):
+        """Create the input socket (must be called BEFORE reporting to Wolf)."""
+        log(f"Creating input socket at {self.input_socket}...")
 
         # Remove existing socket
         try:
@@ -299,17 +324,21 @@ class RemoteDesktopSession:
             pass
 
         # Create Unix socket
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(self.input_socket)
+        self.input_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.input_server.bind(self.input_socket)
         os.chmod(self.input_socket, 0o777)
-        server.listen(5)
-        server.settimeout(1.0)
+        self.input_server.listen(5)
+        self.input_server.settimeout(1.0)
 
-        log(f"Input bridge listening")
+        log(f"Input socket created and listening")
+
+    def run_input_bridge(self):
+        """Run the input bridge in the main thread (socket must already exist)."""
+        log(f"Starting input bridge accept loop...")
 
         while self.running:
             try:
-                conn, addr = server.accept()
+                conn, addr = self.input_server.accept()
                 thread = threading.Thread(target=self._handle_client, args=(conn,))
                 thread.daemon = True
                 thread.start()
@@ -319,7 +348,7 @@ class RemoteDesktopSession:
                 if self.running:
                     log(f"Accept error: {e}")
 
-        server.close()
+        self.input_server.close()
         try:
             os.unlink(self.input_socket)
         except:
@@ -360,11 +389,19 @@ class RemoteDesktopSession:
         """Handle a single input event."""
         event_type = data.get("type")
 
+        # Debug log for non-move events (move events would spam too much)
+        if event_type not in ("mouse_move_abs", "mouse_move_rel"):
+            log(f"[INPUT_DEBUG] Received: {event_type} data={data}")
+
         try:
             if event_type == "mouse_move_abs":
                 stream = data.get("stream", self.sc_stream_path)
                 x = float(data.get("x", 0))
                 y = float(data.get("y", 0))
+                # Log first move and then every 100 moves
+                self.mouse_move_count += 1
+                if self.mouse_move_count == 1 or self.mouse_move_count % 100 == 0:
+                    log(f"[INPUT_DEBUG] mouse_move_abs #{self.mouse_move_count}: x={x:.1f} y={y:.1f} stream={stream}")
                 self.rd_session_proxy.call_sync(
                     "NotifyPointerMotionAbsolute",
                     GLib.Variant("(sdd)", (stream, x, y)),
@@ -385,6 +422,7 @@ class RemoteDesktopSession:
             elif event_type == "button":
                 button = int(data.get("button", 1))
                 state = bool(data.get("state", False))
+                log(f"[INPUT_DEBUG] Button event: evdev_button={button} state={state}")
                 self.rd_session_proxy.call_sync(
                     "NotifyPointerButton",
                     GLib.Variant("(ib)", (button, state)),
@@ -414,9 +452,10 @@ class RemoteDesktopSession:
                 dx = float(data.get("dx", 0.0))
                 dy = float(data.get("dy", 0.0))
                 flags = 4  # SOURCE_FINGER
+                # D-Bus signature: (dx: d, dy: d, flags: u)
                 self.rd_session_proxy.call_sync(
                     "NotifyPointerAxis",
-                    GLib.Variant("(udd)", (flags, dx, dy)),
+                    GLib.Variant("(ddu)", (dx, dy, flags)),
                     Gio.DBusCallFlags.NONE,
                     -1, None
                 )
@@ -436,9 +475,10 @@ class RemoteDesktopSession:
                 stream = data.get("stream", self.sc_stream_path)
                 x = float(data.get("x", 0))
                 y = float(data.get("y", 0))
+                # D-Bus signature: (stream: s, slot: u, x: d, y: d)
                 self.rd_session_proxy.call_sync(
                     "NotifyTouchDown",
-                    GLib.Variant("(usdd)", (slot, stream, x, y)),
+                    GLib.Variant("(sudd)", (stream, slot, x, y)),
                     Gio.DBusCallFlags.NONE,
                     -1, None
                 )
@@ -448,24 +488,26 @@ class RemoteDesktopSession:
                 stream = data.get("stream", self.sc_stream_path)
                 x = float(data.get("x", 0))
                 y = float(data.get("y", 0))
+                # D-Bus signature: (stream: s, slot: u, x: d, y: d)
                 self.rd_session_proxy.call_sync(
                     "NotifyTouchMotion",
-                    GLib.Variant("(usdd)", (slot, stream, x, y)),
+                    GLib.Variant("(sudd)", (stream, slot, x, y)),
                     Gio.DBusCallFlags.NONE,
                     -1, None
                 )
 
             elif event_type == "touch_up":
                 slot = int(data.get("slot", 0))
+                # D-Bus signature: (slot: u)
                 self.rd_session_proxy.call_sync(
                     "NotifyTouchUp",
-                    GLib.Variant("(u,)", (slot,)),
+                    GLib.Variant("(u)", (slot,)),
                     Gio.DBusCallFlags.NONE,
                     -1, None
                 )
 
         except Exception as e:
-            pass  # Silently ignore input errors
+            log(f"Input error for {event_type}: {e}")  # Log input errors for debugging
 
     def stop(self):
         """Stop the session."""
@@ -489,6 +531,9 @@ class RemoteDesktopSession:
             self.connect()
             self.create_session()
             self.start()
+            # CRITICAL: Create socket BEFORE reporting to Wolf
+            # Wolf will try to connect immediately after receiving the path
+            self.create_input_socket()
             self.report_to_wolf()
             self.run_input_bridge()
         except Exception as e:

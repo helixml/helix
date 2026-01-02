@@ -2870,12 +2870,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
 
-    // Update custom cursor position
+    // Update custom cursor position - must match input coordinate space
+    // Input uses getStreamRect() which accounts for letterboxing, so custom cursor
+    // must also be positioned relative to stream rect, not container
     if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const streamRect = getStreamRect();
+
+      // Calculate position relative to stream rect (video content area)
+      const relX = event.clientX - streamRect.x;
+      const relY = event.clientY - streamRect.y;
+
+      // Clamp to stream bounds so cursor stays within video content
+      const clampedX = Math.max(0, Math.min(relX, streamRect.width));
+      const clampedY = Math.max(0, Math.min(relY, streamRect.height));
+
+      // Convert back to container-relative coords for CSS positioning
       setCursorPosition({
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
+        x: (streamRect.x - containerRect.x) + clampedX,
+        y: (streamRect.y - containerRect.y) + clampedY,
       });
 
       // Mark that mouse has moved at least once
