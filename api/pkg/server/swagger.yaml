@@ -2800,6 +2800,8 @@ definitions:
           0 - balanced
           2 - open minded
         type: number
+      project_manager:
+        $ref: '#/definitions/types.AssistantProjectManager'
       provider:
         type: string
       rag_source_id:
@@ -2929,6 +2931,13 @@ definitions:
           $ref: '#/definitions/mcp.Tool'
         type: array
       url:
+        type: string
+    type: object
+  types.AssistantProjectManager:
+    properties:
+      enabled:
+        type: boolean
+      project_id:
         type: string
     type: object
   types.AssistantWebSearch:
@@ -8514,6 +8523,10 @@ definitions:
         $ref: '#/definitions/types.ToolEmailConfig'
       mcp:
         $ref: '#/definitions/types.ToolMCPClientConfig'
+      project:
+        allOf:
+        - $ref: '#/definitions/types.ToolProjectManagerConfig'
+        description: Helix project management skill
       web_search:
         $ref: '#/definitions/types.ToolWebSearchConfig'
       zapier:
@@ -8552,6 +8565,13 @@ definitions:
       url:
         type: string
     type: object
+  types.ToolProjectManagerConfig:
+    properties:
+      enabled:
+        type: boolean
+      project_id:
+        type: string
+    type: object
   types.ToolType:
     enum:
     - api
@@ -8562,6 +8582,7 @@ definitions:
     - web_search
     - azure_devops
     - mcp
+    - project_manager
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -8572,6 +8593,7 @@ definitions:
     - ToolTypeWebSearch
     - ToolTypeAzureDevOps
     - ToolTypeMCP
+    - ToolTypeProjectManager
   types.ToolWebSearchConfig:
     properties:
       enabled:
@@ -8712,20 +8734,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:

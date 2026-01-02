@@ -18655,6 +18655,9 @@ const docTemplate = `{
                     "description": "How much to penalize new tokens based on whether they appear in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - open minded",
                     "type": "number"
                 },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
                 "provider": {
                     "type": "string"
                 },
@@ -18815,6 +18818,17 @@ const docTemplate = `{
                     }
                 },
                 "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AssistantProjectManager": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -26744,6 +26758,14 @@ const docTemplate = `{
                 "mcp": {
                     "$ref": "#/definitions/types.ToolMCPClientConfig"
                 },
+                "project": {
+                    "description": "Helix project management skill",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ToolProjectManagerConfig"
+                        }
+                    ]
+                },
                 "web_search": {
                     "$ref": "#/definitions/types.ToolWebSearchConfig"
                 },
@@ -26802,6 +26824,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolProjectManagerConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ToolType": {
             "type": "string",
             "enum": [
@@ -26812,7 +26845,8 @@ const docTemplate = `{
                 "email",
                 "web_search",
                 "azure_devops",
-                "mcp"
+                "mcp",
+                "project_manager"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -26822,7 +26856,8 @@ const docTemplate = `{
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
                 "ToolTypeAzureDevOps",
-                "ToolTypeMCP"
+                "ToolTypeMCP",
+                "ToolTypeProjectManager"
             ]
         },
         "types.ToolWebSearchConfig": {
@@ -27032,20 +27067,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {

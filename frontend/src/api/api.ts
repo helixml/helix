@@ -1628,6 +1628,7 @@ export interface TypesAssistantConfig {
    * 2 - open minded
    */
   presence_penalty?: number;
+  project_manager?: TypesAssistantProjectManager;
   provider?: string;
   rag_source_id?: string;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
@@ -1713,6 +1714,11 @@ export interface TypesAssistantMCP {
   oauth_scopes?: string[];
   tools?: McpTool[];
   url?: string;
+}
+
+export interface TypesAssistantProjectManager {
+  enabled?: boolean;
+  project_id?: string;
 }
 
 export interface TypesAssistantWebSearch {
@@ -4994,6 +5000,8 @@ export interface TypesToolConfig {
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
   mcp?: TypesToolMCPClientConfig;
+  /** Helix project management skill */
+  project?: TypesToolProjectManagerConfig;
   web_search?: TypesToolWebSearchConfig;
   zapier?: TypesToolZapierConfig;
 }
@@ -5015,6 +5023,11 @@ export interface TypesToolMCPClientConfig {
   url?: string;
 }
 
+export interface TypesToolProjectManagerConfig {
+  enabled?: boolean;
+  project_id?: string;
+}
+
 export enum TypesToolType {
   ToolTypeAPI = "api",
   ToolTypeBrowser = "browser",
@@ -5024,6 +5037,7 @@ export enum TypesToolType {
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
   ToolTypeMCP = "mcp",
+  ToolTypeProjectManager = "project_manager",
 }
 
 export interface TypesToolWebSearchConfig {
@@ -5111,12 +5125,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
