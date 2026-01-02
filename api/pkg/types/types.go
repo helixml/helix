@@ -1317,6 +1317,7 @@ const (
 	ToolTypeWebSearch   ToolType = "web_search"
 	ToolTypeAzureDevOps ToolType = "azure_devops"
 	ToolTypeMCP         ToolType = "mcp"
+	ToolTypeProjectManager     ToolType = "project_manager"
 )
 
 type Tool struct {
@@ -1338,6 +1339,7 @@ type ToolConfig struct {
 	Email       *ToolEmailConfig       `json:"email"`
 	AzureDevOps *ToolAzureDevOpsConfig `json:"azure_devops"`
 	MCP         *ToolMCPClientConfig   `json:"mcp"`
+	ProjectManager     *ToolProjectManagerConfig     `json:"project"` // Helix project management skill
 }
 
 type ToolMCPClientConfig struct {
@@ -1379,6 +1381,11 @@ type ToolEmailConfig struct {
 
 type ToolCalculatorConfig struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+type ToolProjectManagerConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	ProjectID string `json:"project_id" yaml:"project_id"`
 }
 
 func (t ToolConfig) Value() (driver.Value, error) {
@@ -1590,6 +1597,8 @@ type AssistantConfig struct {
 	Zapier []AssistantZapier `json:"zapier,omitempty" yaml:"zapier,omitempty"`
 	MCPs   []AssistantMCP    `json:"mcps,omitempty" yaml:"mcps,omitempty"`
 
+	ProjectManager AssistantProjectManager `json:"project_manager,omitempty" yaml:"project_manager,omitempty"`
+
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
 
@@ -1602,6 +1611,11 @@ type AssistantConfig struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
 		Steps []TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
 	} `json:"tests,omitempty" yaml:"tests,omitempty"`
+}
+
+type AssistantProjectManager struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	ProjectID string `json:"project_id" yaml:"project_id"`
 }
 
 type AssistantBrowser struct {
