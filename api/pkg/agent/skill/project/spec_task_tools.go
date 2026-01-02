@@ -42,11 +42,13 @@ var listSpecTasksParameters = jsonschema.Definition{
 
 type ListSpecTasksTool struct {
 	store     store.Store
+	projectID string
 }
 
-func NewListSpecTasksTool(store store.Store) *ListSpecTasksTool {
+func NewListSpecTasksTool(projectID string,store store.Store) *ListSpecTasksTool {
 	return &ListSpecTasksTool{		
 		store:     store,
+		projectID: projectID,
 	}
 }
 
@@ -101,20 +103,24 @@ type ListSpecTasksResult struct {
 }
 
 func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	projectContext, ok := types.GetHelixProjectContext(ctx)
-	if !ok {
-		return "", fmt.Errorf("helix project context not found")
+	projectID := t.projectID
+	if projectID == "" {
+		projectContext, ok := types.GetHelixProjectContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("helix project context not found")
+		}
+		projectID = projectContext.ProjectID
 	}
 
 	log.Info().
-		Str("project_id", projectContext.ProjectID).
+		Str("project_id", projectID).
 		Str("user_id", meta.UserID).
 		Str("session_id", meta.SessionID).
 		Interface("args", args).
 		Msg("Executing ListSpecTasks tool")
 
 	filters := &types.SpecTaskFilters{
-		ProjectID: projectContext.ProjectID,
+		ProjectID: projectID,
 	}
 
 	if status, ok := args["status"].(string); ok && status != "" {
@@ -137,7 +143,7 @@ func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args m
 
 	tasks, err := t.store.ListSpecTasks(ctx, filters)
 	if err != nil {
-		log.Error().Err(err).Str("project_id", projectContext.ProjectID).Msg("Failed to list spec tasks")
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list spec tasks")
 		return "", fmt.Errorf("failed to list spec tasks: %w", err)
 	}
 
@@ -199,12 +205,14 @@ var createSpecTaskParameters = jsonschema.Definition{
 }
 
 type CreateSpecTaskTool struct {
-	store store.Store
+	store     store.Store
+	projectID string
 }
 
-func NewCreateSpecTaskTool(store store.Store) *CreateSpecTaskTool {
+func NewCreateSpecTaskTool(projectID string, store store.Store) *CreateSpecTaskTool {
 	return &CreateSpecTaskTool{
-		store: store,
+		store:     store,
+		projectID: projectID,
 	}
 }
 
@@ -254,13 +262,17 @@ type CreateSpecTaskResult struct {
 }
 
 func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	projectContext, ok := types.GetHelixProjectContext(ctx)
-	if !ok {
-		return "", fmt.Errorf("helix project context not found")
+	projectID := t.projectID
+	if projectID == "" {
+		projectContext, ok := types.GetHelixProjectContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("helix project context not found")
+		}
+		projectID = projectContext.ProjectID
 	}
 
 	log.Info().
-		Str("project_id", projectContext.ProjectID).
+		Str("project_id", projectID).
 		Str("user_id", meta.UserID).
 		Str("session_id", meta.SessionID).
 		Interface("args", args).
@@ -293,7 +305,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 
 	task := &types.SpecTask{
 		ID:             system.GenerateSpecTaskID(),
-		ProjectID:      projectContext.ProjectID,
+		ProjectID:      projectID,
 		Name:           name,
 		Description:    description,
 		Type:           taskType,
@@ -307,7 +319,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 
 	err := t.store.CreateSpecTask(ctx, task)
 	if err != nil {
-		log.Error().Err(err).Str("project_id", projectContext.ProjectID).Msg("Failed to create spec task")
+		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to create spec task")
 		return "", fmt.Errorf("failed to create spec task: %w", err)
 	}
 
@@ -344,11 +356,13 @@ var getSpecTaskParameters = jsonschema.Definition{
 
 type GetSpecTaskTool struct {
 	store store.Store
+	projectID string
 }
 
-func NewGetSpecTaskTool(store store.Store) *GetSpecTaskTool {
+func NewGetSpecTaskTool(projectID string, store store.Store) *GetSpecTaskTool {
 	return &GetSpecTaskTool{
-		store: store,
+		store:     store,
+		projectID: projectID,
 	}
 }
 
@@ -404,13 +418,17 @@ type GetSpecTaskResult struct {
 }
 
 func (t *GetSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	projectContext, ok := types.GetHelixProjectContext(ctx)
-	if !ok {
-		return "", fmt.Errorf("helix project context not found")
+	projectID := t.projectID
+	if projectID == "" {
+		projectContext, ok := types.GetHelixProjectContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("helix project context not found")
+		}
+		projectID = projectContext.ProjectID
 	}
 
 	log.Info().
-		Str("project_id", projectContext.ProjectID).
+		Str("project_id", projectID).
 		Str("user_id", meta.UserID).
 		Str("session_id", meta.SessionID).
 		Interface("args", args).
@@ -427,7 +445,7 @@ func (t *GetSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map
 		return "", fmt.Errorf("failed to get spec task: %w", err)
 	}
 
-	if task.ProjectID != projectContext.ProjectID {
+	if task.ProjectID != projectID {
 		return "", fmt.Errorf("task does not belong to this project")
 	}
 
@@ -488,11 +506,13 @@ var updateSpecTaskParameters = jsonschema.Definition{
 
 type UpdateSpecTaskTool struct {
 	store store.Store
+	projectID string
 }
 
-func NewUpdateSpecTaskTool(store store.Store) *UpdateSpecTaskTool {
+func NewUpdateSpecTaskTool(projectID string, store store.Store) *UpdateSpecTaskTool {
 	return &UpdateSpecTaskTool{
-		store: store,
+		store:     store,
+		projectID: projectID,
 	}
 }
 
@@ -543,13 +563,17 @@ type UpdateSpecTaskResult struct {
 }
 
 func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	projectContext, ok := types.GetHelixProjectContext(ctx)
-	if !ok {
-		return "", fmt.Errorf("helix project context not found")
+	projectID := t.projectID
+	if projectID == "" {
+		projectContext, ok := types.GetHelixProjectContext(ctx)
+		if !ok {
+			return "", fmt.Errorf("helix project context not found")
+		}
+		projectID = projectContext.ProjectID
 	}
 
 	log.Info().
-		Str("project_id", projectContext.ProjectID).
+		Str("project_id", projectID).
 		Str("user_id", meta.UserID).
 		Str("session_id", meta.SessionID).
 		Interface("args", args).
@@ -566,7 +590,7 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		return "", fmt.Errorf("failed to get spec task: %w", err)
 	}
 
-	if task.ProjectID != projectContext.ProjectID {
+	if task.ProjectID != projectID {
 		return "", fmt.Errorf("task does not belong to this project")
 	}
 
