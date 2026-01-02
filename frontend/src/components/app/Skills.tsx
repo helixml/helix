@@ -24,6 +24,7 @@ import AddMcpSkillDialog from './AddMcpSkillDialog';
 import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
 import EmailSkill from './EmailSkill';
+import ProjectManagerSkill from './ProjectManagerSkill';
 import ApiIcon from '@mui/icons-material/Api';
 import HubIcon from '@mui/icons-material/Hub';
 import useApi from '../../hooks/useApi';
@@ -72,6 +73,7 @@ interface ISkill {
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
 const SKILL_TYPE_WEB_SEARCH = 'Web Search';
+const SKILL_TYPE_PROJECT_MANAGER = 'Project Manager';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
 const SKILL_TYPE_AZURE_DEVOPS = 'Azure DevOps';
@@ -146,6 +148,25 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Web Search',
       description: 'Enable the AI to search the web for current information.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'project-manager',
+    icon: <HubIcon />,
+    name: 'Project Manager',
+    description: 'Enable the AI to manage Helix projects.',
+    type: SKILL_TYPE_PROJECT_MANAGER,
+    category: SKILL_CATEGORY_CORE,
+    skill: {
+      name: 'Project Manager',
+      description: 'Enable the AI to manage Helix projects.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -661,6 +682,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Azure DevOps') {
       return app.azureDevOpsTool?.enabled ?? false;
     }
+    if (skillName === 'Project Manager') {
+      return app.projectManagerTool?.enabled ?? false;
+    }
     // Check for MCP skills
     if (app.mcpTools?.some(tool => tool.name === skillName)) {
       return true;
@@ -708,6 +732,13 @@ const Skills: React.FC<SkillsProps> = ({
           await onUpdate({
             ...app,
             emailTool: { enabled: false },
+          });
+          return
+        }
+        if (skill.name === 'Project Manager') {
+          await onUpdate({
+            ...app,
+            projectManagerTool: { enabled: false },
           });
           return
         }
@@ -877,6 +908,24 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Email')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Project Manager') {
+      return (
+        <ProjectManagerSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Project Manager')}
         />
       );
     }

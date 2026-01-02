@@ -11,6 +11,7 @@ import {
   TypesAssistantWebSearch,
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
+  TypesAssistantProjectManager,
   TypesTrigger,
   TypesSession,
   TypesAssistantMCP,
@@ -718,6 +719,7 @@ export interface IAssistantConfig {
   calculator?: TypesAssistantCalculator;
   email?: TypesAssistantEmail;
   azure_devops?: TypesAssistantAzureDevOps;
+  project_manager?: TypesAssistantProjectManager;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
@@ -908,6 +910,7 @@ export interface IAppFlatState {
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
   azureDevOpsTool?: TypesAssistantAzureDevOps
+  projectManagerTool?: TypesAssistantProjectManager
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];

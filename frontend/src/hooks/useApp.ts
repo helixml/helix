@@ -468,6 +468,10 @@ export const useApp = (appId: string) => {
       assistants[0].azure_devops = updates.azureDevOpsTool
     }
 
+    if (updates.projectManagerTool !== undefined) {
+      assistants[0].project_manager = updates.projectManagerTool
+    }
+
     // Agent type configuration at assistant level
     if (updates.default_agent_type !== undefined) {
       assistants[0].agent_type = updates.default_agent_type
