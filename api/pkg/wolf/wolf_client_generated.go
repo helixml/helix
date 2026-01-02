@@ -80,6 +80,11 @@ type WolfStreamSession struct {
 	AudioChannelCount int                `json:"audio_channel_count"`
 	ClientSettings    WolfClientSettings `json:"client_settings"`
 	IdleSeconds       int                `json:"idle_seconds"` // Seconds since last ENET packet (for session timeout monitoring)
+
+	// ImmediateLobbyID: If set, session attaches directly to this lobby's interpipe
+	// instead of starting its own test pattern producer. This bypasses interpipesrc
+	// switching entirely, avoiding format mismatch issues that cause video hangs.
+	ImmediateLobbyID *string `json:"immediate_lobby_id,omitempty"`
 }
 
 // Response types from Wolf API

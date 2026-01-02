@@ -118,7 +118,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isVisible, setIsVisible] = useState(false); // Track if component is visible (for deferred connection)
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [pendingAutoJoin, setPendingAutoJoin] = useState(false); // Wait for video before auto-join
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -146,7 +145,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // - 'sse': 60fps video over SSE (lower latency for long connections)
   // - 'low': Screenshot-based (for low bandwidth)
   // Note: 'adaptive' mode removed for simplicity - users can manually switch
-  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('low'); // Default to screenshot mode for reliability on high-latency connections
+  const [qualityMode, setQualityMode] = useState<'high' | 'sse' | 'low'>('high'); // Default to WebSocket video (60fps)
   const [isOnFallback, setIsOnFallback] = useState(false); // True when on low-quality fallback stream
   const [modeSwitchCooldown, setModeSwitchCooldown] = useState(false); // Prevent rapid mode switching (causes Wolf deadlock)
 
@@ -546,6 +545,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         const streamSettings = { ...settings };
         const qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
 
+        // Generate a random unique client ID for Wolf session matching
+        // This ID is passed to BOTH the Helix API (to pre-configure Wolf) AND moonlight-web
+        // This enables immediate lobby attachment without auto-join polling
+        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
+        console.log('[MoonlightStreamViewer] Generated clientUniqueId:', clientUniqueId);
+
+        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
+        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
+        if (sessionId) {
+          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session...');
+          setStatus('Configuring session...');
+          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
+            client_unique_id: clientUniqueId,
+          });
+          console.log('[MoonlightStreamViewer] Wolf pre-configured:', configResponse.data);
+        }
+
         if (qualityMode === 'low') {
           console.log('[MoonlightStreamViewer] Low mode: WebSocket for input + screenshot overlay');
         } else if (qualityMode === 'sse') {
@@ -561,7 +577,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           streamSettings,
           supportedFormats,
           [width, height],
-          qualitySessionId
+          qualitySessionId,
+          clientUniqueId  // Pass clientUniqueId for immediate lobby attachment
         );
 
         // Set canvas for WebSocket stream rendering
@@ -582,6 +599,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Connect to persistent streamer via peer endpoint
         // Include instance ID for multi-tab support
         const streamerID = `agent-${sessionId}-${componentInstanceIdRef.current}`;
+
+        // Generate a random unique client ID for Wolf session matching
+        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
+        console.log('[MoonlightStreamViewer] Generated clientUniqueId for WebRTC multi:', clientUniqueId);
+
+        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
+        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
+        if (sessionId) {
+          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session for WebRTC multi...');
+          setStatus('Configuring session...');
+          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
+            client_unique_id: clientUniqueId,
+          });
+          console.log('[MoonlightStreamViewer] Wolf pre-configured for WebRTC multi:', configResponse.data);
+        }
+
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
@@ -591,28 +624,30 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           [width, height],
           "peer", // Peer mode - connects to existing streamer
           undefined, // No session ID needed
-          streamerID // Streamer ID - unique per component instance
+          streamerID, // Streamer ID - unique per component instance
+          clientUniqueId // Random unique ID for immediate lobby attachment
         );
       } else {
         // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
-        // CRITICAL: Include lobby ID in uniqueid to prevent stale session conflicts
-        // When session restarts (test startup script), lobby ID changes but session ID doesn't
-        // - Kickoff used: session="agent-{sessionId}-kickoff", client_unique_id="helix-agent-{sessionId}"
-        // - Browser uses: session="agent-{sessionId}-{lobbyId}-{instanceId}", client_unique_id="helix-agent-{sessionId}-{lobbyId}-{instanceId}"
-        // Different lobby_id → Fresh Moonlight session (prevents "AlreadyStreaming" conflicts)
-        // Unique client_unique_id per browser tab → Multiple tabs can stream simultaneously!
+        // Generate a random unique client ID for Wolf session matching
+        // This ID is passed to BOTH the Helix API (to pre-configure Wolf) AND moonlight-web
+        // This enables immediate lobby attachment without auto-join polling
+        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
+        console.log('[MoonlightStreamViewer] Generated clientUniqueId for WebRTC:', clientUniqueId);
 
-        const lobbyIdPart = wolfLobbyId ? `-${wolfLobbyId}` : '';
-        const uniqueClientId = `helix-agent-${sessionId}${lobbyIdPart}-${componentInstanceIdRef.current}`;
-
-        console.log(`[MoonlightStream] Creating stream with uniqueClientId: ${uniqueClientId}`, {
-          sessionId,
-          wolfLobbyId,
-          componentInstanceId: componentInstanceIdRef.current,
-        });
+        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
+        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
+        if (sessionId) {
+          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session for WebRTC...');
+          setStatus('Configuring session...');
+          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
+            client_unique_id: clientUniqueId,
+          });
+          console.log('[MoonlightStreamViewer] Wolf pre-configured for WebRTC:', configResponse.data);
+        }
 
         // Notify parent component of calculated client ID
-        onClientIdCalculated?.(uniqueClientId);
+        onClientIdCalculated?.(clientUniqueId);
 
         stream = new Stream(
           api,
@@ -624,7 +659,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           "create", // Create mode - fresh session/streamer (kickoff already terminated)
           `agent-${sessionId}-${componentInstanceIdRef.current}`, // Unique per component instance
           undefined, // No streamer ID
-          uniqueClientId // Unique per lobby+component → prevents conflicts
+          clientUniqueId // Random unique ID for immediate lobby attachment
         );
       }
 
@@ -689,12 +724,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           }
           // isConnecting stays true until video/screenshot arrives
 
-          // Auto-join lobby if in lobbies mode (after video starts playing)
-          // Set pending flag - actual join triggered by onCanPlay handler
-          if (wolfLobbyId && sessionId) {
-            console.log('[AUTO-JOIN] Connection established, waiting for video to start before auto-join');
-            setPendingAutoJoin(true);
-          }
         } else if (data.type === 'videoStarted') {
           // First keyframe received and being decoded - video is now visible
           // Only relevant for WebSocket video mode ('high')
@@ -964,7 +993,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setIsConnecting(false);
       setStatus('Disconnected');
     }
-    setPendingAutoJoin(false); // Reset auto-join state on disconnect
     setIsHighLatency(false); // Reset latency warning on disconnect
     setIsOnFallback(false); // Reset fallback state on disconnect
 
@@ -2325,32 +2353,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return () => clearInterval(intervalId);
   }, [isConnected, streamingMode, qualityMode, userBitrate, requestedBitrate, runBandwidthProbe, addChartEvent]);
 
-  // Auto-join lobby after video starts playing
-  // Backend API polls Wolf sessions to wait for pipeline switch to complete before returning
-  useEffect(() => {
-    if (!pendingAutoJoin || !sessionId) return;
-
-    const doAutoJoin = async () => {
-      try {
-        console.log('[AUTO-JOIN] Triggering auto-join (backend waits for pipeline switch)');
-        const apiClient = helixApi.getApiClient();
-        const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
-
-        if (response.status === 200) {
-          console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);
-        } else {
-          console.warn('[AUTO-JOIN] Failed to auto-join lobby. Status:', response.status);
-        }
-      } catch (err: any) {
-        console.error('[AUTO-JOIN] Error calling auto-join endpoint:', err);
-        console.error('[AUTO-JOIN] User can still manually join lobby via Wolf UI');
-      } finally {
-        setPendingAutoJoin(false);
-      }
-    };
-
-    doAutoJoin();
-  }, [pendingAutoJoin, sessionId, streamingMode]);
 
   // Track container size for canvas aspect ratio calculation
   useEffect(() => {

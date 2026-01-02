@@ -241,6 +241,11 @@ export class WebSocketStream {
   private readonly EVENT_LOOP_CHECK_INTERVAL_MS = 100  // Check every 100ms
   private eventLoopCheckTimeoutId: ReturnType<typeof setTimeout> | null = null
 
+  // Unique client identifier for Wolf session matching
+  // The frontend generates this and passes it to BOTH the Helix API (to pre-configure Wolf)
+  // AND here (to send to moonlight-web). This enables immediate lobby attachment.
+  private clientUniqueId?: string
+
   constructor(
     api: Api,
     hostId: number,
@@ -248,7 +253,8 @@ export class WebSocketStream {
     settings: StreamSettings,
     supportedVideoFormats: VideoCodecSupport,
     viewerScreenSize: [number, number],
-    sessionId?: string
+    sessionId?: string,
+    clientUniqueId?: string
   ) {
     this.api = api
     this.hostId = hostId
@@ -256,6 +262,7 @@ export class WebSocketStream {
     this.settings = settings
     this.supportedVideoFormats = supportedVideoFormats
     this.sessionId = sessionId
+    this.clientUniqueId = clientUniqueId
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
 
     // Calculate mouse throttle based on stream FPS
@@ -549,7 +556,9 @@ export class WebSocketStream {
     })
 
     // Send initialization as JSON for simplicity
-    const initMessage = {
+    // client_unique_id is passed to Wolf for immediate lobby attachment
+    // The frontend generates this and calls Helix API to pre-configure Wolf BEFORE connecting
+    const initMessage: Record<string, unknown> = {
       type: "init",
       host_id: this.hostId,
       app_id: this.appId,
@@ -561,6 +570,11 @@ export class WebSocketStream {
       packet_size: this.settings.packetSize,
       play_audio_local: this.settings.playAudioLocal,
       video_supported_formats: supportBits,
+    }
+
+    // Include client_unique_id if provided (enables immediate lobby attachment)
+    if (this.clientUniqueId) {
+      initMessage.client_unique_id = this.clientUniqueId
     }
 
     this.ws?.send(JSON.stringify(initMessage))

@@ -554,6 +554,10 @@ export interface ServerCombinedApprovalHandoffResult {
   success?: boolean;
 }
 
+export interface ServerConfigurePendingSessionRequest {
+  client_unique_id?: string;
+}
+
 export interface ServerCoordinationLogResponse {
   active_sessions?: number;
   completed_sessions?: number;
@@ -6818,25 +6822,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsAutoJoinLobbyCreate
-     * @summary Auto-join Wolf lobby after connection
-     * @request POST:/api/v1/external-agents/{sessionID}/auto-join-lobby
-     * @secure
-     */
-    v1ExternalAgentsAutoJoinLobbyCreate: (sessionId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/auto-join-lobby`,
-        method: "POST",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Returns random uncompressible data for measuring available bandwidth. This endpoint starts sending bytes immediately, unlike screenshot which has capture latency. Used by adaptive bitrate algorithm to probe throughput.
      *
      * @tags ExternalAgents
@@ -6895,6 +6880,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: clipboard,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Pre-configures Wolf to attach a client to a lobby when it connects with the given client_unique_id.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsConfigurePendingSessionCreate
+     * @summary Configure pending session for immediate lobby attachment
+     * @request POST:/api/v1/external-agents/{sessionID}/configure-pending-session
+     * @secure
+     */
+    v1ExternalAgentsConfigurePendingSessionCreate: (
+      sessionId: string,
+      request: ServerConfigurePendingSessionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, string>({
+        path: `/api/v1/external-agents/${sessionId}/configure-pending-session`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

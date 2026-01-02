@@ -887,6 +887,7 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	extraEnv = append(extraEnv,
 		fmt.Sprintf("GAMESCOPE_WIDTH=%d", displayWidth),
 		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", displayHeight),
+		fmt.Sprintf("GAMESCOPE_REFRESH=%d", displayRefreshRate),
 		fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel),
 		fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", string(desktopType)), // For container hostname reconstruction
 	)
@@ -1211,6 +1212,11 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		Str("session_id", agent.SessionID).
 		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
+
+	// NOTE: Session pre-configuration for immediate lobby attachment is now done by the frontend.
+	// The frontend generates a random client_unique_id and calls ConfigurePendingSession API
+	// BEFORE connecting to moonlight-web. This ensures Wolf is ready to attach the client
+	// directly to the lobby's interpipe when the Moonlight connection arrives.
 
 	// Step 3: Bridge desktop to Hydra network (if Hydra is enabled)
 	// This injects a veth pair connecting the desktop container to the Hydra network
@@ -2479,6 +2485,44 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 	w.lobbyCacheMutex.Unlock()
 
 	return foundLobbyID, nil
+}
+
+// ConfigurePendingSession pre-configures Wolf to attach a client to a lobby when it connects.
+// The frontend calls this BEFORE connecting to moonlight-web with the same clientUniqueID.
+// This enables immediate lobby attachment without auto-join polling.
+func (w *WolfExecutor) ConfigurePendingSession(ctx context.Context, sessionID string, clientUniqueID string) error {
+	// Find the existing lobby for this session
+	lobbyID, err := w.FindExistingLobbyForSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to find lobby for session: %w", err)
+	}
+	if lobbyID == "" {
+		return fmt.Errorf("no lobby found for session %s", sessionID)
+	}
+
+	// Look up session to get Wolf instance ID
+	session, err := w.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		return fmt.Errorf("session %s has no Wolf instance ID", sessionID)
+	}
+
+	// Configure Wolf's pending session
+	if err := w.getWolfClient(wolfInstanceID).ConfigurePendingSession(ctx, clientUniqueID, lobbyID); err != nil {
+		return fmt.Errorf("failed to configure pending session: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("client_unique_id", clientUniqueID).
+		Str("lobby_id", lobbyID).
+		Msg("Session pre-configured for immediate lobby attachment via frontend API")
+
+	return nil
 }
 
 // cleanupOrphanedWolfUISessions removes Wolf-UI streaming sessions without active Zed containers

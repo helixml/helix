@@ -11,17 +11,14 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/wolf"
 )
 
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
@@ -258,8 +255,9 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		}
 	}
 
-	// Note: Auto-join happens AFTER user connects via moonlight-web
-	// See autoJoinExternalAgentLobby endpoint - called by frontend post-connection
+	// Note: Immediate lobby attachment happens via Wolf's pending_session_configs
+	// Pre-configured by ConfigurePendingSession API call after lobby creation
+	// Session auto-attaches to lobby interpipe when Moonlight client connects
 
 	// Add WebSocket connection info to response
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
@@ -1118,362 +1116,6 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Msg("Successfully set clipboard in external agent container")
 }
 
-// @Summary Auto-join Wolf lobby after connection
-// @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
-// @Tags ExternalAgents
-// @Accept json
-// @Produce json
-// @Param sessionID path string true "Helix Session ID"
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} system.HTTPError
-// @Failure 401 {object} system.HTTPError
-// @Failure 403 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/external-agents/{sessionID}/auto-join-lobby [post]
-func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("user_id", user.ID).
-		Msg("[AUTO-JOIN] Auto-join lobby request received")
-
-	// Get Helix session
-	session, err := apiServer.Controller.Options.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("[AUTO-JOIN] Session not found")
-		http.Error(res, "session not found", http.StatusNotFound)
-		return
-	}
-
-	// Authorize user
-	if session.Owner != user.ID && !user.Admin {
-		log.Warn().
-			Str("session_id", sessionID).
-			Str("user_id", user.ID).
-			Str("owner_id", session.Owner).
-			Msg("[AUTO-JOIN] User not authorized to access session")
-		http.Error(res, "forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Get lobby ID and PIN from session metadata
-	lobbyID := session.Metadata.WolfLobbyID
-	lobbyPIN := session.Metadata.WolfLobbyPIN
-
-	if lobbyID == "" {
-		log.Warn().Str("session_id", sessionID).Msg("[AUTO-JOIN] No lobby associated with this session")
-		http.Error(res, "no lobby associated with this session", http.StatusBadRequest)
-		return
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Bool("has_pin", lobbyPIN != "").
-		Msg("[AUTO-JOIN] Found lobby credentials, attempting auto-join")
-
-	// Call the auto-join function (backend derives client_id securely)
-	err = apiServer.autoJoinWolfLobby(req.Context(), sessionID, lobbyID, lobbyPIN)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Str("lobby_id", lobbyID).
-			Msg("[AUTO-JOIN] Failed to auto-join lobby")
-		http.Error(res, fmt.Sprintf("failed to join lobby: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Msg("[AUTO-JOIN] ✅ Successfully auto-joined lobby")
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(map[string]interface{}{
-		"success":  true,
-		"lobby_id": lobbyID,
-		"message":  "Successfully auto-joined lobby",
-	})
-}
-
-// autoJoinWolfLobby performs the actual auto-join operation by finding the Wolf UI session and joining the lobby
-// This is a helper function called by autoJoinExternalAgentLobby after the user has connected
-// SECURITY: Backend derives wolf_client_id from Wolf API by matching client_unique_id pattern
-//
-//	This prevents frontend manipulation of which Wolf client gets joined to the lobby
-func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSessionID string, lobbyID string, lobbyPIN string) error {
-	// Look up session to get Wolf instance ID
-	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get session for Wolf instance lookup: %w", err)
-	}
-
-	wolfInstanceID := session.WolfInstanceID
-	if wolfInstanceID == "" {
-		return fmt.Errorf("session %s has no Wolf instance ID - session may be corrupted", helixSessionID)
-	}
-
-	// Get Wolf client for this session's Wolf instance
-	type WolfClientForSessionProvider interface {
-		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
-	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
-	if !ok {
-		return fmt.Errorf("Wolf executor does not provide Wolf client")
-	}
-	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
-
-	// Get Wolf apps using the existing ListApps method
-	apps, err := wolfClient.ListApps(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list Wolf apps: %w", err)
-	}
-
-	// Find placeholder app - prefer "Select Agent" (Wolf-UI with real Wayland compositor)
-	// The "Blank" test pattern causes NVENC buffer registration failures on second session
-	// because shared lobby buffers have stale registrations from previous encoder sessions.
-	// See design/2025-12-04-websocket-mode-session-leak.md for details.
-	var placeholderAppID string
-	for _, app := range apps {
-		if app.Title == "Select Agent" {
-			placeholderAppID = app.ID
-			break
-		}
-		if app.Title == "Blank" && placeholderAppID == "" {
-			placeholderAppID = app.ID
-		}
-	}
-	if placeholderAppID == "" {
-		return fmt.Errorf("placeholder app (Blank or Select Agent) not found in apps list")
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("placeholder_app_id", placeholderAppID).
-		Msg("[AUTO-JOIN] Found placeholder app, querying sessions to find client")
-
-	// Query Wolf sessions to find the Wolf UI client via interface
-	sessions, err := wolfClient.ListSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to query Wolf sessions: %w", err)
-	}
-
-	// SECURITY: Derive client_id by matching client_unique_id pattern
-	// Expected pattern: "helix-agent-{helixSessionID}"
-	// This prevents frontend manipulation - backend controls which Wolf client is used
-	expectedUniqueID := fmt.Sprintf("helix-agent-%s", helixSessionID)
-
-	log.Info().
-		Str("expected_unique_id", expectedUniqueID).
-		Str("helix_session_id", helixSessionID).
-		Msg("[AUTO-JOIN] Backend deriving Wolf client_id from client_unique_id pattern (secure)")
-
-	// Find the Wolf UI session with matching client_unique_id
-	// Prefer: Most recent session (last in list) since old sessions should be cleaned up
-	var moonlightSessionID string
-	var matchedCount int
-	var wolfUISessions []string
-
-	for _, session := range sessions {
-		if session.AppID == placeholderAppID {
-			sessionInfo := fmt.Sprintf("client_id=%s unique_id=%s ip=%s",
-				session.ClientID, session.ClientUniqueID, session.ClientIP)
-			wolfUISessions = append(wolfUISessions, sessionInfo)
-
-			// SECURITY: Match by client_unique_id prefix pattern (handles FRONTEND_INSTANCE_ID suffix)
-			// Expected: "helix-agent-{sessionID}" but actual may be "helix-agent-{sessionID}-{instanceID}"
-			// Wolf now properly exposes client_unique_id in /api/v1/sessions
-			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, expectedUniqueID) {
-				matchedCount++
-				// Use last match (most recent in iteration order)
-				// Old sessions should have been cleaned up by moonlight-web on disconnect
-				moonlightSessionID = session.ClientID
-				log.Info().
-					Str("matched_client_id", session.ClientID).
-					Str("matched_unique_id", session.ClientUniqueID).
-					Str("expected_prefix", expectedUniqueID).
-					Int("match_number", matchedCount).
-					Msg("[AUTO-JOIN] Found matching Wolf UI session by client_unique_id prefix")
-			}
-		}
-	}
-
-	// DEFENSIVE WARNING: Multiple matching sessions found
-	if matchedCount > 1 {
-		log.Warn().
-			Str("expected_unique_id", expectedUniqueID).
-			Int("match_count", matchedCount).
-			Strs("all_wolf_ui_sessions", wolfUISessions).
-			Str("selected_session", moonlightSessionID).
-			Msg("[AUTO-JOIN] ⚠️ Multiple matching sessions found - using last one (old sessions should have been cleaned up)")
-	} else if matchedCount == 1 {
-		log.Info().
-			Str("moonlight_session_id", moonlightSessionID).
-			Msg("[AUTO-JOIN] ✅ Found unique Wolf UI session match")
-	}
-
-	if moonlightSessionID == "" {
-		log.Warn().
-			Str("expected_unique_id", expectedUniqueID).
-			Strs("available_sessions", wolfUISessions).
-			Int("total_sessions", len(sessions)).
-			Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
-		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
-	}
-
-	// DEFENSIVE CHECK: Verify Wolf-UI session still exists (not stopped/orphaned)
-	// Re-query Wolf sessions to ensure session wasn't stopped since we last checked
-	freshSessions, err := wolfClient.ListSessions(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to re-query Wolf sessions: %w", err)
-	}
-
-	// Verify the Wolf session we're trying to use still exists
-	sessionExists := false
-	for _, session := range freshSessions {
-		if session.ClientID == moonlightSessionID {
-			sessionExists = true
-			break
-		}
-	}
-
-	if !sessionExists {
-		log.Warn().
-			Str("moonlight_session_id", moonlightSessionID).
-			Str("expected_unique_id", expectedUniqueID).
-			Msg("[AUTO-JOIN] Wolf-UI session no longer exists - may have been stopped")
-		return fmt.Errorf("Wolf-UI session %s no longer exists", moonlightSessionID)
-	}
-
-	log.Info().
-		Str("moonlight_session_id", moonlightSessionID).
-		Msg("[AUTO-JOIN] ✅ Wolf-UI session exists")
-
-	// DEFENSIVE CHECK 2: Verify lobby exists before attempting join
-	lobbies, err := wolfClient.ListLobbies(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list lobbies: %w", err)
-	}
-
-	lobbyExists := false
-	for _, lobby := range lobbies {
-		if lobby.ID == lobbyID {
-			lobbyExists = true
-			break
-		}
-	}
-
-	if !lobbyExists {
-		log.Warn().
-			Str("lobby_id", lobbyID).
-			Msg("[AUTO-JOIN] Lobby does not exist - may have been stopped")
-		return fmt.Errorf("lobby %s does not exist", lobbyID)
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Msg("[AUTO-JOIN] ✅ Lobby exists, proceeding with join")
-
-	// Convert PIN string to array of int16 for Wolf API
-	var pinDigits []int16
-	if lobbyPIN != "" {
-		for _, char := range lobbyPIN {
-			digit := int16(char - '0')
-			if digit < 0 || digit > 9 {
-				return fmt.Errorf("invalid PIN format: %s", lobbyPIN)
-			}
-			pinDigits = append(pinDigits, digit)
-		}
-	}
-
-	// Call Wolf API to join the lobby using the existing JoinLobby method
-	joinRequest := &wolf.JoinLobbyRequest{
-		LobbyID:            lobbyID,
-		MoonlightSessionID: moonlightSessionID,
-		PIN:                pinDigits,
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("moonlight_session_id", moonlightSessionID).
-		Int("pin_length", len(pinDigits)).
-		Msg("[AUTO-JOIN] Calling Wolf API to join lobby")
-
-	err = wolfClient.JoinLobby(ctx, joinRequest)
-	if err != nil {
-		return fmt.Errorf("failed to join lobby: %w", err)
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyID).
-		Str("moonlight_session_id", moonlightSessionID).
-		Msg("[AUTO-JOIN] JoinLobby API called, waiting for pipeline to stabilize...")
-
-	// RACE CONDITION FIX: Wait for GStreamer interpipe switch to complete
-	// The JoinLobby triggers an interpipe producer switch, but the consumer pipeline
-	// needs time for the switch to propagate and new frames to start flowing.
-	// On low-latency connections (localhost), the frontend can receive the success response
-	// and expect frames before the pipeline switch is complete.
-	//
-	// Poll Wolf sessions to verify the session has switched to the lobby's producer
-	// by checking that the session's app_id has changed from the test pattern app
-	// to the lobby's app.
-	maxWait := 2 * time.Second
-	pollInterval := 100 * time.Millisecond
-	deadline := time.Now().Add(maxWait)
-
-	for time.Now().Before(deadline) {
-		// Query Wolf sessions to check if the switch has completed
-		sessions, err := wolfClient.ListSessions(ctx)
-		if err != nil {
-			log.Warn().Err(err).Msg("[AUTO-JOIN] Failed to poll sessions, continuing anyway")
-			break
-		}
-
-		// Find our session and check if it's now connected to the lobby
-		for _, session := range sessions {
-			if session.ClientID == moonlightSessionID {
-				// Check if the session is no longer on the test pattern app (Wolf UI / Blank)
-				if session.AppID != placeholderAppID {
-					log.Info().
-						Str("moonlight_session_id", moonlightSessionID).
-						Str("new_app_id", session.AppID).
-						Str("old_app_id", placeholderAppID).
-						Msg("[AUTO-JOIN] ✅ Session switched to lobby producer, pipeline ready")
-					return nil
-				}
-			}
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	// If we get here, the switch might not have completed, but continue anyway
-	log.Warn().
-		Str("moonlight_session_id", moonlightSessionID).
-		Str("lobby_id", lobbyID).
-		Dur("waited", maxWait).
-		Msg("[AUTO-JOIN] ⚠️ Timed out waiting for producer switch, continuing anyway")
-
-	return nil
-}
-
 // @Summary Upload file to sandbox
 // @Description Upload a file to the sandbox incoming folder (~/work/incoming/). Files can be dragged and dropped onto the sandbox viewer to upload them.
 // @Tags ExternalAgents
@@ -1607,4 +1249,85 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		Str("session_id", sessionID).
 		Str("response", string(respBody)).
 		Msg("Successfully uploaded file to sandbox")
+}
+
+// ConfigurePendingSessionRequest is the request body for configuring a pending session
+type ConfigurePendingSessionRequest struct {
+	ClientUniqueID string `json:"client_unique_id"`
+}
+
+// configurePendingSession handles POST /api/v1/external-agents/{sessionID}/configure-pending-session
+// @Summary Configure pending session for immediate lobby attachment
+// @Description Pre-configures Wolf to attach a client to a lobby when it connects with the given client_unique_id.
+// The frontend calls this BEFORE connecting to moonlight-web with the same client_unique_id.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "External agent session ID"
+// @Param request body ConfigurePendingSessionRequest true "Configuration request"
+// @Success 200 {object} map[string]string "success response"
+// @Failure 400 {string} string "Bad request"
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 403 {string} string "Forbidden"
+// @Failure 404 {string} string "Session not found"
+// @Failure 503 {string} string "Wolf executor not available"
+// @Router /api/v1/external-agents/{sessionID}/configure-pending-session [post]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Parse request body
+	var configReq ConfigurePendingSessionRequest
+	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
+		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if configReq.ClientUniqueID == "" {
+		http.Error(res, "client_unique_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Configure pending session via executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := apiServer.externalAgentExecutor.ConfigurePendingSession(req.Context(), sessionID, configReq.ClientUniqueID); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to configure pending session")
+		http.Error(res, fmt.Sprintf("failed to configure pending session: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]string{
+		"status":           "configured",
+		"session_id":       sessionID,
+		"client_unique_id": configReq.ClientUniqueID,
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }

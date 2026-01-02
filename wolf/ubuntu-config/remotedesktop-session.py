@@ -188,28 +188,24 @@ class RemoteDesktopSession:
             None
         )
 
-        # Record virtual display
-        log("Recording virtual display...")
-        # Build options dict with proper GLib.Variant values
+        # Record the virtual monitor created by --virtual-monitor flag
+        # Virtual monitors in Mutter are named "Meta-{id}" (e.g., Meta-0, Meta-1)
+        # We use RecordMonitor instead of RecordVirtual because:
+        # - RecordVirtual creates its OWN virtual monitor at PipeWire-negotiated size (defaults to 1280x720)
+        # - RecordMonitor captures the EXISTING virtual monitor created by --virtual-monitor at correct resolution
+        log("Recording virtual monitor Meta-0...")
         record_options = {
             "cursor-mode": GLib.Variant("u", 1)  # Embedded cursor
         }
 
-        try:
-            result = self.sc_session_proxy.call_sync(
-                "RecordVirtual",
-                GLib.Variant("(a{sv})", (record_options,)),
-                Gio.DBusCallFlags.NONE,
-                -1, None
-            )
-        except Exception as e:
-            log(f"RecordVirtual failed, trying RecordMonitor: {e}")
-            result = self.sc_session_proxy.call_sync(
-                "RecordMonitor",
-                GLib.Variant("(sa{sv})", ("", record_options)),
-                Gio.DBusCallFlags.NONE,
-                -1, None
-            )
+        # Use Meta-0 which is the first virtual monitor created by --virtual-monitor
+        virtual_monitor_connector = "Meta-0"
+        result = self.sc_session_proxy.call_sync(
+            "RecordMonitor",
+            GLib.Variant("(sa{sv})", (virtual_monitor_connector, record_options)),
+            Gio.DBusCallFlags.NONE,
+            -1, None
+        )
 
         self.sc_stream_path = result.unpack()[0]
         log(f"Stream: {self.sc_stream_path}")

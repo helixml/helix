@@ -844,6 +844,11 @@ definitions:
       success:
         type: boolean
     type: object
+  server.ConfigurePendingSessionRequest:
+    properties:
+      client_unique_id:
+        type: string
+    type: object
   server.CoordinationLogResponse:
     properties:
       active_sessions:
@@ -10658,52 +10663,6 @@ paths:
       summary: Get enhanced dashboard data with agent management
       tags:
       - dashboard
-  /api/v1/external-agents/{sessionID}/auto-join-lobby:
-    post:
-      consumes:
-      - application/json
-      description: Automatically join a Wolf lobby after moonlight-web has connected.
-        This endpoint should be called by the frontend after the moonlight-web iframe
-        has loaded and the user has connected to Wolf UI.
-      parameters:
-      - description: Helix Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Auto-join Wolf lobby after connection
-      tags:
-      - ExternalAgents
   /api/v1/external-agents/{sessionID}/bandwidth-probe:
     get:
       description: |-
@@ -10799,6 +10758,58 @@ paths:
       security:
       - BearerAuth: []
       summary: Set session clipboard content
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/configure-pending-session:
+    post:
+      consumes:
+      - application/json
+      description: Pre-configures Wolf to attach a client to a lobby when it connects
+        with the given client_unique_id.
+      parameters:
+      - description: External agent session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Configuration request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.ConfigurePendingSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "403":
+          description: Forbidden
+          schema:
+            type: string
+        "404":
+          description: Session not found
+          schema:
+            type: string
+        "503":
+          description: Wolf executor not available
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Configure pending session for immediate lobby attachment
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/upload:

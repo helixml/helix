@@ -550,3 +550,41 @@ func (c *RevDialClient) ResetKeyboardState(ctx context.Context, sessionID string
 
 	return &result, nil
 }
+
+// ConfigurePendingSession pre-configures a session before the Moonlight client connects via RevDial.
+// When a Moonlight connection arrives with matching client_unique_id, Wolf applies
+// the pre-configured immediate_lobby_id to the session, allowing it to attach
+// directly to the lobby's interpipe instead of starting with a test pattern producer.
+func (c *RevDialClient) ConfigurePendingSession(ctx context.Context, clientUniqueID string, immediateLobbyID string) error {
+	req := ConfigurePendingSessionRequest{
+		ClientUniqueID:   clientUniqueID,
+		ImmediateLobbyID: immediateLobbyID,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.makeRevDialRequest(ctx, "POST", "/api/v1/sessions/configure", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result GenericResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return nil
+}

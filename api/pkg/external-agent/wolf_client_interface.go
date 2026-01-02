@@ -29,6 +29,9 @@ type WolfClientInterface interface {
 	ResetKeyboardState(ctx context.Context, sessionID string) (*wolf.KeyboardResetResponse, error)
 	// Raw HTTP access (used for SSE streaming)
 	Get(ctx context.Context, path string) (*http.Response, error)
+	// Session pre-configuration for immediate lobby attachment
+	// Allows configuring immediate_lobby_id before Moonlight client connects
+	ConfigurePendingSession(ctx context.Context, clientUniqueID string, immediateLobbyID string) error
 }
 
 // Ensure *wolf.Client implements WolfClientInterface at compile time

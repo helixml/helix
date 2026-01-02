@@ -31,6 +31,12 @@ type Executor interface {
 
 	// Reconciliation support
 	HasRunningContainer(ctx context.Context, sessionID string) bool
+
+	// Streaming session support
+	// ConfigurePendingSession pre-configures Wolf to attach a client to a lobby when it connects.
+	// The frontend calls this BEFORE connecting to moonlight-web with the same clientUniqueID.
+	// This enables immediate lobby attachment without auto-join polling.
+	ConfigurePendingSession(ctx context.Context, sessionID string, clientUniqueID string) error
 }
 
 // Shared types used by all executor implementations

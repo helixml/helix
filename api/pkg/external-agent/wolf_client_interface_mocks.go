@@ -11,6 +11,7 @@ package external_agent
 
 import (
 	context "context"
+	http "net/http"
 	reflect "reflect"
 
 	wolf "github.com/helixml/helix/api/pkg/wolf"
@@ -55,6 +56,20 @@ func (mr *MockWolfClientInterfaceMockRecorder) AddApp(ctx, app any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddApp", reflect.TypeOf((*MockWolfClientInterface)(nil).AddApp), ctx, app)
 }
 
+// ConfigurePendingSession mocks base method.
+func (m *MockWolfClientInterface) ConfigurePendingSession(ctx context.Context, clientUniqueID, immediateLobbyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConfigurePendingSession", ctx, clientUniqueID, immediateLobbyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ConfigurePendingSession indicates an expected call of ConfigurePendingSession.
+func (mr *MockWolfClientInterfaceMockRecorder) ConfigurePendingSession(ctx, clientUniqueID, immediateLobbyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConfigurePendingSession", reflect.TypeOf((*MockWolfClientInterface)(nil).ConfigurePendingSession), ctx, clientUniqueID, immediateLobbyID)
+}
+
 // CreateLobby mocks base method.
 func (m *MockWolfClientInterface) CreateLobby(ctx context.Context, req *wolf.CreateLobbyRequest) (*wolf.LobbyCreateResponse, error) {
 	m.ctrl.T.Helper()
@@ -68,6 +83,51 @@ func (m *MockWolfClientInterface) CreateLobby(ctx context.Context, req *wolf.Cre
 func (mr *MockWolfClientInterfaceMockRecorder) CreateLobby(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLobby", reflect.TypeOf((*MockWolfClientInterface)(nil).CreateLobby), ctx, req)
+}
+
+// Get mocks base method.
+func (m *MockWolfClientInterface) Get(ctx context.Context, path string) (*http.Response, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, path)
+	ret0, _ := ret[0].(*http.Response)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockWolfClientInterfaceMockRecorder) Get(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockWolfClientInterface)(nil).Get), ctx, path)
+}
+
+// GetKeyboardState mocks base method.
+func (m *MockWolfClientInterface) GetKeyboardState(ctx context.Context) (*wolf.KeyboardStateResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetKeyboardState", ctx)
+	ret0, _ := ret[0].(*wolf.KeyboardStateResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetKeyboardState indicates an expected call of GetKeyboardState.
+func (mr *MockWolfClientInterfaceMockRecorder) GetKeyboardState(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKeyboardState", reflect.TypeOf((*MockWolfClientInterface)(nil).GetKeyboardState), ctx)
+}
+
+// GetPendingPairRequests mocks base method.
+func (m *MockWolfClientInterface) GetPendingPairRequests() ([]wolf.PendingPairRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPendingPairRequests")
+	ret0, _ := ret[0].([]wolf.PendingPairRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPendingPairRequests indicates an expected call of GetPendingPairRequests.
+func (mr *MockWolfClientInterfaceMockRecorder) GetPendingPairRequests() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingPairRequests", reflect.TypeOf((*MockWolfClientInterface)(nil).GetPendingPairRequests))
 }
 
 // GetSystemHealth mocks base method.
@@ -159,6 +219,20 @@ func (mr *MockWolfClientInterfaceMockRecorder) ListSessions(ctx any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockWolfClientInterface)(nil).ListSessions), ctx)
 }
 
+// PairClient mocks base method.
+func (m *MockWolfClientInterface) PairClient(pairSecret, pin string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PairClient", pairSecret, pin)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PairClient indicates an expected call of PairClient.
+func (mr *MockWolfClientInterfaceMockRecorder) PairClient(pairSecret, pin any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairClient", reflect.TypeOf((*MockWolfClientInterface)(nil).PairClient), pairSecret, pin)
+}
+
 // RemoveApp mocks base method.
 func (m *MockWolfClientInterface) RemoveApp(ctx context.Context, appID string) error {
 	m.ctrl.T.Helper()
@@ -171,6 +245,21 @@ func (m *MockWolfClientInterface) RemoveApp(ctx context.Context, appID string) e
 func (mr *MockWolfClientInterfaceMockRecorder) RemoveApp(ctx, appID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveApp", reflect.TypeOf((*MockWolfClientInterface)(nil).RemoveApp), ctx, appID)
+}
+
+// ResetKeyboardState mocks base method.
+func (m *MockWolfClientInterface) ResetKeyboardState(ctx context.Context, sessionID string) (*wolf.KeyboardResetResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetKeyboardState", ctx, sessionID)
+	ret0, _ := ret[0].(*wolf.KeyboardResetResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResetKeyboardState indicates an expected call of ResetKeyboardState.
+func (mr *MockWolfClientInterfaceMockRecorder) ResetKeyboardState(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetKeyboardState", reflect.TypeOf((*MockWolfClientInterface)(nil).ResetKeyboardState), ctx, sessionID)
 }
 
 // StopLobby mocks base method.

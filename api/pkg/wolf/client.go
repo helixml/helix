@@ -853,3 +853,58 @@ func (c *Client) ResetKeyboardState(ctx context.Context, sessionID string) (*Key
 
 	return &result, nil
 }
+
+// ConfigurePendingSessionRequest represents a request to pre-configure a session
+// before the Moonlight client connects. This allows passing immediate_lobby_id
+// through a side-channel since the Moonlight protocol doesn't support custom fields.
+type ConfigurePendingSessionRequest struct {
+	ClientUniqueID   string `json:"client_unique_id"`   // Moonlight client unique ID for matching
+	ImmediateLobbyID string `json:"immediate_lobby_id"` // Lobby to attach to immediately
+}
+
+// ConfigurePendingSession pre-configures a session before the Moonlight client connects.
+// When a Moonlight connection arrives with matching client_unique_id, Wolf applies
+// the pre-configured immediate_lobby_id to the session, allowing it to attach
+// directly to the lobby's interpipe instead of starting with a test pattern producer.
+//
+// This bypasses the need for post-connection lobby joining (JoinLobby API) which
+// triggers interpipe switching that can cause video hangs due to format mismatches.
+func (c *Client) ConfigurePendingSession(ctx context.Context, clientUniqueID string, immediateLobbyID string) error {
+	req := ConfigurePendingSessionRequest{
+		ClientUniqueID:   clientUniqueID,
+		ImmediateLobbyID: immediateLobbyID,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1/sessions/configure", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result GenericResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return nil
+}

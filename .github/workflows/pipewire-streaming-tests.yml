@@ -1,0 +1,39 @@
+name: PipeWire Streaming Tests
+
+on:
+  push:
+    paths:
+      - 'wolf/ubuntu-config/remotedesktop-session.py'
+      - 'tests/pipewire-streaming/**'
+      - '.github/workflows/pipewire-streaming-tests.yml'
+  pull_request:
+    paths:
+      - 'wolf/ubuntu-config/remotedesktop-session.py'
+      - 'tests/pipewire-streaming/**'
+      - '.github/workflows/pipewire-streaming-tests.yml'
+
+jobs:
+  python-tests:
+    name: Python Unit Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        working-directory: tests/pipewire-streaming
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Python tests
+        working-directory: tests/pipewire-streaming
+        run: |
+          python -m pytest test_remotedesktop_session.py -v --tb=short
+
+  # Note: Rust tests for gst-pipewire-zerocopy run during Wolf builds.
+  # See wolf/docker/wolf.Dockerfile line 72: `cargo test --lib`
+  # The tests require GStreamer CUDA libraries from the GOW base image.
