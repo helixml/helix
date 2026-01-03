@@ -105,7 +105,7 @@ func NewHelixProjectsSkill(projectID string, store store.Store) agent.Skill {
 		Description:  helixProjectsSkillDescription,
 		SystemPrompt: helixProjectsSystemPrompt,
 		Parameters:   helixProjectsSkillParameters,
-		Direct:       true,
+		Direct:       false, // This is not a direct skill, sub-agent context runner will be used
 		Tools:        skillTools,
 	}
 }

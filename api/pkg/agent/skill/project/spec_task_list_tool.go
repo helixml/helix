@@ -43,11 +43,6 @@ type ListSpecTasksTool struct {
 	projectID string
 }
 
-
-
-
-
-
 func NewListSpecTasksTool(projectID string,store store.Store) *ListSpecTasksTool {
 	return &ListSpecTasksTool{		
 		store:     store,
