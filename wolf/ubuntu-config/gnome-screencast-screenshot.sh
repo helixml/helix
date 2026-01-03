@@ -66,14 +66,25 @@ log "Session: $SESSION_PATH"
 
 # Record the primary monitor
 # cursor-mode: 0=hidden, 1=embedded (show cursor in capture), 2=metadata
+# In headless mode (GNOME 49 PipeWire), the virtual monitor is "Meta-0"
+# In nested/Xwayland mode, the monitor is "XWAYLAND0"
 log "Recording monitor..."
-STREAM_RESULT=$(gdbus call --session \
-    --dest org.gnome.Mutter.ScreenCast \
-    --object-path "$SESSION_PATH" \
-    --method org.gnome.Mutter.ScreenCast.Session.RecordMonitor \
-    "XWAYLAND0" \
-    "{'cursor-mode': <uint32 1>}" 2>/dev/null || \
-    # Fallback: try recording the virtual display for headless mode
+STREAM_RESULT=$(
+    # First try Meta-0 (headless GNOME 49 virtual monitor)
+    gdbus call --session \
+        --dest org.gnome.Mutter.ScreenCast \
+        --object-path "$SESSION_PATH" \
+        --method org.gnome.Mutter.ScreenCast.Session.RecordMonitor \
+        "Meta-0" \
+        "{'cursor-mode': <uint32 1>}" 2>/dev/null || \
+    # Second try XWAYLAND0 (nested/Xwayland mode)
+    gdbus call --session \
+        --dest org.gnome.Mutter.ScreenCast \
+        --object-path "$SESSION_PATH" \
+        --method org.gnome.Mutter.ScreenCast.Session.RecordMonitor \
+        "XWAYLAND0" \
+        "{'cursor-mode': <uint32 1>}" 2>/dev/null || \
+    # Last fallback: create a virtual display (may have wrong resolution)
     gdbus call --session \
         --dest org.gnome.Mutter.ScreenCast \
         --object-path "$SESSION_PATH" \

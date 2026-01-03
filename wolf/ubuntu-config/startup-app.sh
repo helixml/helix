@@ -657,6 +657,47 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
+# Display scaling for PipeWire mode (headless gnome-shell with virtual monitor)
+# HELIX_ZOOM_LEVEL is percentage (100, 150, 200) set by wolf_executor
+# Convert to scale factor: 100→1, 150→1.5, 200→2
+ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
+if [ "\$ZOOM_LEVEL" -gt 100 ]; then
+    HELIX_SCALE_FACTOR=\$(echo "scale=1; \$ZOOM_LEVEL / 100" | bc)
+    export GDK_SCALE=\$HELIX_SCALE_FACTOR
+    export GDK_DPI_SCALE=1  # Prevent double-scaling
+    export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
+    echo "[gnome-session] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=\$ZOOM_LEVEL)"
+
+    # Enable fractional scaling experimental feature (needed for non-integer scales like 1.5)
+    # Must be set before gnome-shell starts
+    echo "[gnome-session] Enabling fractional scaling experimental feature..."
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+else
+    HELIX_SCALE_FACTOR=""
+    echo "[gnome-session] Display scaling: 1x (default)"
+fi
+
+# Background task to set display scale via gnome-randr after gnome-shell starts
+# gnome-randr modify is the proper way to set scale on headless virtual monitors
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+    (
+        echo "[gnome-session] Waiting for GNOME Shell to start before setting display scale..."
+        for i in \$(seq 1 60); do
+            if pgrep -x gnome-shell > /dev/null 2>&1; then
+                echo "[gnome-session] gnome-shell detected, waiting 3 seconds for display initialization..."
+                sleep 3
+                break
+            fi
+            sleep 1
+        done
+        echo "[gnome-session] Setting display scale to \${HELIX_SCALE_FACTOR}x via gnome-randr..."
+        WAYLAND_DISPLAY=wayland-0 gnome-randr modify Meta-0 --scale \$HELIX_SCALE_FACTOR 2>&1 | while read line; do
+            echo "[gnome-session] gnome-randr: \$line"
+        done
+        echo "[gnome-session] Display scale configured"
+    ) &
+fi
+
 # Start Helix services - they need wayland-0 (Mutter's client socket)
 # Note: wayland-0 is created by gnome-shell, so we start these with a delay
 (
