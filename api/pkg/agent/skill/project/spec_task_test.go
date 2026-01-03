@@ -39,7 +39,7 @@ func TestSpecTaskSummary_ToString(t *testing.T) {
 		assert.Contains(t, result, "CompletedAt: 2025-01-03T12:45:00Z")
 	})
 
-	t.Run("with nil times shows dash", func(t *testing.T) {
+	t.Run("with nil times omits time fields", func(t *testing.T) {
 		summary := &SpecTaskSummary{
 			ID:          "task-789",
 			Name:        "Bug fix",
@@ -52,11 +52,11 @@ func TestSpecTaskSummary_ToString(t *testing.T) {
 
 		result := summary.ToString()
 
-		assert.Contains(t, result, "StartedAt: -")
-		assert.Contains(t, result, "CompletedAt: -")
+		assert.NotContains(t, result, "StartedAt:")
+		assert.NotContains(t, result, "CompletedAt:")
 	})
 
-	t.Run("with empty optional fields", func(t *testing.T) {
+	t.Run("with empty optional fields omits them", func(t *testing.T) {
 		summary := &SpecTaskSummary{
 			ID:          "task-empty",
 			Name:        "Simple task",
@@ -68,10 +68,10 @@ func TestSpecTaskSummary_ToString(t *testing.T) {
 		result := summary.ToString()
 
 		assert.Contains(t, result, "ID: task-empty")
-		assert.Contains(t, result, "Description: ")
-		assert.Contains(t, result, "BranchName: ")
-		assert.Contains(t, result, "PullRequestID: ")
-		assert.Contains(t, result, "PullRequestURL: ")
+		assert.NotContains(t, result, "Description:")
+		assert.NotContains(t, result, "BranchName:")
+		assert.NotContains(t, result, "PullRequestID:")
+		assert.NotContains(t, result, "PullRequestURL:")
 	})
 }
 
