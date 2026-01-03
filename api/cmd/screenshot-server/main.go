@@ -393,173 +393,82 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 	return data, outputFormat, nil
 }
 
-// captureScreenshotGNOME captures a screenshot for GNOME environment
-// Uses org.gnome.Shell.Screenshot D-Bus API. GNOME 41+ restricts this API to an
-// allowlist of callers, so we register as "org.gnome.Screenshot" to pass the check.
-// See: https://gitlab.gnome.org/GNOME/gnome-shell/-/issues/3943
+// captureScreenshotGNOME captures a screenshot from the existing PipeWire ScreenCast stream.
+// This reads from the ScreenCast stream that remotedesktop-session.py maintains for Wolf.
+// We use GStreamer pipewiresrc with num-buffers=1 to capture exactly one frame.
+// CRITICAL: We do NOT create any new ScreenCast D-Bus sessions - we read from the existing stream.
+// The PipeWire node ID is saved to /tmp/pipewire-node-id by remotedesktop-session.py.
 func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) {
-	log.Printf("[GNOME] Capturing screenshot via D-Bus (org.gnome.Shell.Screenshot)")
+	log.Printf("[GNOME/PipeWire] Capturing screenshot from existing ScreenCast stream...")
 
-	// Connect to session D-Bus
-	conn, err := dbus.ConnectSessionBus()
+	// Read the PipeWire node ID from the file saved by remotedesktop-session.py
+	nodeIDFile := "/tmp/pipewire-node-id"
+	nodeIDBytes, err := os.ReadFile(nodeIDFile)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to connect to session D-Bus: %w", err)
-	}
-	defer conn.Close()
-
-	// CRITICAL: Request the name "org.gnome.Screenshot" to pass GNOME's allowlist check
-	// GNOME 41+ restricts org.gnome.Shell.Screenshot API to these callers:
-	// - org.gnome.SettingsDaemon.MediaKeys
-	// - org.gnome.Screenshot
-	// - org.freedesktop.impl.portal.desktop.gtk
-	reply, err := conn.RequestName("org.gnome.Screenshot", dbus.NameFlagDoNotQueue)
-	if err != nil {
-		log.Printf("[GNOME] Warning: Failed to request D-Bus name org.gnome.Screenshot: %v", err)
-		// Continue anyway - might work if the name check is lenient
-	} else if reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Printf("[GNOME] Warning: Could not become primary owner of org.gnome.Screenshot (reply=%d)", reply)
-	} else {
-		log.Printf("[GNOME] Successfully registered as org.gnome.Screenshot on D-Bus")
+		log.Printf("[GNOME/PipeWire] Failed to read PipeWire node ID from %s: %v", nodeIDFile, err)
+		return nil, "", fmt.Errorf("PipeWire node ID not available - remotedesktop-session.py may not be running: %w", err)
 	}
 
-	// Create temp file path for screenshot
+	nodeID := strings.TrimSpace(string(nodeIDBytes))
+	if nodeID == "" {
+		return nil, "", fmt.Errorf("PipeWire node ID file is empty")
+	}
+
+	log.Printf("[GNOME/PipeWire] Using PipeWire node ID: %s", nodeID)
+
+	// Create temporary file for screenshot
 	tmpDir := os.TempDir()
 	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(filename)
 
-	// Get the GNOME Shell Screenshot object
-	obj := conn.Object("org.gnome.Shell", "/org/gnome/Shell/Screenshot")
+	// Use GStreamer to capture exactly one frame from the existing PipeWire stream
+	// pipewiresrc: reads from PipeWire node (path=<node_id>)
+	// num-buffers=1: capture exactly one frame then stop
+	// do-timestamp=true: proper timing
+	// videoconvert: convert to compatible format for encoding
+	// pngenc: encode as PNG (we convert to JPEG later if needed)
+	cmd := exec.Command("gst-launch-1.0", "-q",
+		"pipewiresrc", fmt.Sprintf("path=%s", nodeID), "num-buffers=1", "do-timestamp=true",
+		"!", "videoconvert",
+		"!", "pngenc",
+		"!", "filesink", fmt.Sprintf("location=%s", filename),
+	)
 
-	// Call Screenshot method
-	// GNOME 49+ signature: Screenshot(include_cursor: b, flash: b, filename: s) → (success: b, filename_used: s)
-	// Note: GNOME 49 changed the argument order - filename is now LAST (was first in older versions)
-	var success bool
-	var filenameUsed string
-	err = obj.Call("org.gnome.Shell.Screenshot.Screenshot", 0,
-		true,      // include_cursor
-		false,     // flash (disable flash for silent capture)
-		filename,  // filename (now last in GNOME 49+)
-	).Store(&success, &filenameUsed)
+	// Set environment for PipeWire access
+	cmd.Env = append(os.Environ(),
+		"XDG_RUNTIME_DIR="+os.Getenv("XDG_RUNTIME_DIR"),
+	)
 
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// GNOME 49+ has stricter security - the Screenshot D-Bus API may be blocked
-		// Fall back to ScreenCast-based screenshot which is NOT blocked
-		log.Printf("[GNOME] Screenshot D-Bus API failed (%v), trying ScreenCast fallback...", err)
-		return captureScreenshotGNOMEScreenCast(format, quality)
+		log.Printf("[GNOME/PipeWire] GStreamer capture failed: %v, output: %s", err, string(output))
+		return nil, "", fmt.Errorf("GStreamer PipeWire capture failed: %v, output: %s", err, string(output))
 	}
 
-	if !success {
-		// Also try ScreenCast fallback if the call succeeded but returned false
-		log.Printf("[GNOME] Screenshot D-Bus API returned success=false, trying ScreenCast fallback...")
-		return captureScreenshotGNOMEScreenCast(format, quality)
-	}
-
-	// Read the PNG file
-	pngData, err := os.ReadFile(filenameUsed)
+	// Read the screenshot file
+	pngData, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to read screenshot file %s: %w", filenameUsed, err)
+		return nil, "", fmt.Errorf("failed to read screenshot file: %w", err)
 	}
-	defer os.Remove(filenameUsed)
 
-	log.Printf("[GNOME] D-Bus screenshot captured (%d bytes PNG)", len(pngData))
+	if len(pngData) == 0 {
+		return nil, "", fmt.Errorf("GStreamer produced empty output")
+	}
+
+	log.Printf("[GNOME/PipeWire] Screenshot captured (%d bytes PNG)", len(pngData))
 
 	// If JPEG is requested, convert PNG to JPEG
 	if format == "jpeg" {
 		jpegData, err := convertPNGtoJPEG(pngData, quality)
 		if err != nil {
-			log.Printf("[GNOME] Failed to convert to JPEG, returning PNG: %v", err)
+			log.Printf("[GNOME/PipeWire] Failed to convert to JPEG, returning PNG: %v", err)
 			return pngData, "png", nil
 		}
-		log.Printf("[GNOME] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
+		log.Printf("[GNOME/PipeWire] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
 		return jpegData, "jpeg", nil
 	}
 
 	return pngData, "png", nil
-}
-
-// findXwaylandDisplay tries to detect the Xwayland display from socket files
-// GNOME/Mutter starts Xwayland on-demand, so we check for X socket files
-func findXwaylandDisplay() string {
-	// Check environment first
-	if display := os.Getenv("DISPLAY"); display != "" {
-		return display
-	}
-
-	// Check for X socket files in XDG_RUNTIME_DIR (Xwayland creates these)
-	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if xdgRuntimeDir == "" {
-		xdgRuntimeDir = "/run/user/1000"
-	}
-
-	// Display numbers to check - includes :99 which we start explicitly for GNOME headless
-	displayNumbers := []int{0, 1, 2, 99}
-
-	// Look for X socket files (format: X{N} where N is display number)
-	for _, i := range displayNumbers {
-		socketPath := filepath.Join(xdgRuntimeDir, fmt.Sprintf(".X11-unix/X%d", i))
-		if _, err := os.Stat(socketPath); err == nil {
-			display := fmt.Sprintf(":%d", i)
-			log.Printf("[GNOME/X11] Found Xwayland socket at %s, using DISPLAY=%s", socketPath, display)
-			return display
-		}
-	}
-
-	// Also check /tmp/.X11-unix (traditional location)
-	for _, i := range displayNumbers {
-		socketPath := fmt.Sprintf("/tmp/.X11-unix/X%d", i)
-		if _, err := os.Stat(socketPath); err == nil {
-			display := fmt.Sprintf(":%d", i)
-			log.Printf("[GNOME/X11] Found X socket at %s, using DISPLAY=%s", socketPath, display)
-			return display
-		}
-	}
-
-	log.Printf("[GNOME/X11] No X11 display socket found, defaulting to :99")
-	return ":99"
-}
-
-// captureScreenshotGNOMEScreenCast captures a screenshot using scrot via X11.
-// DISABLED: The PipeWire-based gnome-screenshot.py conflicts with Wolf's video capture.
-// Reading from the same PipeWire node as Wolf causes stream interference and crashes.
-// Fall back to scrot which uses X11/Xwayland instead.
-func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, string, error) {
-	log.Printf("[GNOME/X11] Screenshot D-Bus blocked, falling back to scrot via Xwayland...")
-
-	// Detect Xwayland display from socket files
-	display := findXwaylandDisplay()
-	log.Printf("[GNOME/X11] Using DISPLAY=%s for scrot", display)
-
-	// Create temporary file for screenshot
-	tmpDir := os.TempDir()
-	var filename string
-	var outputFormat string
-
-	if format == "jpeg" {
-		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
-		outputFormat = "jpeg"
-	} else {
-		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
-		outputFormat = "png"
-	}
-	defer os.Remove(filename)
-
-	// Use scrot for X11 screenshots
-	cmd := exec.Command("scrot", "-o", "-z", "-p", "-q", fmt.Sprintf("%d", quality), filename)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("[GNOME/X11] scrot failed with DISPLAY=%s: %v, output: %s", display, err, string(output))
-		return nil, "", fmt.Errorf("scrot failed: %v, output: %s", err, string(output))
-	}
-
-	// Read the screenshot file
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
-	}
-
-	log.Printf("[GNOME/X11] Screenshot captured as %s (%d bytes, quality=%d)", outputFormat, len(data), quality)
-	return data, outputFormat, nil
 }
 
 // captureScreenshotKDE captures a screenshot for KDE Plasma environment
