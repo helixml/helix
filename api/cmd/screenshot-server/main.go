@@ -476,52 +476,51 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 	return pngData, "png", nil
 }
 
-// captureScreenshotGNOMEScreenCast captures a screenshot using the existing PipeWire stream.
-// This is the fallback method for GNOME 49+ where the Screenshot D-Bus API is blocked.
-// Uses gnome-screenshot.py which reads the PipeWire node ID saved by remotedesktop-session.py
-// and captures a frame from the existing ScreenCast stream (no new D-Bus session needed).
+// captureScreenshotGNOMEScreenCast captures a screenshot using scrot via X11.
+// DISABLED: The PipeWire-based gnome-screenshot.py conflicts with Wolf's video capture.
+// Reading from the same PipeWire node as Wolf causes stream interference and crashes.
+// Fall back to scrot which uses X11/Xwayland instead.
 func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, string, error) {
-	log.Printf("[GNOME/PipeWire] Capturing screenshot from existing ScreenCast stream...")
+	log.Printf("[GNOME/X11] Screenshot D-Bus blocked, falling back to scrot via Xwayland...")
 
-	// Create temp file for output
+	// Use scrot via X11 - this doesn't interfere with Wolf's PipeWire capture
+	// GNOME runs on Xwayland at DISPLAY=:0 (or :9 in some configs)
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		display = ":0" // Default for GNOME's Xwayland
+	}
+
+	// Create temporary file for screenshot
 	tmpDir := os.TempDir()
-	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	var filename string
+	var outputFormat string
+
+	if format == "jpeg" {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.jpg", time.Now().UnixNano()))
+		outputFormat = "jpeg"
+	} else {
+		filename = filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+		outputFormat = "png"
+	}
 	defer os.Remove(filename)
 
-	// Try Python script first (uses existing PipeWire stream - no D-Bus race)
-	cmd := exec.Command("/usr/local/bin/gnome-screenshot.py", filename)
+	// Use scrot for X11 screenshots
+	cmd := exec.Command("scrot", "-o", "-z", "-p", "-q", fmt.Sprintf("%d", quality), filename)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("DISPLAY=%s", display))
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("[GNOME/PipeWire] Python script failed: %v, output: %s", err, string(output))
-		// Fall back to shell script (legacy, may still fail)
-		log.Printf("[GNOME/PipeWire] Trying legacy shell script...")
-		cmd = exec.Command("/usr/local/bin/gnome-screencast-screenshot.sh", filename)
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return nil, "", fmt.Errorf("Screenshot failed: %v, output: %s", err, string(output))
-		}
+		return nil, "", fmt.Errorf("scrot failed: %v, output: %s", err, string(output))
 	}
 
 	// Read the screenshot file
-	pngData, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read screenshot file: %v", err)
 	}
 
-	log.Printf("[GNOME/ScreenCast] Screenshot captured (%d bytes PNG)", len(pngData))
-
-	// If JPEG is requested, convert PNG to JPEG
-	if format == "jpeg" {
-		jpegData, err := convertPNGtoJPEG(pngData, quality)
-		if err != nil {
-			log.Printf("[GNOME/ScreenCast] Failed to convert to JPEG, returning PNG: %v", err)
-			return pngData, "png", nil
-		}
-		log.Printf("[GNOME/ScreenCast] Converted to JPEG (%d bytes, quality=%d)", len(jpegData), quality)
-		return jpegData, "jpeg", nil
-	}
-
-	return pngData, "png", nil
+	log.Printf("[GNOME/X11] Screenshot captured as %s (%d bytes, quality=%d)", outputFormat, len(data), quality)
+	return data, outputFormat, nil
 }
 
 // captureScreenshotKDE captures a screenshot for KDE Plasma environment
