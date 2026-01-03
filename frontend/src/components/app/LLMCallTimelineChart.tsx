@@ -46,6 +46,7 @@ const ROW_HEIGHT = 22;
 const BAR_HEIGHT = 14;
 const LABEL_WIDTH = 0;
 const CHART_PADDING = 24;
+const MIN_BAR_WIDTH = 12;
 
 const parseResponse = (response: any): any => {
   try {
@@ -427,7 +428,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
           {/* Bars */}
           {chartData.map((d, i) => {
             const x = LABEL_WIDTH + ((width - LABEL_WIDTH - CHART_PADDING) * (d.start - minX)) / (maxX - minX);
-            const barWidth = ((width - LABEL_WIDTH - CHART_PADDING) * d.duration) / (maxX - minX);
+            const barWidth = Math.max(MIN_BAR_WIDTH, ((width - LABEL_WIDTH - CHART_PADDING) * d.duration) / (maxX - minX));
             const y = CHART_PADDING + i * ROW_HEIGHT;
             return (
               <Tooltip
