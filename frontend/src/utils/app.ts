@@ -94,6 +94,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.emailTool = assistant.email || undefined
       flatState.tests = assistant.tests || []
       flatState.azureDevOpsTool = assistant.azure_devops || undefined
+      flatState.projectManagerTool = assistant.project_manager || undefined
 
       flatState.tools = assistant.tools || []
     }
