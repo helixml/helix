@@ -10,6 +10,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/agent/skill/memory"
+	"github.com/helixml/helix/api/pkg/agent/skill/project"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -155,6 +156,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		if assistantTool.ToolType == types.ToolTypeWebSearch {
 			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider, c.Options.Browser))
 		}
+
+		if assistantTool.ToolType == types.ToolTypeProjectManager {
+			skills = append(skills, project.NewHelixProjectsSkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store))
+		}		
 
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {
 			// TODO: add support for granular skill selection
