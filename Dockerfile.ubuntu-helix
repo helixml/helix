@@ -396,10 +396,30 @@ if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API
     gow_log "[start] RevDial client started (PID: $!)"
 fi
 
+# Disable IBus Input Method Framework
+# IBus can interfere with keyboard input in remote streaming environments
+# This fixes Shift key and other modifier keys not working properly
+export GTK_IM_MODULE=gtk-im-context-simple
+export QT_IM_MODULE=gtk-im-context-simple
+export XMODIFIERS=@im=none
+gow_log "[start] IBus disabled (using simple input context)"
+
 # GNOME Wayland session setup
 export GAMESCOPE_WIDTH=${GAMESCOPE_WIDTH:-1920}
 export GAMESCOPE_HEIGHT=${GAMESCOPE_HEIGHT:-1080}
 export GAMESCOPE_REFRESH=${GAMESCOPE_REFRESH:-60}
+
+# Display scaling support
+# HELIX_DISPLAY_SCALE (e.g., "1.5" or "2") sets the scale factor for GTK/Qt apps
+# GNOME Shell's --virtual-monitor sets the compositor resolution
+if [ -n "$HELIX_DISPLAY_SCALE" ] && [ "$HELIX_DISPLAY_SCALE" != "1" ]; then
+    export GDK_SCALE=$HELIX_DISPLAY_SCALE
+    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
+    export QT_SCALE_FACTOR=$HELIX_DISPLAY_SCALE
+    gow_log "[start] Display scaling enabled: ${HELIX_DISPLAY_SCALE}x"
+else
+    gow_log "[start] Display scaling: 1x (default)"
+fi
 
 # Enable nested mode for Mutter (running inside Wolf's compositor)
 export MUTTER_ALLOW_NESTED=1
@@ -418,6 +438,19 @@ export XDG_CURRENT_DESKTOP=GNOME
 export XDG_SESSION_DESKTOP=gnome
 export XDG_SESSION_TYPE=wayland
 export DESKTOP_SESSION=gnome
+
+# Ensure IBus is disabled (fixes keyboard input issues with modifier keys)
+export GTK_IM_MODULE=gtk-im-context-simple
+export QT_IM_MODULE=gtk-im-context-simple
+export XMODIFIERS=@im=none
+
+# Display scaling (inherited from outer script, re-export to ensure availability)
+if [ -n "$HELIX_DISPLAY_SCALE" ] && [ "$HELIX_DISPLAY_SCALE" != "1" ]; then
+    export GDK_SCALE=$HELIX_DISPLAY_SCALE
+    export GDK_DPI_SCALE=1
+    export QT_SCALE_FACTOR=$HELIX_DISPLAY_SCALE
+    gow_log "[start] GTK/Qt display scaling: ${HELIX_DISPLAY_SCALE}x"
+fi
 
 # GNOME 49 Mutter SDK (--devkit) Architecture:
 # =============================================
