@@ -444,12 +444,21 @@ export GTK_IM_MODULE=gtk-im-context-simple
 export QT_IM_MODULE=gtk-im-context-simple
 export XMODIFIERS=@im=none
 
-# Display scaling (inherited from outer script, re-export to ensure availability)
-if [ -n "$HELIX_DISPLAY_SCALE" ] && [ "$HELIX_DISPLAY_SCALE" != "1" ]; then
-    export GDK_SCALE=$HELIX_DISPLAY_SCALE
+# Display scaling
+# HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by wolf_executor
+# Convert to scale factor: 100→1, 150→1.5, 200→2
+# Compositor scaling is set via gnome-randr after gnome-shell starts (see below)
+ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
+if [ "\$ZOOM_LEVEL" -gt 100 ]; then
+    # Calculate scale factor from zoom percentage (e.g., 200% → 2)
+    HELIX_SCALE_FACTOR=\$(echo "scale=1; \$ZOOM_LEVEL / 100" | bc)
+    export GDK_SCALE=\$HELIX_SCALE_FACTOR
     export GDK_DPI_SCALE=1
-    export QT_SCALE_FACTOR=$HELIX_DISPLAY_SCALE
-    gow_log "[start] GTK/Qt display scaling: ${HELIX_DISPLAY_SCALE}x"
+    export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
+    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=\$ZOOM_LEVEL)"
+else
+    HELIX_SCALE_FACTOR=""
+    gow_log "[start] Display scaling: 1x (default)"
 fi
 
 # GNOME 49 Mutter SDK (--devkit) Architecture:
@@ -495,6 +504,13 @@ gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indica
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
 
+# Enable fractional scaling experimental feature (needed for non-integer scales like 1.5)
+# This must be set before gnome-shell starts to take effect
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+    gow_log "[start] Enabling fractional scaling experimental feature..."
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+fi
+
 # Start Helix services - these need wayland-0 (Mutter's client socket)
 if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
   gow_log "[start] Starting settings-sync-daemon..."
@@ -514,6 +530,28 @@ if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
   gow_log "[start] Starting RemoteDesktop session (video + input)..."
   /opt/gow/remotedesktop-session.py >> /tmp/remotedesktop-session.log 2>&1 &
   gow_log "[start] RemoteDesktop session started in background"
+fi
+
+# Set display scale after GNOME Shell is ready (if scaling is enabled)
+# gnome-randr is used to configure the virtual monitor's scale factor
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+  (
+    gow_log "[start] Waiting for GNOME Shell to start before setting display scale..."
+    for i in \$(seq 1 60); do
+      if pgrep -x gnome-shell > /dev/null 2>&1; then
+        gow_log "[start] gnome-shell detected, waiting 3 seconds for display initialization..."
+        sleep 3
+        break
+      fi
+      sleep 1
+    done
+    gow_log "[start] Setting display scale to \${HELIX_SCALE_FACTOR}x via gnome-randr..."
+    # WAYLAND_DISPLAY=wayland-0 is Mutter's client socket
+    WAYLAND_DISPLAY=wayland-0 gnome-randr modify Meta-0 --scale \$HELIX_SCALE_FACTOR 2>&1 | while read line; do
+      gow_log "[start] gnome-randr: \$line"
+    done
+    gow_log "[start] Display scale configured"
+  ) &
 fi
 
 # Launch Zed after GNOME Shell is ready - it needs wayland-0
