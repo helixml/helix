@@ -760,9 +760,12 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 
 	// Check screenshot server response status
 	if screenshotResp.StatusCode != http.StatusOK {
+		// Read response body for debugging
+		errorBody, _ := io.ReadAll(screenshotResp.Body)
 		log.Error().
 			Int("status", screenshotResp.StatusCode).
 			Str("container_name", containerName).
+			Str("error_body", string(errorBody)).
 			Msg("Screenshot server returned error")
 		http.Error(res, "Failed to retrieve screenshot from container", screenshotResp.StatusCode)
 		return
