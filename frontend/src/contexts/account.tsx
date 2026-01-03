@@ -293,25 +293,38 @@ export const useAccountContext = (): IAccountContext => {
     snackbar,
   ])
 
-  const onLogout = useCallback(() => {
+  const onLogout = useCallback(async () => {
     setLoggingOut(true)
     try {
-      fetch(`/api/v1/auth/logout`, {
+      // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
+      // which would fail due to CORS when redirecting to Keycloak
+      const response = await fetch(`/api/v1/auth/logout`, {
         method: 'POST',
-      })
-        .then(response => {
-          console.log(response);
-          if (response.redirected) {
-            window.location.href = response.url;
-          }
+        redirect: 'manual',
+      });
+
+      // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
+      // We can't read the Location header, so we make another request to get the redirect URL as JSON
+      if (response.type === 'opaqueredirect') {
+        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true`, {
+          method: 'POST',
         });
+        if (urlResponse.ok) {
+          const data = await urlResponse.json();
+          if (data.url) {
+            window.location.href = data.url;
+          }
+        }
+      } else if (response.redirected) {
+        window.location.href = response.url;
+      }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       snackbar.error(errorMessage)
     }
   }, [
-    api,
+    snackbar,
   ])
 
   const initialize = useCallback(async () => {

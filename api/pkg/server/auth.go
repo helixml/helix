@@ -806,6 +806,11 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
 	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
+		// If get_url=true query param is set, return the URL as JSON instead of redirecting
+		if r.URL.Query().Get("get_url") == "true" {
+			writeResponse(w, map[string]string{"url": s.Cfg.WebServer.URL}, http.StatusOK)
+			return
+		}
 		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
@@ -822,6 +827,14 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
+
+	// If get_url=true query param is set, return the URL as JSON instead of redirecting
+	// This is needed because browsers can't follow cross-origin redirects from fetch()
+	if r.URL.Query().Get("get_url") == "true" {
+		writeResponse(w, map[string]string{"url": logoutURL}, http.StatusOK)
+		return
+	}
+
 	http.Redirect(w, r, logoutURL, http.StatusFound)
 
 }
