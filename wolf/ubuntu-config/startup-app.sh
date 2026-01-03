@@ -237,23 +237,6 @@ UPDATE_EOF
 echo "Update notifier disabled"
 
 # ============================================================================
-# Hide GNOME Screen Recording Indicator
-# ============================================================================
-# When PipeWire ScreenCast is active, GNOME shows a recording indicator in the
-# top panel with a "stop" button. If users click this, it terminates the
-# ScreenCast session and disconnects their stream. Hide this indicator via CSS.
-echo "Hiding GNOME screen recording indicator..."
-mkdir -p ~/.local/share/gnome-shell/
-cat > ~/.local/share/gnome-shell/gnome-shell.css <<'GNOME_CSS_EOF'
-/* Hide the screen recording indicator to prevent users from accidentally
-   stopping the PipeWire ScreenCast session that provides video streaming */
-.screencast-indicator {
-    display: none !important;
-}
-GNOME_CSS_EOF
-echo "Screen recording indicator hidden"
-
-# ============================================================================
 # Disable IBus Input Method Framework
 # ============================================================================
 # IBus can interfere with keyboard input in remote streaming environments

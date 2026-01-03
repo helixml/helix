@@ -453,6 +453,15 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
+# Enable Just Perfection extension and hide screen recording indicator
+# This MUST be done before gnome-shell starts so the extension is loaded
+# The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
+gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
+gsettings set org.gnome.shell enabled-extensions "['just-perfection-desktop@just-perfection']"
+gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
+gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
+gow_log "[start] Just Perfection extension configured"
+
 # Start Helix services - these need wayland-0 (Mutter's client socket)
 if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
   gow_log "[start] Starting settings-sync-daemon..."
@@ -580,6 +589,18 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     ZED_HTTP_INSECURE_TLS=1
 
 RUN git config --system http.sslVerify false
+
+# Just Perfection extension - hide screen recording indicator in GNOME 49
+# When PipeWire ScreenCast is active, GNOME shows a recording indicator with a "stop" button.
+# Clicking this button terminates the ScreenCast session and crashes the stream for everyone.
+# This extension hides the indicator to prevent accidental session termination.
+RUN mkdir -p /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection
+COPY wolf/ubuntu-config/gnome-extensions/just-perfection-desktop@just-perfection.zip /tmp/
+RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
+    rm /tmp/just-perfection-desktop@just-perfection.zip && \
+    # Compile the extension's schema for system-wide use
+    cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
+    glib-compile-schemas /usr/share/glib-2.0/schemas/
 
 # Pre-build fontconfig cache (major speedup for first browser launch)
 RUN fc-cache -f -v
