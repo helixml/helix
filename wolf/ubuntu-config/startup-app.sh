@@ -668,17 +668,19 @@ if [ "\$ZOOM_LEVEL" -gt 100 ]; then
     export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
     echo "[gnome-session] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=\$ZOOM_LEVEL)"
 
-    # Enable fractional scaling experimental feature (needed for non-integer scales like 1.5)
+    # Enable fractional scaling experimental features (needed for non-integer scales like 1.5)
     # Must be set before gnome-shell starts
-    echo "[gnome-session] Enabling fractional scaling experimental feature..."
-    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+    # See: https://wiki.archlinux.org/title/HiDPI
+    echo "[gnome-session] Enabling fractional scaling experimental features..."
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
 else
     HELIX_SCALE_FACTOR=""
     echo "[gnome-session] Display scaling: 1x (default)"
 fi
 
-# Background task to set display scale via gnome-randr after gnome-shell starts
-# gnome-randr modify is the proper way to set scale on headless virtual monitors
+# Background task to set display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
+# gnome-randr doesn't work with Mutter (it's for wlroots). Use D-Bus API directly.
+# See: https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml
 if [ -n "\$HELIX_SCALE_FACTOR" ]; then
     (
         echo "[gnome-session] Waiting for GNOME Shell to start before setting display scale..."
@@ -690,10 +692,40 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
             fi
             sleep 1
         done
-        echo "[gnome-session] Setting display scale to \${HELIX_SCALE_FACTOR}x via gnome-randr..."
-        WAYLAND_DISPLAY=wayland-0 gnome-randr modify Meta-0 --scale \$HELIX_SCALE_FACTOR 2>&1 | while read line; do
-            echo "[gnome-session] gnome-randr: \$line"
-        done
+
+        echo "[gnome-session] Setting display scale to \${HELIX_SCALE_FACTOR}x via D-Bus ApplyMonitorsConfig..."
+
+        # Get current state to retrieve serial and monitor info
+        # GetCurrentState returns: (serial, monitors, logical_monitors, properties)
+        STATE=\$(gdbus call --session \\
+            --dest org.gnome.Mutter.DisplayConfig \\
+            --object-path /org/gnome/Mutter/DisplayConfig \\
+            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
+
+        echo "[gnome-session] Current state: \$STATE"
+
+        # Extract serial (first number in the response)
+        SERIAL=\$(echo "\$STATE" | grep -oP '^\(\K\d+' | head -1)
+        if [ -z "\$SERIAL" ]; then
+            echo "[gnome-session] ERROR: Failed to get serial from GetCurrentState"
+        else
+            echo "[gnome-session] Serial: \$SERIAL"
+
+            # Apply the new scale using ApplyMonitorsConfig
+            # Parameters: serial, method (1=temporary), logical_monitors, properties
+            # logical_monitors: [(x, y, scale, transform, primary, [(connector, mode_id, props)])]
+            # For Meta-0 virtual monitor at ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}
+            RESULT=\$(gdbus call --session \\
+                --dest org.gnome.Mutter.DisplayConfig \\
+                --object-path /org/gnome/Mutter/DisplayConfig \\
+                --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
+                \$SERIAL 1 \\
+                "[(0, 0, \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000000', {})])]" \\
+                "{}" 2>&1)
+
+            echo "[gnome-session] ApplyMonitorsConfig result: \$RESULT"
+        fi
+
         echo "[gnome-session] Display scale configured"
     ) &
 fi
