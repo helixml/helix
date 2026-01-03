@@ -698,13 +698,21 @@ sleep 0.5
     fi
 ) &
 
-echo "[gnome-session] Starting GNOME Shell in devkit mode..."
-echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}"
-
-# Start GNOME Shell in devkit mode with virtual monitor at correct resolution
-# --virtual-monitor WxH creates a persistent virtual monitor at the specified size
-# gnome-shell creates wayland-0 for client apps
-gnome-shell --devkit --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}
+# Determine GNOME Shell mode based on video source
+# - PipeWire mode: Use --headless (no display output, capture via pipewiresrc)
+# - Wayland mode: Use --nested (outputs to Wolf's Wayland display for waylanddisplaysrc)
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    echo "[gnome-session] Starting GNOME Shell in HEADLESS mode (PipeWire capture)..."
+    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+    # --headless: No display output (we capture via pipewiresrc ScreenCast)
+    # --virtual-monitor WxH@R: Creates a virtual monitor at specified size and refresh rate
+    gnome-shell --headless --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+else
+    echo "[gnome-session] Starting GNOME Shell in NESTED mode (Wayland capture)..."
+    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+    # --nested: Outputs to parent Wayland display (Wolf's waylanddisplaysrc captures this)
+    gnome-shell --nested --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+fi
 GNOME_SESSION_EOF
 
 chmod +x /tmp/gnome-session.sh

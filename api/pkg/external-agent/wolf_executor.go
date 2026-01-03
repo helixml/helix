@@ -307,12 +307,21 @@ func (w *WolfExecutor) computeZedImageFromVersion(desktopType DesktopType, wolfI
 func (w *WolfExecutor) createDesktopWolfApp(config DesktopWolfAppConfig) *wolf.App {
 	// GOW_REQUIRED_DEVICES tells the GOW container launcher which device files to pass through.
 	// We include all possible GPU devices - the glob won't match non-existent devices.
-	// - /dev/uinput: User-space input device (for virtual keyboard/mouse from streaming client)
-	// - /dev/input/*: Input devices (event*, mice, mouse*)
 	// - /dev/dri/*: DRM render nodes (Intel/AMD/software)
 	// - /dev/nvidia*: NVIDIA GPU devices
 	// - /dev/kfd: AMD ROCm Kernel Fusion Driver
-	gpuDevices := "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
+	//
+	// NOTE: /dev/uinput is ONLY needed for Sway desktop (uses inputtino for input injection).
+	// Ubuntu/GNOME desktop uses D-Bus RemoteDesktop API via InputBridge - no uinput needed.
+	// If uinput is mounted from host, inputtino fallback devices leak to host X11 session!
+	var gpuDevices string
+	if config.DesktopType == DesktopUbuntu {
+		// Ubuntu uses D-Bus RemoteDesktop API - no uinput needed
+		gpuDevices = "/dev/dri/* /dev/nvidia* /dev/kfd"
+	} else {
+		// Sway and other desktops use inputtino (uinput) for input
+		gpuDevices = "/dev/uinput /dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd"
+	}
 
 	// Extract host:port and TLS setting from API URL for Zed WebSocket connection
 	zedHelixURL, zedHelixTLS := extractHostPortAndTLS(w.helixAPIURL)

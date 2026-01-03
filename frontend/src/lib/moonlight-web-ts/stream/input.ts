@@ -206,12 +206,16 @@ export class StreamInput {
 
     // -- Mouse
     onMouseDown(event: MouseEvent, rect: DOMRect) {
+        console.log(`[StreamInput] onMouseDown: event.button=${event.button}, mouseMode=${this.config.mouseMode}`)
         const button = convertToButton(event)
         if (button == null) {
+            console.warn(`[StreamInput] onMouseDown: convertToButton returned null for event.button=${event.button}`)
             return
         }
+        console.log(`[StreamInput] onMouseDown: converted button=${button}`)
 
         if (this.config.mouseMode == "relative" || this.config.mouseMode == "follow") {
+            console.log(`[StreamInput] onMouseDown: calling sendMouseButton(true, ${button})`)
             this.sendMouseButton(true, button)
         } else if (this.config.mouseMode == "pointAndDrag") {
             this.sendMousePositionClientCoordinates(event.clientX, event.clientY, rect, button)
@@ -391,7 +395,9 @@ export class StreamInput {
     }
     // Note: button = StreamMouseButton.
     sendMouseButton(isDown: boolean, button: number) {
-        console.log(`[INPUT_DEBUG] sendMouseButton: isDown=${isDown} button=${button} (1=left, 2=middle, 3=right, 4=X1, 5=X2)`);
+        // If this log appears, the WebSocket patching is NOT working!
+        // In WebSocket mode, this method should be replaced by WebSocketStream.sendMouseButton
+        console.error(`[StreamInput] sendMouseButton CALLED DIRECTLY (patching failed?): isDown=${isDown} button=${button}`);
 
         this.buffer.reset()
 

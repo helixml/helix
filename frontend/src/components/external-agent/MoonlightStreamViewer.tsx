@@ -2859,7 +2859,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Input event handlers
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    getInputHandler()?.onMouseDown(event.nativeEvent, getStreamRect());
+    const handler = getInputHandler();
+    const rect = getStreamRect();
+    console.log(`[MoonlightStreamViewer] handleMouseDown: handler=${!!handler}, rect=${rect.width}x${rect.height}`);
+    handler?.onMouseDown(event.nativeEvent, rect);
   }, [getStreamRect, getInputHandler]);
 
   const handleMouseUp = useCallback((event: React.MouseEvent) => {
@@ -3697,8 +3700,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       {/* Canvas Element (WebSocket mode only) - centered with proper aspect ratio */}
       <canvas
         ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
+        onMouseDown={(e) => {
+          console.log('[CANVAS] onMouseDown fired, button=', e.button);
+          handleMouseDown(e);
+        }}
+        onMouseUp={(e) => {
+          console.log('[CANVAS] onMouseUp fired, button=', e.button);
+          handleMouseUp(e);
+        }}
         onMouseMove={handleMouseMove}
         onMouseEnter={resetInputState}
         onContextMenu={handleContextMenu}

@@ -1321,6 +1321,7 @@ export class WebSocketStream {
 
   private sendInputMessage(type: number, payload: Uint8Array) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[WebSocketStream] sendInputMessage: WS not ready (ws=${!!this.ws}, state=${this.ws?.readyState}), dropping input type=0x${type.toString(16)}`)
       return
     }
 
@@ -1538,6 +1539,7 @@ export class WebSocketStream {
   }
 
   sendMouseButton(isDown: boolean, button: number) {
+    console.log(`[WebSocketStream] sendMouseButton: isDown=${isDown} button=${button} (1=left, 2=middle, 3=right)`)
     // Format: subType(1) + isDown(1) + button(1)
     this.inputBuffer[0] = 2 // sub-type for button
     this.inputBuffer[1] = isDown ? 1 : 0
