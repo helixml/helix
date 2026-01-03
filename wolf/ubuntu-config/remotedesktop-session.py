@@ -85,17 +85,20 @@ class RemoteDesktopSession:
         self.node_id = None
 
         self.wolf_socket = os.environ.get("WOLF_LOBBY_SOCKET_PATH", "/var/run/wolf/lobby.sock")
-        self.wolf_session_id = os.environ.get("WOLF_SESSION_ID", "")
+        # Use HELIX_SESSION_ID (set by wolf_executor) - WOLF_SESSION_ID was never passed
+        self.wolf_session_id = os.environ.get("HELIX_SESSION_ID", "")
         self.xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")
         self.input_socket = f"{self.xdg_runtime_dir}/wolf-input.sock"
         self.input_server = None  # Socket server, created by create_input_socket()
         self.mouse_move_count = 0  # Counter for debug logging
 
         if not self.wolf_session_id:
-            log("ERROR: WOLF_SESSION_ID not set")
-            sys.exit(1)
+            log("ERROR: HELIX_SESSION_ID not set (required for Wolf session management)")
+            # Don't exit - continue without Wolf session reporting
+            # The input bridge can still work even without reporting to Wolf
+            log("WARNING: Continuing without Wolf session ID - input may not work")
 
-        log(f"Wolf session ID: {self.wolf_session_id}")
+        log(f"Session ID: {self.wolf_session_id or '(not set)'}")
         log(f"Wolf socket: {self.wolf_socket}")
 
     def connect(self):
@@ -320,6 +323,16 @@ class RemoteDesktopSession:
 
         log(f"PipeWire node ID: {self.node_id}")
 
+        # Save node ID to file for screenshot script to use
+        # gnome-screenshot.py reads this to capture frames from the existing stream
+        node_id_file = "/tmp/pipewire-node-id"
+        try:
+            with open(node_id_file, 'w') as f:
+                f.write(str(self.node_id))
+            log(f"Saved PipeWire node ID to {node_id_file}")
+        except Exception as e:
+            log(f"WARNING: Failed to save node ID to file: {e}")
+
     def report_to_wolf(self):
         """Report node ID and input socket to Wolf."""
         log(f"Session summary:")
@@ -367,8 +380,15 @@ class RemoteDesktopSession:
         log(f"Input socket created and listening")
 
     def run_input_bridge(self):
-        """Run the input bridge in the main thread (socket must already exist)."""
+        """Run the input bridge in the main thread (socket must already exist).
+
+        CRITICAL: We must process GLib/D-Bus events in this loop to keep the
+        ScreenCast session alive. GNOME cleans up sessions if the D-Bus client
+        doesn't respond to pings.
+        """
         log(f"Starting input bridge accept loop...")
+        context = GLib.MainContext.default()
+        dbus_iteration_count = 0
 
         while self.running:
             try:
@@ -377,6 +397,13 @@ class RemoteDesktopSession:
                 thread.daemon = True
                 thread.start()
             except socket.timeout:
+                # CRITICAL: Process pending D-Bus events on every timeout
+                # This keeps the RemoteDesktop/ScreenCast session alive
+                while context.pending():
+                    context.iteration(False)
+                dbus_iteration_count += 1
+                if dbus_iteration_count == 1 or dbus_iteration_count % 60 == 0:
+                    log(f"D-Bus keepalive iteration #{dbus_iteration_count}")
                 continue
             except Exception as e:
                 if self.running:
@@ -569,6 +596,8 @@ class RemoteDesktopSession:
             # Wolf will try to connect immediately after receiving the path
             self.create_input_socket()
             self.report_to_wolf()
+            # run_input_bridge processes D-Bus events in its timeout handler
+            # to keep the ScreenCast session alive
             self.run_input_bridge()
         except Exception as e:
             log(f"ERROR: {e}")

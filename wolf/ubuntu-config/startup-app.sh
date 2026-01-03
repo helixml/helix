@@ -697,17 +697,23 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
 
         # Get current state to retrieve serial and monitor info
         # GetCurrentState returns: (serial, monitors, logical_monitors, properties)
+        # gdbus format: (uint32 123, [...], [...], {...})
         STATE=\$(gdbus call --session \\
             --dest org.gnome.Mutter.DisplayConfig \\
             --object-path /org/gnome/Mutter/DisplayConfig \\
             --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
 
-        echo "[gnome-session] Current state: \$STATE"
+        # Log first 500 chars of state (full output is very long)
+        echo "[gnome-session] Current state (first 500 chars): \${STATE:0:500}"
 
-        # Extract serial (first number in the response)
-        SERIAL=\$(echo "\$STATE" | grep -oP '^\(\K\d+' | head -1)
+        # Extract serial - handle both formats:
+        # Format 1: (uint32 123, ...) - GNOME's gdbus output
+        # Format 2: (123, ...) - plain format
+        # Use grep to find first number after opening paren
+        SERIAL=\$(echo "\$STATE" | grep -oP '\(uint32\s+\K\d+|\(\K\d+' | head -1)
         if [ -z "\$SERIAL" ]; then
             echo "[gnome-session] ERROR: Failed to get serial from GetCurrentState"
+            echo "[gnome-session] Raw state for debugging: \$STATE"
         else
             echo "[gnome-session] Serial: \$SERIAL"
 
@@ -715,15 +721,28 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
             # Parameters: serial, method (1=temporary), logical_monitors, properties
             # logical_monitors: [(x, y, scale, transform, primary, [(connector, mode_id, props)])]
             # For Meta-0 virtual monitor at ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}
+            #
+            # NOTE: scale must be a double (d) in GVariant notation
+            # Method 1 = temporary (doesn't persist), Method 2 = persistent
+            echo "[gnome-session] Calling ApplyMonitorsConfig: serial=\$SERIAL scale=\$HELIX_SCALE_FACTOR mode=${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
             RESULT=\$(gdbus call --session \\
                 --dest org.gnome.Mutter.DisplayConfig \\
                 --object-path /org/gnome/Mutter/DisplayConfig \\
                 --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
                 \$SERIAL 1 \\
-                "[(0, 0, \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000000', {})])]" \\
+                "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000000', {})])]" \\
                 "{}" 2>&1)
 
             echo "[gnome-session] ApplyMonitorsConfig result: \$RESULT"
+
+            # Check if it failed and log helpful debug info
+            if echo "\$RESULT" | grep -qi "error"; then
+                echo "[gnome-session] ERROR: ApplyMonitorsConfig failed. Trying alternative approach with monitor query..."
+
+                # Try to list available monitors for debugging
+                echo "[gnome-session] Available monitors in GetCurrentState:"
+                echo "\$STATE" | grep -oP "'Meta-[^']*'" | head -5 || echo "(none found)"
+            fi
         fi
 
         echo "[gnome-session] Display scale configured"

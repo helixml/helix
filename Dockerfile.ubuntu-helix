@@ -528,12 +528,15 @@ fi
 # Shell gdbus calls create new connections which GNOME cleans up after disconnect
 if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
   gow_log "[start] Starting RemoteDesktop session (video + input)..."
-  /opt/gow/remotedesktop-session.py >> /tmp/remotedesktop-session.log 2>&1 &
-  gow_log "[start] RemoteDesktop session started in background"
+  # Use python3 -u for unbuffered output so logs appear immediately in docker logs
+  # stdbuf ensures tee also doesn't buffer
+  stdbuf -oL -eL python3 -u /opt/gow/remotedesktop-session.py 2>&1 | stdbuf -oL tee /tmp/remotedesktop-session.log >&2 &
+  gow_log "[start] RemoteDesktop session started (PID: \$!)"
 fi
 
 # Set display scale after GNOME Shell is ready (if scaling is enabled)
-# gnome-randr is used to configure the virtual monitor's scale factor
+# Uses D-Bus org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig API
+# gnome-randr is NOT installed and doesn't work with Mutter anyway
 if [ -n "\$HELIX_SCALE_FACTOR" ]; then
   (
     gow_log "[start] Waiting for GNOME Shell to start before setting display scale..."
@@ -545,11 +548,44 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
       fi
       sleep 1
     done
-    gow_log "[start] Setting display scale to \${HELIX_SCALE_FACTOR}x via gnome-randr..."
-    # WAYLAND_DISPLAY=wayland-0 is Mutter's client socket
-    WAYLAND_DISPLAY=wayland-0 gnome-randr modify Meta-0 --scale \$HELIX_SCALE_FACTOR 2>&1 | while read line; do
-      gow_log "[start] gnome-randr: \$line"
-    done
+
+    gow_log "[start] Setting display scale to \${HELIX_SCALE_FACTOR}x via D-Bus ApplyMonitorsConfig..."
+
+    # Get current state to retrieve serial (required for ApplyMonitorsConfig)
+    # GetCurrentState returns: (serial, monitors, logical_monitors, properties)
+    STATE=\$(gdbus call --session \\
+        --dest org.gnome.Mutter.DisplayConfig \\
+        --object-path /org/gnome/Mutter/DisplayConfig \\
+        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
+
+    gow_log "[start] GetCurrentState response (first 300 chars): \${STATE:0:300}"
+
+    # Extract serial - handle both formats: (uint32 123, ...) or (123, ...)
+    SERIAL=\$(echo "\$STATE" | grep -oP '\(uint32\s+\K\d+|\(\K\d+' | head -1)
+    if [ -z "\$SERIAL" ]; then
+        gow_log "[start] ERROR: Failed to extract serial from GetCurrentState"
+        gow_log "[start] Full response: \$STATE"
+    else
+        gow_log "[start] Serial: \$SERIAL, applying scale \$HELIX_SCALE_FACTOR to Meta-0..."
+
+        # ApplyMonitorsConfig parameters:
+        # serial (u), method (u: 1=temporary, 2=persistent),
+        # logical_monitors [(x:i, y:i, scale:d, transform:u, primary:b, monitors[(connector:s, mode_id:s, props:a{sv})])]
+        # properties (a{sv})
+        RESULT=\$(gdbus call --session \\
+            --dest org.gnome.Mutter.DisplayConfig \\
+            --object-path /org/gnome/Mutter/DisplayConfig \\
+            --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
+            \$SERIAL 1 \\
+            "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}.000000', {})])]" \\
+            "{}" 2>&1)
+
+        if echo "\$RESULT" | grep -qi "error"; then
+            gow_log "[start] ERROR: ApplyMonitorsConfig failed: \$RESULT"
+        else
+            gow_log "[start] ApplyMonitorsConfig success: \$RESULT"
+        fi
+    fi
     gow_log "[start] Display scale configured"
   ) &
 fi
@@ -571,19 +607,23 @@ if [ -x /zed-build/zed ]; then
   ) &
 fi
 
-gow_log "[start] Starting GNOME Shell (devkit mode)"
 gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
 
-# GNOME 49 Mutter SDK (--devkit):
-# - gnome-shell creates wayland-0 for client apps
-# - mutter-devkit spawned by --devkit inherits our WAYLAND_DISPLAY ($WOLF_WAYLAND_DISPLAY)
-# - mutter-devkit reads screen via ScreenCast API + PipeWire (DMA-BUF zero-copy!)
-# - mutter-devkit renders to Wolf's Wayland display
-# - No custom GStreamer bridge needed!
+# GNOME 49 supports two modes:
+# - PipeWire mode (--headless): No display output, Wolf uses pipewiresrc to capture from PipeWire
+# - Wayland mode (--nested): Outputs to Wolf's Wayland display, Wolf uses waylanddisplaysrc
+#
+# --virtual-monitor WxH@R creates a virtual display at the specified resolution
 
-# Start GNOME Shell in devkit mode with virtual monitor at correct resolution
-# --virtual-monitor WxH@R sets the virtual display size and refresh rate
-gnome-shell --devkit --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
+    # --headless: No display output - Wolf captures via pipewiresrc from ScreenCast
+    gnome-shell --headless --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+else
+    gow_log "[start] Starting GNOME Shell in NESTED mode (Wayland capture)"
+    # --nested: Outputs to Wolf's Wayland display - Wolf captures via waylanddisplaysrc
+    gnome-shell --nested --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+fi
 GNOME_EOF
 
 chmod +x $XDG_RUNTIME_DIR/start_gnome
@@ -600,12 +640,13 @@ ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
+ADD wolf/ubuntu-config/gnome-screenshot.py /usr/local/bin/gnome-screenshot.py
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
 ADD wolf/ubuntu-config/start-remotedesktop-session.sh /opt/gow/start-remotedesktop-session.sh
 ADD wolf/ubuntu-config/remotedesktop-session.py /opt/gow/remotedesktop-session.py
 ADD wolf/ubuntu-config/input-bridge.py /opt/gow/input-bridge.py
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/remotedesktop-session.py /opt/gow/input-bridge.py
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/remotedesktop-session.py /opt/gow/input-bridge.py
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
@@ -669,6 +710,8 @@ RUN mkdir -p /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perf
 COPY wolf/ubuntu-config/gnome-extensions/just-perfection-desktop@just-perfection.zip /tmp/
 RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
     rm /tmp/just-perfection-desktop@just-perfection.zip && \
+    # Fix permissions (metadata.json in zip has 600, needs to be readable by retro user)
+    chmod -R a+rX /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
     # Compile the extension's schema for system-wide use
     cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
     glib-compile-schemas /usr/share/glib-2.0/schemas/

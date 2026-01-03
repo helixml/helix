@@ -476,27 +476,30 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 	return pngData, "png", nil
 }
 
-// captureScreenshotGNOMEScreenCast captures a screenshot using GNOME's ScreenCast API
+// captureScreenshotGNOMEScreenCast captures a screenshot using the existing PipeWire stream.
 // This is the fallback method for GNOME 49+ where the Screenshot D-Bus API is blocked.
-// Uses org.gnome.Mutter.ScreenCast which is NOT blocked (same API that mutter-devkit uses).
-// Calls gnome-screencast-screenshot.sh helper script which:
-// 1. Creates a ScreenCast session via D-Bus
-// 2. Records the current monitor
-// 3. Captures one frame via GStreamer pipewiresrc
-// 4. Saves as PNG
+// Uses gnome-screenshot.py which reads the PipeWire node ID saved by remotedesktop-session.py
+// and captures a frame from the existing ScreenCast stream (no new D-Bus session needed).
 func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, string, error) {
-	log.Printf("[GNOME/ScreenCast] Capturing screenshot via ScreenCast API...")
+	log.Printf("[GNOME/PipeWire] Capturing screenshot from existing ScreenCast stream...")
 
 	// Create temp file for output
 	tmpDir := os.TempDir()
 	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
 	defer os.Remove(filename)
 
-	// Call the helper script
-	cmd := exec.Command("/usr/local/bin/gnome-screencast-screenshot.sh", filename)
+	// Try Python script first (uses existing PipeWire stream - no D-Bus race)
+	cmd := exec.Command("/usr/local/bin/gnome-screenshot.py", filename)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, "", fmt.Errorf("ScreenCast screenshot failed: %v, output: %s", err, string(output))
+		log.Printf("[GNOME/PipeWire] Python script failed: %v, output: %s", err, string(output))
+		// Fall back to shell script (legacy, may still fail)
+		log.Printf("[GNOME/PipeWire] Trying legacy shell script...")
+		cmd = exec.Command("/usr/local/bin/gnome-screencast-screenshot.sh", filename)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return nil, "", fmt.Errorf("Screenshot failed: %v, output: %s", err, string(output))
+		}
 	}
 
 	// Read the screenshot file
