@@ -289,7 +289,7 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-color-emoji fonts-dejavu-core \
     imagemagick \
     kitty \
-    scrot xclip \
+    scrot xclip x11-utils \
     grim slurp \
     && rm -rf /var/lib/apt/lists/*
 
@@ -519,7 +519,24 @@ fi
 
 if [ -x /usr/local/bin/screenshot-server ]; then
   gow_log "[start] Starting screenshot server with GNOME environment..."
-  # Uses org.gnome.Shell.Screenshot D-Bus API
+  # Start Xwayland explicitly on DISPLAY=:99 for scrot fallback
+  # GNOME headless may not auto-start Xwayland without X11 app demand
+  (
+    sleep 3  # Wait for gnome-shell's wayland-0 socket to be ready
+    if [ -S "\$XDG_RUNTIME_DIR/wayland-0" ]; then
+      gow_log "[start] Starting Xwayland on :99 for screenshot support..."
+      WAYLAND_DISPLAY=wayland-0 Xwayland :99 -auth /tmp/.Xauthority &
+      sleep 1
+      if [ -S "/tmp/.X11-unix/X99" ]; then
+        gow_log "[start] Xwayland started successfully on DISPLAY=:99"
+      else
+        gow_log "[start] WARNING: Xwayland may not have started properly"
+      fi
+    else
+      gow_log "[start] WARNING: wayland-0 not found, cannot start Xwayland"
+    fi
+  ) &
+  # Uses org.gnome.Shell.Screenshot D-Bus API, falls back to scrot via Xwayland
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
 fi
 

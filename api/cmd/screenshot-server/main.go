@@ -476,6 +476,47 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 	return pngData, "png", nil
 }
 
+// findXwaylandDisplay tries to detect the Xwayland display from socket files
+// GNOME/Mutter starts Xwayland on-demand, so we check for X socket files
+func findXwaylandDisplay() string {
+	// Check environment first
+	if display := os.Getenv("DISPLAY"); display != "" {
+		return display
+	}
+
+	// Check for X socket files in XDG_RUNTIME_DIR (Xwayland creates these)
+	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntimeDir == "" {
+		xdgRuntimeDir = "/run/user/1000"
+	}
+
+	// Display numbers to check - includes :99 which we start explicitly for GNOME headless
+	displayNumbers := []int{0, 1, 2, 99}
+
+	// Look for X socket files (format: X{N} where N is display number)
+	for _, i := range displayNumbers {
+		socketPath := filepath.Join(xdgRuntimeDir, fmt.Sprintf(".X11-unix/X%d", i))
+		if _, err := os.Stat(socketPath); err == nil {
+			display := fmt.Sprintf(":%d", i)
+			log.Printf("[GNOME/X11] Found Xwayland socket at %s, using DISPLAY=%s", socketPath, display)
+			return display
+		}
+	}
+
+	// Also check /tmp/.X11-unix (traditional location)
+	for _, i := range displayNumbers {
+		socketPath := fmt.Sprintf("/tmp/.X11-unix/X%d", i)
+		if _, err := os.Stat(socketPath); err == nil {
+			display := fmt.Sprintf(":%d", i)
+			log.Printf("[GNOME/X11] Found X socket at %s, using DISPLAY=%s", socketPath, display)
+			return display
+		}
+	}
+
+	log.Printf("[GNOME/X11] No X11 display socket found, defaulting to :99")
+	return ":99"
+}
+
 // captureScreenshotGNOMEScreenCast captures a screenshot using scrot via X11.
 // DISABLED: The PipeWire-based gnome-screenshot.py conflicts with Wolf's video capture.
 // Reading from the same PipeWire node as Wolf causes stream interference and crashes.
@@ -483,12 +524,9 @@ func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) 
 func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, string, error) {
 	log.Printf("[GNOME/X11] Screenshot D-Bus blocked, falling back to scrot via Xwayland...")
 
-	// Use scrot via X11 - this doesn't interfere with Wolf's PipeWire capture
-	// GNOME runs on Xwayland at DISPLAY=:0 (or :9 in some configs)
-	display := os.Getenv("DISPLAY")
-	if display == "" {
-		display = ":0" // Default for GNOME's Xwayland
-	}
+	// Detect Xwayland display from socket files
+	display := findXwaylandDisplay()
+	log.Printf("[GNOME/X11] Using DISPLAY=%s for scrot", display)
 
 	// Create temporary file for screenshot
 	tmpDir := os.TempDir()
@@ -510,6 +548,7 @@ func captureScreenshotGNOMEScreenCast(format string, quality int) ([]byte, strin
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		log.Printf("[GNOME/X11] scrot failed with DISPLAY=%s: %v, output: %s", display, err, string(output))
 		return nil, "", fmt.Errorf("scrot failed: %v, output: %s", err, string(output))
 	}
 
