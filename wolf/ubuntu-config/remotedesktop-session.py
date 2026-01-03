@@ -99,33 +99,67 @@ class RemoteDesktopSession:
         log(f"Wolf socket: {self.wolf_socket}")
 
     def connect(self):
-        """Connect to D-Bus and create proxies."""
-        log("Connecting to session D-Bus...")
-        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        """Connect to D-Bus and create proxies.
 
-        # Create proxy for RemoteDesktop service
-        self.rd_proxy = Gio.DBusProxy.new_sync(
-            self.bus,
-            Gio.DBusProxyFlags.NONE,
-            None,
-            REMOTE_DESKTOP_BUS,
-            REMOTE_DESKTOP_PATH,
-            REMOTE_DESKTOP_IFACE,
-            None
-        )
+        Retries connection until gnome-shell's D-Bus services are available.
+        This handles the race condition where this script starts before gnome-shell.
+        """
+        log("Waiting for gnome-shell D-Bus services...")
 
-        # Create proxy for ScreenCast service
-        self.sc_proxy = Gio.DBusProxy.new_sync(
-            self.bus,
-            Gio.DBusProxyFlags.NONE,
-            None,
-            SCREEN_CAST_BUS,
-            SCREEN_CAST_PATH,
-            SCREEN_CAST_IFACE,
-            None
-        )
+        max_retries = 60  # Wait up to 60 seconds
+        retry_interval = 1.0
 
-        log("D-Bus connected")
+        for attempt in range(max_retries):
+            try:
+                log(f"Connection attempt {attempt + 1}/{max_retries}...")
+                self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+                # Create proxy for RemoteDesktop service
+                self.rd_proxy = Gio.DBusProxy.new_sync(
+                    self.bus,
+                    Gio.DBusProxyFlags.NONE,
+                    None,
+                    REMOTE_DESKTOP_BUS,
+                    REMOTE_DESKTOP_PATH,
+                    REMOTE_DESKTOP_IFACE,
+                    None
+                )
+
+                # Verify the service is actually available by checking if we can get properties
+                # A proxy can be created even if the service isn't running, but calling methods will fail
+                try:
+                    self.rd_proxy.call_sync(
+                        "org.freedesktop.DBus.Introspectable.Introspect",
+                        None,
+                        Gio.DBusCallFlags.NONE,
+                        1000,  # 1 second timeout
+                        None
+                    )
+                except Exception:
+                    # Service not ready yet, retry
+                    raise Exception("RemoteDesktop service not ready")
+
+                # Create proxy for ScreenCast service
+                self.sc_proxy = Gio.DBusProxy.new_sync(
+                    self.bus,
+                    Gio.DBusProxyFlags.NONE,
+                    None,
+                    SCREEN_CAST_BUS,
+                    SCREEN_CAST_PATH,
+                    SCREEN_CAST_IFACE,
+                    None
+                )
+
+                log("D-Bus connected")
+                return  # Success!
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    log(f"D-Bus not ready ({e}), retrying in {retry_interval}s...")
+                    time.sleep(retry_interval)
+                else:
+                    log(f"Failed to connect to D-Bus after {max_retries} attempts")
+                    raise
 
     def create_session(self):
         """Create RemoteDesktop and linked ScreenCast sessions."""
