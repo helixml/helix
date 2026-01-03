@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -28,7 +27,7 @@ var getSpecTaskParameters = jsonschema.Definition{
 }
 
 type GetSpecTaskTool struct {
-	store store.Store
+	store     store.Store
 	projectID string
 }
 
@@ -90,6 +89,31 @@ type GetSpecTaskResult struct {
 	UpdatedAt          string `json:"updated_at"`
 }
 
+func (r *GetSpecTaskResult) ToString() string {
+	branchName := r.BranchName
+	if branchName == "" {
+		branchName = "-"
+	}
+	originalPrompt := r.OriginalPrompt
+	if originalPrompt == "" {
+		originalPrompt = "-"
+	}
+	requirementsSpec := r.RequirementsSpec
+	if requirementsSpec == "" {
+		requirementsSpec = "-"
+	}
+	technicalDesign := r.TechnicalDesign
+	if technicalDesign == "" {
+		technicalDesign = "-"
+	}
+	implementationPlan := r.ImplementationPlan
+	if implementationPlan == "" {
+		implementationPlan = "-"
+	}
+	return fmt.Sprintf("ID: %s\nTask: %s\nDescription: %s\nStatus: %s\nPriority: %s\nType: %s\nBranchName: %s\nOriginalPrompt: %s\nRequirementsSpec: %s\nTechnicalDesign: %s\nImplementationPlan: %s\nCreatedAt: %s\nUpdatedAt: %s",
+		r.ID, r.Name, r.Description, r.Status, r.Priority, r.Type, branchName, originalPrompt, requirementsSpec, technicalDesign, implementationPlan, r.CreatedAt, r.UpdatedAt)
+}
+
 func (t *GetSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	projectID := t.projectID
 	if projectID == "" {
@@ -138,12 +162,7 @@ func (t *GetSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map
 		UpdatedAt:          task.UpdatedAt.Format(time.RFC3339),
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	return string(resultJSON), nil
+	return result.ToString(), nil
 }
 
 // UpdateSpecTaskTool - updates an existing spec task

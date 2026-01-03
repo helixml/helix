@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
@@ -43,8 +42,8 @@ type ListSpecTasksTool struct {
 	projectID string
 }
 
-func NewListSpecTasksTool(projectID string,store store.Store) *ListSpecTasksTool {
-	return &ListSpecTasksTool{		
+func NewListSpecTasksTool(projectID string, store store.Store) *ListSpecTasksTool {
+	return &ListSpecTasksTool{
 		store:     store,
 		projectID: projectID,
 	}
@@ -83,21 +82,6 @@ func (t *ListSpecTasksTool) OpenAI() []openai.Tool {
 			},
 		},
 	}
-}
-
-type SpecTaskSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Priority    string `json:"priority"`
-	Type        string `json:"type"`
-	BranchName  string `json:"branch_name,omitempty"`
-}
-
-type ListSpecTasksResult struct {
-	Tasks []SpecTaskSummary `json:"tasks"`
-	Total int               `json:"total"`
 }
 
 func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
@@ -148,13 +132,16 @@ func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args m
 	summaries := make([]SpecTaskSummary, 0, len(tasks))
 	for _, task := range tasks {
 		summaries = append(summaries, SpecTaskSummary{
-			ID:          task.ID,
-			Name:        task.Name,
-			Description: task.Description,
-			Status:      string(task.Status),
-			Priority:    string(task.Priority),
-			Type:        task.Type,
-			BranchName:  task.BranchName,
+			ID:             task.ID,
+			Name:           task.Name,
+			Description:    task.Description,
+			Status:         string(task.Status),
+			Priority:       string(task.Priority),
+			BranchName:     task.BranchName,
+			PullRequestID:  task.PullRequestID,
+			PullRequestURL: task.PullRequestURL,
+			StartedAt:      task.StartedAt,
+			CompletedAt:    task.CompletedAt,
 		})
 	}
 
@@ -163,10 +150,5 @@ func (t *ListSpecTasksTool) Execute(ctx context.Context, meta agent.Meta, args m
 		Total: len(summaries),
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	return string(resultJSON), nil
+	return result.ToString(), nil
 }

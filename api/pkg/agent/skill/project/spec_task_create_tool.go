@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -103,6 +102,11 @@ type CreateSpecTaskResult struct {
 	Message     string `json:"message"`
 }
 
+func (r *CreateSpecTaskResult) ToString() string {
+	return fmt.Sprintf("ID: %s\nTask: %s\nDescription: %s\nStatus: %s\nPriority: %s\nType: %s\nMessage: %s",
+		r.ID, r.Name, r.Description, r.Status, r.Priority, r.Type, r.Message)
+}
+
 func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	projectID := t.projectID
 	if projectID == "" {
@@ -175,10 +179,5 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		Message:     "Task created successfully",
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	return string(resultJSON), nil
+	return result.ToString(), nil
 }

@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,9 +12,8 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-
 type UpdateSpecTaskTool struct {
-	store store.Store
+	store     store.Store
 	projectID string
 }
 
@@ -70,6 +68,15 @@ type UpdateSpecTaskResult struct {
 	Type        string   `json:"type"`
 	Updated     []string `json:"updated_fields"`
 	Message     string   `json:"message"`
+}
+
+func (r *UpdateSpecTaskResult) ToString() string {
+	updatedFields := "-"
+	if len(r.Updated) > 0 {
+		updatedFields = fmt.Sprintf("%v", r.Updated)
+	}
+	return fmt.Sprintf("ID: %s\nTask: %s\nDescription: %s\nStatus: %s\nPriority: %s\nType: %s\nUpdated Fields: %s\nMessage: %s",
+		r.ID, r.Name, r.Description, r.Status, r.Priority, r.Type, updatedFields, r.Message)
 }
 
 func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
@@ -149,10 +156,5 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		Message:     "Task updated successfully",
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	return string(resultJSON), nil
+	return result.ToString(), nil
 }
