@@ -641,14 +641,11 @@ RUN apt-get update && apt-get install -y python3-gi python3-dbus && rm -rf /var/
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-ADD wolf/ubuntu-config/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screencast-screenshot.sh
 ADD wolf/ubuntu-config/gnome-screenshot.py /usr/local/bin/gnome-screenshot.py
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
-ADD wolf/ubuntu-config/start-remotedesktop-session.sh /opt/gow/start-remotedesktop-session.sh
 ADD wolf/ubuntu-config/remotedesktop-session.py /opt/gow/remotedesktop-session.py
-ADD wolf/ubuntu-config/input-bridge.py /opt/gow/input-bridge.py
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screencast-screenshot.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/start-remotedesktop-session.sh /opt/gow/remotedesktop-session.py /opt/gow/input-bridge.py
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/remotedesktop-session.py
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh

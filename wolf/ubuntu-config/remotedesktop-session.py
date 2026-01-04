@@ -419,10 +419,15 @@ class RemoteDesktopSession:
         """Handle input from Wolf."""
         log("Input client connected")
         buffer = ""
+        # Set socket timeout so we can check self.running periodically
+        conn.settimeout(1.0)
 
         try:
             while self.running:
-                data = conn.recv(4096)
+                try:
+                    data = conn.recv(4096)
+                except socket.timeout:
+                    continue  # Check self.running and try again
                 if not data:
                     break
 
@@ -467,7 +472,7 @@ class RemoteDesktopSession:
                     "NotifyPointerMotionAbsolute",
                     GLib.Variant("(sdd)", (stream, x, y)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "mouse_move_rel":
@@ -477,7 +482,7 @@ class RemoteDesktopSession:
                     "NotifyPointerMotion",
                     GLib.Variant("(dd)", (dx, dy)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "button":
@@ -488,7 +493,7 @@ class RemoteDesktopSession:
                     "NotifyPointerButton",
                     GLib.Variant("(ib)", (button, state)),  # button: signed int (i), state: boolean (b)
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "scroll":
@@ -499,14 +504,14 @@ class RemoteDesktopSession:
                         "NotifyPointerAxisDiscrete",
                         GLib.Variant("(ui)", (0, dy)),
                         Gio.DBusCallFlags.NONE,
-                        -1, None
+                        1000, None  # 1 second timeout
                     )
                 if dx != 0:
                     self.rd_session_proxy.call_sync(
                         "NotifyPointerAxisDiscrete",
                         GLib.Variant("(ui)", (1, dx)),
                         Gio.DBusCallFlags.NONE,
-                        -1, None
+                        1000, None  # 1 second timeout
                     )
 
             elif event_type == "scroll_smooth":
@@ -518,7 +523,7 @@ class RemoteDesktopSession:
                     "NotifyPointerAxis",
                     GLib.Variant("(ddu)", (dx, dy, flags)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "key":
@@ -528,7 +533,7 @@ class RemoteDesktopSession:
                     "NotifyKeyboardKeycode",
                     GLib.Variant("(ub)", (keycode, state)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "touch_down":
@@ -541,7 +546,7 @@ class RemoteDesktopSession:
                     "NotifyTouchDown",
                     GLib.Variant("(sudd)", (stream, slot, x, y)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "touch_motion":
@@ -554,7 +559,7 @@ class RemoteDesktopSession:
                     "NotifyTouchMotion",
                     GLib.Variant("(sudd)", (stream, slot, x, y)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
             elif event_type == "touch_up":
@@ -564,7 +569,7 @@ class RemoteDesktopSession:
                     "NotifyTouchUp",
                     GLib.Variant("(u)", (slot,)),
                     Gio.DBusCallFlags.NONE,
-                    -1, None
+                    1000, None  # 1 second timeout
                 )
 
         except Exception as e:
