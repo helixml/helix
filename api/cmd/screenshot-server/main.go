@@ -394,19 +394,19 @@ func captureScreenshotX11(format string, quality int) ([]byte, string, error) {
 }
 
 // captureScreenshotGNOME captures a screenshot from the existing PipeWire ScreenCast stream.
-// This reads from the ScreenCast stream that remotedesktop-session.py maintains for Wolf.
+// This reads from the ScreenCast stream that remotedesktop-session maintains for Wolf.
 // We use GStreamer pipewiresrc with num-buffers=1 to capture exactly one frame.
 // CRITICAL: We do NOT create any new ScreenCast D-Bus sessions - we read from the existing stream.
-// The PipeWire node ID is saved to /tmp/pipewire-node-id by remotedesktop-session.py.
+// The PipeWire node ID is saved to /tmp/pipewire-node-id by remotedesktop-session.
 func captureScreenshotGNOME(format string, quality int) ([]byte, string, error) {
 	log.Printf("[GNOME/PipeWire] Capturing screenshot from existing ScreenCast stream...")
 
-	// Read the PipeWire node ID from the file saved by remotedesktop-session.py
+	// Read the PipeWire node ID from the file saved by remotedesktop-session
 	nodeIDFile := "/tmp/pipewire-node-id"
 	nodeIDBytes, err := os.ReadFile(nodeIDFile)
 	if err != nil {
 		log.Printf("[GNOME/PipeWire] Failed to read PipeWire node ID from %s: %v", nodeIDFile, err)
-		return nil, "", fmt.Errorf("PipeWire node ID not available - remotedesktop-session.py may not be running: %w", err)
+		return nil, "", fmt.Errorf("PipeWire node ID not available - remotedesktop-session may not be running: %w", err)
 	}
 
 	nodeID := strings.TrimSpace(string(nodeIDBytes))

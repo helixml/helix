@@ -763,11 +763,10 @@ fi
 
     # For PipeWire mode: Start the RemoteDesktop session to report node ID + input socket to Wolf
     # RemoteDesktop provides both ScreenCast (video) and input injection via D-Bus
-    # CRITICAL: Uses Python script with persistent D-Bus connection to keep session alive
-    # Shell gdbus calls create new connections which GNOME cleans up after disconnect
+    # Uses Go binary with persistent D-Bus connection to keep session alive
     if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
         echo "[gnome-session] Starting RemoteDesktop session (video + input)..."
-        /opt/gow/remotedesktop-session.py >> /tmp/remotedesktop-session.log 2>&1 &
+        /opt/gow/remotedesktop-session >> /tmp/remotedesktop-session.log 2>&1 &
         echo "[gnome-session] RemoteDesktop session started (PID: \$!)"
     fi
 

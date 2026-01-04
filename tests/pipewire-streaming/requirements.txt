@@ -1,3 +1,0 @@
-# Python test dependencies for pipewire-streaming tests
-pytest>=7.0.0
-pytest-cov>=4.0.0

@@ -3,10 +3,10 @@
 GNOME 49+ Screenshot Capture using existing RemoteDesktop/ScreenCast session.
 
 This script captures a screenshot from the PipeWire stream that was created by
-remotedesktop-session.py. Instead of creating a new ScreenCast session (which
+remotedesktop-session. Instead of creating a new ScreenCast session (which
 fails due to D-Bus connection cleanup), we use the existing stream.
 
-The PipeWire node ID is saved to /tmp/pipewire-node-id by remotedesktop-session.py
+The PipeWire node ID is saved to /tmp/pipewire-node-id by remotedesktop-session
 when it starts. We read that and capture a frame using GStreamer.
 
 Usage: gnome-screenshot.py /path/to/output.png
@@ -22,7 +22,7 @@ def log(msg):
 
 def get_pipewire_node_id():
     """Get the PipeWire node ID from the saved file or D-Bus."""
-    # First try the saved file (written by remotedesktop-session.py)
+    # First try the saved file (written by remotedesktop-session)
     node_file = "/tmp/pipewire-node-id"
     if os.path.exists(node_file):
         try:
@@ -109,7 +109,7 @@ def main():
 
     if node_id is None:
         log("ERROR: Could not find PipeWire node ID")
-        log("Make sure remotedesktop-session.py is running and has saved the node ID")
+        log("Make sure remotedesktop-session is running and has saved the node ID")
         sys.exit(1)
 
     # Capture the frame

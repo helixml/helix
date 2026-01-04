@@ -16,13 +16,15 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
+COPY wolf/ubuntu-config/remotedesktop-session.go ./wolf/ubuntu-config/remotedesktop-session.go
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /remotedesktop-session ../wolf/ubuntu-config/remotedesktop-session.go
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -521,18 +523,15 @@ if [ -x /usr/local/bin/screenshot-server ]; then
   gow_log "[start] Starting screenshot server..."
   # Screenshot server uses org.gnome.Shell.Screenshot D-Bus API first,
   # then falls back to PipeWire capture from the existing ScreenCast stream
-  # (reads from /tmp/pipewire-node-id which remotedesktop-session.py saves)
+  # (reads from /tmp/pipewire-node-id which remotedesktop-session saves)
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
 fi
 
 # For PipeWire mode: start RemoteDesktop session (video + input) and report to Wolf
-# CRITICAL: Uses Python script with persistent D-Bus connection to keep session alive
-# Shell gdbus calls create new connections which GNOME cleans up after disconnect
+# Uses Go binary with persistent D-Bus connection to keep session alive
 if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
   gow_log "[start] Starting RemoteDesktop session (video + input)..."
-  # Use python3 -u for unbuffered output so logs appear immediately in docker logs
-  # stdbuf ensures tee also doesn't buffer
-  stdbuf -oL -eL python3 -u /opt/gow/remotedesktop-session.py 2>&1 | stdbuf -oL tee /tmp/remotedesktop-session.log >&2 &
+  /opt/gow/remotedesktop-session >> /tmp/remotedesktop-session.log 2>&1 &
   gow_log "[start] RemoteDesktop session started (PID: \$!)"
 fi
 
@@ -643,9 +642,8 @@ ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.s
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD wolf/ubuntu-config/gnome-screenshot.py /usr/local/bin/gnome-screenshot.py
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
-ADD wolf/ubuntu-config/remotedesktop-session.py /opt/gow/remotedesktop-session.py
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh /opt/gow/remotedesktop-session.py
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
@@ -659,6 +657,7 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
+COPY --from=go-build-env /remotedesktop-session /opt/gow/remotedesktop-session
 
 # Zed binary
 RUN mkdir -p /zed-build
