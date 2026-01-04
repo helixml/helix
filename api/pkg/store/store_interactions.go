@@ -135,6 +135,18 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	return interaction, nil
 }
 
+// UpdateInteractionSummary updates just the summary field of an interaction
+func (s *PostgresStore) UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error {
+	now := time.Now()
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ?", interactionID).
+		Updates(map[string]interface{}{
+			"summary":            summary,
+			"summary_updated_at": now,
+		}).Error
+}
+
 func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID string) error {
 	db := s.gdb.WithContext(ctx)
 

@@ -74,6 +74,11 @@ type Interaction struct {
 	// different ID = new distinct message (append). Persisted in DB for restart resilience.
 	LastZedMessageID string `json:"last_zed_message_id,omitempty"`
 
+	// Summary is a one-line description of this interaction for search/indexing.
+	// Generated lazily on first access or via background job.
+	Summary          string     `json:"summary,omitempty"`
+	SummaryUpdatedAt *time.Time `json:"summary_updated_at,omitempty"`
+
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
@@ -348,6 +353,15 @@ type SessionRAGResult struct {
 	Metadata        map[string]string `json:"metadata"`
 }
 
+// TitleHistoryEntry tracks a session title change for the title history feature.
+// Shown on hover in the SpecTask tab view - click to jump to that interaction.
+type TitleHistoryEntry struct {
+	Title         string    `json:"title"`          // The title that was set
+	ChangedAt     time.Time `json:"changed_at"`     // When the title was changed
+	Turn          int       `json:"turn"`           // Turn number that triggered the change (1-indexed)
+	InteractionID string    `json:"interaction_id"` // Interaction ID for navigation - click to jump here
+}
+
 // gives us a quick way to add settings
 type SessionMetadata struct {
 	Avatar                  string              `json:"avatar"`
@@ -360,6 +374,11 @@ type SessionMetadata struct {
 	HelixVersion            string              `json:"helix_version"`
 	Stream                  bool                `json:"stream"`
 	AgentType               string              `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
+	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
+
+	// Title history - tracks evolution of session topics (newest first)
+	// Shown on hover in the SpecTask tab view to see what topics were covered
+	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
 
 	// Multi-session SpecTask context
 	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask

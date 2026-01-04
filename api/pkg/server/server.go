@@ -135,6 +135,7 @@ type HelixAPIServer struct {
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
 	wg                         sync.WaitGroup // Control for goroutines to enable tests
+	summaryService             *SummaryService
 }
 
 func NewServer(
@@ -312,6 +313,9 @@ func NewServer(
 		connman:                  connectionManager,
 		auditLogService:          services.NewAuditLogService(store),
 	}
+
+	// Initialize SummaryService for async interaction summaries and session titles
+	apiServer.summaryService = NewSummaryService(store, providerManager)
 
 	// Initialize Moonlight proxy and server
 	publicURL := cfg.WebServer.URL
@@ -621,6 +625,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/idle-status", system.Wrapper(apiServer.getSessionIdleStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
+
+	// Session TOC and turn-based navigation for agent context retrieval
+	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/turns/{turn}", system.Wrapper(apiServer.getInteractionByTurn)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/search", system.Wrapper(apiServer.searchSessionInteractions)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)

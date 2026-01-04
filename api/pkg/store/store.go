@@ -196,6 +196,7 @@ type Store interface {
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
+	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
@@ -207,6 +208,7 @@ type Store interface {
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 
 	// slots

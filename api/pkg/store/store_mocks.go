@@ -4995,6 +4995,20 @@ func (mr *MockStoreMockRecorder) UpdateInteraction(ctx, interaction any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteraction", reflect.TypeOf((*MockStore)(nil).UpdateInteraction), ctx, interaction)
 }
 
+// UpdateInteractionSummary mocks base method.
+func (m *MockStore) UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateInteractionSummary", ctx, interactionID, summary)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateInteractionSummary indicates an expected call of UpdateInteractionSummary.
+func (mr *MockStoreMockRecorder) UpdateInteractionSummary(ctx, interactionID, summary any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteractionSummary", reflect.TypeOf((*MockStore)(nil).UpdateInteractionSummary), ctx, interactionID, summary)
+}
+
 // UpdateKnowledge mocks base method.
 func (m *MockStore) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -5316,6 +5330,20 @@ func (m *MockStore) UpdateSessionName(ctx context.Context, sessionID, name strin
 func (mr *MockStoreMockRecorder) UpdateSessionName(ctx, sessionID, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionName", reflect.TypeOf((*MockStore)(nil).UpdateSessionName), ctx, sessionID, name)
+}
+
+// UpdateSessionMetadata mocks base method.
+func (m *MockStore) UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSessionMetadata", ctx, sessionID, metadata)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSessionMetadata indicates an expected call of UpdateSessionMetadata.
+func (mr *MockStoreMockRecorder) UpdateSessionMetadata(ctx, sessionID, metadata any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionMetadata", reflect.TypeOf((*MockStore)(nil).UpdateSessionMetadata), ctx, sessionID, metadata)
 }
 
 // UpdateSlot mocks base method.

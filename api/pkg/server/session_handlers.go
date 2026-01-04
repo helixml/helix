@@ -882,6 +882,9 @@ func (s *HelixAPIServer) handleBlockingSession(
 		return err
 	}
 
+	// Trigger async summary generation for this interaction and session title update
+	s.triggerSummaryGeneration(session, interaction, user.ID)
+
 	chatCompletionResponse.ID = session.ID
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -1100,6 +1103,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	if err != nil {
 		return fmt.Errorf("error updating interaction: %w", err)
 	}
+
+	// Trigger async summary generation for this interaction and session title update
+	s.triggerSummaryGeneration(session, interaction, session.Owner)
 
 	return nil
 }
@@ -2069,4 +2075,30 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		"message":    "external Zed agent stopped",
 		"session_id": sessionID,
 	}, nil
+}
+
+// triggerSummaryGeneration triggers async summary generation for an interaction
+// and session title update. This is called when an interaction completes.
+func (s *HelixAPIServer) triggerSummaryGeneration(session *types.Session, interaction *types.Interaction, ownerID string) {
+	if s.summaryService == nil {
+		return
+	}
+
+	// Skip summary generation for internal requests (avoid infinite loops)
+	// These are identified by special session metadata or missing user context
+	if session.Metadata.SystemSession {
+		log.Debug().
+			Str("session_id", session.ID).
+			Msg("Skipping summary generation for system session")
+		return
+	}
+
+	// Use a fresh context (not tied to request context which may be cancelled)
+	ctx := context.Background()
+
+	// Generate summary for the interaction
+	s.summaryService.GenerateInteractionSummaryAsync(ctx, interaction, ownerID)
+
+	// Update session title based on TOC
+	s.summaryService.UpdateSessionTitleAsync(ctx, session.ID, ownerID)
 }
