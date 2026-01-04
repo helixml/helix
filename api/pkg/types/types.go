@@ -481,6 +481,7 @@ type ExternalAgentConfig struct {
 	// Desktop environment
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
+
 }
 
 // Validate checks if the external agent configuration is valid
@@ -2671,6 +2672,10 @@ type SlackThread struct {
 	Updated   time.Time `json:"updated"`
 
 	SessionID string `json:"session_id"`
+
+	// Progress updates for external agent sessions
+	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread
+	IncludeScreenshots  bool `json:"include_screenshots"`   // Include desktop screenshots in updates
 }
 
 // TeamsThread used to track the state of Teams conversations where Helix agent is invoked
@@ -2683,6 +2688,13 @@ type TeamsThread struct {
 	Updated        time.Time `json:"updated"`
 
 	SessionID string `json:"session_id"`
+
+	// Teams requires ServiceURL for posting messages back
+	ServiceURL string `json:"service_url"`
+
+	// Progress updates for external agent sessions
+	PostProgressUpdates bool `json:"post_progress_updates"` // Post turn summaries to thread
+	IncludeScreenshots  bool `json:"include_screenshots"`   // Include desktop screenshots in updates
 }
 
 type CrispThread struct {

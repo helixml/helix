@@ -214,7 +214,7 @@ func (t *TeamsBot) handleMessageActivity(ctx context.Context, incomingActivity s
 	isNewConversation := err != nil || existingThread == nil
 
 	// Handle the message
-	response, documentIDs, err := t.handleMessage(ctx, existingThread, messageText, conversationID, channelID, teamID, isNewConversation)
+	response, documentIDs, err := t.handleMessage(ctx, existingThread, messageText, conversationID, channelID, teamID, incomingActivity.ServiceURL, isNewConversation)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", t.app.ID).Msg("failed to handle message")
 		errorResponse := fmt.Sprintf("Sorry, I encountered an error: %v", err)
@@ -255,7 +255,7 @@ func (t *TeamsBot) handleConversationUpdateActivity(ctx context.Context, incomin
 	}
 }
 
-func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.TeamsThread, messageText, conversationID, channelID, teamID string, isNewConversation bool) (string, map[string]string, error) {
+func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.TeamsThread, messageText, conversationID, channelID, teamID, serviceURL string, isNewConversation bool) (string, map[string]string, error) {
 	log.Debug().
 		Str("app_id", t.app.ID).
 		Str("conversation_id", conversationID).
@@ -278,7 +278,7 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 		session = newSession.Session
 
 		// Create the new thread
-		_, err = t.createNewThread(ctx, conversationID, channelID, teamID, session.ID)
+		_, err = t.createNewThread(ctx, conversationID, channelID, teamID, serviceURL, session.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create new thread")
 			return "", nil, fmt.Errorf("failed to create new thread: %w", err)
@@ -340,13 +340,27 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 	return resp.ResponseMessage, updatedSession.Metadata.DocumentIDs, nil
 }
 
-func (t *TeamsBot) createNewThread(ctx context.Context, conversationID, channelID, teamID, sessionID string) (*types.TeamsThread, error) {
+func (t *TeamsBot) createNewThread(ctx context.Context, conversationID, channelID, teamID, serviceURL, sessionID string) (*types.TeamsThread, error) {
+	// Check if app uses external agent - if so, enable progress updates
+	isExternalAgent := t.app.Config.Helix.DefaultAgentType == "zed_external"
+	if !isExternalAgent {
+		for _, assistant := range t.app.Config.Helix.Assistants {
+			if assistant.AgentType == types.AgentTypeZedExternal {
+				isExternalAgent = true
+				break
+			}
+		}
+	}
+
 	thread := &types.TeamsThread{
-		ConversationID: conversationID,
-		AppID:          t.app.ID,
-		ChannelID:      channelID,
-		TeamID:         teamID,
-		SessionID:      sessionID,
+		ConversationID:      conversationID,
+		AppID:               t.app.ID,
+		ChannelID:           channelID,
+		TeamID:              teamID,
+		SessionID:           sessionID,
+		ServiceURL:          serviceURL, // Store for posting progress updates
+		PostProgressUpdates: isExternalAgent,
+		IncludeScreenshots:  isExternalAgent,
 	}
 
 	return t.store.CreateTeamsThread(ctx, thread)
