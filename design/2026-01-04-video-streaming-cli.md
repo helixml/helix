@@ -210,8 +210,42 @@ The `helix spectask stream` command uses a custom WebSocket-only video protocol 
 - Keyframe count
 - Average/min/max frame sizes
 
+## Integration Tests
+
+### Spectask Stream Test Suite
+
+Location: `integration-test/smoke/spectask_stream_test.go`
+
+**Build tag:** `spectask` or `integration`
+
+**Tests:**
+1. `TestStreamBasic` - Creates a sandbox session, waits for it to be ready, and verifies screenshot capture works
+2. `TestStreamDurations` - Tests multiple screenshot captures over different durations (3s, 5s, 10s)
+3. `TestStreamScreenshot` - Captures and saves a screenshot to test results, validates PNG format
+4. `TestWolfAppID` - Verifies Wolf app ID can be fetched for a session
+
+**Test Artifacts:**
+- Saved to `/tmp/helix-spectask-test-results/`
+- Screenshots: `spectask_screenshot_<timestamp>.png`
+- Multi-frame captures: `spectask_multi_<timestamp>_<frame>.png`
+- Test results: `spectask_<test>_<timestamp>_results.txt`
+
+**Running the tests:**
+```bash
+source .env.usercreds
+go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectaskStream
+```
+
+**Required environment variables:**
+- `HELIX_API_KEY` - API key with `hl-` prefix
+- `HELIX_URL` - Helix API URL (default: http://localhost:8080)
+- `HELIX_PROJECT` - Project ID for creating test tasks
+- `HELIX_UBUNTU_AGENT` - Ubuntu agent app ID for PipeWire mode testing
+
 ## Files Modified
 
 - `api/pkg/desktop/session.go` - Standalone ScreenCast fallback
 - `api/pkg/desktop/desktop.go` - Added standaloneScreenCast flag
 - `api/pkg/cli/spectask/spectask.go` - Added stream/stream-stats commands, lobby detection, --join flag
+- `api/pkg/cli/spectask/README.md` - Documentation for spectask commands
+- `integration-test/smoke/spectask_stream_test.go` - Integration test suite for stream command
