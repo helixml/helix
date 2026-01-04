@@ -94,36 +94,60 @@ if s.standaloneScreenCast {
 }
 ```
 
-## Planned CLI Features
+## CLI Features
 
 ### 1. `helix spectask screenshot <session-id>`
-- **Status:** Implemented
+- **Status:** Working
 - Takes screenshot via RevDial connection to desktop container
 - Saves PNG to local file
 
 ### 2. `helix spectask stream <session-id>`
-- **Status:** Implemented (using custom WebSocket video protocol)
-- Connects to `/moonlight/host/api/ws/stream` WebSocket endpoint
-- Uses simpler binary protocol (not WebRTC) with raw H.264/HEVC/AV1 frames
+- **Status:** Working (2026-01-04)
+- Connects to `/moonlight/api/ws/stream` WebSocket endpoint
+- Uses WebSocket-only binary protocol (not WebRTC) with raw H.264/HEVC/AV1 frames
 - Shows real-time statistics: FPS, bitrate, keyframes, codec, resolution
 - Supports `--duration` for timed runs
 - Supports `--output` to save raw video frames to file
 - Supports `--verbose` to see individual frame details
 
+**Connection flow:**
+1. Fetch Wolf app ID from `/api/v1/wolf/ui-app-id?session_id=...`
+2. Pre-configure Wolf with `client_unique_id` via `/api/v1/external-agents/{session}/configure-pending-session`
+3. Connect to WebSocket at `/moonlight/api/ws/stream?session_id=...`
+4. Send init message: `{ type: "init", app_id, session_id, client_unique_id, ... }`
+5. Receive `StreamInit` with codec, resolution, FPS
+6. Receive `ConnectionComplete` - stream is active
+7. Receive binary video frames (type 0x01) with H.264 NAL data
+
+**Example output:**
+```
+📊 Video Stream for session ses_01ke4rsx7jb62ms9zx8g68tnbe
+Fetching Wolf app ID...
+Wolf app ID: 985743958
+Configuring Wolf pending session with client ID: helix-cli-1767539283036069718
+✅ Wolf pre-configured
+✅ Connected in 4ms
+📤 Sending WebSocket init message (app_id=985743958)...
+📺 StreamInit: 1920x1080@60fps (H.264)
+
+📊 Final Statistics (elapsed: 15s)
+───────────────────────────────────────────────
+Resolution:         1920x1080
+Codec:              H.264
+Video frames:       291 (5 keyframes)
+Total data:         1.3 MB
+Frame rate:         19.40 fps
+Video bitrate:      709.2 Kbps/s
+```
+
 ### 3. VLC HTTP Streaming Server
-- **Status:** Implemented
+- **Status:** Code exists but not tested with working stream
 - Starts local HTTP server that VLC can connect to
 - Streams raw video data from Moonlight WebSocket to HTTP clients
-- Supports multiple simultaneous VLC connections
-- Usage: `helix spectask stream <session-id> --vlc-server :8889`
-- Then: `vlc http://localhost:8889/stream`
-- Additional endpoints: `/` (info), `/stats` (connection count)
 
 ### 4. Keyboard Redirection
-- **Status:** Planned
-- Send keyboard input from CLI to remote desktop
-- Capture terminal keystrokes and forward to Wolf
-- Usage: `helix spectask stream <session-id> --keyboard`
+- **Status:** Code exists but not integrated with stream command
+- Send keyboard input from CLI to remote desktop via input API
 
 ## Next Steps
 

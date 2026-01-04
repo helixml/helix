@@ -130,9 +130,6 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
-		if auth.authenticator == nil {
-			return nil, fmt.Errorf("keycloak is required for Helix API key authentication")
-		}
 		// we have an API key - we should load it from the database and construct our user that way
 		apiKey, err := auth.store.GetAPIKey(ctx, &types.ApiKey{
 			Key: token,
@@ -144,9 +141,28 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
-		user, err := auth.authenticator.GetUserByID(ctx, apiKey.Owner)
-		if err != nil {
-			return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
+		// Try to get user from local database first, fall back to Keycloak if available
+		var user *types.User
+		log.Debug().Str("api_key_owner", apiKey.Owner).Msg("Looking up user from API key")
+		dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: apiKey.Owner})
+		if err == nil && dbUser != nil {
+			// User found in local database
+			log.Debug().Str("user_id", dbUser.ID).Str("email", dbUser.Email).Msg("Found user in local database")
+			user = dbUser
+		} else if auth.authenticator != nil {
+			// Fall back to Keycloak
+			log.Debug().Str("api_key_owner", apiKey.Owner).Msg("User not in local DB, trying Keycloak")
+			user, err = auth.authenticator.GetUserByID(ctx, apiKey.Owner)
+			if err != nil {
+				return nil, fmt.Errorf("error loading user from keycloak: %s", err.Error())
+			}
+		} else {
+			// No local user and no Keycloak - create minimal user from API key owner
+			log.Debug().Str("api_key_owner", apiKey.Owner).Msg("Creating minimal user from API key owner (no DB user, no Keycloak)")
+			user = &types.User{
+				ID:   apiKey.Owner,
+				Type: apiKey.OwnerType,
+			}
 		}
 
 		user.Token = token

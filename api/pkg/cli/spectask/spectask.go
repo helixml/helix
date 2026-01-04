@@ -714,24 +714,23 @@ func newStreamCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stream <session-id>",
 		Short: "Connect to video stream and display real-time statistics",
-		Long: `Connects to the custom WebSocket video streaming protocol and displays real-time statistics.
+		Long: `Connects to the WebSocket video streaming protocol and displays real-time statistics.
 
-This command uses the simpler WebSocket-only protocol (not WebRTC) which streams
-raw H.264/HEVC/AV1 video frames directly over WebSocket. This is ideal for testing
-and debugging the video pipeline.
+This command uses the WebSocket-only protocol (not WebRTC) which streams raw H.264/HEVC/AV1
+video frames directly over WebSocket. This is ideal for testing and debugging the video pipeline.
 
 Statistics displayed:
   - Frame rate (FPS)
   - Bitrate (Mbps)
   - Frame sizes and types (keyframe vs delta)
   - Resolution and codec
-  - Frame latency
+  - Keyframe count
 
 Examples:
-  helix spectask stream ses_01xxx                    # Run until Ctrl+C
-  helix spectask stream ses_01xxx --duration 30      # Run for 30 seconds
+  helix spectask stream ses_01xxx                     # Run until Ctrl+C
+  helix spectask stream ses_01xxx --duration 30       # Run for 30 seconds
   helix spectask stream ses_01xxx --output video.h264 # Save raw video to file
-  helix spectask stream ses_01xxx -v                 # Verbose output
+  helix spectask stream ses_01xxx -v                  # Verbose mode (show each frame)
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -739,16 +738,36 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			// Build WebSocket URL for custom video protocol
+			// Step 1: Get Wolf app ID for this session
+			fmt.Printf("📊 Video Stream for session %s\n", sessionID)
+			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			fmt.Printf("Fetching Wolf app ID...\n")
+
+			appID, err := getWolfAppID(apiURL, token, sessionID)
+			if err != nil {
+				return fmt.Errorf("failed to get Wolf app ID: %w", err)
+			}
+			fmt.Printf("Wolf app ID: %d\n", appID)
+
+			// Step 2: Generate client unique ID and pre-configure Wolf
+			clientUniqueID := fmt.Sprintf("helix-cli-%d", time.Now().UnixNano())
+			fmt.Printf("Configuring Wolf pending session with client ID: %s\n", clientUniqueID)
+
+			if err := configurePendingSession(apiURL, token, sessionID, clientUniqueID); err != nil {
+				return fmt.Errorf("failed to configure pending session: %w", err)
+			}
+			fmt.Printf("✅ Wolf pre-configured\n")
+
+			// Step 3: Build WebSocket URL for video protocol
 			wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 			wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 
-			// Custom WebSocket video endpoint (not Moonlight signaling)
-			moonlightSessionID := "agent-" + sessionID
-			streamURL := fmt.Sprintf("%s/moonlight/host/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
+			// WebSocket-only video endpoint (NOT WebRTC)
+			// The path is: /moonlight/api/ws/stream which uses the simpler binary video protocol
+			// This is the WebSocketStream class endpoint, not the WebRTC Stream class endpoint
+			moonlightSessionID := sessionID
+			streamURL := fmt.Sprintf("%s/moonlight/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
 
-			fmt.Printf("📊 Video Stream for session %s\n", sessionID)
-			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 			fmt.Printf("WebSocket URL: %s\n", streamURL)
 			if duration > 0 {
 				fmt.Printf("Duration: %d seconds\n", duration)
@@ -758,7 +777,7 @@ Examples:
 			}
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
-			// Connect to WebSocket
+			// Step 4: Connect to WebSocket
 			header := http.Header{}
 			header.Set("Authorization", "Bearer "+token)
 
@@ -780,24 +799,24 @@ Examples:
 			connectTime := time.Since(startTime)
 			fmt.Printf("✅ Connected in %v\n\n", connectTime.Round(time.Millisecond))
 
-			// Send initialization message (JSON)
-			clientUniqueID := fmt.Sprintf("cli-%d", time.Now().UnixNano())
+			// Step 5: Send init message (WebSocketStream format - simpler than WebRTC)
+			// This uses the binary video protocol, not WebRTC signaling
 			initMessage := map[string]interface{}{
 				"type":                    "init",
 				"host_id":                 0,
-				"app_id":                  0,
+				"app_id":                  appID,
 				"session_id":              moonlightSessionID,
+				"client_unique_id":        clientUniqueID,
 				"width":                   1920,
 				"height":                  1080,
 				"fps":                     60,
 				"bitrate":                 10000,
 				"packet_size":             1024,
 				"play_audio_local":        false,
-				"video_supported_formats": 1, // H264
-				"client_unique_id":        clientUniqueID,
+				"video_supported_formats": 1, // H264 = 0x01
 			}
 			initJSON, _ := json.Marshal(initMessage)
-			fmt.Printf("📤 Sending init message...\n")
+			fmt.Printf("📤 Sending WebSocket init message (app_id=%d)...\n", appID)
 			if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
 				return fmt.Errorf("failed to send init: %w", err)
 			}
@@ -1343,4 +1362,76 @@ func charToKeycode(c byte) uint32 {
 		return kc
 	}
 	return 0
+}
+
+// getWolfAppID fetches the Wolf placeholder app ID for a session
+// This is required for the AuthenticateAndInit message
+func getWolfAppID(apiURL, token, sessionID string) (int, error) {
+	// Use the wolf/ui-app-id endpoint which returns the placeholder app ID
+	url := fmt.Sprintf("%s/api/v1/wolf/ui-app-id?session_id=%s", apiURL, sessionID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		PlaceholderAppID string `json:"placeholder_app_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Parse the app ID as integer
+	var appID int
+	if _, err := fmt.Sscanf(result.PlaceholderAppID, "%d", &appID); err != nil {
+		return 0, fmt.Errorf("invalid app_id '%s': %w", result.PlaceholderAppID, err)
+	}
+
+	return appID, nil
+}
+
+// configurePendingSession pre-configures Wolf with our client_unique_id
+// This allows Wolf to immediately attach us to the lobby when we connect
+func configurePendingSession(apiURL, token, sessionID, clientUniqueID string) error {
+	url := fmt.Sprintf("%s/api/v1/external-agents/%s/configure-pending-session", apiURL, sessionID)
+
+	payload := map[string]string{
+		"client_unique_id": clientUniqueID,
+	}
+	jsonData, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }
