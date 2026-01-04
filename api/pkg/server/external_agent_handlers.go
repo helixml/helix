@@ -236,16 +236,21 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		Str("lobby_id", response.WolfLobbyID).
 		Msg("External agent started successfully")
 
-	// Store the lobby ID and PIN in the Helix session metadata (Phase 3: Multi-tenancy)
+	// Store the lobby ID, PIN, and Wolf instance ID in the Helix session (Phase 3: Multi-tenancy)
 	if response.WolfLobbyID != "" {
 		createdSession.Metadata.WolfLobbyID = response.WolfLobbyID
 	}
 	if response.WolfLobbyPIN != "" {
 		createdSession.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
 	}
+	// CRITICAL: Store WolfInstanceID on session record - required for Moonlight streaming proxy
+	// Without this, the moonlight proxy falls back to "moonlight-dev" which doesn't exist
+	if response.WolfInstanceID != "" {
+		createdSession.WolfInstanceID = response.WolfInstanceID
+	}
 
-	// Update session with Wolf lobby info
-	if response.WolfLobbyID != "" || response.WolfLobbyPIN != "" {
+	// Update session with Wolf lobby info and instance ID
+	if response.WolfLobbyID != "" || response.WolfLobbyPIN != "" || response.WolfInstanceID != "" {
 		_, err = apiServer.Controller.Options.Store.UpdateSession(req.Context(), *createdSession)
 		if err != nil {
 			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store Wolf lobby info in session")
@@ -255,7 +260,8 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 				Str("helix_session_id", createdSession.ID).
 				Str("lobby_id", response.WolfLobbyID).
 				Str("lobby_pin", response.WolfLobbyPIN).
-				Msg("✅ Stored Wolf lobby ID and PIN in Helix session metadata")
+				Str("wolf_instance_id", response.WolfInstanceID).
+				Msg("✅ Stored Wolf lobby ID, PIN, and instance ID in Helix session")
 		}
 	}
 
