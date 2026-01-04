@@ -198,7 +198,28 @@ type OIDC struct {
 type Notifications struct {
 	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
 	Email  EmailConfig
-	// TODO: Slack, Discord, etc.
+	// Agent progress notifications (Slack/Teams threads with screenshots)
+	AgentNotifications AgentNotificationsConfig
+}
+
+// AgentNotificationsConfig configures agent status notifications to Slack/Teams
+type AgentNotificationsConfig struct {
+	// Slack configuration for agent progress updates
+	Slack SlackNotificationsConfig
+	// Teams configuration for agent progress updates
+	Teams TeamsNotificationsConfig
+}
+
+type SlackNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_SLACK_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_SLACK_WEBHOOK_URL" description:"Slack incoming webhook URL for agent notifications"`
+	BotToken   string `envconfig:"AGENT_NOTIFICATIONS_SLACK_BOT_TOKEN" description:"Slack bot token for interactive messages (optional)"`
+	Channel    string `envconfig:"AGENT_NOTIFICATIONS_SLACK_CHANNEL" description:"Default Slack channel for agent notifications"`
+}
+
+type TeamsNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_TEAMS_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_TEAMS_WEBHOOK_URL" description:"Teams incoming webhook URL for agent notifications"`
 }
 
 type EmailConfig struct {
