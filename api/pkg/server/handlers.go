@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -956,6 +957,23 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply ADMIN_USER_IDS logic to compute effective admin status
+	// This ensures the list reflects both database admin field and env var overrides
+	adminUserIDs := apiServer.Cfg.WebServer.AdminUserIDs
+	for i := range users {
+		// Check if user is in ADMIN_USER_IDS list
+		for _, adminID := range adminUserIDs {
+			if adminID == config.AdminAllUsers {
+				users[i].Admin = true
+				break
+			}
+			if adminID == users[i].ID {
+				users[i].Admin = true
+				break
+			}
+		}
 	}
 
 	// Calculate total pages

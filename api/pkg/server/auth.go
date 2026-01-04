@@ -622,21 +622,9 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := s.oidcClient.Exchange(ctx, code)
 	if err != nil {
-		// Determine which OIDC provider is configured and log the relevant URL
-		var providerURL string
-		var providerType string
-		if s.Cfg.Auth.OIDC.Enabled {
-			providerURL = s.Cfg.Auth.OIDC.URL
-			providerType = "OIDC"
-		} else if s.Cfg.Auth.Keycloak.KeycloakEnabled {
-			providerURL = fmt.Sprintf("%s/realms/%s", s.Cfg.Auth.Keycloak.KeycloakFrontEndURL, s.Cfg.Auth.Keycloak.Realm)
-			providerType = "Keycloak"
-		}
-
 		log.Error().
 			Err(err).
-			Str("provider_type", providerType).
-			Str("provider_url", providerURL).
+			Str("provider_url", s.Cfg.Auth.OIDC.URL).
 			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
 			Str("auth_code", code).
 			Msg("Failed to exchange token")
@@ -716,69 +704,20 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-	case types.AuthProviderKeycloak:
-		userInfo, err := s.oidcClient.GetUserInfo(ctx, accessToken)
+	default:
+		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
+		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to get userinfo")
+			log.Error().Err(err).Msg("Failed to validate user token")
 			// If the error contains "401" or "unauthorized", it's likely an expired/invalid token
-			// Return 401 instead of 500 so the frontend can handle it properly
 			errStr := strings.ToLower(err.Error())
 			if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			} else {
-				http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			}
 			return
-		}
-		log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
-
-		user, err = s.Store.GetUser(ctx, &store.GetUserQuery{
-			ID: userInfo.Subject,
-		})
-		if err != nil {
-			if !errors.Is(err, store.ErrNotFound) {
-				log.Debug().Err(err).Msg("Failed to get user")
-				http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-		// Extract the full name from the userinfo
-		fullName := "unknown"
-		if userInfo.Name != "" {
-			fullName = userInfo.Name
-		} else if userInfo.GivenName != "" && userInfo.FamilyName != "" {
-			fullName = fmt.Sprintf("%s %s", userInfo.GivenName, userInfo.FamilyName)
-		}
-
-		if user == nil {
-			user, err = s.Store.CreateUser(ctx, &types.User{
-				ID:        userInfo.Subject,
-				Username:  userInfo.Subject,
-				Email:     userInfo.Email,
-				FullName:  fullName,
-				CreatedAt: time.Now(),
-			})
-			if err != nil {
-				if strings.Contains(err.Error(), "duplicate key") {
-					return
-				}
-				log.Error().Err(err).Msg("Failed to create user")
-				http.Error(w, "Failed to create user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// If existing has changed, update the user
-		if user.Email != userInfo.Email || user.FullName != fullName || user.Username != userInfo.Email {
-			user.Email = userInfo.Email
-			user.FullName = fullName
-			user.Username = userInfo.Email
-			_, err = s.Store.UpdateUser(ctx, user)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to update user")
-				http.Error(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 
@@ -787,6 +726,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Email: user.Email,
 		Token: accessToken,
 		Name:  user.FullName,
+		Admin: user.Admin,
 	}
 	writeResponse(w, response, http.StatusOK)
 }
@@ -928,7 +868,7 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		newAccessToken = token
 		newRefreshToken = token
 	default:
-		// Keycloak and OIDC
+		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		token, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to refresh access_token")

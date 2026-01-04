@@ -119,9 +119,8 @@ type TeamMembership struct {
 type AuthProvider string
 
 const (
-	AuthProviderRegular  AuthProvider = "regular" // Embedded in Helix, no external dependencies
-	AuthProviderKeycloak AuthProvider = "keycloak"
-	AuthProviderOIDC     AuthProvider = "oidc"
+	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
+	AuthProviderOIDC    AuthProvider = "oidc"
 	// TODO: oauth github, google, etc
 )
 

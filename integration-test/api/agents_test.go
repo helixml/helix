@@ -14,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 )
@@ -39,35 +38,20 @@ func (suite *AgentTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	var keycloakCfg config.Keycloak
-
 	agentConfig, err := tests.LoadConfig()
 	suite.Require().NoError(err)
 	suite.agentConfig = agentConfig
 
-	err = envconfig.Process("", &keycloakCfg)
-	suite.NoError(err)
-
 	if suite.agentConfig.TestUserCreate {
 		cfg := &config.ServerConfig{}
-		cfg.Auth.Keycloak = config.Keycloak{
-			KeycloakURL:         keycloakCfg.KeycloakURL,
-			KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
-			ServerURL:           keycloakCfg.ServerURL,
-			APIClientID:         keycloakCfg.APIClientID,
-			AdminRealm:          keycloakCfg.AdminRealm,
-			Realm:               keycloakCfg.Realm,
-			Username:            keycloakCfg.Username,
-			Password:            keycloakCfg.Password,
-		}
-		keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, suite.db)
+		authenticator, err := auth.NewHelixAuthenticator(cfg, suite.db, "test-secret", nil)
 		suite.Require().NoError(err)
 
 		// Create a user
 		emailID := uuid.New().String()
 		userEmail := fmt.Sprintf("test-create-agent-%s@test.com", emailID)
 
-		user, apiKey, err := createUser(suite.T(), suite.db, keycloakAuthenticator, userEmail)
+		user, apiKey, err := createUser(suite.T(), suite.db, authenticator, userEmail)
 		suite.Require().NoError(err)
 		suite.Require().NotNil(user)
 		suite.Require().NotNil(apiKey)

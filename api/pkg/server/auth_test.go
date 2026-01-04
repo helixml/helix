@@ -55,7 +55,7 @@ func (suite *AuthSuite) SetupTest() {
 	suite.store = store.NewMockStore(ctrl)
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.URL = testServerURL
-	cfg.Auth.Provider = types.AuthProviderKeycloak
+	cfg.Auth.Provider = types.AuthProviderOIDC
 	suite.oidcClient = auth.NewMockOIDC(ctrl)
 	suite.authenticator = auth.NewMockAuthenticator(ctrl)
 	suite.server = &HelixAPIServer{
@@ -465,10 +465,8 @@ func (suite *AuthSuite) TestUser() {
 				return req
 			},
 			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
 				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil)
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(user, nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -486,75 +484,28 @@ func (suite *AuthSuite) TestUser() {
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name: "get userinfo failure",
+			name: "validate token failure",
 			setupRequest: func() *http.Request {
 				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
 				suite.addCookie(req, "access_token", testAccessToken)
 				return req
 			},
 			setupMocks: func() {
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("get userinfo failure"))
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("validate token failure"))
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
 		{
-			name: "get user failure",
+			name: "validate token unauthorized",
 			setupRequest: func() *http.Request {
 				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
 				suite.addCookie(req, "access_token", testAccessToken)
 				return req
 			},
 			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("get user failure"))
+				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("401 unauthorized"))
 			},
-			expectedStatus: http.StatusInternalServerError,
-		},
-		{
-			name: "new user",
-			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
-				suite.addCookie(req, "access_token", testAccessToken)
-				return req
-			},
-			setupMocks: func() {
-				userInfo := suite.createMockUserInfo()
-				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, nil)
-				suite.store.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(user, nil)
-			},
-			expectedStatus: http.StatusOK,
-			checkResponse: func(rec *httptest.ResponseRecorder) {
-				var response types.UserResponse
-				err := json.NewDecoder(rec.Body).Decode(&response)
-				suite.NoError(err)
-				suite.Equal(testEmail, response.Email)
-			},
-		},
-		{
-			name: "updated user info",
-			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", "/api/v1/auth/user", nil)
-				suite.addCookie(req, "access_token", testAccessToken)
-				return req
-			},
-			setupMocks: func() {
-				userInfo := suite.createMockUserUpdate()
-				user := suite.createMockUser()
-				suite.oidcClient.EXPECT().GetUserInfo(gomock.Any(), testAccessToken).Return(userInfo, nil)
-				suite.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil)
-				suite.store.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(user, nil)
-			},
-			expectedStatus: http.StatusOK,
-			checkResponse: func(rec *httptest.ResponseRecorder) {
-				var response types.UserResponse
-				err := json.NewDecoder(rec.Body).Decode(&response)
-				suite.NoError(err)
-				suite.Equal(newEmail, response.Email)
-				suite.Equal(newName, response.Name)
-			},
+			expectedStatus: http.StatusUnauthorized,
 		},
 	}
 

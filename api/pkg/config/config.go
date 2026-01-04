@@ -154,7 +154,6 @@ type Tools struct {
 type Auth struct {
 	Provider            types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
 	RegistrationEnabled bool               `envconfig:"AUTH_REGISTRATION_ENABLED" default:"true"`
-	Keycloak            Keycloak
 	OIDC                OIDC
 	Regular             Regular
 }
@@ -163,21 +162,6 @@ type Regular struct {
 	Enabled       bool          `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
 	TokenValidity time.Duration `envconfig:"REGULAR_AUTH_TOKEN_VALIDITY" default:"168h"` // 7 days
 	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
-}
-
-// Keycloak is used for authentication. You can find keycloak documentation
-// at https://www.keycloak.org/guides
-type Keycloak struct {
-	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"false"`
-	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8180/auth"`
-	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
-	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	ClientSecret        string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API
-	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
-	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
-	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
 }
 
 type OIDC struct {
