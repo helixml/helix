@@ -3,13 +3,16 @@ package desktop
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,11 +20,14 @@ import (
 )
 
 // MCPServer provides MCP tools for desktop interaction.
-// It exposes screenshot, clipboard, and input tools to AI agents.
+// It exposes screenshot, clipboard, input, and search tools to AI agents.
 type MCPServer struct {
 	mcpServer     *server.MCPServer
 	sseServer     *server.SSEServer
 	screenshotURL string // URL to the local screenshot HTTP endpoint
+	helixAPIURL   string // Helix API URL for search endpoints
+	helixAPIToken string // Helix API token for authentication
+	sessionID     string // Current session ID for context-aware search
 	logger        *slog.Logger
 }
 
@@ -31,6 +37,12 @@ type MCPConfig struct {
 	Port string
 	// ScreenshotURL is the local screenshot endpoint (default: http://localhost:9876/screenshot)
 	ScreenshotURL string
+	// HelixAPIURL is the Helix API endpoint (from HELIX_API_URL env)
+	HelixAPIURL string
+	// HelixAPIToken is the API token for Helix (from HELIX_API_TOKEN env)
+	HelixAPIToken string
+	// SessionID is the current session ID (from ZED_SESSION_ID env)
+	SessionID string
 }
 
 // NewMCPServer creates a new MCP server for desktop tools.
@@ -41,9 +53,22 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 	if cfg.ScreenshotURL == "" {
 		cfg.ScreenshotURL = "http://localhost:9876/screenshot"
 	}
+	// Get Helix API config from environment if not provided
+	if cfg.HelixAPIURL == "" {
+		cfg.HelixAPIURL = os.Getenv("HELIX_API_URL")
+	}
+	if cfg.HelixAPIToken == "" {
+		cfg.HelixAPIToken = os.Getenv("HELIX_API_TOKEN")
+	}
+	if cfg.SessionID == "" {
+		cfg.SessionID = os.Getenv("ZED_SESSION_ID")
+	}
 
 	m := &MCPServer{
 		screenshotURL: cfg.ScreenshotURL,
+		helixAPIURL:   cfg.HelixAPIURL,
+		helixAPIToken: cfg.HelixAPIToken,
+		sessionID:     cfg.SessionID,
 		logger:        logger,
 	}
 
@@ -112,6 +137,52 @@ func NewMCPServer(cfg MCPConfig, logger *slog.Logger) *MCPServer {
 		),
 	)
 	m.mcpServer.AddTool(setClipboardTool, m.handleSetClipboard)
+
+	// Add search_history tool - search through conversation history
+	searchHistoryTool := mcp.NewTool("search_history",
+		mcp.WithDescription(`Search through your conversation history and previous prompts.
+Use this to recall how you solved similar problems before, find commands you used,
+or retrieve context from earlier in the conversation that may have been compacted.
+Returns matching prompts with their content and metadata.`),
+		mcp.WithString("query",
+			mcp.Required(),
+			mcp.Description("Search query - matches against prompt content"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of results to return (default: 20, max: 100)"),
+		),
+	)
+	m.mcpServer.AddTool(searchHistoryTool, m.handleSearchHistory)
+
+	// Add unified_search tool - search across all Helix entities
+	unifiedSearchTool := mcp.NewTool("unified_search",
+		mcp.WithDescription(`Search across all your Helix data: sessions, tasks, prompts, projects,
+repositories, and code. Use this to find relevant context from any previous work.`),
+		mcp.WithString("query",
+			mcp.Required(),
+			mcp.Description("Search query"),
+		),
+		mcp.WithString("types",
+			mcp.Description("Comma-separated list of types to search: sessions,tasks,prompts,projects,repositories,code,agents,knowledge (default: all)"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum results per type (default: 10)"),
+		),
+	)
+	m.mcpServer.AddTool(unifiedSearchTool, m.handleUnifiedSearch)
+
+	// Add get_session_context tool - get current session's interactions
+	sessionContextTool := mcp.NewTool("get_session_context",
+		mcp.WithDescription(`Get the full conversation history for the current session or a specific session.
+Use this to retrieve messages that may have been compacted from your context window.`),
+		mcp.WithString("session_id",
+			mcp.Description("Session ID to retrieve (default: current session)"),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of interactions to return (default: 50)"),
+		),
+	)
+	m.mcpServer.AddTool(sessionContextTool, m.handleGetSessionContext)
 
 	// Create SSE server
 	m.sseServer = server.NewSSEServer(m.mcpServer,
@@ -336,4 +407,314 @@ func (m *MCPServer) Run(ctx context.Context, port string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// handleSearchHistory searches through prompt history
+func (m *MCPServer) handleSearchHistory(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query, err := request.RequireString("query")
+	if err != nil {
+		return mcp.NewToolResultError("query parameter is required"), nil
+	}
+
+	if m.helixAPIURL == "" || m.helixAPIToken == "" {
+		return mcp.NewToolResultError("Helix API not configured - HELIX_API_URL and HELIX_API_TOKEN environment variables required"), nil
+	}
+
+	limit := 20
+	if l, err := request.RequireFloat("limit"); err == nil && l > 0 {
+		limit = int(l)
+		if limit > 100 {
+			limit = 100
+		}
+	}
+
+	m.logger.Info("searching prompt history", "query", query, "limit", limit)
+
+	// Build search URL
+	searchURL := fmt.Sprintf("%s/api/v1/prompt-history/search?q=%s&limit=%d",
+		strings.TrimSuffix(m.helixAPIURL, "/"),
+		url.QueryEscape(query),
+		limit,
+	)
+
+	// Make request to Helix API
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request: " + err.Error()), nil
+	}
+	req.Header.Set("Authorization", "Bearer "+m.helixAPIToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return mcp.NewToolResultError("failed to search: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return mcp.NewToolResultError(fmt.Sprintf("search failed: %d - %s", resp.StatusCode, string(body))), nil
+	}
+
+	// Parse response
+	var results []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		return mcp.NewToolResultError("failed to parse search results: " + err.Error()), nil
+	}
+
+	// Format results for display
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Found %d matching prompts:\n\n", len(results)))
+
+	for i, result := range results {
+		content, _ := result["content"].(string)
+		createdAt, _ := result["created_at"].(string)
+		sessionID, _ := result["session_id"].(string)
+		pinned, _ := result["pinned"].(bool)
+
+		// Truncate content for display
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+
+		sb.WriteString(fmt.Sprintf("--- Result %d ---\n", i+1))
+		if pinned {
+			sb.WriteString("📌 PINNED\n")
+		}
+		sb.WriteString(fmt.Sprintf("Date: %s\n", createdAt))
+		if sessionID != "" {
+			sb.WriteString(fmt.Sprintf("Session: %s\n", sessionID))
+		}
+		sb.WriteString(fmt.Sprintf("Content:\n%s\n\n", content))
+	}
+
+	if len(results) == 0 {
+		sb.WriteString("No matching prompts found. Try different search terms.")
+	}
+
+	m.logger.Info("search complete", "results", len(results))
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+// handleUnifiedSearch searches across all Helix entities
+func (m *MCPServer) handleUnifiedSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query, err := request.RequireString("query")
+	if err != nil {
+		return mcp.NewToolResultError("query parameter is required"), nil
+	}
+
+	if m.helixAPIURL == "" || m.helixAPIToken == "" {
+		return mcp.NewToolResultError("Helix API not configured - HELIX_API_URL and HELIX_API_TOKEN environment variables required"), nil
+	}
+
+	limit := 10
+	if l, err := request.RequireFloat("limit"); err == nil && l > 0 {
+		limit = int(l)
+	}
+
+	// Parse types
+	types := ""
+	if t, err := request.RequireString("types"); err == nil && t != "" {
+		types = t
+	}
+
+	m.logger.Info("unified search", "query", query, "types", types, "limit", limit)
+
+	// Build search URL
+	searchURL := fmt.Sprintf("%s/api/v1/search?q=%s&limit=%d",
+		strings.TrimSuffix(m.helixAPIURL, "/"),
+		url.QueryEscape(query),
+		limit,
+	)
+	if types != "" {
+		// Add types as separate query params
+		for _, t := range strings.Split(types, ",") {
+			searchURL += "&types=" + url.QueryEscape(strings.TrimSpace(t))
+		}
+	}
+
+	// Make request to Helix API
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request: " + err.Error()), nil
+	}
+	req.Header.Set("Authorization", "Bearer "+m.helixAPIToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return mcp.NewToolResultError("failed to search: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return mcp.NewToolResultError(fmt.Sprintf("search failed: %d - %s", resp.StatusCode, string(body))), nil
+	}
+
+	// Parse response
+	var searchResp struct {
+		Results []struct {
+			Type        string            `json:"type"`
+			ID          string            `json:"id"`
+			Title       string            `json:"title"`
+			Description string            `json:"description"`
+			URL         string            `json:"url"`
+			Metadata    map[string]string `json:"metadata"`
+			CreatedAt   string            `json:"created_at"`
+		} `json:"results"`
+		Total int    `json:"total"`
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return mcp.NewToolResultError("failed to parse search results: " + err.Error()), nil
+	}
+
+	// Format results for display
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Found %d results for '%s':\n\n", searchResp.Total, searchResp.Query))
+
+	// Group by type
+	byType := make(map[string][]struct {
+		ID          string
+		Title       string
+		Description string
+		CreatedAt   string
+	})
+
+	for _, r := range searchResp.Results {
+		byType[r.Type] = append(byType[r.Type], struct {
+			ID          string
+			Title       string
+			Description string
+			CreatedAt   string
+		}{r.ID, r.Title, r.Description, r.CreatedAt})
+	}
+
+	typeOrder := []string{"sessions", "tasks", "prompts", "projects", "repositories", "code", "agents", "knowledge"}
+	for _, t := range typeOrder {
+		items, ok := byType[t]
+		if !ok || len(items) == 0 {
+			continue
+		}
+
+		sb.WriteString(fmt.Sprintf("=== %s (%d) ===\n", strings.ToUpper(t), len(items)))
+		for _, item := range items {
+			sb.WriteString(fmt.Sprintf("• %s\n", item.Title))
+			if item.Description != "" {
+				sb.WriteString(fmt.Sprintf("  %s\n", item.Description))
+			}
+			sb.WriteString(fmt.Sprintf("  ID: %s | Date: %s\n", item.ID, item.CreatedAt))
+		}
+		sb.WriteString("\n")
+	}
+
+	if searchResp.Total == 0 {
+		sb.WriteString("No results found. Try different search terms.")
+	}
+
+	m.logger.Info("unified search complete", "total", searchResp.Total)
+	return mcp.NewToolResultText(sb.String()), nil
+}
+
+// handleGetSessionContext retrieves session interactions
+func (m *MCPServer) handleGetSessionContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if m.helixAPIURL == "" || m.helixAPIToken == "" {
+		return mcp.NewToolResultError("Helix API not configured - HELIX_API_URL and HELIX_API_TOKEN environment variables required"), nil
+	}
+
+	// Get session ID (use current session if not specified)
+	sessionID := m.sessionID
+	if s, err := request.RequireString("session_id"); err == nil && s != "" {
+		sessionID = s
+	}
+	if sessionID == "" {
+		return mcp.NewToolResultError("no session ID available - either provide session_id parameter or ensure ZED_SESSION_ID is set"), nil
+	}
+
+	limit := 50
+	if l, err := request.RequireFloat("limit"); err == nil && l > 0 {
+		limit = int(l)
+		if limit > 200 {
+			limit = 200
+		}
+	}
+
+	m.logger.Info("getting session context", "session_id", sessionID, "limit", limit)
+
+	// Get session with interactions
+	sessionURL := fmt.Sprintf("%s/api/v1/sessions/%s?interactions=true&limit=%d",
+		strings.TrimSuffix(m.helixAPIURL, "/"),
+		sessionID,
+		limit,
+	)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", sessionURL, nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request: " + err.Error()), nil
+	}
+	req.Header.Set("Authorization", "Bearer "+m.helixAPIToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return mcp.NewToolResultError("failed to get session: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get session: %d - %s", resp.StatusCode, string(body))), nil
+	}
+
+	// Parse session response
+	var session struct {
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		Created      string `json:"created"`
+		Interactions []struct {
+			ID            string `json:"id"`
+			Created       string `json:"created"`
+			PromptMessage string `json:"prompt_message"`
+			AssistantMessage string `json:"assistant_message"`
+			State         string `json:"state"`
+		} `json:"interactions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return mcp.NewToolResultError("failed to parse session: " + err.Error()), nil
+	}
+
+	// Format session context
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Session: %s\n", session.Name))
+	sb.WriteString(fmt.Sprintf("ID: %s\n", session.ID))
+	sb.WriteString(fmt.Sprintf("Created: %s\n", session.Created))
+	sb.WriteString(fmt.Sprintf("Interactions: %d\n\n", len(session.Interactions)))
+
+	for i, interaction := range session.Interactions {
+		sb.WriteString(fmt.Sprintf("--- Turn %d (%s) ---\n", i+1, interaction.Created))
+
+		if interaction.PromptMessage != "" {
+			prompt := interaction.PromptMessage
+			if len(prompt) > 1000 {
+				prompt = prompt[:1000] + "... [truncated]"
+			}
+			sb.WriteString(fmt.Sprintf("USER:\n%s\n\n", prompt))
+		}
+
+		if interaction.AssistantMessage != "" {
+			assistant := interaction.AssistantMessage
+			if len(assistant) > 2000 {
+				assistant = assistant[:2000] + "... [truncated]"
+			}
+			sb.WriteString(fmt.Sprintf("ASSISTANT:\n%s\n\n", assistant))
+		}
+	}
+
+	if len(session.Interactions) == 0 {
+		sb.WriteString("No interactions found in this session.")
+	}
+
+	m.logger.Info("session context retrieved", "interactions", len(session.Interactions))
+	return mcp.NewToolResultText(sb.String()), nil
 }
