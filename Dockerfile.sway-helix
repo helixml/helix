@@ -448,3 +448,41 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
                         /home/retro/.config/zed
+
+# ====================================================================
+# Chrome DevTools MCP Server
+# ====================================================================
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+RUN apt-get update && apt-get install -y \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
+    && rm /tmp/google-chrome.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install chrome-devtools-mcp globally (requires Node.js 22+ for best support)
+# Using npx at runtime instead for latest version compatibility
+RUN npm install -g chrome-devtools-mcp@latest
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080

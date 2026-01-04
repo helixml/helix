@@ -181,14 +181,43 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// 3. Add desktop MCP server (screenshot, clipboard, input tools)
-	// This runs locally in the sandbox container on port 9878 (alongside screenshot-server)
-	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard
+	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
+	// This runs locally in the sandbox container on port 9877 (alongside screenshot-server)
+	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
+	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
 	config.ContextServers["helix-desktop"] = ContextServerConfig{
-		URL: "http://localhost:9878/mcp",
+		URL: "http://localhost:9877/mcp",
 	}
 
-	// 4. Pass-through external MCP servers
+	// 4. Add session MCP server (session navigation and context tools)
+	// This runs on the Helix API server (needs database access for session data)
+	// Provides current_session, session_toc, session_title_history, search_session,
+	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
+	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
+	config.ContextServers["helix-session"] = ContextServerConfig{
+		URL: sessionMCPURL,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
+	}
+
+	// 5. Add Chrome DevTools MCP server for browser automation and debugging
+	// Provides 26 tools for browser control: navigation, DOM/CSS inspection, performance tracing,
+	// console access, network analysis, and input automation.
+	// Uses Puppeteer internally to control Chrome via CDP (Chrome DevTools Protocol).
+	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
+	config.ContextServers["chrome-devtools"] = ContextServerConfig{
+		Command: "npx",
+		Args:    []string{"chrome-devtools-mcp@latest"},
+		Env: map[string]string{
+			// Use headless mode in sandbox containers (no visible browser window)
+			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
+			// Set viewport to match typical desktop resolution
+			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
+		},
+	}
+
+	// 6. Pass-through external MCP servers
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)

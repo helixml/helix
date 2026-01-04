@@ -219,9 +219,159 @@ When hovering over a session tab:
 - `api/pkg/session/mcp_server.go` - NEW: Session navigation MCP server (separate from desktop)
 - `api/pkg/desktop/mcp_server.go` - Desktop-only MCP tools (screenshot, clipboard, mouse, keyboard)
 
+## Window Management Tools
+
+Added comprehensive window management MCP tools to the desktop MCP server (`api/pkg/desktop/mcp_server.go`):
+
+| Tool | Description |
+|------|-------------|
+| `list_windows` | Get all open windows with IDs, titles, and workspace |
+| `focus_window` | Focus a window by ID or title |
+| `maximize_window` | Maximize or fullscreen a window |
+| `tile_window` | Tile window to left or right half of screen |
+| `move_to_workspace` | Move window to a specific workspace number |
+| `switch_to_workspace` | Switch to a workspace number |
+| `get_workspaces` | List all workspaces with focus state |
+
+### Desktop Environment Detection
+
+The MCP server auto-detects the desktop environment:
+
+```go
+func (m *MCPServer) detectDesktopEnvironment() string {
+    if _, err := exec.LookPath("swaymsg"); err == nil {
+        cmd := exec.Command("swaymsg", "-t", "get_version")
+        if err := cmd.Run(); err == nil {
+            return "sway"
+        }
+    }
+    if os.Getenv("XDG_CURRENT_DESKTOP") == "GNOME" {
+        return "gnome"
+    }
+    return "sway"  // default
+}
+```
+
+### Sway Backend
+
+Uses `swaymsg` commands:
+- `swaymsg -t get_tree` - Parse window tree JSON
+- `swaymsg -t get_workspaces` - List workspaces
+- `swaymsg [con_id=X] focus` - Focus by container ID
+- `swaymsg move container to workspace number N` - Move to workspace
+
+### GNOME Backend
+
+Uses `wmctrl` and `gdbus`:
+- `wmctrl -l -p` - List windows
+- `wmctrl -i -a <id>` - Focus by ID
+- `wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz` - Maximize
+- `wmctrl -s N` - Switch to workspace N
+
+## Chrome DevTools MCP Server
+
+Added Google Chrome and chrome-devtools-mcp to container images for AI agent browser control.
+
+### Installation
+
+```dockerfile
+# Install Chrome
+RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y
+
+# Install chrome-devtools-mcp
+RUN npm install -g chrome-devtools-mcp@latest
+
+# Configuration
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080
+```
+
+### Capabilities
+
+The Chrome DevTools MCP server provides 26 tools across 6 categories:
+- **Input automation** (7 tools): Click, type, scroll, keyboard events
+- **Navigation** (7 tools): goto, back, forward, reload, wait
+- **Debugging** (4 tools): Console, DOM inspection, CSS
+- **Network** (2 tools): Request interception, response analysis
+- **Performance** (3 tools): Trace recording, metrics
+- **Emulation** (3 tools): Device emulation, geolocation
+
+### Usage
+
+Agents can use Chrome to:
+- Test frontend changes in a real browser
+- Take screenshots of UI for visual verification
+- Debug JavaScript errors in the console
+- Measure performance metrics
+- Interact with web applications as part of testing
+
+Reference: https://developer.chrome.com/blog/chrome-devtools-mcp
+
+## Slack/Teams Integration (Planned)
+
+**Goal**: Keep users informed of agent progress without requiring them to watch the session.
+
+### Notification Types
+
+1. **Status Updates**: When agent completes a milestone (spec approved, implementation done, tests passing)
+2. **Screenshot Previews**: Show current state of work (desktop screenshot, browser screenshot)
+3. **Attention Required**: When agent needs human input or is blocked
+
+### Implementation Plan
+
+```go
+type AgentNotification struct {
+    Type        string    // "status", "screenshot", "attention"
+    SessionID   string
+    TaskID      string
+    Summary     string    // One-line summary from interaction
+    ScreenshotURL string  // Optional S3 URL to screenshot
+    SessionURL  string    // Link to Helix session for details
+}
+```
+
+### Integration Points
+
+- **Slack**: Use Slack Block Kit for rich notifications with images
+- **Teams**: Use Adaptive Cards for similar rich notifications
+- **Webhook**: Generic webhook for custom integrations
+
+### Trigger Logic
+
+```go
+// Trigger notification when agent is idle for >30 seconds after completing work
+if time.Since(lastInteractionTime) > 30*time.Second && !isAgentActive {
+    sendNotification(AgentNotification{
+        Type:    "attention",
+        Summary: getLatestInteractionSummary(sessionID),
+    })
+}
+```
+
+## Files Changed
+
+- `api/pkg/types/types.go` - Added `Summary`, `SummaryUpdatedAt` to Interaction; `SystemSession`, `TitleHistory` to SessionMetadata; `TitleHistoryEntry` type
+- `api/pkg/store/store.go` - Added `UpdateSessionMetadata`, `UpdateInteractionSummary` interface methods
+- `api/pkg/store/store_sessions.go` - Implemented `UpdateSessionMetadata`
+- `api/pkg/store/store_interactions.go` - Implemented `UpdateInteractionSummary`
+- `api/pkg/store/store_session_toc_test.go` - NEW: Unit tests for session TOC functionality
+- `api/pkg/server/session_toc_handlers.go` - NEW: TOC endpoint handlers
+- `api/pkg/server/summary_service.go` - NEW: Async summary generation service with title history tracking, pubsub integration
+- `api/pkg/server/session_handlers.go` - Hook summary generation on interaction completion
+- `api/pkg/server/server.go` - Add routes and initialize SummaryService with pubsub
+- `api/pkg/controller/sessions.go` - Added WebSocket event publishing on title update
+- `api/pkg/session/mcp_server.go` - NEW: Session navigation MCP server (separate from desktop)
+- `api/pkg/desktop/mcp_server.go` - Desktop-only MCP tools (screenshot, clipboard, mouse, keyboard, window management)
+- `frontend/src/components/tasks/TabsView.tsx` - Title history tooltip on hover
+- `Dockerfile.sway-helix` - Added Chrome and chrome-devtools-mcp
+- `Dockerfile.ubuntu-helix` - Added Chrome and chrome-devtools-mcp
+
 ## Future Enhancements
 
 1. **Semantic Search** - Use embeddings for better session content search
 2. **Summary Caching** - Pre-generate summaries in background for older sessions
 3. **Cross-Session TOC** - Unified TOC across related SpecTask sessions
-4. **Title History UI** - Frontend component to display title history on tab hover
+4. ~~**Title History UI** - Frontend component to display title history on tab hover~~ (DONE)
+5. **Slack/Teams Notifications** - Real-time agent status updates to collaboration platforms
+6. **Browser Testing Automation** - Use Chrome MCP for automated UI testing in SpecTask workflow

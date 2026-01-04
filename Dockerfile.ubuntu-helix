@@ -707,3 +707,23 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
                         /home/retro/.config/zed
+
+# ====================================================================
+# Chrome DevTools MCP Server
+# ====================================================================
+# Install Google Chrome and chrome-devtools-mcp for AI agent browser control
+# See: https://developer.chrome.com/blog/chrome-devtools-mcp
+# Note: Most Chrome deps are already installed with GNOME, just need Chrome itself
+
+RUN apt-get update && \
+    wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
+    rm /tmp/google-chrome.deb && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install chrome-devtools-mcp globally
+RUN npm install -g chrome-devtools-mcp@latest
+
+# Chrome MCP server configuration for headless mode
+ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
+    CHROME_DEVTOOLS_MCP_VIEWPORT=1920x1080

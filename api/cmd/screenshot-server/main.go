@@ -35,10 +35,10 @@ func main() {
 		cfg.XDGRuntimeDir = "/tmp/sockets"
 	}
 
-	// MCP server config
-	mcpPort := os.Getenv("MCP_PORT")
-	if mcpPort == "" {
-		mcpPort = "9878" // Use 9878 to avoid conflict with settings-sync-daemon (9877)
+	// Desktop MCP server config (screenshot, clipboard, input, window management)
+	desktopMCPPort := os.Getenv("DESKTOP_MCP_PORT")
+	if desktopMCPPort == "" {
+		desktopMCPPort = "9877" // Desktop MCP on 9877, Session MCP on 9878
 	}
 	mcpEnabled := os.Getenv("MCP_ENABLED") != "false" // Enabled by default
 
@@ -57,10 +57,10 @@ func main() {
 		}
 	}()
 
-	// Start MCP server if enabled
+	// Start Desktop MCP server if enabled (port 9877)
 	if mcpEnabled {
 		mcpCfg := desktop.MCPConfig{
-			Port:          mcpPort,
+			Port:          desktopMCPPort,
 			ScreenshotURL: fmt.Sprintf("http://localhost:%s/screenshot", cfg.HTTPPort),
 		}
 		mcpServer := desktop.NewMCPServer(mcpCfg, logger)
@@ -68,9 +68,9 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			logger.Info("starting MCP desktop server", "port", mcpPort)
-			if err := mcpServer.Run(ctx, mcpPort); err != nil && err != context.Canceled {
-				logger.Error("MCP server error", "err", err)
+			logger.Info("starting Desktop MCP server", "port", desktopMCPPort)
+			if err := mcpServer.Run(ctx, desktopMCPPort); err != nil && err != context.Canceled {
+				logger.Error("Desktop MCP server error", "err", err)
 			}
 		}()
 	}

@@ -359,7 +359,10 @@ func NewServer(
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier)
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, controller))
 
-	log.Info().Msg("Initialized MCP Gateway with Kodit and Helix backends")
+	// Register Session MCP backend (session navigation and context tools)
+	apiServer.mcpGateway.RegisterBackend("session", NewSessionMCPBackend(store))
+
+	log.Info().Msg("Initialized MCP Gateway with Kodit, Helix, and Session backends")
 
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
