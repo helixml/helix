@@ -16,15 +16,13 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
-COPY wolf/ubuntu-config/remotedesktop-session.go ./wolf/ubuntu-config/remotedesktop-session.go
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /remotedesktop-session ../wolf/ubuntu-config/remotedesktop-session.go
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
@@ -520,19 +518,12 @@ if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
 fi
 
 if [ -x /usr/local/bin/screenshot-server ]; then
-  gow_log "[start] Starting screenshot server..."
-  # Screenshot server uses org.gnome.Shell.Screenshot D-Bus API first,
-  # then falls back to PipeWire capture from the existing ScreenCast stream
-  # (reads from /tmp/pipewire-node-id which remotedesktop-session saves)
+  gow_log "[start] Starting screenshot server (includes D-Bus session + input bridge)..."
+  # Screenshot server handles:
+  # - HTTP API: /screenshot, /clipboard, /keyboard-state, /keyboard-reset, /upload
+  # - GNOME: Creates RemoteDesktop+ScreenCast sessions, reports PipeWire node to Wolf
+  # - Input bridge: Receives events from Wolf, injects via D-Bus NotifyPointer*/NotifyKeyboard*
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
-fi
-
-# For PipeWire mode: start RemoteDesktop session (video + input) and report to Wolf
-# Uses Go binary with persistent D-Bus connection to keep session alive
-if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-  gow_log "[start] Starting RemoteDesktop session (video + input)..."
-  /opt/gow/remotedesktop-session >> /tmp/remotedesktop-session.log 2>&1 &
-  gow_log "[start] RemoteDesktop session started (PID: \$!)"
 fi
 
 # Set display scale after GNOME Shell is ready (if scaling is enabled)
@@ -633,17 +624,13 @@ dbus-run-session -- $XDG_RUNTIME_DIR/start_gnome
 _STARTUP
 RUN chmod +x /opt/gow/startup.sh
 
-# Python GLib D-Bus bindings for input bridge
-RUN apt-get update && apt-get install -y python3-gi python3-dbus && rm -rf /var/lib/apt/lists/*
-
 # Helix helper scripts
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-ADD wolf/ubuntu-config/gnome-screenshot.py /usr/local/bin/gnome-screenshot.py
 ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/gnome-screenshot.py /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
 
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
@@ -657,7 +644,6 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
-COPY --from=go-build-env /remotedesktop-session /opt/gow/remotedesktop-session
 
 # Zed binary
 RUN mkdir -p /zed-build
