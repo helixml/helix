@@ -102,11 +102,13 @@ if s.standaloneScreenCast {
 - Saves PNG to local file
 
 ### 2. `helix spectask stream <session-id>`
-- **Status:** Partially implemented (as stream-stats)
-- Connects to Moonlight WebSocket
-- Shows real-time statistics: message rate, bitrate, message sizes
+- **Status:** Implemented (using custom WebSocket video protocol)
+- Connects to `/moonlight/host/api/ws/stream` WebSocket endpoint
+- Uses simpler binary protocol (not WebRTC) with raw H.264/HEVC/AV1 frames
+- Shows real-time statistics: FPS, bitrate, keyframes, codec, resolution
 - Supports `--duration` for timed runs
-- Supports `--output` to save video data to file
+- Supports `--output` to save raw video frames to file
+- Supports `--verbose` to see individual frame details
 
 ### 3. VLC HTTP Streaming Server
 - **Status:** Implemented
@@ -155,57 +157,34 @@ if s.standaloneScreenCast {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## CLI Stream-Stats Testing Results (2026-01-04)
+## CLI Stream Command (2026-01-04)
 
-### Fixed: Lobby-Based Session Detection
+### Custom WebSocket Video Protocol
 
-The stream-stats CLI initially failed with "AppNotFound" because external agent sessions use Wolf **lobbies**, not apps. The session's `wolf_app_id` is a lobby config ID, not a Wolf app.
+The `helix spectask stream` command uses a custom WebSocket-only video protocol instead of WebRTC. This is simpler and allows direct access to raw video frames for debugging.
 
-**Fix:** Detect lobby-based sessions and use the placeholder app ID:
-1. Check `session.config.wolf_lobby_id` to detect lobby-based sessions
-2. For lobby sessions, fetch `/api/v1/wolf/ui-app-id?session_id=XXX`
-3. Use "Select Agent" app (ID 985743958) for lobby attachment
+**Endpoint:** `/moonlight/host/api/ws/stream?session_id=agent-{helix_session_id}`
 
-### Fixed: AlreadyStreaming Handling
+**Binary Message Format:**
+- VideoFrame (0x01): type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + NAL data
+- AudioFrame (0x02): type(1) + codec(1) + flags(1) + pts(8) + audio data
+- VideoBatch (0x03): type(1) + count(2) + [frames...]
+- StreamInit (0x30): type(1) + codec(1) + width(2) + height(2) + fps(1) + ...
 
-When a Wolf stream session already exists (from previous CLI test), "create" mode returns "AlreadyStreaming" error.
+**Video Codecs:**
+- 0x01 = H.264
+- 0x02 = H.264 High 4:4:4
+- 0x10 = HEVC
+- 0x11 = HEVC Main10
+- 0x20 = AV1 Main8
+- 0x21 = AV1 Main10
 
-**Fix:** Added `--join` flag to use "join" mode in AuthenticateAndInit message.
-
-### Signaling Stability Test Results
-
-| Duration | Mode | Result | Notes |
-|----------|------|--------|-------|
-| 15s | create | ✅ | Full signaling stages: Launch Streamer → WebRTC Peer Setup → Negotiation |
-| 30s | join | ✅ | Stable connection, received WebRTC config |
-| 60s | join | ✅ | Stable connection, no disconnects |
-| 2 min | join | ✅ | Stable connection, no disconnects |
-
-**Observation:** Only 1 message received (WebRTC config) because CLI doesn't complete WebRTC negotiation (no SDP answer, no ICE candidates). This is expected - we're testing signaling stability, not video streaming.
-
-### Moonlight Signaling Protocol
-
-The AuthenticateAndInit message format for lobby-based sessions:
-
-```json
-{
-  "AuthenticateAndInit": {
-    "credentials": "<token>",
-    "session_id": "agent-<helix_session_id>",
-    "mode": "create|join",
-    "client_unique_id": "cli-<timestamp>",
-    "host_id": 0,
-    "app_id": 985743958,  // Select Agent placeholder app
-    "bitrate": 10000,
-    "fps": 60,
-    "width": 1920,
-    "height": 1080,
-    "video_supported_formats": 1,  // H264
-    "video_colorspace": "Rec709",
-    "video_color_range_full": true
-  }
-}
-```
+**Statistics Displayed:**
+- Resolution and codec
+- Frame rate (FPS)
+- Video bitrate (Mbps)
+- Keyframe count
+- Average/min/max frame sizes
 
 ## Files Modified
 

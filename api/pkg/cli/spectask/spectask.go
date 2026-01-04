@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,7 +31,6 @@ func New() *cobra.Command {
 	cmd.AddCommand(newResumeCommand())
 	cmd.AddCommand(newListAgentsCommand())
 	cmd.AddCommand(newStreamCommand())
-	cmd.AddCommand(newStreamStatsCommand())
 	cmd.AddCommand(newStopCommand())
 
 	return cmd
@@ -637,29 +635,103 @@ func newListAgentsCommand() *cobra.Command {
 	}
 }
 
-func newStreamStatsCommand() *cobra.Command {
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func formatBits(b int64) string {
+	const unit = 1000
+	if b < unit {
+		return fmt.Sprintf("%d bps", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cbps", float64(b)/float64(div), "KMG"[exp])
+}
+
+// WebSocket message types for custom video protocol (matching websocket-stream.ts)
+const (
+	WsMsgVideoFrame    = 0x01
+	WsMsgAudioFrame    = 0x02
+	WsMsgVideoBatch    = 0x03
+	WsMsgKeyboardInput = 0x10
+	WsMsgMouseClick    = 0x11
+	WsMsgMouseAbsolute = 0x12
+	WsMsgMouseRelative = 0x13
+	WsMsgControlMsg    = 0x20
+	WsMsgStreamInit    = 0x30
+	WsMsgPing          = 0x40
+	WsMsgPong          = 0x41
+)
+
+// Video codec constants
+const (
+	VideoCodecH264        = 0x01
+	VideoCodecH264High444 = 0x02
+	VideoCodecH265        = 0x10
+	VideoCodecH265Main10  = 0x11
+	VideoCodecAV1Main8    = 0x20
+	VideoCodecAV1Main10   = 0x21
+)
+
+func codecName(codec byte) string {
+	switch codec {
+	case VideoCodecH264:
+		return "H.264"
+	case VideoCodecH264High444:
+		return "H.264 High 4:4:4"
+	case VideoCodecH265:
+		return "HEVC"
+	case VideoCodecH265Main10:
+		return "HEVC Main10"
+	case VideoCodecAV1Main8:
+		return "AV1"
+	case VideoCodecAV1Main10:
+		return "AV1 10bit"
+	default:
+		return fmt.Sprintf("Unknown(0x%02x)", codec)
+	}
+}
+
+func newStreamCommand() *cobra.Command {
 	var duration int
 	var outputFile string
 	var verbose bool
-	var joinMode bool
 
 	cmd := &cobra.Command{
-		Use:   "stream-stats <session-id>",
-		Short: "Connect to video stream and print detailed statistics",
-		Long: `Connects to the Moonlight WebSocket and prints real-time statistics about the video stream.
+		Use:   "stream <session-id>",
+		Short: "Connect to video stream and display real-time statistics",
+		Long: `Connects to the custom WebSocket video streaming protocol and displays real-time statistics.
 
-This command is useful for development and testing to verify:
-1. Video encoding is working
-2. Frame rates and bitrates
-3. Message types being exchanged
-4. End-to-end latency
+This command uses the simpler WebSocket-only protocol (not WebRTC) which streams
+raw H.264/HEVC/AV1 video frames directly over WebSocket. This is ideal for testing
+and debugging the video pipeline.
+
+Statistics displayed:
+  - Frame rate (FPS)
+  - Bitrate (Mbps)
+  - Frame sizes and types (keyframe vs delta)
+  - Resolution and codec
+  - Frame latency
 
 Examples:
-  helix spectask stream-stats ses_01xxx                    # Run until Ctrl+C
-  helix spectask stream-stats ses_01xxx --duration 30      # Run for 30 seconds
-  helix spectask stream-stats ses_01xxx --output video.dat # Save video data to file
-  helix spectask stream-stats ses_01xxx -v                 # Verbose output
-  helix spectask stream-stats ses_01xxx --join             # Join existing stream (if "AlreadyStreaming")
+  helix spectask stream ses_01xxx                    # Run until Ctrl+C
+  helix spectask stream ses_01xxx --duration 30      # Run for 30 seconds
+  helix spectask stream ses_01xxx --output video.h264 # Save raw video to file
+  helix spectask stream ses_01xxx -v                 # Verbose output
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -667,14 +739,15 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			// Build WebSocket URL
+			// Build WebSocket URL for custom video protocol
 			wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 			wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 
+			// Custom WebSocket video endpoint (not Moonlight signaling)
 			moonlightSessionID := "agent-" + sessionID
-			streamURL := fmt.Sprintf("%s/moonlight/host/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
+			streamURL := fmt.Sprintf("%s/moonlight/host/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
 
-			fmt.Printf("📊 Stream Statistics for session %s\n", sessionID)
+			fmt.Printf("📊 Video Stream for session %s\n", sessionID)
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 			fmt.Printf("WebSocket URL: %s\n", streamURL)
 			if duration > 0 {
@@ -707,103 +780,28 @@ Examples:
 			connectTime := time.Since(startTime)
 			fmt.Printf("✅ Connected in %v\n\n", connectTime.Round(time.Millisecond))
 
-			// Fetch Wolf app ID for this session (needed for AuthenticateAndInit)
-			// For lobby-based sessions (external agents), we need the placeholder app ID,
-			// not the wolf_app_id from session state (which is a lobby config, not a Wolf app)
-			wolfAppID := 0
-
-			// First check if this is a lobby-based session by checking session config for wolf_lobby_id
-			isLobbyBased := false
-			sessionURL := fmt.Sprintf("%s/api/v1/sessions/%s", apiURL, sessionID)
-			sessionReq, _ := http.NewRequest("GET", sessionURL, nil)
-			sessionReq.Header.Set("Authorization", "Bearer "+token)
-			sessionResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(sessionReq)
-			if err == nil && sessionResp.StatusCode == http.StatusOK {
-				var sessionData struct {
-					Config struct {
-						WolfLobbyID  string `json:"wolf_lobby_id"`
-						WolfLobbyPIN string `json:"wolf_lobby_pin"`
-					} `json:"config"`
-				}
-				if json.NewDecoder(sessionResp.Body).Decode(&sessionData) == nil {
-					if sessionData.Config.WolfLobbyID != "" {
-						isLobbyBased = true
-						fmt.Printf("🎪 Lobby-based session (lobby: %s, PIN: %s)\n", sessionData.Config.WolfLobbyID, sessionData.Config.WolfLobbyPIN)
-					}
-				}
-				sessionResp.Body.Close()
-			}
-
-			// For lobby-based sessions, fetch the placeholder app ID (Select Agent / Blank)
-			if isLobbyBased {
-				uiAppURL := fmt.Sprintf("%s/api/v1/wolf/ui-app-id?session_id=%s", apiURL, sessionID)
-				uiAppReq, _ := http.NewRequest("GET", uiAppURL, nil)
-				uiAppReq.Header.Set("Authorization", "Bearer "+token)
-				uiAppResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(uiAppReq)
-				if err == nil && uiAppResp.StatusCode == http.StatusOK {
-					var uiAppState struct {
-						PlaceholderAppID string `json:"placeholder_app_id"`
-					}
-					if json.NewDecoder(uiAppResp.Body).Decode(&uiAppState) == nil && uiAppState.PlaceholderAppID != "" {
-						if parsed, err := strconv.Atoi(uiAppState.PlaceholderAppID); err == nil {
-							wolfAppID = parsed
-							fmt.Printf("📱 Using placeholder app ID: %d (Select Agent)\n", wolfAppID)
-						}
-					}
-					uiAppResp.Body.Close()
-				} else if err != nil {
-					fmt.Printf("⚠️  Failed to fetch placeholder app ID: %v\n", err)
-				} else {
-					body, _ := io.ReadAll(uiAppResp.Body)
-					uiAppResp.Body.Close()
-					fmt.Printf("⚠️  Failed to fetch placeholder app ID: %d - %s\n", uiAppResp.StatusCode, string(body))
-				}
-			}
-
-			// Send AuthenticateAndInit message to start the stream
-			// This follows the moonlight-web signaling protocol
+			// Send initialization message (JSON)
 			clientUniqueID := fmt.Sprintf("cli-%d", time.Now().UnixNano())
-
-			// Helper to send auth message with specified mode
-			sendAuthMessage := func(mode string) error {
-				authMessage := map[string]interface{}{
-					"AuthenticateAndInit": map[string]interface{}{
-						"credentials":              token, // Will be replaced by proxy with moonlight creds
-						"session_id":               moonlightSessionID,
-						"mode":                     mode,
-						"client_unique_id":         clientUniqueID,
-						"host_id":                  0, // Wolf local mode
-						"app_id":                   wolfAppID,
-						"bitrate":                  10000, // 10 Mbps
-						"packet_size":              1024,
-						"fps":                      60,
-						"width":                    1920,
-						"height":                   1080,
-						"video_sample_queue_size":  16,
-						"play_audio_local":         false,
-						"audio_sample_queue_size":  16,
-						"video_supported_formats":  1, // H264 = 1 (from moonlight-web api_bindings.ts)
-						"video_colorspace":         "Rec709",
-						"video_color_range_full":   true,
-					},
-				}
-				authJSON, err := json.Marshal(authMessage)
-				if err != nil {
-					return fmt.Errorf("failed to marshal auth message: %w", err)
-				}
-				fmt.Printf("📤 Sending AuthenticateAndInit (mode=%s, client=%s)...\n", mode, clientUniqueID[:20])
-				return conn.WriteMessage(websocket.TextMessage, authJSON)
+			initMessage := map[string]interface{}{
+				"type":                    "init",
+				"host_id":                 0,
+				"app_id":                  0,
+				"session_id":              moonlightSessionID,
+				"width":                   1920,
+				"height":                  1080,
+				"fps":                     60,
+				"bitrate":                 10000,
+				"packet_size":             1024,
+				"play_audio_local":        false,
+				"video_supported_formats": 1, // H264
+				"client_unique_id":        clientUniqueID,
 			}
-
-			// Use "join" mode if --join flag is set, otherwise "create"
-			authMode := "create"
-			if joinMode {
-				authMode = "join"
+			initJSON, _ := json.Marshal(initMessage)
+			fmt.Printf("📤 Sending init message...\n")
+			if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
+				return fmt.Errorf("failed to send init: %w", err)
 			}
-			if err := sendAuthMessage(authMode); err != nil {
-				return fmt.Errorf("failed to send auth message: %w", err)
-			}
-			fmt.Printf("✅ Auth message sent, waiting for responses...\n\n")
+			fmt.Printf("✅ Init sent, waiting for video frames...\n\n")
 
 			// Optional output file
 			var outFile *os.File
@@ -818,10 +816,8 @@ Examples:
 			}
 
 			// Statistics tracking
-			stats := &streamStats{
-				startTime:    time.Now(),
-				messageSizes: make(map[int]int), // size bucket -> count
-				messageTypes: make(map[int]int), // type -> count
+			stats := &videoStreamStats{
+				startTime: time.Now(),
 			}
 
 			// Handle graceful shutdown
@@ -846,80 +842,82 @@ Examples:
 					stats.mu.Lock()
 					stats.totalMessages++
 					stats.totalBytes += int64(len(data))
-					stats.messageTypes[msgType]++
 
-					// Bucket sizes for histogram
-					sizeBucket := (len(data) / 1024) * 1024 // Round to nearest KB
-					stats.messageSizes[sizeBucket]++
-
-					// Track min/max message sizes
-					if stats.minMsgSize == 0 || len(data) < stats.minMsgSize {
-						stats.minMsgSize = len(data)
-					}
-					if len(data) > stats.maxMsgSize {
-						stats.maxMsgSize = len(data)
-					}
-
-					stats.lastMsgTime = time.Now()
-					stats.mu.Unlock()
-
-					// Write to file if specified
-					if outFile != nil {
-						outFile.Write(data)
-					}
-
-					// Verbose output or signaling message parsing
-					typeStr := websocketMsgTypeStr(msgType)
-					if msgType == websocket.TextMessage {
-						// Parse signaling messages and display them
-						var msg map[string]interface{}
-						if err := json.Unmarshal(data, &msg); err == nil {
-							// Check for various message types
-							if _, ok := msg["StageStarting"]; ok {
-								stage := msg["StageStarting"].(map[string]interface{})["stage"]
-								fmt.Printf("📡 Stage starting: %v\n", stage)
-							} else if _, ok := msg["StageComplete"]; ok {
-								stage := msg["StageComplete"].(map[string]interface{})["stage"]
-								fmt.Printf("✅ Stage complete: %v\n", stage)
-							} else if _, ok := msg["StageFailed"]; ok {
-								stageFailed := msg["StageFailed"].(map[string]interface{})
-								fmt.Printf("❌ Stage failed: %v (error: %v)\n", stageFailed["stage"], stageFailed["error_code"])
-							} else if _, ok := msg["WebRtcConfig"]; ok {
-								fmt.Printf("🔧 WebRTC config received (ICE servers configured)\n")
-							} else if _, ok := msg["ConnectionComplete"]; ok {
-								fmt.Printf("🎉 Connection complete! Stream is active.\n")
-							} else if _, ok := msg["ConnectionTerminated"]; ok {
-								terminated := msg["ConnectionTerminated"].(map[string]interface{})
-								fmt.Printf("🛑 Connection terminated (error: %v)\n", terminated["error_code"])
-							} else if _, ok := msg["Signaling"]; ok {
-								signaling := msg["Signaling"].(map[string]interface{})
-								if _, ok := signaling["Description"]; ok {
-									desc := signaling["Description"].(map[string]interface{})
-									fmt.Printf("📝 SDP %v received\n", desc["ty"])
-								} else if _, ok := signaling["AddIceCandidate"]; ok {
-									fmt.Printf("🧊 ICE candidate received\n")
+					if msgType == websocket.BinaryMessage && len(data) > 0 {
+						wsMsgType := data[0]
+						switch wsMsgType {
+						case WsMsgVideoFrame:
+							stats.videoFrames++
+							stats.videoBytes += int64(len(data))
+							if len(data) >= 15 {
+								codec := data[1]
+								flags := data[2]
+								isKeyframe := (flags & 0x01) != 0
+								if stats.codec == 0 {
+									stats.codec = codec
 								}
-							} else if verbose {
-								// Unknown message type - show in verbose mode
-								fmt.Printf("[%s] %s: %s\n",
-									time.Now().Format("15:04:05.000"),
-									typeStr,
-									string(data)[:min(100, len(data))])
+								if isKeyframe {
+									stats.keyframes++
+								}
+								frameSize := len(data) - 15
+								if frameSize < stats.minFrameSize || stats.minFrameSize == 0 {
+									stats.minFrameSize = frameSize
+								}
+								if frameSize > stats.maxFrameSize {
+									stats.maxFrameSize = frameSize
+								}
+								if verbose {
+									frameType := "delta"
+									if isKeyframe {
+										frameType = "KEY"
+									}
+									fmt.Printf("[%s] Video: %s %d bytes (%s)\n",
+										time.Now().Format("15:04:05.000"),
+										codecName(codec), frameSize, frameType)
+								}
+								// Write raw frame data to file if specified
+								if outFile != nil {
+									outFile.Write(data[15:])
+								}
 							}
-						} else if verbose {
-							// Print the actual content for debugging
-							fmt.Printf("[%s] %s: %d bytes - content: %q\n",
-								time.Now().Format("15:04:05.000"),
-								typeStr,
-								len(data),
-								string(data))
+						case WsMsgAudioFrame:
+							stats.audioFrames++
+							stats.audioBytes += int64(len(data))
+						case WsMsgVideoBatch:
+							if len(data) >= 3 {
+								frameCount := int(data[1])<<8 | int(data[2])
+								stats.videoFrames += frameCount
+								stats.batchCount++
+								if verbose {
+									fmt.Printf("[%s] Batch: %d frames\n",
+										time.Now().Format("15:04:05.000"), frameCount)
+								}
+							}
+						case WsMsgStreamInit:
+							if len(data) >= 13 {
+								codec := data[1]
+								width := int(data[2])<<8 | int(data[3])
+								height := int(data[4])<<8 | int(data[5])
+								fps := int(data[6])
+								stats.codec = codec
+								stats.width = width
+								stats.height = height
+								stats.fps = fps
+								fmt.Printf("📺 StreamInit: %dx%d@%dfps (%s)\n",
+									width, height, fps, codecName(codec))
+							}
+						case WsMsgPong:
+							// RTT measurement would go here
 						}
-					} else if verbose {
-						fmt.Printf("[%s] %s: %d bytes\n",
-							time.Now().Format("15:04:05.000"),
-							typeStr,
-							len(data))
+					} else if msgType == websocket.TextMessage {
+						// JSON control message
+						if verbose {
+							fmt.Printf("[%s] Control: %s\n",
+								time.Now().Format("15:04:05.000"),
+								string(data[:min(100, len(data))]))
+						}
 					}
+					stats.mu.Unlock()
 				}
 			}()
 
@@ -944,38 +942,42 @@ Examples:
 
 				fmt.Printf("\n%s (elapsed: %v)\n", header, elapsed.Round(time.Second))
 				fmt.Printf("───────────────────────────────────────────────\n")
-				fmt.Printf("Messages received:  %d\n", stats.totalMessages)
+
+				if stats.width > 0 {
+					fmt.Printf("Resolution:         %dx%d\n", stats.width, stats.height)
+				}
+				if stats.codec > 0 {
+					fmt.Printf("Codec:              %s\n", codecName(stats.codec))
+				}
+
+				fmt.Printf("Video frames:       %d", stats.videoFrames)
+				if stats.keyframes > 0 {
+					fmt.Printf(" (%d keyframes)\n", stats.keyframes)
+				} else {
+					fmt.Println()
+				}
+				fmt.Printf("Audio frames:       %d\n", stats.audioFrames)
 				fmt.Printf("Total data:         %s\n", formatBytes(stats.totalBytes))
 
 				if elapsed.Seconds() > 0 {
-					msgRate := float64(stats.totalMessages) / elapsed.Seconds()
-					bitrate := float64(stats.totalBytes*8) / elapsed.Seconds()
-					fmt.Printf("Message rate:       %.2f msg/s\n", msgRate)
-					fmt.Printf("Bitrate:            %s/s\n", formatBits(int64(bitrate)))
+					videoFps := float64(stats.videoFrames) / elapsed.Seconds()
+					videoBitrate := float64(stats.videoBytes*8) / elapsed.Seconds()
+					fmt.Printf("Frame rate:         %.2f fps\n", videoFps)
+					fmt.Printf("Video bitrate:      %s/s\n", formatBits(int64(videoBitrate)))
 				}
 
-				if stats.totalMessages > 0 {
-					avgSize := stats.totalBytes / int64(stats.totalMessages)
-					fmt.Printf("Avg message size:   %s\n", formatBytes(avgSize))
-					fmt.Printf("Min message size:   %s\n", formatBytes(int64(stats.minMsgSize)))
-					fmt.Printf("Max message size:   %s\n", formatBytes(int64(stats.maxMsgSize)))
+				if stats.videoFrames > 0 {
+					avgSize := stats.videoBytes / int64(stats.videoFrames)
+					fmt.Printf("Avg frame size:     %s\n", formatBytes(avgSize))
+					fmt.Printf("Frame size range:   %s - %s\n",
+						formatBytes(int64(stats.minFrameSize)),
+						formatBytes(int64(stats.maxFrameSize)))
 				}
 
-				fmt.Printf("\nMessage types:\n")
-				for msgType, count := range stats.messageTypes {
-					fmt.Printf("  %s: %d\n", websocketMsgTypeStr(msgType), count)
+				if stats.batchCount > 0 {
+					fmt.Printf("Batch messages:     %d\n", stats.batchCount)
 				}
 
-				if final && len(stats.messageSizes) > 0 {
-					fmt.Printf("\nMessage size distribution:\n")
-					for size, count := range stats.messageSizes {
-						pct := float64(count) / float64(stats.totalMessages) * 100
-						fmt.Printf("  %s-%s: %d (%.1f%%)\n",
-							formatBytes(int64(size)),
-							formatBytes(int64(size+1024)),
-							count, pct)
-					}
-				}
 				fmt.Printf("───────────────────────────────────────────────\n")
 			}
 
@@ -1014,229 +1016,30 @@ Examples:
 	}
 
 	cmd.Flags().IntVarP(&duration, "duration", "d", 0, "Run for specified seconds (0 = until interrupted)")
-	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write video data to file")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Print each message received")
-	cmd.Flags().BoolVar(&joinMode, "join", false, "Join existing stream instead of creating new (use if 'AlreadyStreaming')")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write raw video frames to file")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Print each frame received")
 
 	return cmd
 }
 
-// streamStats tracks statistics for stream-stats command
-type streamStats struct {
-	mu            sync.Mutex
-	startTime     time.Time
+// videoStreamStats tracks statistics for the stream command
+type videoStreamStats struct {
+	mu           sync.Mutex
+	startTime    time.Time
 	totalMessages int
-	totalBytes    int64
-	minMsgSize    int
-	maxMsgSize    int
-	lastMsgTime   time.Time
-	messageSizes  map[int]int // size bucket -> count
-	messageTypes  map[int]int // websocket message type -> count
-}
-
-func websocketMsgTypeStr(t int) string {
-	switch t {
-	case websocket.TextMessage:
-		return "Text"
-	case websocket.BinaryMessage:
-		return "Binary"
-	case websocket.CloseMessage:
-		return "Close"
-	case websocket.PingMessage:
-		return "Ping"
-	case websocket.PongMessage:
-		return "Pong"
-	default:
-		return fmt.Sprintf("Unknown(%d)", t)
-	}
-}
-
-func formatBytes(b int64) string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
-func formatBits(b int64) string {
-	const unit = 1000
-	if b < unit {
-		return fmt.Sprintf("%d bps", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cbps", float64(b)/float64(div), "KMG"[exp])
-}
-
-func newStreamCommand() *cobra.Command {
-	var keepAlive bool
-	var timeout int
-	var vlcServer string
-	var keyboard bool
-	var sendText string
-
-	cmd := &cobra.Command{
-		Use:   "stream <session-id>",
-		Short: "Start video streaming for a session and return browser URL",
-		Long: `Connects to the Moonlight WebSocket to trigger video streaming.
-
-This command:
-1. Connects to the Moonlight signaling WebSocket (triggers Wolf to start encoding)
-2. Keeps the connection open to maintain the stream
-3. Returns the URL to view in browser
-
-The video stream uses WebRTC and requires a browser to view. This command
-triggers the stream so you can verify the video pipeline is working.
-
-VLC Server Mode:
-When --vlc-server is specified, starts a local HTTP server that VLC can connect to.
-The raw video data from the Moonlight WebSocket is streamed to any HTTP clients.
-
-Keyboard Mode:
-When --keyboard is specified, captures terminal input and sends to the sandbox.
-This allows you to type commands directly into the remote desktop.
-
-Example:
-  helix spectask stream ses_01xxx
-  helix spectask stream ses_01xxx --keep-alive   # Keep stream running
-  helix spectask stream ses_01xxx --vlc-server :8889  # Start VLC server
-  helix spectask stream ses_01xxx --keyboard     # Enable keyboard input
-  helix spectask stream ses_01xxx --text "ls -la"  # Send text and exit
-`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			sessionID := args[0]
-			apiURL := getAPIURL()
-			token := getToken()
-
-			// Build WebSocket URL
-			// Convert http:// to ws:// or https:// to wss://
-			wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
-			wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-
-			// Moonlight Web WebSocket endpoint
-			// Format: /moonlight/host/stream?session_id=agent-{session_id}
-			moonlightSessionID := "agent-" + sessionID
-			streamURL := fmt.Sprintf("%s/moonlight/host/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
-
-			fmt.Printf("🎬 Starting video stream for session %s...\n", sessionID)
-			fmt.Printf("   WebSocket URL: %s\n", streamURL)
-
-			// Build browser URL for viewing
-			browserURL := fmt.Sprintf("%s/dashboard/sessions/%s?stream=true", apiURL, sessionID)
-			fmt.Printf("\n📺 View in browser:\n   %s\n", browserURL)
-
-			// Connect to WebSocket with auth header
-			header := http.Header{}
-			header.Set("Authorization", "Bearer "+token)
-
-			dialer := websocket.Dialer{
-				HandshakeTimeout: 10 * time.Second,
-			}
-
-			conn, resp, err := dialer.Dial(streamURL, header)
-			if err != nil {
-				if resp != nil {
-					body, _ := io.ReadAll(resp.Body)
-					return fmt.Errorf("WebSocket connection failed: %w - %s", err, string(body))
-				}
-				return fmt.Errorf("WebSocket connection failed: %w", err)
-			}
-			defer conn.Close()
-
-			fmt.Printf("\n✅ WebSocket connected! Video stream is active.\n")
-
-			// Send text mode (non-interactive) - just send and exit
-			if sendText != "" {
-				fmt.Printf("\n⌨️  Sending text to sandbox: %q\n", sendText)
-				if err := sendTextToSession(apiURL, token, sessionID, sendText); err != nil {
-					return fmt.Errorf("failed to send text: %w", err)
-				}
-				return nil
-			}
-
-			// Interactive mode: VLC server + keyboard + mouse
-			if vlcServer != "" || keyboard {
-				return runInteractiveStream(apiURL, token, sessionID, conn, vlcServer, keyboard, timeout)
-			}
-
-			if !keepAlive {
-				// Just verify connection works, then close
-				fmt.Println("   Stream triggered successfully. Connection will close.")
-				fmt.Println("\n💡 Tip: Use --keep-alive to keep the stream running")
-
-				// Keep connection for a few seconds to ensure stream starts
-				time.Sleep(3 * time.Second)
-				return nil
-			}
-
-			// Keep alive mode - maintain connection until interrupted
-			fmt.Printf("   Keeping stream alive (timeout: %ds, Ctrl+C to stop)...\n", timeout)
-
-			// Handle graceful shutdown
-			sigChan := make(chan os.Signal, 1)
-			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-			// Ping/pong to keep connection alive
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for {
-					_, _, err := conn.ReadMessage()
-					if err != nil {
-						if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-							fmt.Printf("WebSocket read error: %v\n", err)
-						}
-						return
-					}
-				}
-			}()
-
-			// Send periodic pings
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-
-			timeoutChan := time.After(time.Duration(timeout) * time.Second)
-
-			for {
-				select {
-				case <-sigChan:
-					fmt.Println("\n🛑 Stopping stream...")
-					conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-					return nil
-				case <-done:
-					fmt.Println("Connection closed by server")
-					return nil
-				case <-timeoutChan:
-					fmt.Println("\n⏰ Timeout reached, closing stream...")
-					conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-					return nil
-				case <-ticker.C:
-					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-						fmt.Printf("Ping failed: %v\n", err)
-						return nil
-					}
-				}
-			}
-		},
-	}
-
-	cmd.Flags().BoolVar(&keepAlive, "keep-alive", false, "Keep the stream running until interrupted")
-	cmd.Flags().IntVar(&timeout, "timeout", 300, "Timeout in seconds for keep-alive mode")
-	cmd.Flags().StringVar(&vlcServer, "vlc-server", "", "Start HTTP server for VLC (e.g., :8889)")
-	cmd.Flags().BoolVar(&keyboard, "keyboard", false, "Enable keyboard input mode (type to send to sandbox)")
-	cmd.Flags().StringVar(&sendText, "text", "", "Send text to sandbox and exit (non-interactive)")
-
-	return cmd
+	totalBytes   int64
+	videoFrames  int
+	videoBytes   int64
+	audioFrames  int
+	audioBytes   int64
+	keyframes    int
+	batchCount   int
+	minFrameSize int
+	maxFrameSize int
+	codec        byte
+	width        int
+	height       int
+	fps          int
 }
 
 // runInteractiveStream runs a combined interactive session with VLC server, keyboard, and mouse support
