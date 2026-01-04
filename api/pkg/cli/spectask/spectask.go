@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -704,6 +705,95 @@ Examples:
 			connectTime := time.Since(startTime)
 			fmt.Printf("✅ Connected in %v\n\n", connectTime.Round(time.Millisecond))
 
+			// Fetch Wolf app ID for this session (needed for AuthenticateAndInit)
+			// For lobby-based sessions (external agents), we need the placeholder app ID,
+			// not the wolf_app_id from session state (which is a lobby config, not a Wolf app)
+			wolfAppID := 0
+
+			// First check if this is a lobby-based session by checking session config for wolf_lobby_id
+			isLobbyBased := false
+			sessionURL := fmt.Sprintf("%s/api/v1/sessions/%s", apiURL, sessionID)
+			sessionReq, _ := http.NewRequest("GET", sessionURL, nil)
+			sessionReq.Header.Set("Authorization", "Bearer "+token)
+			sessionResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(sessionReq)
+			if err == nil && sessionResp.StatusCode == http.StatusOK {
+				var sessionData struct {
+					Config struct {
+						WolfLobbyID  string `json:"wolf_lobby_id"`
+						WolfLobbyPIN string `json:"wolf_lobby_pin"`
+					} `json:"config"`
+				}
+				if json.NewDecoder(sessionResp.Body).Decode(&sessionData) == nil {
+					if sessionData.Config.WolfLobbyID != "" {
+						isLobbyBased = true
+						fmt.Printf("🎪 Lobby-based session (lobby: %s, PIN: %s)\n", sessionData.Config.WolfLobbyID, sessionData.Config.WolfLobbyPIN)
+					}
+				}
+				sessionResp.Body.Close()
+			}
+
+			// For lobby-based sessions, fetch the placeholder app ID (Select Agent / Blank)
+			if isLobbyBased {
+				uiAppURL := fmt.Sprintf("%s/api/v1/wolf/ui-app-id?session_id=%s", apiURL, sessionID)
+				uiAppReq, _ := http.NewRequest("GET", uiAppURL, nil)
+				uiAppReq.Header.Set("Authorization", "Bearer "+token)
+				uiAppResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(uiAppReq)
+				if err == nil && uiAppResp.StatusCode == http.StatusOK {
+					var uiAppState struct {
+						PlaceholderAppID string `json:"placeholder_app_id"`
+					}
+					if json.NewDecoder(uiAppResp.Body).Decode(&uiAppState) == nil && uiAppState.PlaceholderAppID != "" {
+						if parsed, err := strconv.Atoi(uiAppState.PlaceholderAppID); err == nil {
+							wolfAppID = parsed
+							fmt.Printf("📱 Using placeholder app ID: %d (Select Agent)\n", wolfAppID)
+						}
+					}
+					uiAppResp.Body.Close()
+				} else if err != nil {
+					fmt.Printf("⚠️  Failed to fetch placeholder app ID: %v\n", err)
+				} else {
+					body, _ := io.ReadAll(uiAppResp.Body)
+					uiAppResp.Body.Close()
+					fmt.Printf("⚠️  Failed to fetch placeholder app ID: %d - %s\n", uiAppResp.StatusCode, string(body))
+				}
+			}
+
+			// Send AuthenticateAndInit message to start the stream
+			// This follows the moonlight-web signaling protocol
+			clientUniqueID := fmt.Sprintf("cli-%d", time.Now().UnixNano())
+			authMessage := map[string]interface{}{
+				"AuthenticateAndInit": map[string]interface{}{
+					"credentials":              token, // Will be replaced by proxy with moonlight creds
+					"session_id":               moonlightSessionID,
+					"mode":                     "create",
+					"client_unique_id":         clientUniqueID,
+					"host_id":                  0, // Wolf local mode
+					"app_id":                   wolfAppID, // Wolf app ID from session state
+					"bitrate":                  10000, // 10 Mbps
+					"packet_size":              1024,
+					"fps":                      60,
+					"width":                    1920,
+					"height":                   1080,
+					"video_sample_queue_size":  16,
+					"play_audio_local":         false,
+					"audio_sample_queue_size":  16,
+					"video_supported_formats":  1, // H264 = 1 (from moonlight-web api_bindings.ts)
+					"video_colorspace":         "Rec709",
+					"video_color_range_full":   true,
+				},
+			}
+
+			authJSON, err := json.Marshal(authMessage)
+			if err != nil {
+				return fmt.Errorf("failed to marshal auth message: %w", err)
+			}
+
+			fmt.Printf("📤 Sending AuthenticateAndInit (mode=create, client=%s)...\n", clientUniqueID[:20])
+			if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
+				return fmt.Errorf("failed to send auth message: %w", err)
+			}
+			fmt.Printf("✅ Auth message sent, waiting for responses...\n\n")
+
 			// Optional output file
 			var outFile *os.File
 			if outputFile != "" {
@@ -767,9 +857,53 @@ Examples:
 						outFile.Write(data)
 					}
 
-					// Verbose output
-					if verbose {
-						typeStr := websocketMsgTypeStr(msgType)
+					// Verbose output or signaling message parsing
+					typeStr := websocketMsgTypeStr(msgType)
+					if msgType == websocket.TextMessage {
+						// Parse signaling messages and display them
+						var msg map[string]interface{}
+						if err := json.Unmarshal(data, &msg); err == nil {
+							// Check for various message types
+							if _, ok := msg["StageStarting"]; ok {
+								stage := msg["StageStarting"].(map[string]interface{})["stage"]
+								fmt.Printf("📡 Stage starting: %v\n", stage)
+							} else if _, ok := msg["StageComplete"]; ok {
+								stage := msg["StageComplete"].(map[string]interface{})["stage"]
+								fmt.Printf("✅ Stage complete: %v\n", stage)
+							} else if _, ok := msg["StageFailed"]; ok {
+								stageFailed := msg["StageFailed"].(map[string]interface{})
+								fmt.Printf("❌ Stage failed: %v (error: %v)\n", stageFailed["stage"], stageFailed["error_code"])
+							} else if _, ok := msg["WebRtcConfig"]; ok {
+								fmt.Printf("🔧 WebRTC config received (ICE servers configured)\n")
+							} else if _, ok := msg["ConnectionComplete"]; ok {
+								fmt.Printf("🎉 Connection complete! Stream is active.\n")
+							} else if _, ok := msg["ConnectionTerminated"]; ok {
+								terminated := msg["ConnectionTerminated"].(map[string]interface{})
+								fmt.Printf("🛑 Connection terminated (error: %v)\n", terminated["error_code"])
+							} else if _, ok := msg["Signaling"]; ok {
+								signaling := msg["Signaling"].(map[string]interface{})
+								if _, ok := signaling["Description"]; ok {
+									desc := signaling["Description"].(map[string]interface{})
+									fmt.Printf("📝 SDP %v received\n", desc["ty"])
+								} else if _, ok := signaling["AddIceCandidate"]; ok {
+									fmt.Printf("🧊 ICE candidate received\n")
+								}
+							} else if verbose {
+								// Unknown message type - show in verbose mode
+								fmt.Printf("[%s] %s: %s\n",
+									time.Now().Format("15:04:05.000"),
+									typeStr,
+									string(data)[:min(100, len(data))])
+							}
+						} else if verbose {
+							// Print the actual content for debugging
+							fmt.Printf("[%s] %s: %d bytes - content: %q\n",
+								time.Now().Format("15:04:05.000"),
+								typeStr,
+								len(data),
+								string(data))
+						}
+					} else if verbose {
 						fmt.Printf("[%s] %s: %d bytes\n",
 							time.Now().Format("15:04:05.000"),
 							typeStr,
