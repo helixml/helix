@@ -155,8 +155,60 @@ if s.standaloneScreenCast {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## CLI Stream-Stats Testing Results (2026-01-04)
+
+### Fixed: Lobby-Based Session Detection
+
+The stream-stats CLI initially failed with "AppNotFound" because external agent sessions use Wolf **lobbies**, not apps. The session's `wolf_app_id` is a lobby config ID, not a Wolf app.
+
+**Fix:** Detect lobby-based sessions and use the placeholder app ID:
+1. Check `session.config.wolf_lobby_id` to detect lobby-based sessions
+2. For lobby sessions, fetch `/api/v1/wolf/ui-app-id?session_id=XXX`
+3. Use "Select Agent" app (ID 985743958) for lobby attachment
+
+### Fixed: AlreadyStreaming Handling
+
+When a Wolf stream session already exists (from previous CLI test), "create" mode returns "AlreadyStreaming" error.
+
+**Fix:** Added `--join` flag to use "join" mode in AuthenticateAndInit message.
+
+### Signaling Stability Test Results
+
+| Duration | Mode | Result | Notes |
+|----------|------|--------|-------|
+| 15s | create | ✅ | Full signaling stages: Launch Streamer → WebRTC Peer Setup → Negotiation |
+| 30s | join | ✅ | Stable connection, received WebRTC config |
+| 60s | join | ✅ | Stable connection, no disconnects |
+| 2 min | join | ✅ | Stable connection, no disconnects |
+
+**Observation:** Only 1 message received (WebRTC config) because CLI doesn't complete WebRTC negotiation (no SDP answer, no ICE candidates). This is expected - we're testing signaling stability, not video streaming.
+
+### Moonlight Signaling Protocol
+
+The AuthenticateAndInit message format for lobby-based sessions:
+
+```json
+{
+  "AuthenticateAndInit": {
+    "credentials": "<token>",
+    "session_id": "agent-<helix_session_id>",
+    "mode": "create|join",
+    "client_unique_id": "cli-<timestamp>",
+    "host_id": 0,
+    "app_id": 985743958,  // Select Agent placeholder app
+    "bitrate": 10000,
+    "fps": 60,
+    "width": 1920,
+    "height": 1080,
+    "video_supported_formats": 1,  // H264
+    "video_colorspace": "Rec709",
+    "video_color_range_full": true
+  }
+}
+```
+
 ## Files Modified
 
 - `api/pkg/desktop/session.go` - Standalone ScreenCast fallback
 - `api/pkg/desktop/desktop.go` - Added standaloneScreenCast flag
-- `api/pkg/cli/spectask/spectask.go` - Added stream/stream-stats commands
+- `api/pkg/cli/spectask/spectask.go` - Added stream/stream-stats commands, lobby detection, --join flag
