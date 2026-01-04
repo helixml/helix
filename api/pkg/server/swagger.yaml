@@ -1012,6 +1012,26 @@ definitions:
       success:
         type: boolean
     type: object
+  server.InteractionBrief:
+    properties:
+      id:
+        type: string
+      summary:
+        type: string
+      turn:
+        type: integer
+    type: object
+  server.InteractionWithContext:
+    properties:
+      interaction:
+        $ref: '#/definitions/types.Interaction'
+      next:
+        $ref: '#/definitions/server.InteractionBrief'
+      previous:
+        $ref: '#/definitions/server.InteractionBrief'
+      turn:
+        type: integer
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
@@ -1246,6 +1266,43 @@ definitions:
         type: integer
       work_session_id:
         type: string
+    type: object
+  server.SessionTOCEntry:
+    properties:
+      created:
+        description: When this turn happened
+        type: string
+      has_prompt:
+        description: Whether there's a user prompt
+        type: boolean
+      has_response:
+        description: Whether there's an assistant response
+        type: boolean
+      id:
+        description: Interaction ID
+        type: string
+      summary:
+        description: One-line summary
+        type: string
+      turn:
+        description: 1-indexed turn number
+        type: integer
+    type: object
+  server.SessionTOCResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/server.SessionTOCEntry'
+        type: array
+      formatted:
+        description: Formatted is a pre-formatted numbered list for easy consumption
+        type: string
+      session_id:
+        type: string
+      session_name:
+        type: string
+      total_turns:
+        type: integer
     type: object
   server.SessionWolfAppStateResponse:
     properties:
@@ -4661,6 +4718,13 @@ definitions:
         $ref: '#/definitions/types.InteractionState'
       status:
         type: string
+      summary:
+        description: |-
+          Summary is a one-line description of this interaction for search/indexing.
+          Generated lazily on first access or via background job.
+        type: string
+      summary_updated_at:
+        type: string
       system_prompt:
         description: System prompt for the interaction (copy of the session's system
           prompt that was used to create this interaction)
@@ -7138,9 +7202,20 @@ definitions:
         type: string
       system_prompt:
         type: string
+      system_session:
+        description: True for internal system sessions (e.g., summary generation)
+          - skip summary generation to avoid loops
+        type: boolean
       text_finetune_enabled:
         description: without any user input, this will default to true
         type: boolean
+      title_history:
+        description: |-
+          Title history - tracks evolution of session topics (newest first)
+          Shown on hover in the SpecTask tab view to see what topics were covered
+        items:
+          $ref: '#/definitions/types.TitleHistoryEntry'
+        type: array
       uploaded_data_entity_id:
         description: when we do fine tuning or RAG, we need to know which data entity
           we used
@@ -7209,6 +7284,10 @@ definitions:
       created:
         description: these are all values of the last interaction
         type: string
+      metadata:
+        allOf:
+        - $ref: '#/definitions/types.SessionMetadata'
+        description: Metadata includes Wolf lobby information for external agent sessions
       model_name:
         description: InteractionID string      `json:"interaction_id"`
         type: string
@@ -8365,6 +8444,21 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
+  types.TitleHistoryEntry:
+    properties:
+      changed_at:
+        description: When the title was changed
+        type: string
+      interaction_id:
+        description: Interaction ID for navigation - click to jump here
+        type: string
+      title:
+        description: The title that was set
+        type: string
+      turn:
+        description: Turn number that triggered the change (1-indexed)
+        type: integer
+    type: object
   types.TokenType:
     enum:
     - ""
@@ -10810,6 +10904,53 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Configure pending session for immediate lobby attachment
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/input:
+    post:
+      consumes:
+      - application/json
+      description: Send keyboard and mouse input events to the remote desktop. Supports
+        single events or batches.
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: 'Input event(s). Single event: {type, keycode, state} or batch:
+          {events: [...]}'
+        in: body
+        name: input
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success response with processed count
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Send input events to sandbox
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/upload:
@@ -15380,6 +15521,54 @@ paths:
       summary: Resume a paused external agent session
       tags:
       - sessions
+  /api/v1/sessions/{id}/search:
+    get:
+      consumes:
+      - application/json
+      description: Search for interactions within a session by content
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Max results (default 10)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SessionTOCResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Search session interactions
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/step-info:
     get:
       responses:
@@ -15425,6 +15614,85 @@ paths:
       security:
       - BearerAuth: []
       summary: Stop external Zed agent session
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/toc:
+    get:
+      consumes:
+      - application/json
+      description: Returns a numbered list of interaction summaries for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SessionTOCResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get session table of contents
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/turns/{turn}:
+    get:
+      consumes:
+      - application/json
+      description: Returns a specific interaction with surrounding context
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Turn number (1-indexed)
+        in: path
+        name: turn
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.InteractionWithContext'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get interaction by turn number
       tags:
       - Sessions
   /api/v1/sessions/{id}/wolf-app-state:

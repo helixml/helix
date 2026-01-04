@@ -653,6 +653,19 @@ export interface ServerInitializeSampleRepositoriesResponse {
   success?: boolean;
 }
 
+export interface ServerInteractionBrief {
+  id?: string;
+  summary?: string;
+  turn?: number;
+}
+
+export interface ServerInteractionWithContext {
+  interaction?: TypesInteraction;
+  next?: ServerInteractionBrief;
+  previous?: ServerInteractionBrief;
+  turn?: number;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -788,6 +801,30 @@ export interface ServerSessionHistoryResponse {
   spec_task_id?: string;
   total_entries?: number;
   work_session_id?: string;
+}
+
+export interface ServerSessionTOCEntry {
+  /** When this turn happened */
+  created?: string;
+  /** Whether there's a user prompt */
+  has_prompt?: boolean;
+  /** Whether there's an assistant response */
+  has_response?: boolean;
+  /** Interaction ID */
+  id?: string;
+  /** One-line summary */
+  summary?: string;
+  /** 1-indexed turn number */
+  turn?: number;
+}
+
+export interface ServerSessionTOCResponse {
+  entries?: ServerSessionTOCEntry[];
+  /** Formatted is a pre-formatted numbered list for easy consumption */
+  formatted?: string;
+  session_id?: string;
+  session_name?: string;
+  total_turns?: number;
 }
 
 export interface ServerSessionWolfAppStateResponse {
@@ -2755,6 +2792,12 @@ export interface TypesInteraction {
   session_id?: string;
   state?: TypesInteractionState;
   status?: string;
+  /**
+   * Summary is a one-line description of this interaction for search/indexing.
+   * Generated lazily on first access or via background job.
+   */
+  summary?: string;
+  summary_updated_at?: string;
   /** System prompt for the interaction (copy of the session's system prompt that was used to create this interaction) */
   system_prompt?: string;
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
@@ -4213,8 +4256,15 @@ export interface TypesSessionMetadata {
   /** helix-sway image version (commit hash) running in this session */
   sway_version?: string;
   system_prompt?: string;
+  /** True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops */
+  system_session?: boolean;
   /** without any user input, this will default to true */
   text_finetune_enabled?: boolean;
+  /**
+   * Title history - tracks evolution of session topics (newest first)
+   * Shown on hover in the SpecTask tab view to see what topics were covered
+   */
+  title_history?: TypesTitleHistoryEntry[];
   /** when we do fine tuning or RAG, we need to know which data entity we used */
   uploaded_data_entity_id?: string;
   /** Wolf lobby ID for streaming */
@@ -4254,6 +4304,8 @@ export interface TypesSessionSummary {
   app_id?: string;
   /** these are all values of the last interaction */
   created?: string;
+  /** Metadata includes Wolf lobby information for external agent sessions */
+  metadata?: TypesSessionMetadata;
   /** InteractionID string      `json:"interaction_id"` */
   model_name?: string;
   name?: string;
@@ -4903,6 +4955,17 @@ export interface TypesTestStep {
 export enum TypesTextSplitterType {
   TextSplitterTypeMarkdown = "markdown",
   TextSplitterTypeText = "text",
+}
+
+export interface TypesTitleHistoryEntry {
+  /** When the title was changed */
+  changed_at?: string;
+  /** Interaction ID for navigation - click to jump here */
+  interaction_id?: string;
+  /** The title that was set */
+  title?: string;
+  /** Turn number that triggered the change (1-indexed) */
+  turn?: number;
 }
 
 export enum TypesTokenType {
@@ -6901,6 +6964,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/external-agents/${sessionId}/configure-pending-session`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsInputCreate
+     * @summary Send input events to sandbox
+     * @request POST:/api/v1/external-agents/{sessionID}/input
+     * @secure
+     */
+    v1ExternalAgentsInputCreate: (sessionId: string, input: object, params: RequestParams = {}) =>
+      this.request<object, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/input`,
+        method: "POST",
+        body: input,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -10255,6 +10338,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Search for interactions within a session by content
+     *
+     * @tags Sessions
+     * @name V1SessionsSearchDetail
+     * @summary Search session interactions
+     * @request GET:/api/v1/sessions/{id}/search
+     * @secure
+     */
+    v1SessionsSearchDetail: (
+      id: string,
+      query: {
+        /** Search query */
+        q: string;
+        /** Max results (default 10) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/search`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1SessionsStepInfoDetail
@@ -10283,6 +10395,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a numbered list of interaction summaries for a session
+     *
+     * @tags Sessions
+     * @name V1SessionsTocDetail
+     * @summary Get session table of contents
+     * @request GET:/api/v1/sessions/{id}/toc
+     * @secure
+     */
+    v1SessionsTocDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerSessionTOCResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/toc`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns a specific interaction with surrounding context
+     *
+     * @tags Sessions
+     * @name V1SessionsTurnsDetail
+     * @summary Get interaction by turn number
+     * @request GET:/api/v1/sessions/{id}/turns/{turn}
+     * @secure
+     */
+    v1SessionsTurnsDetail: (id: string, turn: number, params: RequestParams = {}) =>
+      this.request<ServerInteractionWithContext, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/turns/${turn}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

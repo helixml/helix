@@ -2314,6 +2314,76 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/input": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send keyboard and mouse input events to the remote desktop. Supports single events or batches.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Send input events to sandbox",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Input event(s). Single event: {type, keycode, state} or batch: {events: [...]}",
+                        "name": "input",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "success response with processed count",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/upload": {
             "post": {
                 "security": [
@@ -9518,6 +9588,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Search for interactions within a session by content",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Search session interactions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionTOCResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/step-info": {
             "get": {
                 "security": [
@@ -9570,6 +9714,129 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/toc": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns a numbered list of interaction summaries for a session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get session table of contents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionTOCResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/turns/{turn}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns a specific interaction with surrounding context",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get interaction by turn number",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Turn number (1-indexed)",
+                        "name": "turn",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.InteractionWithContext"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     },
                     "401": {
@@ -16035,6 +16302,37 @@ const docTemplate = `{
                 }
             }
         },
+        "server.InteractionBrief": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "turn": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.InteractionWithContext": {
+            "type": "object",
+            "properties": {
+                "interaction": {
+                    "$ref": "#/definitions/types.Interaction"
+                },
+                "next": {
+                    "$ref": "#/definitions/server.InteractionBrief"
+                },
+                "previous": {
+                    "$ref": "#/definitions/server.InteractionBrief"
+                },
+                "turn": {
+                    "type": "integer"
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
@@ -16388,6 +16686,59 @@ const docTemplate = `{
                 },
                 "work_session_id": {
                     "type": "string"
+                }
+            }
+        },
+        "server.SessionTOCEntry": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "description": "When this turn happened",
+                    "type": "string"
+                },
+                "has_prompt": {
+                    "description": "Whether there's a user prompt",
+                    "type": "boolean"
+                },
+                "has_response": {
+                    "description": "Whether there's an assistant response",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "Interaction ID",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary",
+                    "type": "string"
+                },
+                "turn": {
+                    "description": "1-indexed turn number",
+                    "type": "integer"
+                }
+            }
+        },
+        "server.SessionTOCResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SessionTOCEntry"
+                    }
+                },
+                "formatted": {
+                    "description": "Formatted is a pre-formatted numbered list for easy consumption",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_name": {
+                    "type": "string"
+                },
+                "total_turns": {
+                    "type": "integer"
                 }
             }
         },
@@ -21319,6 +21670,13 @@ const docTemplate = `{
                 "status": {
                     "type": "string"
                 },
+                "summary": {
+                    "description": "Summary is a one-line description of this interaction for search/indexing.\nGenerated lazily on first access or via background job.",
+                    "type": "string"
+                },
+                "summary_updated_at": {
+                    "type": "string"
+                },
                 "system_prompt": {
                     "description": "System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)",
                     "type": "string"
@@ -24826,9 +25184,20 @@ const docTemplate = `{
                 "system_prompt": {
                     "type": "string"
                 },
+                "system_session": {
+                    "description": "True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops",
+                    "type": "boolean"
+                },
                 "text_finetune_enabled": {
                     "description": "without any user input, this will default to true",
                     "type": "boolean"
+                },
+                "title_history": {
+                    "description": "Title history - tracks evolution of session topics (newest first)\nShown on hover in the SpecTask tab view to see what topics were covered",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.TitleHistoryEntry"
+                    }
                 },
                 "uploaded_data_entity_id": {
                     "description": "when we do fine tuning or RAG, we need to know which data entity we used",
@@ -24924,6 +25293,14 @@ const docTemplate = `{
                 "created": {
                     "description": "these are all values of the last interaction",
                     "type": "string"
+                },
+                "metadata": {
+                    "description": "Metadata includes Wolf lobby information for external agent sessions",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionMetadata"
+                        }
+                    ]
                 },
                 "model_name": {
                     "description": "InteractionID string      ` + "`" + `json:\"interaction_id\"` + "`" + `",
@@ -26554,6 +26931,27 @@ const docTemplate = `{
                 "TextSplitterTypeMarkdown",
                 "TextSplitterTypeText"
             ]
+        },
+        "types.TitleHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "changed_at": {
+                    "description": "When the title was changed",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Interaction ID for navigation - click to jump here",
+                    "type": "string"
+                },
+                "title": {
+                    "description": "The title that was set",
+                    "type": "string"
+                },
+                "turn": {
+                    "description": "Turn number that triggered the change (1-indexed)",
+                    "type": "integer"
+                }
+            }
         },
         "types.TokenType": {
             "type": "string",

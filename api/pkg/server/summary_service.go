@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -19,6 +21,7 @@ import (
 type SummaryService struct {
 	store           store.Store
 	providerManager manager.ProviderManager
+	pubsub          pubsub.PubSub
 
 	// Rate limiting to avoid overwhelming the LLM provider
 	mu            sync.Mutex
@@ -27,10 +30,11 @@ type SummaryService struct {
 }
 
 // NewSummaryService creates a new SummaryService
-func NewSummaryService(store store.Store, providerManager manager.ProviderManager) *SummaryService {
+func NewSummaryService(store store.Store, providerManager manager.ProviderManager, ps pubsub.PubSub) *SummaryService {
 	return &SummaryService{
 		store:           store,
 		providerManager: providerManager,
+		pubsub:          ps,
 		maxConcurrent:   5, // Max concurrent summary requests
 	}
 }
@@ -401,9 +405,37 @@ Generate a session title (max 60 characters) that describes what the user is cur
 		if err := s.store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to update title history")
 		}
+
+		// Publish WebSocket event so clients see the title and metadata update
+		s.publishSessionUpdate(ctx, session)
 	}
 
 	return nil
+}
+
+// publishSessionUpdate sends a WebSocket event for session updates
+func (s *SummaryService) publishSessionUpdate(ctx context.Context, session *types.Session) {
+	if s.pubsub == nil {
+		log.Debug().Msg("PubSub not initialized, skipping session update publishing")
+		return
+	}
+
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: session.ID,
+		Owner:     session.Owner,
+		Session:   session,
+	}
+
+	message, err := json.Marshal(event)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to marshal session update event")
+		return
+	}
+
+	if err := s.pubsub.Publish(ctx, pubsub.GetSessionQueue(session.Owner, session.ID), message); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to publish session update event")
+	}
 }
 
 // buildSummaryPromptContent builds the content for the summarization prompt

@@ -315,7 +315,7 @@ func NewServer(
 	}
 
 	// Initialize SummaryService for async interaction summaries and session titles
-	apiServer.summaryService = NewSummaryService(store, providerManager)
+	apiServer.summaryService = NewSummaryService(store, providerManager, ps)
 
 	// Initialize Moonlight proxy and server
 	publicURL := cfg.WebServer.URL
