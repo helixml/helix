@@ -74,48 +74,61 @@ func (s *Server) connectDBus(ctx context.Context) error {
 	return fmt.Errorf("failed to connect after 60 attempts: %w", err)
 }
 
-// createSession creates RemoteDesktop and linked ScreenCast sessions.
+// createSession creates RemoteDesktop and ScreenCast sessions.
+// On GNOME 49+, linked sessions may fail, so we fall back to standalone ScreenCast.
 func (s *Server) createSession(ctx context.Context) error {
-	// Create RemoteDesktop session
+	// Create RemoteDesktop session (for input forwarding)
 	s.logger.Info("creating RemoteDesktop session...")
 	rdObj := s.conn.Object(remoteDesktopBus, remoteDesktopPath)
 
 	var rdSessionPath dbus.ObjectPath
 	if err := rdObj.Call(remoteDesktopIface+".CreateSession", 0).Store(&rdSessionPath); err != nil {
-		return fmt.Errorf("create RemoteDesktop session: %w", err)
-	}
-	s.rdSessionPath = rdSessionPath
-	s.logger.Info("RemoteDesktop session created", "path", rdSessionPath)
-
-	// Extract session ID from path
-	sessionID := string(rdSessionPath)
-	if idx := strings.LastIndex(sessionID, "/"); idx >= 0 {
-		sessionID = sessionID[idx+1:]
+		s.logger.Warn("RemoteDesktop session creation failed", "err", err)
+		// Continue without RemoteDesktop - we can still do screenshots
+	} else {
+		s.rdSessionPath = rdSessionPath
+		s.logger.Info("RemoteDesktop session created", "path", rdSessionPath)
 	}
 
-	// Create linked ScreenCast session (with retry - session may need time to register)
-	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID)
+	// Try to create linked ScreenCast session first (for older GNOME versions)
 	scObj := s.conn.Object(screenCastBus, screenCastPath)
-
-	options := map[string]dbus.Variant{
-		"remote-desktop-session-id": dbus.MakeVariant(sessionID),
-	}
-
 	var scSessionPath dbus.ObjectPath
-	var scErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		scErr = scObj.Call(screenCastIface+".CreateSession", 0, options).Store(&scSessionPath)
-		if scErr == nil {
-			break
+	var linkedOK bool
+
+	if s.rdSessionPath != "" {
+		// Extract session ID from path
+		sessionID := string(s.rdSessionPath)
+		if idx := strings.LastIndex(sessionID, "/"); idx >= 0 {
+			sessionID = sessionID[idx+1:]
 		}
-		s.logger.Debug("ScreenCast session creation failed, retrying...", "attempt", attempt+1, "err", scErr)
-		time.Sleep(500 * time.Millisecond)
+
+		s.logger.Info("trying linked ScreenCast session...", "session_id", sessionID)
+		options := map[string]dbus.Variant{
+			"remote-desktop-session-id": dbus.MakeVariant(sessionID),
+		}
+
+		// Try linking a few times
+		for attempt := 0; attempt < 3; attempt++ {
+			if err := scObj.Call(screenCastIface+".CreateSession", 0, options).Store(&scSessionPath); err == nil {
+				linkedOK = true
+				s.logger.Info("linked ScreenCast session created", "path", scSessionPath)
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
-	if scErr != nil {
-		return fmt.Errorf("create ScreenCast session: %w", scErr)
+
+	// Fall back to standalone ScreenCast session (GNOME 49+ or if linking failed)
+	if !linkedOK {
+		s.logger.Info("creating standalone ScreenCast session (GNOME 49+ mode)...")
+		emptyOptions := map[string]dbus.Variant{}
+		if err := scObj.Call(screenCastIface+".CreateSession", 0, emptyOptions).Store(&scSessionPath); err != nil {
+			return fmt.Errorf("create standalone ScreenCast session: %w", err)
+		}
+		s.logger.Info("standalone ScreenCast session created", "path", scSessionPath)
+		s.standaloneScreenCast = true
 	}
 	s.scSessionPath = scSessionPath
-	s.logger.Info("ScreenCast session created", "path", scSessionPath)
 
 	// Record the virtual monitor Meta-0
 	s.logger.Info("recording virtual monitor Meta-0...")
@@ -151,11 +164,19 @@ func (s *Server) startSession(ctx context.Context) error {
 	signalChan := make(chan *dbus.Signal, 10)
 	s.conn.Signal(signalChan)
 
-	// Start the session
-	s.logger.Info("starting RemoteDesktop session...")
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
-		return fmt.Errorf("start session: %w", err)
+	// Start the session - for standalone ScreenCast we start the ScreenCast session directly
+	if s.standaloneScreenCast {
+		s.logger.Info("starting standalone ScreenCast session...")
+		scSession := s.conn.Object(screenCastBus, s.scSessionPath)
+		if err := scSession.Call(screenCastSessionIface+".Start", 0).Err; err != nil {
+			return fmt.Errorf("start screencast session: %w", err)
+		}
+	} else {
+		s.logger.Info("starting RemoteDesktop session...")
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
+			return fmt.Errorf("start session: %w", err)
+		}
 	}
 	s.logger.Info("session started, waiting for PipeWireStreamAdded signal...")
 

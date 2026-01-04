@@ -761,22 +761,16 @@ fi
         sleep 0.5
     done
 
-    # For PipeWire mode: Start the RemoteDesktop session to report node ID + input socket to Wolf
-    # RemoteDesktop provides both ScreenCast (video) and input injection via D-Bus
-    # Uses Go binary with persistent D-Bus connection to keep session alive
-    if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
-        echo "[gnome-session] Starting RemoteDesktop session (video + input)..."
-        /opt/gow/remotedesktop-session >> /tmp/remotedesktop-session.log 2>&1 &
-        echo "[gnome-session] RemoteDesktop session started (PID: \$!)"
-    fi
-
+    # Settings sync daemon
     if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
         echo "[gnome-session] Starting settings-sync-daemon..."
         WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
     fi
 
+    # Screenshot server (unified: handles RemoteDesktop+ScreenCast sessions, PipeWire node reporting, input bridge)
+    # For PipeWire mode, this creates the D-Bus sessions and reports node ID to Wolf
     if [ -x /usr/local/bin/screenshot-server ]; then
-        echo "[gnome-session] Starting screenshot server..."
+        echo "[gnome-session] Starting screenshot server (includes D-Bus session + input bridge)..."
         WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
     fi
 

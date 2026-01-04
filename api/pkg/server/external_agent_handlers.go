@@ -80,6 +80,10 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		agent.SessionID = system.GenerateRequestID()
 	}
 
+	// CRITICAL: Set UserID from authenticated user for git commit email lookup
+	// wolf_executor uses agent.UserID to look up user email for git config
+	agent.UserID = user.ID
+
 	// WorkDir will be set by wolf_executor to use filestore path
 	// Don't override it here - let executor handle workspace management
 
@@ -1117,6 +1121,123 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Str("session_id", sessionID).
 		Int("clipboard_size", len(clipboardContent)).
 		Msg("Successfully set clipboard in external agent container")
+}
+
+// @Summary Send input events to sandbox
+// @Description Send keyboard and mouse input events to the remote desktop. Supports single events or batches.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param input body object true "Input event(s). Single event: {type, keycode, state} or batch: {events: [...]}"
+// @Success 200 {object} object "success response with processed count"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/input [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for input")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session for input")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	_, err = apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container for input")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Read input content from request body
+	inputContent, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input request body")
+		http.Error(res, "Failed to read input content", http.StatusBadRequest)
+		return
+	}
+
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for input")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP POST request over RevDial tunnel
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/input", bytes.NewReader(inputContent))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create input request")
+		http.Error(res, "Failed to create input request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write input request to RevDial")
+		http.Error(res, "Failed to send input request", http.StatusInternalServerError)
+		return
+	}
+
+	inputResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input response from RevDial")
+		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
+		return
+	}
+	defer inputResp.Body.Close()
+
+	// Read and forward response
+	respBody, err := io.ReadAll(inputResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read input response body")
+		http.Error(res, "Failed to read input response", http.StatusInternalServerError)
+		return
+	}
+
+	// Forward status and body
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(inputResp.StatusCode)
+	res.Write(respBody)
+
+	log.Trace().
+		Str("session_id", sessionID).
+		Int("input_size", len(inputContent)).
+		Int("status", inputResp.StatusCode).
+		Msg("Input event(s) sent to sandbox")
 }
 
 // @Summary Upload file to sandbox

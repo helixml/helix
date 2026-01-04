@@ -29,11 +29,12 @@ type Config struct {
 // It manages D-Bus sessions for video/input and serves HTTP APIs.
 type Server struct {
 	// D-Bus session state
-	conn          *dbus.Conn
-	rdSessionPath dbus.ObjectPath
-	scSessionPath dbus.ObjectPath
-	scStreamPath  dbus.ObjectPath
-	nodeID        uint32
+	conn                 *dbus.Conn
+	rdSessionPath        dbus.ObjectPath
+	scSessionPath        dbus.ObjectPath
+	scStreamPath         dbus.ObjectPath
+	nodeID               uint32
+	standaloneScreenCast bool // true when ScreenCast is not linked to RemoteDesktop (GNOME 49+)
 
 	// Input socket
 	inputListener   net.Listener
@@ -167,6 +168,7 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/keyboard-state", s.handleKeyboardState)
 	mux.HandleFunc("/keyboard-reset", s.handleKeyboardReset)
 	mux.HandleFunc("/upload", s.handleUpload)
+	mux.HandleFunc("/input", s.handleInput)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

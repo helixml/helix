@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"time"
 )
@@ -169,4 +171,63 @@ func (s *Server) injectInput(event *InputEvent) {
 	case "touch_up":
 		rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, event.Slot)
 	}
+}
+
+// InputRequest represents a batch of input events from HTTP.
+type InputRequest struct {
+	Events []InputEvent `json:"events"`
+}
+
+// InputResponse is returned from the input endpoint.
+type InputResponse struct {
+	Success   bool   `json:"success"`
+	Processed int    `json:"processed"`
+	Message   string `json:"message,omitempty"`
+}
+
+// handleInput handles POST /input for injecting keyboard/mouse events.
+func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check if D-Bus session is available
+	if s.conn == nil || s.rdSessionPath == "" {
+		s.logger.Warn("input injection not available - no RemoteDesktop session")
+		http.Error(w, "RemoteDesktop session not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	var req InputRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		// Try single event format for convenience
+		var event InputEvent
+		if err := json.Unmarshal(body, &event); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		req.Events = []InputEvent{event}
+	}
+
+	// Process all events
+	processed := 0
+	for _, event := range req.Events {
+		s.injectInput(&event)
+		processed++
+	}
+
+	s.logger.Debug("input events processed", "count", processed)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(InputResponse{
+		Success:   true,
+		Processed: processed,
+	})
 }

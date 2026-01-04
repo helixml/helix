@@ -1012,6 +1012,9 @@ type SessionSummary struct {
 
 	QuestionSetID          string `json:"question_set_id"`
 	QuestionSetExecutionID string `json:"question_set_execution_id"`
+
+	// Metadata includes Wolf lobby information for external agent sessions
+	Metadata SessionMetadata `json:"metadata,omitempty"`
 }
 
 type WorkloadSummary struct {
