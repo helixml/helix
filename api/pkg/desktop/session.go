@@ -50,9 +50,18 @@ func (s *Server) connectDBus(ctx context.Context) error {
 		}
 
 		// Verify RemoteDesktop service is available
-		obj := s.conn.Object(remoteDesktopBus, remoteDesktopPath)
-		if err := obj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+		rdObj := s.conn.Object(remoteDesktopBus, remoteDesktopPath)
+		if err := rdObj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
 			s.logger.Debug("RemoteDesktop service not ready", "err", err)
+			s.conn.Close()
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// Also verify ScreenCast service is available
+		scObj := s.conn.Object(screenCastBus, screenCastPath)
+		if err := scObj.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+			s.logger.Debug("ScreenCast service not ready", "err", err)
 			s.conn.Close()
 			time.Sleep(time.Second)
 			continue
@@ -84,8 +93,8 @@ func (s *Server) createSession(ctx context.Context) error {
 		sessionID = sessionID[idx+1:]
 	}
 
-	// Create linked ScreenCast session
-	s.logger.Info("creating linked ScreenCast session...")
+	// Create linked ScreenCast session (with retry - session may need time to register)
+	s.logger.Info("creating linked ScreenCast session...", "session_id", sessionID)
 	scObj := s.conn.Object(screenCastBus, screenCastPath)
 
 	options := map[string]dbus.Variant{
@@ -93,8 +102,17 @@ func (s *Server) createSession(ctx context.Context) error {
 	}
 
 	var scSessionPath dbus.ObjectPath
-	if err := scObj.Call(screenCastIface+".CreateSession", 0, options).Store(&scSessionPath); err != nil {
-		return fmt.Errorf("create ScreenCast session: %w", err)
+	var scErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		scErr = scObj.Call(screenCastIface+".CreateSession", 0, options).Store(&scSessionPath)
+		if scErr == nil {
+			break
+		}
+		s.logger.Debug("ScreenCast session creation failed, retrying...", "attempt", attempt+1, "err", scErr)
+		time.Sleep(500 * time.Millisecond)
+	}
+	if scErr != nil {
+		return fmt.Errorf("create ScreenCast session: %w", scErr)
 	}
 	s.scSessionPath = scSessionPath
 	s.logger.Info("ScreenCast session created", "path", scSessionPath)
