@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/helixml/helix/api/pkg/desktop"
@@ -33,13 +35,46 @@ func main() {
 		cfg.XDGRuntimeDir = "/tmp/sockets"
 	}
 
-	server := desktop.NewServer(cfg, logger)
+	// MCP server config
+	mcpPort := os.Getenv("MCP_PORT")
+	if mcpPort == "" {
+		mcpPort = "9878" // Use 9878 to avoid conflict with settings-sync-daemon (9877)
+	}
+	mcpEnabled := os.Getenv("MCP_ENABLED") != "false" // Enabled by default
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if err := server.Run(ctx); err != nil && err != context.Canceled {
-		logger.Error("server error", "err", err)
-		os.Exit(1)
+	var wg sync.WaitGroup
+
+	// Start screenshot server
+	server := desktop.NewServer(cfg, logger)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := server.Run(ctx); err != nil && err != context.Canceled {
+			logger.Error("screenshot server error", "err", err)
+		}
+	}()
+
+	// Start MCP server if enabled
+	if mcpEnabled {
+		mcpCfg := desktop.MCPConfig{
+			Port:          mcpPort,
+			ScreenshotURL: fmt.Sprintf("http://localhost:%s/screenshot", cfg.HTTPPort),
+		}
+		mcpServer := desktop.NewMCPServer(mcpCfg, logger)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("starting MCP desktop server", "port", mcpPort)
+			if err := mcpServer.Run(ctx, mcpPort); err != nil && err != context.Canceled {
+				logger.Error("MCP server error", "err", err)
+			}
+		}()
 	}
+
+	// Wait for all servers to finish
+	wg.Wait()
 }

@@ -242,10 +242,49 @@ go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectaskStream
 - `HELIX_PROJECT` - Project ID for creating test tasks
 - `HELIX_UBUNTU_AGENT` - Ubuntu agent app ID for PipeWire mode testing
 
+## Desktop MCP Server
+
+Added an MCP server that exposes desktop interaction tools to AI agents (both Zed Agent and Qwen Code).
+
+**Port:** 9878 (runs alongside screenshot-server on 9876)
+
+**Available Tools:**
+- `take_screenshot` - Captures desktop and returns base64 PNG image
+- `save_screenshot` - Saves screenshot to file path
+- `type_text` - Types text via keyboard input (uses wtype/ydotool)
+- `mouse_click` - Clicks at screen coordinates
+- `get_clipboard` - Gets clipboard text content
+- `set_clipboard` - Sets clipboard text content
+
+**Configuration:**
+- Automatically added to all external/zed agents via `helix-desktop` context server
+- Runs in the sandbox container (GNOME/Sway desktop)
+- No configuration required - enabled by default
+
+**Files:**
+- `api/pkg/desktop/mcp_server.go` - MCP server implementation
+- `api/cmd/screenshot-server/main.go` - Updated to start MCP server
+- `api/pkg/external-agent/zed_config.go` - Added helix-desktop context server
+
+**Usage in Zed settings.json:**
+```json
+{
+  "context_servers": {
+    "helix-desktop": {
+      "url": "http://localhost:9878/mcp"
+    }
+  }
+}
+```
+
 ## Files Modified
 
 - `api/pkg/desktop/session.go` - Standalone ScreenCast fallback
 - `api/pkg/desktop/desktop.go` - Added standaloneScreenCast flag
+- `api/pkg/desktop/mcp_server.go` - New MCP server for desktop tools
 - `api/pkg/cli/spectask/spectask.go` - Added stream/stream-stats commands, lobby detection, --join flag
 - `api/pkg/cli/spectask/README.md` - Documentation for spectask commands
-- `integration-test/smoke/spectask_stream_test.go` - Integration test suite for stream command
+- `api/pkg/external-agent/zed_config.go` - Added helix-desktop MCP context server
+- `api/cmd/screenshot-server/main.go` - Integrated MCP server startup
+- `integration-test/smoke/spectask_stream_test.go` - Integration test suite for stream command with sway/kde support
+- `.drone.yml` - Added spectask test pipeline documentation

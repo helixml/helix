@@ -24,18 +24,49 @@ const (
 	SpectaskTestResultsDir = "/tmp/helix-spectask-test-results"
 )
 
+// DesktopType represents the type of desktop container (sway/ubuntu or kde)
+type DesktopType string
+
+const (
+	DesktopTypeSway DesktopType = "sway"  // Ubuntu with GNOME/PipeWire
+	DesktopTypeKDE  DesktopType = "kde"   // KDE Plasma
+)
+
 type SpectaskStreamSuite struct {
 	suite.Suite
-	httpClient *http.Client
-	apiURL     string
-	token      string
-	projectID  string
-	agentID    string
-	sessionID  string
+	httpClient  *http.Client
+	apiURL      string
+	token       string
+	projectID   string
+	agentID     string
+	sessionID   string
+	desktopType DesktopType
+}
+
+// SpectaskSwayStreamSuite tests sway/Ubuntu desktop (PipeWire mode)
+type SpectaskSwayStreamSuite struct {
+	SpectaskStreamSuite
+}
+
+// SpectaskKDEStreamSuite tests KDE desktop
+type SpectaskKDEStreamSuite struct {
+	SpectaskStreamSuite
 }
 
 func TestSpectaskStreamSuite(t *testing.T) {
 	suite.Run(t, new(SpectaskStreamSuite))
+}
+
+func TestSpectaskSwayStreamSuite(t *testing.T) {
+	s := &SpectaskSwayStreamSuite{}
+	s.desktopType = DesktopTypeSway
+	suite.Run(t, s)
+}
+
+func TestSpectaskKDEStreamSuite(t *testing.T) {
+	s := &SpectaskKDEStreamSuite{}
+	s.desktopType = DesktopTypeKDE
+	suite.Run(t, s)
 }
 
 func (s *SpectaskStreamSuite) SetupSuite() {
@@ -57,9 +88,28 @@ func (s *SpectaskStreamSuite) SetupSuite() {
 		s.T().Fatal("HELIX_PROJECT environment variable is required")
 	}
 
-	s.agentID = os.Getenv("HELIX_UBUNTU_AGENT")
-	if s.agentID == "" {
-		s.T().Fatal("HELIX_UBUNTU_AGENT environment variable is required")
+	// Select agent based on desktop type
+	switch s.desktopType {
+	case DesktopTypeKDE:
+		s.agentID = os.Getenv("HELIX_KDE_AGENT")
+		if s.agentID == "" {
+			s.T().Fatal("HELIX_KDE_AGENT environment variable is required for KDE tests")
+		}
+	case DesktopTypeSway:
+		s.agentID = os.Getenv("HELIX_SWAY_AGENT")
+		if s.agentID == "" {
+			// Fall back to HELIX_UBUNTU_AGENT for backward compatibility
+			s.agentID = os.Getenv("HELIX_UBUNTU_AGENT")
+		}
+		if s.agentID == "" {
+			s.T().Fatal("HELIX_SWAY_AGENT or HELIX_UBUNTU_AGENT environment variable is required for Sway tests")
+		}
+	default:
+		// Default behavior - use HELIX_UBUNTU_AGENT
+		s.agentID = os.Getenv("HELIX_UBUNTU_AGENT")
+		if s.agentID == "" {
+			s.T().Fatal("HELIX_UBUNTU_AGENT environment variable is required")
+		}
 	}
 
 	// Create HTTP client
@@ -71,8 +121,12 @@ func (s *SpectaskStreamSuite) SetupSuite() {
 	err := os.MkdirAll(SpectaskTestResultsDir, 0755)
 	require.NoError(s.T(), err, "creating test results directory should succeed")
 
-	helper.LogStep(s.T(), fmt.Sprintf("Initialized with API URL: %s, Project: %s, Agent: %s",
-		s.apiURL, s.projectID, s.agentID))
+	desktopName := "default"
+	if s.desktopType != "" {
+		desktopName = string(s.desktopType)
+	}
+	helper.LogStep(s.T(), fmt.Sprintf("Initialized with API URL: %s, Project: %s, Agent: %s, Desktop: %s",
+		s.apiURL, s.projectID, s.agentID, desktopName))
 }
 
 func (s *SpectaskStreamSuite) TearDownSuite() {

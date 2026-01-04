@@ -1256,3 +1256,102 @@ services:
     volumes:
       - name: integration-test
         path: /integration-test
+
+---
+# Spectask/Sandbox Integration Tests
+# These tests require Wolf + GPU infrastructure and are intended for manual/GPU-enabled CI.
+# Run locally with: go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectask
+#
+# Required environment variables:
+#   HELIX_API_KEY          - API key with hl- prefix
+#   HELIX_URL              - Helix API URL (default: http://localhost:8080)
+#   HELIX_PROJECT          - Project ID for creating test tasks
+#   HELIX_UBUNTU_AGENT     - Ubuntu/Sway agent app ID (PipeWire mode)
+#   HELIX_KDE_AGENT        - KDE agent app ID (optional, for KDE tests)
+#
+# Available test suites:
+#   TestSpectaskStreamSuite      - Default stream tests
+#   TestSpectaskSwayStreamSuite  - Sway/Ubuntu desktop tests (PipeWire mode)
+#   TestSpectaskKDEStreamSuite   - KDE desktop tests
+#
+# Example:
+#   source .env.usercreds
+#   go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#
+# kind: pipeline
+# type: docker
+# name: spectask-test
+#
+# workspace:
+#   base: /go
+#   path: src/github.com/helix-ml/helix
+#
+# trigger:
+#   event:
+#     - cron
+#   cron:
+#     - spectask-test-daily
+#
+# steps:
+#   - name: spectask-sway-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskSwayStreamSuite
+#     depends_on: []
+#
+#   - name: spectask-kde-test
+#     image: golang:1.24-alpine3.21
+#     volumes:
+#       - name: spectask-test-results
+#         path: /tmp/helix-spectask-test-results
+#       - name: go-build-cache
+#         path: /root/.cache/go-build
+#       - name: go-mod-cache
+#         path: /go/pkg/mod
+#     environment:
+#       HELIX_URL: https://app.helix.ml
+#       HELIX_API_KEY:
+#         from_secret: spectask_test_api_key
+#       HELIX_PROJECT:
+#         from_secret: spectask_test_project
+#       HELIX_UBUNTU_AGENT:
+#         from_secret: spectask_test_ubuntu_agent
+#       HELIX_KDE_AGENT:
+#         from_secret: spectask_test_kde_agent
+#     commands:
+#       - apk add --no-cache curl bash
+#       - go test -timeout 300s -tags=spectask -v ./integration-test/smoke/... -run TestSpectaskKDEStreamSuite
+#     depends_on: []
+#
+#   - name: slack-notification
+#     image: plugins/slack
+#     settings:
+#       webhook:
+#         from_secret: JANITOR_SLACK_WEBHOOK_URL
+#       channel: helix-janitor
+#       message: "❌ Spectask test failed. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+#     when:
+#       status:
+#         - failure
+#
+# volumes:
+#   - name: spectask-test-results
+#     temp: {}

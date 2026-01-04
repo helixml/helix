@@ -181,7 +181,14 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// 3. Pass-through external MCP servers
+	// 3. Add desktop MCP server (screenshot, clipboard, input tools)
+	// This runs locally in the sandbox container on port 9878 (alongside screenshot-server)
+	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard
+	config.ContextServers["helix-desktop"] = ContextServerConfig{
+		URL: "http://localhost:9878/mcp",
+	}
+
+	// 4. Pass-through external MCP servers
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
