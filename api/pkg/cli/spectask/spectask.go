@@ -641,6 +641,7 @@ func newStreamStatsCommand() *cobra.Command {
 	var duration int
 	var outputFile string
 	var verbose bool
+	var joinMode bool
 
 	cmd := &cobra.Command{
 		Use:   "stream-stats <session-id>",
@@ -658,6 +659,7 @@ Examples:
   helix spectask stream-stats ses_01xxx --duration 30      # Run for 30 seconds
   helix spectask stream-stats ses_01xxx --output video.dat # Save video data to file
   helix spectask stream-stats ses_01xxx -v                 # Verbose output
+  helix spectask stream-stats ses_01xxx --join             # Join existing stream (if "AlreadyStreaming")
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -761,35 +763,44 @@ Examples:
 			// Send AuthenticateAndInit message to start the stream
 			// This follows the moonlight-web signaling protocol
 			clientUniqueID := fmt.Sprintf("cli-%d", time.Now().UnixNano())
-			authMessage := map[string]interface{}{
-				"AuthenticateAndInit": map[string]interface{}{
-					"credentials":              token, // Will be replaced by proxy with moonlight creds
-					"session_id":               moonlightSessionID,
-					"mode":                     "create",
-					"client_unique_id":         clientUniqueID,
-					"host_id":                  0, // Wolf local mode
-					"app_id":                   wolfAppID, // Wolf app ID from session state
-					"bitrate":                  10000, // 10 Mbps
-					"packet_size":              1024,
-					"fps":                      60,
-					"width":                    1920,
-					"height":                   1080,
-					"video_sample_queue_size":  16,
-					"play_audio_local":         false,
-					"audio_sample_queue_size":  16,
-					"video_supported_formats":  1, // H264 = 1 (from moonlight-web api_bindings.ts)
-					"video_colorspace":         "Rec709",
-					"video_color_range_full":   true,
-				},
+
+			// Helper to send auth message with specified mode
+			sendAuthMessage := func(mode string) error {
+				authMessage := map[string]interface{}{
+					"AuthenticateAndInit": map[string]interface{}{
+						"credentials":              token, // Will be replaced by proxy with moonlight creds
+						"session_id":               moonlightSessionID,
+						"mode":                     mode,
+						"client_unique_id":         clientUniqueID,
+						"host_id":                  0, // Wolf local mode
+						"app_id":                   wolfAppID,
+						"bitrate":                  10000, // 10 Mbps
+						"packet_size":              1024,
+						"fps":                      60,
+						"width":                    1920,
+						"height":                   1080,
+						"video_sample_queue_size":  16,
+						"play_audio_local":         false,
+						"audio_sample_queue_size":  16,
+						"video_supported_formats":  1, // H264 = 1 (from moonlight-web api_bindings.ts)
+						"video_colorspace":         "Rec709",
+						"video_color_range_full":   true,
+					},
+				}
+				authJSON, err := json.Marshal(authMessage)
+				if err != nil {
+					return fmt.Errorf("failed to marshal auth message: %w", err)
+				}
+				fmt.Printf("📤 Sending AuthenticateAndInit (mode=%s, client=%s)...\n", mode, clientUniqueID[:20])
+				return conn.WriteMessage(websocket.TextMessage, authJSON)
 			}
 
-			authJSON, err := json.Marshal(authMessage)
-			if err != nil {
-				return fmt.Errorf("failed to marshal auth message: %w", err)
+			// Use "join" mode if --join flag is set, otherwise "create"
+			authMode := "create"
+			if joinMode {
+				authMode = "join"
 			}
-
-			fmt.Printf("📤 Sending AuthenticateAndInit (mode=create, client=%s)...\n", clientUniqueID[:20])
-			if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
+			if err := sendAuthMessage(authMode); err != nil {
 				return fmt.Errorf("failed to send auth message: %w", err)
 			}
 			fmt.Printf("✅ Auth message sent, waiting for responses...\n\n")
@@ -1005,6 +1016,7 @@ Examples:
 	cmd.Flags().IntVarP(&duration, "duration", "d", 0, "Run for specified seconds (0 = until interrupted)")
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write video data to file")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Print each message received")
+	cmd.Flags().BoolVar(&joinMode, "join", false, "Join existing stream instead of creating new (use if 'AlreadyStreaming')")
 
 	return cmd
 }
