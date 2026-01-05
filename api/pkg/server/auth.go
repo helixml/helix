@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -765,6 +766,17 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		log.Error().Msg("empty logout URL")
 		http.Error(w, "empty logout URL", http.StatusBadGateway)
 		return
+	}
+
+	// Add post_logout_redirect_uri to redirect back to Helix after OIDC logout
+	// This is part of OIDC RP-Initiated Logout spec and works with most providers
+	// Also add client_id which some providers require
+	redirectURI := url.QueryEscape(s.Cfg.WebServer.URL)
+	clientID := url.QueryEscape(s.Cfg.Auth.OIDC.ClientID)
+	if strings.Contains(logoutURL, "?") {
+		logoutURL = logoutURL + "&post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
+	} else {
+		logoutURL = logoutURL + "?post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
 	}
 	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
 
