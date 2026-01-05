@@ -8,11 +8,12 @@
 
 ### Current State (2026-01-05)
 
-1. **Screenshots**: ✅ Working - Falls back to PipeWire capture (D-Bus Screenshot API is blocked in headless mode)
+1. **Screenshots**: ✅ Working - D-Bus Screenshot API with `--unsafe-mode` (~400ms)
 2. **Video Stream**: ✅ Working - 288 frames @ 19fps verified via CLI test
 
 ### Test Results (2026-01-05)
 
+**Video streaming** (from CLI test):
 ```
 📊 Final Statistics (elapsed: 15s)
 ───────────────────────────────────────────────
@@ -25,13 +26,14 @@ Avg frame size:     5.5 KB
 ───────────────────────────────────────────────
 ```
 
-**Screenshot capture flow** (observed from container logs):
-1. D-Bus `org.gnome.Shell.Screenshot` → Fails: "Screenshot is not allowed" (restricted in headless GNOME)
-2. `gnome-screenshot` CLI → Fails: Cannot connect to D-Bus session (falls back to X11 which doesn't exist)
-3. `grim` → Fails: GNOME doesn't support wlr-screencopy protocol
-4. **PipeWire** → ✅ Works (after 2-3 retries, ~15 seconds total)
+**Screenshot capture** (from container logs):
+```
+time=2026-01-05T12:18:52.287Z level=DEBUG msg="capturing via D-Bus org.gnome.Shell.Screenshot"
+time=2026-01-05T12:18:52.672Z level=DEBUG msg="D-Bus Screenshot succeeded" filename=/tmp/screenshot-1767615532287893769.png
+time=2026-01-05T12:18:52.674Z level=INFO msg="screenshot captured" format=png quality=70 size=546351
+```
 
-**Key insight**: The D-Bus Screenshot API restriction applies even in headless mode. But this doesn't cause video interference because the PipeWire screenshot capture is brief and the video pipeline handles buffer renegotiation gracefully now.
+**Key insight**: The `--unsafe-mode` flag on gnome-shell unlocks the `org.gnome.Shell.Screenshot` D-Bus API, allowing direct screenshot capture without touching PipeWire. This eliminates video pipeline interference entirely.
 
 ### System Architecture Overview
 
@@ -217,67 +219,50 @@ From [Collabora's PipeWire blog](https://www.collabora.com/news-and-blog/blog/20
 
 ## Solution
 
-Reordered `captureScreenshot()` in `api/pkg/desktop/screenshot.go` to use **gnome-screenshot as PRIMARY method for GNOME** instead of pipewiresrc.
+Use the `--unsafe-mode` flag when starting gnome-shell to unlock the `org.gnome.Shell.Screenshot` D-Bus API.
 
-### Before (Problematic Order)
+### The `--unsafe-mode` Flag
 
-```go
-func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, error) {
-    // 1. PipeWire if nodeID != 0  ← CONFLICTS WITH WOLF VIDEO!
-    if s.nodeID != 0 {
-        data, actualFormat, err := s.capturePipeWire(format, quality)
-        ...
-    }
+GNOME 41+ restricts the `org.gnome.Shell.Screenshot` D-Bus API to whitelisted callers only (gnome-screenshot, GNOME Shell UI, etc.). However, mutter/gnome-shell have a hidden `--unsafe-mode` flag that disables these restrictions.
 
-    // 2. KDE D-Bus
-    if isKDEEnvironment() { ... }
-
-    // 3. gnome-screenshot for GNOME  ← Should be FIRST!
-    if isGNOMEEnvironment() { ... }
-
-    // 4. grim for wlroots
-    ...
-}
+From the GNOME source code:
+```c
+// mutter/src/meta/meta-context.h
+META_EXPORT
+void meta_context_set_unsafe_mode (MetaContext *context, gboolean enable);
 ```
 
-### After (Fixed Order)
+When `--unsafe-mode` is enabled:
+- D-Bus Screenshot API is accessible to any caller
+- No user confirmation dialogs required
+- No PipeWire involvement (pure D-Bus method)
 
+### Implementation
+
+**Dockerfile.ubuntu-helix** (gnome-shell startup):
+```bash
+# --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+```
+
+**api/pkg/desktop/screenshot.go** (simplified to D-Bus only):
 ```go
 func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, error) {
-    // 1. GNOME: gnome-screenshot FIRST (D-Bus Screenshot API)
-    //    Uses separate D-Bus API, doesn't touch PipeWire
+    // GNOME: Use D-Bus Screenshot API exclusively (no fallbacks)
+    // gnome-shell must be started with --unsafe-mode to allow D-Bus access
     if isGNOMEEnvironment() {
-        if data, actualFormat, err := s.captureGNOMEScreenshot(format, quality); err == nil {
-            return data, actualFormat, nil
-        }
-        // Fall through to PipeWire only as last resort
+        return s.captureGNOMEScreenshot(format, quality)
     }
-
-    // 2. KDE: D-Bus API (no PipeWire conflict)
-    if isKDEEnvironment() { ... }
-
-    // 3. Sway/wlroots: grim (wlr-screencopy protocol, no PipeWire conflict)
-    if data, actualFormat, err := s.captureGrim(format, quality); err == nil { ... }
-
-    // 4. PipeWire LAST (fallback only - may briefly interrupt video)
-    if s.nodeID != 0 { ... }
-
-    // 5. X11 fallback
-    ...
+    // KDE, Sway, X11 fallbacks...
 }
 ```
 
-## Why gnome-screenshot Works
+### Why This Works
 
-`gnome-screenshot` is GNOME's own tool and is **whitelisted** for the private `org.gnome.Shell.Screenshot` D-Bus API:
-
-1. **GNOME 41+ restricted** `org.gnome.Shell.Screenshot` to private API
-2. Third-party apps are blocked from this API
-3. GNOME's own tools (gnome-screenshot, Shell UI) are whitelisted
-4. `xdg-desktop-portal.Screenshot` is the public API but requires user confirmation dialog (unsuitable for headless)
-
-From [GNOME GitLab Issue #3943](https://gitlab.gnome.org/GNOME/gnome-shell/-/issues/3943):
-> "GNOME made sure that GNOME utilities like GNOME Screenshot still work... but this GNOME Shell API is officially private now."
+1. **No PipeWire involvement**: D-Bus Screenshot API captures directly from the compositor, bypassing PipeWire entirely
+2. **Fast**: ~400ms vs. ~15s for PipeWire fallback
+3. **No video interference**: Wolf's pipewiresrc video pipeline continues uninterrupted
+4. **Simple**: Single D-Bus call, no GStreamer pipelines or temp files
 
 ## Desktop-Specific Screenshot Methods
 
@@ -338,6 +323,57 @@ docker compose exec -T sandbox-nvidia docker logs <container-name> 2>&1 | grep -
 ## Files Changed
 
 - `api/pkg/desktop/screenshot.go` - Reordered capture methods
+- `api/pkg/desktop/session.go` - Added D-Bus session monitoring (`monitorSession()`, `handleSessionClosed()`)
+- `api/pkg/desktop/desktop.go` - Added session monitor goroutine
+- `Dockerfile.ubuntu-helix` - Added WirePlumber configuration to disable 5-second stream suspension
+
+## WirePlumber 5-Second Suspension Fix
+
+**Problem**: PipeWire/WirePlumber has a default behavior to suspend streams after 5 seconds of "inactivity". This was causing video streams to stop producing frames exactly 5 seconds after the last frame, even though the ScreenCast session was still alive.
+
+**Root Cause**: From [Arch Linux Forums](https://bbs.archlinux.org/viewtopic.php?id=309630) and [Ubuntu fix blog](https://www.lexo.ch/blog/2024/09/fix-audio-delays-and-missing-audio-notifications-in-ubuntu-and-linux-mint-disabling-pipewire-and-wireplumber-suspend/):
+> "The root of the problem lies in PipeWire's default behavior: it's configured to enter suspend mode after just 5 seconds of inactivity."
+
+**Failed Approaches**:
+1. Config file approach (51-disable-suspension.conf) - WirePlumber ignored it
+2. Commenting out `hooks.node.suspend` component - created invalid config
+3. Removing entire component block - `policy.node` depends on `hooks.node.suspend`
+
+**Working Solution**: Modify the default timeout in `suspend-node.lua` from 5 seconds to 86400 seconds (1 day):
+
+```dockerfile
+# In Dockerfile.ubuntu-helix
+# The script has: tonumber(node.properties["session.suspend-timeout-seconds"]) or 5
+# Change the default from 5 to 86400 (1 day)
+sed -i 's/) or 5$/) or 86400/' /usr/share/wireplumber/scripts/node/suspend-node.lua
+```
+
+This approach works because:
+- We can't disable or remove `hooks.node.suspend` (other components depend on it)
+- But we can change when it activates (86400s = 1 day effectively disables it for streaming sessions)
+- The sed pattern matches the end of the line in `suspend-node.lua` line 41
+
+**Status**: ✅ Implemented in helix-ubuntu:d369c0.
+
+**Verification**:
+```bash
+$ docker run --rm --entrypoint grep helix-ubuntu:d369c0 -n "or 5\|or 86400" /usr/share/wireplumber/scripts/node/suspend-node.lua
+41:          tonumber(node.properties["session.suspend-timeout-seconds"]) or 86400
+```
+
+## pipewirezerocopysrc Frame Timeout Fix
+
+**Problem**: After ~20 seconds of successful streaming, pipewirezerocopysrc would timeout with a 5-second error, causing the video producer to exit.
+
+**Root Cause**: Under investigation. The 5-second timeout was too aggressive for some GNOME ScreenCast scenarios.
+
+**Solution**: Increase pipewirezerocopysrc timeout from 5s to 30s (`wolf/gst-pipewire-zerocopy/src/pipewire_stream.rs`):
+```rust
+// 30s timeout: Generous timeout for frame gaps
+self.frame_rx.recv_timeout(Duration::from_secs(30))
+```
+
+**Status**: ✅ Implemented
 
 ## References
 
