@@ -169,10 +169,10 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
-	// Create OIDC client if OIDC is enabled
+	// Create OIDC client if using OIDC auth provider
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
 	var oidcClient auth.OIDC
-	if cfg.Auth.OIDC.Enabled {
+	if cfg.Auth.Provider == types.AuthProviderOIDC {
 		if cfg.Auth.OIDC.Audience == "" {
 			return nil, fmt.Errorf("oidc audience is required")
 		}
