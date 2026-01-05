@@ -14,10 +14,7 @@
 
 services:
   keycloak:
-    build:
-      context: ..
-      dockerfile: keycloak/Dockerfile
-    image: helix-keycloak:prod
+    image: registry.helixml.tech/helix/keycloak:latest
     restart: unless-stopped
     ports:
       - "8180:8080"
