@@ -612,7 +612,8 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
-				suite.authenticator.EXPECT().
+				// Uses OIDC client since test suite is configured with AuthProviderOIDC
+				suite.oidcClient.EXPECT().
 					ValidateUserToken(gomock.Any(), "valid-token").
 					Return(&types.User{ID: "user123"}, nil)
 			},
@@ -632,7 +633,8 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
-				suite.authenticator.EXPECT().
+				// Uses OIDC client since test suite is configured with AuthProviderOIDC
+				suite.oidcClient.EXPECT().
 					ValidateUserToken(gomock.Any(), "invalid-token").
 					Return(nil, errors.New("invalid token"))
 			},

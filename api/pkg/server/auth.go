@@ -802,7 +802,13 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+	switch s.Cfg.Auth.Provider {
+	case types.AuthProviderRegular:
+		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+	default:
+		// OIDC-based auth
+		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+	}
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to validate user token")
 		writeResponse(w, types.AuthenticatedResponse{

@@ -273,10 +273,11 @@ func NewServer(
 		inferenceServer:             inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
+			oidcClient,
 			store,
 			authMiddlewareConfig{
 				adminUserIDs: cfg.WebServer.AdminUserIDs,
-				runnerToken: cfg.WebServer.RunnerToken,
+				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
 		providerManager:   providerManager,

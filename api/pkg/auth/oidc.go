@@ -264,18 +264,11 @@ func (c *OIDCClient) GetLogoutURL() (string, error) {
 }
 
 func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
-	provider, err := c.getProvider()
-	if err != nil {
-		return nil, err
-	}
-	verifier := provider.Verifier(&oidc.Config{
-		ClientID: c.cfg.Audience,
-	})
-	_, err = verifier.Verify(ctx, accessToken)
-	if err != nil {
-		return nil, fmt.Errorf("invalid access token: %w", err)
-	}
-
+	// Note: We intentionally don't verify the access token as a JWT here.
+	// The go-oidc Verifier is designed for ID tokens, not access tokens.
+	// Keycloak access tokens have different claims (aud="account" vs client_id).
+	// Instead, we validate the token by calling the userinfo endpoint - if the
+	// token is invalid or expired, that call will fail.
 	userInfo, err := c.GetUserInfo(ctx, accessToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid access token (could not get user info): %w", err)
