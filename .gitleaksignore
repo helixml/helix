@@ -31,3 +31,5 @@ wolf/key.pem:private-key:1
 
 # Keycloak docker-compose - PostgreSQL connection string (not a secret, just port/dbname)
 docker-compose.keycloak.yaml:generic-api-key:25
+keycloak/docker-compose.dev.yaml:generic-api-key:25
+keycloak/docker-compose.prod.yaml:generic-api-key:26

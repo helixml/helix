@@ -551,7 +551,10 @@ func (suite *AuthSuite) TestLogout() {
 			checkResponse: func(rec *httptest.ResponseRecorder) {
 				res := rec.Result()
 				defer res.Body.Close()
-				suite.Equal("http://auth-provider/logout", rec.Header().Get("Location"))
+				// The logout handler appends post_logout_redirect_uri and client_id query params
+				// WebServer.URL is "http://localhost:8080" and ClientID is empty in test config
+				expectedURL := "http://auth-provider/logout?post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A8080&client_id="
+				suite.Equal(expectedURL, rec.Header().Get("Location"))
 				cookies := res.Cookies()
 				for _, cookie := range cookies {
 					suite.Equal(-1, cookie.MaxAge, "Cookie should be deleted")
