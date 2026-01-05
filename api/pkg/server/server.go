@@ -177,14 +177,16 @@ func NewServer(
 			return nil, fmt.Errorf("oidc audience is required")
 		}
 		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
-			ProviderURL:  cfg.Auth.OIDC.URL,
-			ClientID:     cfg.Auth.OIDC.ClientID,
-			ClientSecret: cfg.Auth.OIDC.ClientSecret,
-			RedirectURL:  helixRedirectURL,
-			AdminUserIDs: cfg.WebServer.AdminUserIDs,
-			Audience:     cfg.Auth.OIDC.Audience,
-			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
-			Store:        store,
+			ProviderURL:    cfg.Auth.OIDC.URL,
+			ClientID:       cfg.Auth.OIDC.ClientID,
+			ClientSecret:   cfg.Auth.OIDC.ClientSecret,
+			RedirectURL:    helixRedirectURL,
+			AdminUserIDs:   cfg.WebServer.AdminUserIDs,
+			Audience:       cfg.Auth.OIDC.Audience,
+			Scopes:         strings.Split(cfg.Auth.OIDC.Scopes, ","),
+			Store:          store,
+			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
+			TokenURL:       cfg.Auth.OIDC.TokenURL,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)

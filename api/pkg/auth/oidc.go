@@ -43,6 +43,10 @@ type OIDCConfig struct {
 	// If set, the OIDC client will accept tokens with this issuer even though discovery
 	// was done via ProviderURL.
 	ExpectedIssuer string
+	// TokenURL overrides the token endpoint from OIDC discovery.
+	// Useful when the API needs an internal URL for token exchange while discovery
+	// returns browser-accessible URLs.
+	TokenURL string
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -129,6 +133,23 @@ func (c *OIDCClient) getOauth2Config() (*oauth2.Config, error) {
 			return nil, err
 		}
 		endpoint := provider.Endpoint()
+
+		// Override token URL for internal API access
+		// If TokenURL is set explicitly, use it. Otherwise, derive from ProviderURL
+		// (useful when discovery returns browser URLs but API needs internal URLs)
+		tokenURL := c.cfg.TokenURL
+		if tokenURL == "" && c.cfg.ProviderURL != "" {
+			// Auto-derive token URL from provider URL (works for Keycloak and most OIDC providers)
+			tokenURL = c.cfg.ProviderURL + "/protocol/openid-connect/token"
+		}
+		if tokenURL != "" && tokenURL != endpoint.TokenURL {
+			log.Info().
+				Str("original_token_url", endpoint.TokenURL).
+				Str("override_token_url", tokenURL).
+				Msg("Overriding token endpoint URL")
+			endpoint.TokenURL = tokenURL
+		}
+
 		log.Trace().Str("client_id", c.cfg.ClientID).Str("redirect_url", c.cfg.RedirectURL).Interface("endpoints", endpoint).Msg("Getting oauth2 config")
 		c.oauth2Config = &oauth2.Config{
 			ClientID:     c.cfg.ClientID,

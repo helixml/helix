@@ -174,6 +174,15 @@ type OIDC struct {
 	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
 	Audience      string `envconfig:"OIDC_AUDIENCE"`
 	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
+	// ExpectedIssuer allows using a different issuer than the OIDC_URL.
+	// Useful when the OIDC provider returns a browser-accessible issuer (e.g., localhost:8180)
+	// that differs from the discovery URL.
+	ExpectedIssuer string `envconfig:"OIDC_EXPECTED_ISSUER"`
+	// TokenURL overrides the token endpoint from OIDC discovery.
+	// Useful when the API needs to reach the token endpoint via an internal URL
+	// (e.g., http://keycloak:8080/auth/realms/helix/protocol/openid-connect/token)
+	// while the discovery response contains a browser-accessible URL (localhost:8180).
+	TokenURL string `envconfig:"OIDC_TOKEN_URL"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
