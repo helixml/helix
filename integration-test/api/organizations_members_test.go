@@ -11,7 +11,6 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -21,9 +20,9 @@ func TestOrganizationsMembersTestSuite(t *testing.T) {
 
 type OrganizationsMembersTestSuite struct {
 	suite.Suite
-	ctx      context.Context
-	db       *store.PostgresStore
-	keycloak *auth.KeycloakAuthenticator
+	ctx           context.Context
+	db            *store.PostgresStore
+	authenticator auth.Authenticator
 
 	userOrgOwner       *types.User // Who created the organization
 	userOrgOwnerAPIKey string
@@ -43,32 +42,16 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	var keycloakCfg config.Keycloak
-
-	err = envconfig.Process("", &keycloakCfg)
-	suite.NoError(err)
-
 	cfg := &config.ServerConfig{}
-	cfg.Auth.Keycloak = config.Keycloak{
-		KeycloakURL:         keycloakCfg.KeycloakURL,
-		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
-		ServerURL:           keycloakCfg.ServerURL,
-		APIClientID:         keycloakCfg.APIClientID,
-		AdminRealm:          keycloakCfg.AdminRealm,
-		Realm:               keycloakCfg.Realm,
-		Username:            keycloakCfg.Username,
-		Password:            keycloakCfg.Password,
-	}
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, suite.db)
+	authenticator, err := auth.NewHelixAuthenticator(cfg, suite.db, "test-secret", nil)
 	suite.Require().NoError(err)
 
-	suite.keycloak = keycloakAuthenticator
+	suite.authenticator = authenticator
 
 	// Create test user
 	emailID := uuid.New().String()
 	userOrgOwnerEmail := fmt.Sprintf("org-owner-%s@test.com", emailID)
-	userOrgOwner, userOrgOwnerAPIKey, err := createUser(suite.T(), suite.db, suite.keycloak, userOrgOwnerEmail)
+	userOrgOwner, userOrgOwnerAPIKey, err := createUser(suite.T(), suite.db, suite.authenticator, userOrgOwnerEmail)
 	suite.Require().NoError(err)
 
 	suite.userOrgOwner = userOrgOwner
@@ -88,7 +71,7 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 	// Create test user
 	emailID = uuid.New().String()
 	userMember1Email := fmt.Sprintf("user1-%s@test.com", emailID)
-	userMember1, userMember1APIKey, err := createUser(suite.T(), suite.db, suite.keycloak, userMember1Email)
+	userMember1, userMember1APIKey, err := createUser(suite.T(), suite.db, suite.authenticator, userMember1Email)
 	suite.Require().NoError(err)
 
 	suite.userMember1 = userMember1
@@ -97,7 +80,7 @@ func (suite *OrganizationsMembersTestSuite) SetupTest() {
 	// Create test user
 	emailID = uuid.New().String()
 	userMember2Email := fmt.Sprintf("user2-%s@test.com", emailID)
-	userMember2, userMember2APIKey, err := createUser(suite.T(), suite.db, suite.keycloak, userMember2Email)
+	userMember2, userMember2APIKey, err := createUser(suite.T(), suite.db, suite.authenticator, userMember2Email)
 	suite.Require().NoError(err)
 
 	suite.userMember2 = userMember2

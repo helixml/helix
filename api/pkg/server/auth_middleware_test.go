@@ -19,7 +19,7 @@ func TestIsAdminWithContext_EmptyUserID(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil,
 	})
 
@@ -34,7 +34,7 @@ func TestIsAdminWithContext_DevMode_EveryoneIsAdmin(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	// No database calls expected when AdminUserIDs contains "all"
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{config.AdminAllUsers},
 	})
 
@@ -50,7 +50,7 @@ func TestIsAdminWithContext_SpecificUserInList(t *testing.T) {
 	userID := "user-123"
 	// No database calls expected when user is in the admin list
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{"user-123", "user-456"},
 	})
 
@@ -73,7 +73,7 @@ func TestIsAdminWithContext_UserNotInList_ChecksDatabase(t *testing.T) {
 			Admin: true,
 		}, nil)
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: []string{"user-123", "user-456"}, // user-789 not in list
 	})
 
@@ -95,7 +95,7 @@ func TestIsAdminWithContext_DatabaseAdmin_True(t *testing.T) {
 			Admin: true,
 		}, nil)
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
 	})
 
@@ -117,7 +117,7 @@ func TestIsAdminWithContext_DatabaseAdmin_False(t *testing.T) {
 			Admin: false,
 		}, nil)
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
 	})
 
@@ -136,7 +136,7 @@ func TestIsAdminWithContext_UserNotFound(t *testing.T) {
 		GetUser(gomock.Any(), &store.GetUserQuery{ID: userID}).
 		Return(nil, nil)
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
 	})
 
@@ -155,7 +155,7 @@ func TestIsAdminWithContext_DatabaseError(t *testing.T) {
 		GetUser(gomock.Any(), &store.GetUserQuery{ID: userID}).
 		Return(nil, errors.New("database connection error"))
 
-	auth := newAuthMiddleware(nil, mockStore, authMiddlewareConfig{
+	auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{
 		adminUserIDs: nil, // Empty list - use database
 	})
 

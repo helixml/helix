@@ -8,5 +8,5 @@ USER root
 RUN chown -R keycloak:keycloak /opt/keycloak/themes/helix
 USER keycloak
 
-# Build the theme cache (optional but recommended for production)
+# Build the theme cache (recommended for production)
 RUN /opt/keycloak/bin/kc.sh build

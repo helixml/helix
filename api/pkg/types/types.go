@@ -2501,6 +2501,7 @@ type UserResponse struct {
 	Email string `json:"email"`
 	Token string `json:"token"`
 	Name  string `json:"name"`
+	Admin bool   `json:"admin"`
 }
 
 type AuthenticatedResponse struct {

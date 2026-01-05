@@ -23,13 +23,12 @@ import (
 
 type OIDCSuite struct {
 	suite.Suite
-	mockOIDCServer       *MockOIDCServer
-	mockStore            *store.MockStore
-	ctrl                 *gomock.Controller
-	client               *OIDCClient
-	ctx                  context.Context
-	testToken            string
-	invalidAudienceToken string
+	mockOIDCServer *MockOIDCServer
+	mockStore      *store.MockStore
+	ctrl           *gomock.Controller
+	client         *OIDCClient
+	ctx            context.Context
+	testToken      string
 }
 
 func TestOIDCSuite(t *testing.T) {
@@ -62,7 +61,6 @@ func (s *OIDCSuite) SetupTest() {
 
 	// Generate a valid access token
 	s.testToken = s.generateToken("test-aud")
-	s.invalidAudienceToken = s.generateToken("invalid-aud")
 }
 
 func (s *OIDCSuite) generateToken(aud string) string {
@@ -137,13 +135,16 @@ func (s *OIDCSuite) TestAuthFlow() {
 }
 
 func (s *OIDCSuite) TestUserOperations() {
+	// Note: We don't test JWT audience validation here because ValidateUserToken
+	// intentionally doesn't verify access tokens as JWTs. Keycloak access tokens
+	// have aud="account" not the client_id, so we validate by calling the userinfo
+	// endpoint instead. If the token is invalid, the userinfo call will fail.
 	tests := []struct {
-		name                string
-		accessToken         string
-		wantEmail           string
-		wantName            string
-		wantError           bool
-		wantValidationError bool
+		name        string
+		accessToken string
+		wantEmail   string
+		wantName    string
+		wantError   bool
 	}{
 		{
 			name:        "valid user info",
@@ -156,13 +157,6 @@ func (s *OIDCSuite) TestUserOperations() {
 			name:        "invalid token",
 			accessToken: "invalid-token",
 			wantError:   true,
-		},
-		{
-			name:                "invalid audience",
-			accessToken:         s.invalidAudienceToken,
-			wantEmail:           "test@example.com",
-			wantName:            "Test User",
-			wantValidationError: true,
 		},
 	}
 
@@ -180,10 +174,6 @@ func (s *OIDCSuite) TestUserOperations() {
 
 			// Test ValidateUserToken
 			user, err := s.client.ValidateUserToken(s.ctx, tt.accessToken)
-			if tt.wantValidationError {
-				s.Error(err)
-				return
-			}
 			s.NoError(err)
 			s.Equal(tt.wantEmail, user.Email)
 			s.Equal(tt.wantName, user.FullName)
