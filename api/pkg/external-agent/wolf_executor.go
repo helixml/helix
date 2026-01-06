@@ -713,8 +713,9 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		Str("session_id", agent.SessionID).
 		Msg("Creating Wolf app for external Zed agent")
 
-	// Create Sway compositor configuration (same as PDEs)
-	err = w.createSwayConfig(agent.SessionID)
+	// Create Sway compositor configuration with the agent's resolution settings
+	width, height, refreshRate := agent.GetEffectiveResolution()
+	err = w.createSwayConfig(agent.SessionID, width, height, refreshRate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Sway config: %w", err)
 	}
@@ -722,6 +723,9 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Str("workspace_dir", workspaceDir).
+		Int("display_width", width).
+		Int("display_height", height).
+		Int("refresh_rate", refreshRate).
 		Msg("Created Sway compositor configuration for external agent")
 
 	// Determine desktop type from agent config or environment
@@ -1858,8 +1862,11 @@ func (w *WolfExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo,
 	}, nil
 }
 
-func (w *WolfExecutor) createSwayConfig(instanceID string) error {
+func (w *WolfExecutor) createSwayConfig(instanceID string, width, height, refreshRate int) error {
 	swayConfigPath := fmt.Sprintf("/tmp/sway-config-%s", instanceID)
+
+	// Build the output mode string with the provided resolution
+	outputMode := fmt.Sprintf("mode %dx%d@%dHz", width, height, refreshRate)
 
 	swayConfig := `# Sway configuration for Helix Personal Dev Environment
 # Generated for instance: ` + instanceID + `
@@ -1946,7 +1953,7 @@ for_window [app_id="zed"] focus
 
 # Output configuration for Wolf streaming
 output * {
-    mode 1920x1080@60Hz
+    ` + outputMode + `
     pos 0 0
 }
 

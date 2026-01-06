@@ -69,3 +69,13 @@ sandbox-images
 
 hydra
 qwen-code-build/
+
+# Screenshots from spectask testing
+screenshot-*.png
+
+# Build artifacts
+api/screenshot-server
+helix-cli
+
+# Moonlight config backups
+moonlight-web-config/data.json.bak

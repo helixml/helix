@@ -1895,6 +1895,37 @@ type ZedAgent struct {
 	UseHostDocker bool `json:"use_host_docker,omitempty"`
 }
 
+// GetEffectiveResolution returns the display dimensions based on Resolution preset
+// Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
+func (z *ZedAgent) GetEffectiveResolution() (width, height, refreshRate int) {
+	// If Resolution preset is set, use it
+	switch z.Resolution {
+	case "5k":
+		width, height = 5120, 2880
+	case "4k":
+		width, height = 3840, 2160
+	case "1080p":
+		width, height = 1920, 1080
+	default:
+		// Fall back to explicit dimensions if set
+		if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
+			width, height = z.DisplayWidth, z.DisplayHeight
+		} else {
+			// Default to 1080p
+			width, height = 1920, 1080
+		}
+	}
+
+	// Get refresh rate (default to 60Hz)
+	if z.DisplayRefreshRate > 0 {
+		refreshRate = z.DisplayRefreshRate
+	} else {
+		refreshRate = 60
+	}
+
+	return width, height, refreshRate
+}
+
 // ZedAgentResponse represents the response from a Zed agent execution
 type ZedAgentResponse struct {
 	// Session ID of the Zed instance
