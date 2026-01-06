@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    UV_HTTP_TIMEOUT=300 uv sync --frozen --no-dev
 
 # Create directory for NLTK data
 RUN mkdir -p /usr/share/nltk_data
@@ -58,8 +58,9 @@ COPY . /app
 
 # Sync the project dependencies with the existing virtual environment
 # Use cache mount to avoid re-downloading packages (even if venv is recreated)
+# Increase timeout to 5 minutes for large ML packages
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    UV_HTTP_TIMEOUT=300 uv sync --frozen --no-dev
 
 # Set PATH to use the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
