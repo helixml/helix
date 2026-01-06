@@ -255,6 +255,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		session.Interactions = interactions
 
 		startReq.OrganizationID = session.OrganizationID
+		startReq.ProjectID = session.ProjectID
 
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
@@ -520,6 +521,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	projectID := user.ProjectID
 	if startReq.ProjectID != "" {
 		projectID = startReq.ProjectID
+		ctx = types.SetHelixProjectContext(ctx, projectID)
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
