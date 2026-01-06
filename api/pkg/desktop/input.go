@@ -49,7 +49,10 @@ func (s *Server) createInputSocket() error {
 
 // runInputBridge accepts connections and handles input events.
 func (s *Server) runInputBridge(ctx context.Context) {
-	s.logger.Info("starting input bridge...")
+	s.logger.Info("starting input bridge",
+		"socket_path", s.inputSocketPath,
+		"rd_session", s.rdSessionPath,
+		"dbus_connected", s.conn != nil)
 
 	for s.isRunning() {
 		// Set accept deadline so we can check context
@@ -79,11 +82,12 @@ func (s *Server) runInputBridge(ctx context.Context) {
 // handleInputClient handles a single input client connection.
 func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	s.logger.Info("input client connected")
+	s.logger.Info("input client connected from Wolf socket")
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)
 
+	eventCount := 0
 	for s.isRunning() {
 		conn.SetReadDeadline(time.Now().Add(time.Second))
 
@@ -104,23 +108,35 @@ func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
 
 		var event InputEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			s.logger.Warn("failed to parse input event JSON", "err", err, "line", line[:min(100, len(line))])
 			continue
+		}
+
+		eventCount++
+		if eventCount <= 5 || eventCount%100 == 0 {
+			s.logger.Info("received input event from Wolf", "type", event.Type, "count", eventCount)
 		}
 
 		s.injectInput(&event)
 	}
 
-	s.logger.Info("input client disconnected")
+	s.logger.Info("input client disconnected", "total_events", eventCount)
 }
 
 // injectInput sends an input event to GNOME via D-Bus.
 func (s *Server) injectInput(event *InputEvent) {
-	if s.conn == nil || s.rdSessionPath == "" {
+	if s.conn == nil {
+		s.logger.Warn("input event dropped: D-Bus connection is nil", "type", event.Type)
+		return
+	}
+	if s.rdSessionPath == "" {
+		s.logger.Warn("input event dropped: RemoteDesktop session path is empty", "type", event.Type)
 		return
 	}
 
 	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 
+	var err error
 	switch event.Type {
 	case "mouse_move_abs":
 		stream := event.Stream
@@ -129,47 +145,61 @@ func (s *Server) injectInput(event *InputEvent) {
 		}
 		s.moveCount++
 		if s.moveCount == 1 || s.moveCount%100 == 0 {
-			s.logger.Debug("mouse_move_abs", "count", s.moveCount, "x", event.X, "y", event.Y)
+			s.logger.Debug("mouse_move_abs", "count", s.moveCount, "x", event.X, "y", event.Y, "stream", stream)
 		}
-		rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0, stream, event.X, event.Y)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0, stream, event.X, event.Y).Err
 
 	case "mouse_move_rel":
-		rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotion", 0, event.DX, event.DY)
+		s.logger.Debug("mouse_move_rel", "dx", event.DX, "dy", event.DY)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotion", 0, event.DX, event.DY).Err
 
 	case "button":
 		s.logger.Debug("button", "button", event.Button, "state", event.State)
-		rdSession.Call(remoteDesktopSessionIface+".NotifyPointerButton", 0, event.Button, event.State)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerButton", 0, event.Button, event.State).Err
 
 	case "scroll":
+		s.logger.Debug("scroll", "dx", event.DX, "dy", event.DY)
 		if event.DY != 0 {
-			rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(0), int32(event.DY))
+			err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(0), int32(event.DY)).Err
 		}
-		if event.DX != 0 {
-			rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(1), int32(event.DX))
+		if event.DX != 0 && err == nil {
+			err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxisDiscrete", 0, uint32(1), int32(event.DX)).Err
 		}
 
 	case "scroll_smooth":
-		rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, event.DX, event.DY, uint32(4))
+		s.logger.Debug("scroll_smooth", "dx", event.DX, "dy", event.DY)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, event.DX, event.DY, uint32(4)).Err
 
 	case "key":
-		rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, event.Keycode, event.State)
+		s.logger.Info("key event", "keycode", event.Keycode, "state", event.State)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, event.Keycode, event.State).Err
 
 	case "touch_down":
 		stream := event.Stream
 		if stream == "" {
 			stream = string(s.scStreamPath)
 		}
-		rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, event.Slot, event.X, event.Y)
+		s.logger.Debug("touch_down", "slot", event.Slot, "x", event.X, "y", event.Y)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchDown", 0, stream, event.Slot, event.X, event.Y).Err
 
 	case "touch_motion":
 		stream := event.Stream
 		if stream == "" {
 			stream = string(s.scStreamPath)
 		}
-		rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, event.Slot, event.X, event.Y)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchMotion", 0, stream, event.Slot, event.X, event.Y).Err
 
 	case "touch_up":
-		rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, event.Slot)
+		s.logger.Debug("touch_up", "slot", event.Slot)
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyTouchUp", 0, event.Slot).Err
+
+	default:
+		s.logger.Warn("unknown input event type", "type", event.Type)
+		return
+	}
+
+	if err != nil {
+		s.logger.Error("D-Bus input call failed", "type", event.Type, "err", err)
 	}
 }
 
@@ -193,8 +223,13 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if D-Bus session is available
-	if s.conn == nil || s.rdSessionPath == "" {
-		s.logger.Warn("input injection not available - no RemoteDesktop session")
+	if s.conn == nil {
+		s.logger.Warn("HTTP input: D-Bus connection is nil")
+		http.Error(w, "D-Bus connection not available", http.StatusServiceUnavailable)
+		return
+	}
+	if s.rdSessionPath == "" {
+		s.logger.Warn("HTTP input: RemoteDesktop session path is empty")
 		http.Error(w, "RemoteDesktop session not available", http.StatusServiceUnavailable)
 		return
 	}
@@ -205,15 +240,22 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logger.Debug("HTTP input received", "body_length", len(body))
+
 	var req InputRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		// Try single event format for convenience
+	if err := json.Unmarshal(body, &req); err != nil || len(req.Events) == 0 {
+		// Try single event format for convenience (also handles case where
+		// unmarshal succeeded but events array was empty/missing)
 		var event InputEvent
 		if err := json.Unmarshal(body, &event); err != nil {
+			s.logger.Warn("HTTP input: invalid JSON", "err", err)
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		req.Events = []InputEvent{event}
+		// Only use single event if it has a type (valid event)
+		if event.Type != "" {
+			req.Events = []InputEvent{event}
+		}
 	}
 
 	// Process all events
@@ -223,7 +265,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		processed++
 	}
 
-	s.logger.Debug("input events processed", "count", processed)
+	s.logger.Info("HTTP input events processed", "count", processed)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(InputResponse{

@@ -106,6 +106,11 @@ func (s *Server) Run(ctx context.Context) error {
 		// 5. Report to Wolf
 		s.reportToWolf()
 
+		// Mark as running BEFORE starting goroutines that check isRunning()
+		// CRITICAL: This fixes a race condition where input bridge would exit
+		// immediately because s.running was false when the goroutine started.
+		s.running.Store(true)
+
 		// Start input bridge
 		s.wg.Add(1)
 		go func() {
@@ -121,10 +126,11 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	} else {
 		s.logger.Info("not GNOME environment, skipping D-Bus session setup")
+		// In non-GNOME mode, still set running for HTTP server
+		s.running.Store(true)
 	}
 
 	// 6. Start HTTP server
-	s.running.Store(true)
 
 	httpServer := &http.Server{
 		Addr:    ":" + s.config.HTTPPort,

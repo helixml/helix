@@ -164,14 +164,30 @@ func (s *Server) startSession(ctx context.Context) error {
 	signalChan := make(chan *dbus.Signal, 10)
 	s.conn.Signal(signalChan)
 
-	// Start the session - for standalone ScreenCast we start the ScreenCast session directly
+	// Start the session(s)
+	// For standalone ScreenCast (GNOME 49+), we need to start BOTH sessions:
+	// - ScreenCast session for video capture
+	// - RemoteDesktop session for input injection (otherwise NotifyKeyboardKeycode fails with "Session not started")
 	if s.standaloneScreenCast {
 		s.logger.Info("starting standalone ScreenCast session...")
 		scSession := s.conn.Object(screenCastBus, s.scSessionPath)
 		if err := scSession.Call(screenCastSessionIface+".Start", 0).Err; err != nil {
 			return fmt.Errorf("start screencast session: %w", err)
 		}
+
+		// Also start RemoteDesktop session for input injection
+		if s.rdSessionPath != "" {
+			s.logger.Info("starting RemoteDesktop session for input injection...")
+			rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+			if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
+				// Log but don't fail - input just won't work
+				s.logger.Warn("failed to start RemoteDesktop session (input may not work)", "err", err)
+			} else {
+				s.logger.Info("RemoteDesktop session started for input")
+			}
+		}
 	} else {
+		// Linked mode - starting RemoteDesktop also starts the linked ScreenCast
 		s.logger.Info("starting RemoteDesktop session...")
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		if err := rdSession.Call(remoteDesktopSessionIface+".Start", 0).Err; err != nil {
