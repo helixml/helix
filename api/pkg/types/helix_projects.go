@@ -11,7 +11,7 @@ type HelixProjectContextKeyType string
 const HelixProjectContextKey HelixProjectContextKeyType = "helix_project_context"
 
 func SetHelixProjectContext(ctx context.Context, projectID string) context.Context {
-	return context.WithValue(ctx, HelixProjectContextKey, projectID)
+	return context.WithValue(ctx, HelixProjectContextKey, HelixProjectContext{ProjectID: projectID})
 }
 
 func GetHelixProjectContext(ctx context.Context) (HelixProjectContext, bool) {
