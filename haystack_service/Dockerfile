@@ -57,7 +57,9 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY . /app
 
 # Sync the project dependencies with the existing virtual environment
-RUN uv sync --frozen --no-dev
+# Use cache mount to avoid re-downloading packages (even if venv is recreated)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # Set PATH to use the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
