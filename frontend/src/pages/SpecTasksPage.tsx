@@ -6,41 +6,29 @@ import {
   Typography,
   Alert,
   Chip,
-  Stack,
-  Drawer,
+  Stack,  
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   CircularProgress,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Divider,
+  IconButton,  
   Checkbox,
   FormControlLabel,
   Tooltip,
-  Avatar,
-  Grid,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  Close as CloseIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
   SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
-  Tab as TabIcon,
-  Chat as ChatIcon,
+  Tab as TabIcon,  
 } from '@mui/icons-material';
+import { Plus, X, Play, Settings } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -837,7 +825,7 @@ const SpecTasksPage: FC = () => {
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
           {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
-          <Stack direction="row" spacing={0.5} sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}>
+          <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
             <Tooltip title="Kanban View">
               <IconButton
                 size="small"
@@ -882,29 +870,26 @@ const SpecTasksPage: FC = () => {
           {/* Project's default agent lozenge */}
           {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
             <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-              <Chip
-                label={appNamesMap[project.default_helix_app_id]}
-                size="small"
+              <Box
                 onClick={() => {
                   if (project.default_helix_app_id) {
                     account.orgNavigate('app', { app_id: project.default_helix_app_id });
                   }
                 }}
                 sx={{
-                  flexShrink: 0,
-                  cursor: 'pointer',
-                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  fontWeight: 500,
+                  px: 1.5,
+                  py: 0.5,
                   fontSize: '0.75rem',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                  cursor: 'pointer',
+                  backgroundColor: 'transparent',
+                  borderRadius: 0,
                   '&:hover': {
-                    background: 'linear-gradient(145deg, rgba(130, 130, 150, 0.95) 0%, rgba(100, 100, 120, 1) 50%, rgba(80, 80, 100, 0.95) 100%)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.25)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
                   },
                 }}
-              />
+              >
+                {appNamesMap[project.default_helix_app_id]}
+              </Box>
             </Tooltip>
           )}
           {!exploratorySessionData ? (
@@ -922,7 +907,7 @@ const SpecTasksPage: FC = () => {
             <Button
               variant="outlined"
               color="secondary"
-              startIcon={<ExploreIcon />}
+              startIcon={<Play size={18} />}
               onClick={handleResumeExploratorySession}
               disabled={resumeExploratorySessionMutation.isPending}
               sx={{ flexShrink: 0 }}
@@ -934,7 +919,7 @@ const SpecTasksPage: FC = () => {
               <Button
                 variant="contained"
                 color="primary"
-                startIcon={<ExploreIcon />}
+                startIcon={<Play size={18} />}
                 onClick={(e) => {
                   floatingModal.showFloatingModal({
                     type: 'exploratory_session',
@@ -965,7 +950,7 @@ const SpecTasksPage: FC = () => {
             <Tooltip title="Chat with Project Manager agent">
               <Button
                 variant="outlined"
-                startIcon={<ChatIcon />}
+                startIcon={<Plus size={18} />}
                 onClick={handleOpenChatPanel}
                 sx={{ flexShrink: 0 }}
               >
@@ -975,7 +960,7 @@ const SpecTasksPage: FC = () => {
           )}
           <Button
             variant="outlined"
-            startIcon={<SettingsIcon />}
+            startIcon={<Settings size={18} />}
             onClick={() => account.orgNavigate('project-settings', { id: projectId })}
             sx={{ flexShrink: 0 }}
           >
@@ -1113,7 +1098,7 @@ const SpecTasksPage: FC = () => {
                 Esc
               </Box>
               <IconButton onClick={() => setCreateDialogOpen(false)}>
-                <CloseIcon />
+                <X size={20} />
               </IconButton>
             </Box>
           </Box>
@@ -1608,11 +1593,27 @@ const SpecTasksPage: FC = () => {
                       flexShrink: 0,
                     }}
                   >
-                    <AddIcon fontSize="small" />
+                    <Plus size={18} />
                   </IconButton>
                 </Tooltip>
 
-                {/* Close button */}
+                {/* Esc badge and Close button */}
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: '0.75rem',
+                    opacity: 0.6,
+                    fontFamily: 'monospace',
+                    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                    px: 0.75,
+                    py: 0.25,
+                    borderRadius: '4px',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                >
+                  Esc
+                </Box>
                 <Tooltip title="Close">
                   <IconButton 
                     onClick={() => setChatPanelOpen(false)}
@@ -1621,7 +1622,7 @@ const SpecTasksPage: FC = () => {
                       flexShrink: 0,
                     }}
                   >
-                    <CloseIcon fontSize="small" />
+                    <X size={18} />
                   </IconButton>
                 </Tooltip>
               </Box>
