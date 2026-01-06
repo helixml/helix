@@ -8,7 +8,7 @@ import (
 )
 
 func TestKoditService_APIKeyAuth(t *testing.T) {
-	expectedAPIKey := "test-api-key-12345"
+	expectedAPIKey := "test-api-key-12345" // gitleaks:allow
 	var receivedAPIKey string
 	var receivedRequest bool
 
