@@ -34,6 +34,7 @@ type ListSessionsQuery struct {
 	Search                 string          `json:"search"`
 	QuestionSetID          string          `json:"question_set_id"`
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
+	AppID                  string          `json:"app_id"`
 }
 
 type ListAPIKeysQuery struct {
@@ -191,7 +192,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
-	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error) // Batch fetch for efficiency
+	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error)      // Batch fetch for efficiency
 	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
