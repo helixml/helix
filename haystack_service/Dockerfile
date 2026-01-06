@@ -20,9 +20,10 @@ RUN mkdir -p /usr/share/nltk_data
 
 # Pre-download NLTK resources for document_splitter.py and unstructured PDF processing
 # Specify the download directory and ensure files are accessible
-# Use cache mount to avoid re-downloading NLTK data
-RUN --mount=type=cache,target=/root/nltk_data \
-    uv run python -m nltk.downloader -d /usr/share/nltk_data punkt_tab averaged_perceptron_tagger_eng
+# Use cache mounts for both UV packages and NLTK data
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/nltk_data \
+    UV_HTTP_TIMEOUT=300 uv run python -m nltk.downloader -d /usr/share/nltk_data punkt_tab averaged_perceptron_tagger_eng
 
 # Verify the files were downloaded
 RUN ls -la /usr/share/nltk_data/tokenizers/ || echo "Tokenizers directory not found or empty"
