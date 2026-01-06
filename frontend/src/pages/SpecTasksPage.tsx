@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef, useMemo } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Box,
@@ -26,6 +26,7 @@ import {
   FormControlLabel,
   Tooltip,
   Avatar,
+  Grid,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +39,7 @@ import {
   ViewKanban as KanbanIcon,
   History as AuditIcon,
   Tab as TabIcon,
+  Chat as ChatIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
@@ -45,9 +47,12 @@ import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
+import PreviewPanel from '../components/app/PreviewPanel';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
-import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../types';
+import { AGENT_TYPE_ZED_EXTERNAL, IApp, SESSION_TYPE_TEXT } from '../types';
+import { useStreaming } from '../contexts/streaming';
+import { TypesSession } from '../api/api';
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -152,6 +157,14 @@ const SpecTasksPage: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Chat panel state
+  const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  const [chatInputValue, setChatInputValue] = useState('');
+  const [chatSession, setChatSession] = useState<TypesSession | undefined>();
+  const [chatIsSearchMode, setChatIsSearchMode] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const { NewInference, setCurrentSessionId } = useStreaming();
 
   // Fetch tasks for TabsView
   const { data: tasksData } = useQuery({
@@ -390,6 +403,10 @@ const SpecTasksPage: FC = () => {
         }
         e.preventDefault();
         // Toggle behavior: open if closed, close if open and no focus
+        // Also close chat panel when opening create dialog
+        if (!createDialogOpen) {
+          setChatPanelOpen(false);
+        }
         setCreateDialogOpen(prev => !prev);
       }
     };
@@ -416,22 +433,25 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
 
-  // Keyboard shortcut: ESC to close create task panel
+  // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (createDialogOpen) {
+        if (chatPanelOpen) {
+          e.preventDefault();
+          setChatPanelOpen(false);
+        } else if (createDialogOpen) {
           e.preventDefault();
           setCreateDialogOpen(false);
         }
       }
     };
 
-    if (createDialogOpen) {
+    if (createDialogOpen || chatPanelOpen) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen]);
+  }, [createDialogOpen, chatPanelOpen]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -637,6 +657,65 @@ const SpecTasksPage: FC = () => {
     }
   };
 
+  const projectManagerAppId = project?.project_manager_helix_app_id || '';
+  const projectManagerApp = useMemo(() => {
+    return apps.apps.find(app => app.id === projectManagerAppId);
+  }, [apps.apps, projectManagerAppId]);
+
+  const handleChatInference = useCallback(async () => {
+    if (!chatInputValue.trim() || !projectManagerAppId) return;
+
+    setChatLoading(true);
+    try {
+      const messagePayloadContent = {
+        content_type: "text",
+        parts: [
+          {
+            type: "text",
+            text: chatInputValue,
+          }
+        ],
+      };
+
+      setChatInputValue('');
+
+      const newSessionData = await NewInference({
+        message: '',
+        messages: [
+          {
+            role: 'user',
+            content: messagePayloadContent as any,
+          }
+        ],
+        appId: projectManagerAppId,
+        type: SESSION_TYPE_TEXT,
+      });
+
+      setChatSession(newSessionData);
+    } catch (error) {
+      console.error('Chat inference error:', error);
+      snackbar.error('Failed to send message');
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatInputValue, projectManagerAppId, NewInference, snackbar]);
+
+  const handleChatSessionUpdate = useCallback((session: TypesSession) => {
+    setChatSession(session);
+  }, []);
+
+  const handleOpenChatPanel = useCallback(() => {
+    setCreateDialogOpen(false);
+    setChatPanelOpen(true);
+    setChatSession(undefined);
+    setChatInputValue('');
+  }, []);
+
+  const handleOpenCreateDialog = useCallback(() => {
+    setChatPanelOpen(false);
+    setCreateDialogOpen(true);
+  }, []);
+
   return (
     <Page
       breadcrumbs={project ? [
@@ -778,6 +857,18 @@ const SpecTasksPage: FC = () => {
               </Button>
             </>
           )}
+          {projectManagerAppId && (
+            <Tooltip title="Chat with Project Manager agent">
+              <Button
+                variant="outlined"
+                startIcon={<ChatIcon />}
+                onClick={handleOpenChatPanel}
+                sx={{ flexShrink: 0 }}
+              >
+                New Chat
+              </Button>
+            </Tooltip>
+          )}
           <Button
             variant="outlined"
             startIcon={<SettingsIcon />}
@@ -834,7 +925,7 @@ const SpecTasksPage: FC = () => {
               <SpecTaskKanbanBoard
                 userId={account.user?.id}
                 projectId={projectId}
-                onCreateTask={() => setCreateDialogOpen(true)}
+                onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
                   // Add to array of open windows if not already open
                   setOpenTaskWindows(prev => {
@@ -857,7 +948,7 @@ const SpecTasksPage: FC = () => {
               <TabsView
                 projectId={projectId}
                 tasks={tasksData || []}
-                onCreateTask={() => setCreateDialogOpen(true)}
+                onCreateTask={handleOpenCreateDialog}
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
               />
             )}
@@ -1323,6 +1414,87 @@ const SpecTasksPage: FC = () => {
           </Box>
         </Box>
         </Box>
+
+        {/* RIGHT PANEL: Chat with Project Manager Agent */}
+        {projectManagerAppId && (
+          <Box
+            sx={{
+              width: chatPanelOpen ? { xs: '100%', sm: '450px', md: '500px' } : 0,
+              flexShrink: 0,
+              overflow: 'hidden',
+              transition: 'width 0.3s ease-in-out',
+              borderLeft: chatPanelOpen ? 1 : 0,
+              borderColor: 'divider',
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'background.paper',
+            }}
+          >
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+              {/* Control buttons */}
+              <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 1 }}>
+                <Tooltip title="New chat">
+                  <IconButton 
+                    onClick={handleOpenChatPanel}
+                    size="small"
+                    sx={{ 
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                      }
+                    }}
+                  >
+                    <AddIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Close">
+                  <IconButton 
+                    onClick={() => setChatPanelOpen(false)}
+                    size="small"
+                    sx={{ 
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                      }
+                    }}
+                  >
+                    <CloseIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              {/* Chat Content - Use PreviewPanel */}
+              <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', width: '100%' }}>
+                <PreviewPanel
+                  appId={projectManagerAppId}
+                  loading={chatLoading}
+                  name={projectManagerApp?.config?.helix?.name || 'Project Manager'}
+                  avatar={projectManagerApp?.config?.helix?.avatar || ''}
+                  image=""
+                  isSearchMode={chatIsSearchMode}
+                  setIsSearchMode={setChatIsSearchMode}
+                  inputValue={chatInputValue}
+                  setInputValue={setChatInputValue}
+                  onInference={handleChatInference}
+                  onSearch={() => {}}
+                  hasKnowledgeSources={false}
+                  searchResults={[]}
+                  session={chatSession}
+                  serverConfig={account.serverConfig}
+                  themeConfig={{}}
+                  snackbar={snackbar}
+                  conversationStarters={projectManagerApp?.config?.helix?.assistants?.[0]?.conversation_starters || []}
+                  app={projectManagerApp}
+                  onSessionUpdate={handleChatSessionUpdate}
+                  hideSearchMode={true}
+                  noBackground={true}
+                  fullWidth={true}
+                  hideHeader={true}
+                />
+              </Box>
+            </Box>
+          </Box>
+        )}
 
       </Box>
 
