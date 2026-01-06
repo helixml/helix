@@ -1795,7 +1795,6 @@ export interface TypesAuditMetadata {
 
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
-  AuthProviderKeycloak = "keycloak",
   AuthProviderOIDC = "oidc",
 }
 
@@ -3420,6 +3419,7 @@ export interface TypesProject {
    */
   next_task_number?: number;
   organization_id?: string;
+  project_manager_helix_app_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
@@ -3479,6 +3479,8 @@ export interface TypesProjectUpdateRequest {
   guidelines?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
+  /** Project manager agent */
+  project_manager_helix_app_id?: string;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -4910,7 +4912,6 @@ export enum TypesTextSplitterType {
 export enum TypesTokenType {
   TokenTypeNone = "",
   TokenTypeRunner = "runner",
-  TokenTypeKeycloak = "keycloak",
   TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
@@ -5262,6 +5263,7 @@ export interface TypesUserGuidelinesResponse {
 }
 
 export interface TypesUserResponse {
+  admin?: boolean;
   email?: string;
   id?: string;
   name?: string;

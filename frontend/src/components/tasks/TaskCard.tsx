@@ -679,23 +679,48 @@ export default function TaskCard({
         {/* Status row */}
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <CircleIcon
-              sx={{
-                fontSize: 8,
-                color:
-                  task.phase === 'planning'
-                    ? '#f59e0b'
-                    : task.phase === 'review'
-                    ? '#3b82f6'
-                    : task.phase === 'implementation'
-                    ? '#10b981'
-                    : task.phase === 'pull_request'
-                    ? '#8b5cf6'
-                    : task.phase === 'completed'
-                    ? '#6b7280'
-                    : '#9ca3af',
-              }}
-            />
+            {isActive && task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') ? (
+              <Tooltip title="Agent is working">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#22c55e',
+                    animation: `${activePulse} 1.5s ease-in-out infinite`,
+                  }}
+                />
+              </Tooltip>
+            ) : needsAttention && task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') ? (
+              <Tooltip title="Agent finished - click card to dismiss">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#f59e0b',
+                  }}
+                />
+              </Tooltip>
+            ) : (
+              <CircleIcon
+                sx={{
+                  fontSize: 8,
+                  color:
+                    task.phase === 'planning'
+                      ? '#f59e0b'
+                      : task.phase === 'review'
+                      ? '#3b82f6'
+                      : task.phase === 'implementation'
+                      ? '#10b981'
+                      : task.phase === 'pull_request'
+                      ? '#8b5cf6'
+                      : task.phase === 'completed'
+                      ? '#6b7280'
+                      : '#9ca3af',
+                }}
+              />
+            )}
             <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary', fontWeight: 500 }}>
               {task.phase === 'backlog'
                 ? 'Backlog'
@@ -713,39 +738,6 @@ export default function TaskCard({
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
                 • {runningDuration}
               </Typography>
-            )}
-            {/* Attention indicator for tasks with sessions */}
-            {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
-              <>
-                {isActive ? (
-                  // Active: pulsing green dot
-                  <Tooltip title="Agent is working">
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#22c55e',
-                        animation: `${activePulse} 1.5s ease-in-out infinite`,
-                        ml: 0.5,
-                      }}
-                    />
-                  </Tooltip>
-                ) : needsAttention ? (
-                  // Needs attention: amber dot (dismissed when card is clicked)
-                  <Tooltip title="Agent finished - click card to dismiss">
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#f59e0b',
-                        ml: 0.5,
-                      }}
-                    />
-                  </Tooltip>
-                ) : null}
-              </>
             )}
           </Box>
         </Box>
