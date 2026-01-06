@@ -19008,7 +19008,6 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "keycloak",
                 "oidc"
             ],
             "x-enum-comments": {
@@ -19016,7 +19015,6 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderKeycloak",
                 "AuthProviderOIDC"
             ]
         },
@@ -22913,6 +22911,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "project_manager_helix_app_id": {
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -23065,6 +23066,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "project_manager_helix_app_id": {
+                    "description": "Project manager agent",
                     "type": "string"
                 },
                 "startup_script": {
@@ -26555,7 +26560,6 @@ const docTemplate = `{
             "enum": [
                 "",
                 "runner",
-                "keycloak",
                 "oidc",
                 "api_key",
                 "socket"
@@ -26563,7 +26567,6 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
-                "TokenTypeKeycloak",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
@@ -27379,6 +27382,9 @@ const docTemplate = `{
         "types.UserResponse": {
             "type": "object",
             "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
                 },
