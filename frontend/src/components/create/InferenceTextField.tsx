@@ -161,7 +161,7 @@ const InferenceTextField: FC<{
         />
         <Box
           sx={{
-            width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+            width: '95%',
             margin: '0 auto',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             borderRadius: '12px',

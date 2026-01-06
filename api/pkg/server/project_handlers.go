@@ -352,17 +352,20 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.DefaultHelixAppID != nil {
 		project.DefaultHelixAppID = *req.DefaultHelixAppID
 	}
+	if req.ProjectManagerHelixAppID != nil {
+		project.ProjectManagerHelixAppID = *req.ProjectManagerHelixAppID
+	}
 	// Track guidelines changes with versioning
 	if req.Guidelines != nil && *req.Guidelines != project.Guidelines {
 		// Save current version to history before updating
 		if project.Guidelines != "" {
 			history := &types.GuidelinesHistory{
-				ID:        system.GenerateUUID(),
-				ProjectID: projectID,
-				Version:   project.GuidelinesVersion,
+				ID:         system.GenerateUUID(),
+				ProjectID:  projectID,
+				Version:    project.GuidelinesVersion,
 				Guidelines: project.Guidelines,
-				UpdatedBy: project.GuidelinesUpdatedBy,
-				UpdatedAt: project.GuidelinesUpdatedAt,
+				UpdatedBy:  project.GuidelinesUpdatedBy,
+				UpdatedAt:  project.GuidelinesUpdatedAt,
 			}
 			if err := s.Store.CreateGuidelinesHistory(r.Context(), history); err != nil {
 				log.Warn().Err(err).Str("project_id", projectID).Msg("failed to save guidelines history")
@@ -465,6 +468,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		}
 		if req.DefaultHelixAppID != nil {
 			changedFields = append(changedFields, "default_helix_app_id")
+		}
+		if req.ProjectManagerHelixAppID != nil {
+			changedFields = append(changedFields, "project_manager_helix_app_id")
 		}
 		if req.Metadata != nil {
 			changedFields = append(changedFields, "metadata")

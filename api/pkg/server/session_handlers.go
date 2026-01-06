@@ -255,6 +255,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		session.Interactions = interactions
 
 		startReq.OrganizationID = session.OrganizationID
+		startReq.ProjectID = session.ProjectID
 
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
@@ -286,6 +287,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Name:           s.getTemporarySessionName(message),
 			Created:        time.Now(),
 			Updated:        time.Now(),
+			ProjectID:      startReq.ProjectID,
 			Mode:           types.SessionModeInference,
 			Type:           types.SessionTypeText,
 			Provider:       string(startReq.Provider),
@@ -516,11 +518,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
+	projectID := user.ProjectID
+	if startReq.ProjectID != "" {
+		projectID = startReq.ProjectID
+		ctx = types.SetHelixProjectContext(ctx, projectID)
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
 		InteractionID:   lastInteraction.ID,
-		ProjectID:       user.ProjectID,
+		ProjectID:       projectID,
 		SpecTaskID:      user.SpecTaskID,
 		OriginalRequest: body,
 	})

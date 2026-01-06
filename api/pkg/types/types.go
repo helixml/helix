@@ -433,6 +433,7 @@ type PaginatedSessionsList struct {
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
 	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`      // The project this session belongs to, if any
 	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
 	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
 	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
@@ -665,6 +666,7 @@ type Session struct {
 	Created       time.Time      `json:"created"`
 	Updated       time.Time      `json:"updated"`
 	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
+	ProjectID     string         `json:"project_id"`
 	ParentSession string         `json:"parent_session"`
 	// the app this session was spawned from
 	// TODO: rename to AppID
@@ -1309,15 +1311,15 @@ type PaginatedUsersList struct {
 type ToolType string
 
 const (
-	ToolTypeAPI         ToolType = "api"
-	ToolTypeBrowser     ToolType = "browser"
-	ToolTypeZapier      ToolType = "zapier"
-	ToolTypeCalculator  ToolType = "calculator"
-	ToolTypeEmail       ToolType = "email"
-	ToolTypeWebSearch   ToolType = "web_search"
-	ToolTypeAzureDevOps ToolType = "azure_devops"
-	ToolTypeMCP         ToolType = "mcp"
-	ToolTypeProjectManager     ToolType = "project_manager"
+	ToolTypeAPI            ToolType = "api"
+	ToolTypeBrowser        ToolType = "browser"
+	ToolTypeZapier         ToolType = "zapier"
+	ToolTypeCalculator     ToolType = "calculator"
+	ToolTypeEmail          ToolType = "email"
+	ToolTypeWebSearch      ToolType = "web_search"
+	ToolTypeAzureDevOps    ToolType = "azure_devops"
+	ToolTypeMCP            ToolType = "mcp"
+	ToolTypeProjectManager ToolType = "project_manager"
 )
 
 type Tool struct {
@@ -1331,15 +1333,15 @@ type Tool struct {
 }
 
 type ToolConfig struct {
-	API         *ToolAPIConfig         `json:"api"`
-	Zapier      *ToolZapierConfig      `json:"zapier"`
-	Browser     *ToolBrowserConfig     `json:"browser"`
-	WebSearch   *ToolWebSearchConfig   `json:"web_search"`
-	Calculator  *ToolCalculatorConfig  `json:"calculator"`
-	Email       *ToolEmailConfig       `json:"email"`
-	AzureDevOps *ToolAzureDevOpsConfig `json:"azure_devops"`
-	MCP         *ToolMCPClientConfig   `json:"mcp"`
-	ProjectManager     *ToolProjectManagerConfig     `json:"project"` // Helix project management skill
+	API            *ToolAPIConfig            `json:"api"`
+	Zapier         *ToolZapierConfig         `json:"zapier"`
+	Browser        *ToolBrowserConfig        `json:"browser"`
+	WebSearch      *ToolWebSearchConfig      `json:"web_search"`
+	Calculator     *ToolCalculatorConfig     `json:"calculator"`
+	Email          *ToolEmailConfig          `json:"email"`
+	AzureDevOps    *ToolAzureDevOpsConfig    `json:"azure_devops"`
+	MCP            *ToolMCPClientConfig      `json:"mcp"`
+	ProjectManager *ToolProjectManagerConfig `json:"project"` // Helix project management skill
 }
 
 type ToolMCPClientConfig struct {
@@ -1384,7 +1386,7 @@ type ToolCalculatorConfig struct {
 }
 
 type ToolProjectManagerConfig struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
 }
 
@@ -1614,7 +1616,7 @@ type AssistantConfig struct {
 }
 
 type AssistantProjectManager struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
 }
 

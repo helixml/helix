@@ -14,6 +14,10 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material'
 import {
   PlayArrow as PlayIcon,
@@ -31,7 +35,9 @@ import {
   ContentCopy as CopyIcon,
   AccountTree as BatchIcon,
   OpenInNew as OpenInNewIcon,
+  Archive as ArchiveIcon,
 } from '@mui/icons-material'
+import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress } from '../../services/specTaskService'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
@@ -468,6 +474,7 @@ export default function TaskCard({
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
 
@@ -573,129 +580,149 @@ export default function TaskCard({
           <Typography variant="body2" sx={{ fontWeight: 500, flex: 1, lineHeight: 1.4, color: 'text.primary' }}>
             {task.name}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            {/* Design doc icon - only visible when design docs have actually been pushed */}
-            {task.design_docs_pushed_at && (
-              <Tooltip title="Review Spec">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (onReviewDocs) {
-                      onReviewDocs(task)
-                    }
-                  }}
-                  sx={{
-                    width: 24,
-                    height: 24,
-                    color: 'primary.main',
-                    '&:hover': {
-                      color: 'primary.dark',
-                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
-                    },
-                  }}
-                >
-                  <DesignDocsIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuAnchorEl(e.currentTarget)
+            }}
+            sx={{
+              width: 24,
+              height: 24,
+              color: 'text.secondary',
+              ml: 0.5,
+              '&:hover': {
+                color: 'text.primary',
+                backgroundColor: 'rgba(0, 0, 0, 0.04)',
+              },
+            }}
+          >
+            <EllipsisVertical size={16} />
+          </IconButton>
+          <Menu
+            anchorEl={menuAnchorEl}
+            open={Boolean(menuAnchorEl)}
+            onClose={(e: React.SyntheticEvent) => {
+              e.stopPropagation?.()
+              setMenuAnchorEl(null)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{
+              paper: {
+                sx: {
+                  minWidth: 180,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                },
+              },
+            }}
+          >
+            {task.design_docs_pushed_at && onReviewDocs && (
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  onReviewDocs(task)
+                }}
+              >
+                <ListItemIcon>
+                  <DesignDocsIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Review Spec</ListItemText>
+              </MenuItem>
             )}
-            {/* Clone batch progress - visible for cloned tasks */}
             {task.clone_group_id && (
-              <Tooltip title="View Clone Batch Progress">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowCloneBatchProgress(true)
-                  }}
-                  sx={{
-                    width: 24,
-                    height: 24,
-                    color: 'secondary.main',
-                    '&:hover': {
-                      color: 'secondary.dark',
-                      backgroundColor: 'rgba(156, 39, 176, 0.08)',
-                    },
-                  }}
-                >
-                  <BatchIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  setShowCloneBatchProgress(true)
+                }}
+              >
+                <ListItemIcon>
+                  <BatchIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Clone Batch Progress</ListItemText>
+              </MenuItem>
             )}
-            {/* Clone button - always visible */}
-            <Tooltip title="Clone to Other Projects">
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setShowCloneDialog(true)
-                }}
-                sx={{
-                  width: 24,
-                  height: 24,
-                  color: 'text.secondary',
-                  '&:hover': {
-                    color: 'primary.main',
-                    backgroundColor: 'rgba(33, 150, 243, 0.08)',
-                  },
-                }}
-              >
-                <CopyIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title={task.archived ? 'Restore' : 'Archive'}>
-              <IconButton
-                size="small"
-                disabled={isArchiving}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (onArchiveTask) {
-                    // Parent handles the async operation and manages isArchiving state
-                    onArchiveTask(task, !task.archived)
-                  }
-                }}
-                sx={{
-                  width: 24,
-                  height: 24,
-                  color: 'text.secondary',
-                  '&:hover': {
-                    color: 'text.primary',
-                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                  },
-                }}
-              >
+            <MenuItem
+              onClick={() => {
+                setMenuAnchorEl(null)
+                setShowCloneDialog(true)
+              }}
+            >
+              <ListItemIcon>
+                <CopyIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Clone to Other Projects</ListItemText>
+            </MenuItem>
+            <MenuItem
+              disabled={isArchiving}
+              onClick={() => {
+                setMenuAnchorEl(null)
+                if (onArchiveTask) {
+                  onArchiveTask(task, !task.archived)
+                }
+              }}
+            >
+              <ListItemIcon>
                 {isArchiving ? (
-                  <CircularProgress size={14} sx={{ color: 'text.secondary' }} />
+                  <CircularProgress size={18} />
                 ) : task.archived ? (
-                  <RestoreIcon sx={{ fontSize: 16 }} />
+                  <RestoreIcon fontSize="small" />
                 ) : (
-                  <CloseIcon sx={{ fontSize: 16 }} />
+                  <ArchiveIcon fontSize="small" />
                 )}
-              </IconButton>
-            </Tooltip>
-          </Box>
+              </ListItemIcon>
+              <ListItemText>{task.archived ? 'Restore' : 'Archive'}</ListItemText>
+            </MenuItem>
+          </Menu>
         </Box>
 
         {/* Status row */}
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <CircleIcon
-              sx={{
-                fontSize: 8,
-                color:
-                  task.phase === 'planning'
-                    ? '#f59e0b'
-                    : task.phase === 'review'
-                    ? '#3b82f6'
-                    : task.phase === 'implementation'
-                    ? '#10b981'
-                    : task.phase === 'pull_request'
-                    ? '#8b5cf6'
-                    : task.phase === 'completed'
-                    ? '#6b7280'
-                    : '#9ca3af',
-              }}
-            />
+            {isActive && task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') ? (
+              <Tooltip title="Agent is working">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#22c55e',
+                    animation: `${activePulse} 1.5s ease-in-out infinite`,
+                  }}
+                />
+              </Tooltip>
+            ) : needsAttention && task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') ? (
+              <Tooltip title="Agent finished - click card to dismiss">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#f59e0b',
+                  }}
+                />
+              </Tooltip>
+            ) : (
+              <CircleIcon
+                sx={{
+                  fontSize: 8,
+                  color:
+                    task.phase === 'planning'
+                      ? '#f59e0b'
+                      : task.phase === 'review'
+                      ? '#3b82f6'
+                      : task.phase === 'implementation'
+                      ? '#10b981'
+                      : task.phase === 'pull_request'
+                      ? '#8b5cf6'
+                      : task.phase === 'completed'
+                      ? '#6b7280'
+                      : '#9ca3af',
+                }}
+              />
+            )}
             <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary', fontWeight: 500 }}>
               {task.phase === 'backlog'
                 ? 'Backlog'
@@ -713,39 +740,6 @@ export default function TaskCard({
               <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
                 • {runningDuration}
               </Typography>
-            )}
-            {/* Attention indicator for tasks with sessions */}
-            {task.planning_session_id && (task.phase === 'planning' || task.phase === 'implementation') && (
-              <>
-                {isActive ? (
-                  // Active: pulsing green dot
-                  <Tooltip title="Agent is working">
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#22c55e',
-                        animation: `${activePulse} 1.5s ease-in-out infinite`,
-                        ml: 0.5,
-                      }}
-                    />
-                  </Tooltip>
-                ) : needsAttention ? (
-                  // Needs attention: amber dot (dismissed when card is clicked)
-                  <Tooltip title="Agent finished - click card to dismiss">
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#f59e0b',
-                        ml: 0.5,
-                      }}
-                    />
-                  </Tooltip>
-                ) : null}
-              </>
             )}
           </Box>
         </Box>

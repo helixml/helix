@@ -9113,8 +9113,20 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Search sessions by name",
                         "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
                         "in": "query"
                     }
                 ],
@@ -19008,7 +19020,6 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "keycloak",
                 "oidc"
             ],
             "x-enum-comments": {
@@ -19016,7 +19027,6 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderKeycloak",
                 "AuthProviderOIDC"
             ]
         },
@@ -22913,6 +22923,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "project_manager_helix_app_id": {
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -23065,6 +23078,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "project_manager_helix_app_id": {
+                    "description": "Project manager agent",
                     "type": "string"
                 },
                 "startup_script": {
@@ -24518,6 +24535,9 @@ const docTemplate = `{
                 "parent_session": {
                     "type": "string"
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
@@ -24593,6 +24613,10 @@ const docTemplate = `{
                 },
                 "organization_id": {
                     "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "The project this session belongs to, if any",
                     "type": "string"
                 },
                 "provider": {
@@ -26555,7 +26579,6 @@ const docTemplate = `{
             "enum": [
                 "",
                 "runner",
-                "keycloak",
                 "oidc",
                 "api_key",
                 "socket"
@@ -26563,7 +26586,6 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
-                "TokenTypeKeycloak",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
@@ -27067,20 +27089,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {
@@ -27379,6 +27401,9 @@ const docTemplate = `{
         "types.UserResponse": {
             "type": "object",
             "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
                 },
