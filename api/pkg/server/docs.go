@@ -9122,6 +9122,12 @@ const docTemplate = `{
                         "description": "Search sessions by name",
                         "name": "search",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -24529,6 +24535,9 @@ const docTemplate = `{
                 "parent_session": {
                     "type": "string"
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
@@ -24604,6 +24613,10 @@ const docTemplate = `{
                 },
                 "organization_id": {
                     "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "The project this session belongs to, if any",
                     "type": "string"
                 },
                 "provider": {
@@ -27076,20 +27089,20 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UnifiedSearchResponse": {

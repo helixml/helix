@@ -115,6 +115,7 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Param   question_set_execution_id query    string  false  "Question set execution ID"
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
+// @Param   project_id      query    string  false  "Project ID"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -127,6 +128,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		QuestionSetID:          req.URL.Query().Get("question_set_id"),
 		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
 		AppID:                  req.URL.Query().Get("app_id"),
+		ProjectID:              req.URL.Query().Get("project_id"),
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
