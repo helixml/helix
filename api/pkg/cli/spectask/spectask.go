@@ -717,6 +717,7 @@ func newStreamCommand() *cobra.Command {
 	var duration int
 	var outputFile string
 	var verbose bool
+	var width, height, fps, bitrate int
 
 	cmd := &cobra.Command{
 		Use:   "stream <session-id>",
@@ -734,10 +735,11 @@ Statistics displayed:
   - Keyframe count
 
 Examples:
-  helix spectask stream ses_01xxx                     # Run until Ctrl+C
-  helix spectask stream ses_01xxx --duration 30       # Run for 30 seconds
-  helix spectask stream ses_01xxx --output video.h264 # Save raw video to file
-  helix spectask stream ses_01xxx -v                  # Verbose mode (show each frame)
+  helix spectask stream ses_01xxx                           # Run until Ctrl+C (1080p default)
+  helix spectask stream ses_01xxx --width 3840 --height 2160  # Stream at 4K resolution
+  helix spectask stream ses_01xxx --duration 30             # Run for 30 seconds
+  helix spectask stream ses_01xxx --output video.h264       # Save raw video to file
+  helix spectask stream ses_01xxx -v                        # Verbose mode (show each frame)
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -814,16 +816,17 @@ Examples:
 				"app_id":                  appID,
 				"session_id":              moonlightSessionID,
 				"client_unique_id":        clientUniqueID,
-				"width":                   1920,
-				"height":                  1080,
-				"fps":                     60,
-				"bitrate":                 10000,
+				"width":                   width,
+				"height":                  height,
+				"fps":                     fps,
+				"bitrate":                 bitrate,
 				"packet_size":             1024,
 				"play_audio_local":        false,
 				"video_supported_formats": 1, // H264 = 0x01
 			}
 			initJSON, _ := json.Marshal(initMessage)
-			fmt.Printf("📤 Sending WebSocket init message (app_id=%d)...\n", appID)
+			fmt.Printf("📤 Sending WebSocket init message (app_id=%d, %dx%d@%dfps, %dkbps)...\n",
+				appID, width, height, fps, bitrate)
 			if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
 				return fmt.Errorf("failed to send init: %w", err)
 			}
@@ -1044,6 +1047,10 @@ Examples:
 	cmd.Flags().IntVarP(&duration, "duration", "d", 0, "Run for specified seconds (0 = until interrupted)")
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write raw video frames to file")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Print each frame received")
+	cmd.Flags().IntVar(&width, "width", 1920, "Video stream width in pixels")
+	cmd.Flags().IntVar(&height, "height", 1080, "Video stream height in pixels")
+	cmd.Flags().IntVar(&fps, "fps", 60, "Video stream frames per second")
+	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video stream bitrate in kbps")
 
 	return cmd
 }
