@@ -9113,6 +9113,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Search sessions by name",
                         "name": "search",
                         "in": "query"

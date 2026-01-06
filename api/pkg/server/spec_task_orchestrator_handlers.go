@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -50,15 +49,9 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError400(fmt.Sprintf("invalid demo repo: %s", demoReq.DemoRepo))
 	}
 
-	// Get git repository service
-	gitService := apiServer.GetGitService()
-	if gitService == nil {
-		return nil, system.NewHTTPError500("git service not initialized")
-	}
-
 	// Clone demo repo to user's namespace
 	repoName := fmt.Sprintf("%s-%d", demoReq.DemoRepo, req.Context().Value("request_time"))
-	repo, err := gitService.CreateSampleRepository(
+	repo, err := apiServer.gitRepositoryService.CreateSampleRepository(
 		ctx,
 		&types.CreateSampleRepositoryRequest{
 			Name:           repoName,
@@ -148,7 +141,7 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 	}
 
 	// Get repository
-	repo, err := apiServer.GetGitService().GetRepository(ctx, project.DefaultRepoID)
+	repo, err := apiServer.gitRepositoryService.GetRepository(ctx, project.DefaultRepoID)
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to get repository")
 	}
@@ -264,14 +257,14 @@ func min(a, b int) int {
 }
 
 // GetOrchestrator returns the orchestrator instance
-func (apiServer *HelixAPIServer) GetOrchestrator() *services.SpecTaskOrchestrator {
-	return apiServer.specTaskOrchestrator
-}
+// func (apiServer *HelixAPIServer) GetOrchestrator() *services.SpecTaskOrchestrator {
+// 	return apiServer.specTaskOrchestrator
+// }
 
 // GetGitService returns the git repository service
-func (apiServer *HelixAPIServer) GetGitService() *services.GitRepositoryService {
-	return apiServer.gitRepositoryService
-}
+// func (apiServer *HelixAPIServer) GetGitService() *services.GitRepositoryService {
+// 	return apiServer.gitRepositoryService
+// }
 
 // @Summary Stop SpecTask external agent
 // @Description Manually stop the external agent for a SpecTask (frees GPU)

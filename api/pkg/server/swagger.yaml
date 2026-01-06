@@ -15156,6 +15156,10 @@ paths:
         in: query
         name: question_set_execution_id
         type: string
+      - description: App ID
+        in: query
+        name: app_id
+        type: string
       - description: Search sessions by name
         in: query
         name: search
