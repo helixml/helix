@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/jpeg"
 	"image/png"
@@ -51,15 +52,26 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 }
 
 // captureScreenshot captures a screenshot using the appropriate method.
+//
+// GNOME: Uses org.gnome.Shell.Screenshot D-Bus API exclusively.
+// Requires gnome-shell to be started with --unsafe-mode flag to allow D-Bus access.
+// This avoids PipeWire conflicts with Wolf's video pipeline.
+// See design doc: design/2026-01-05-screenshot-video-pipeline-interference.md
 func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, error) {
-	// Use PipeWire if we have a node ID (GNOME)
-	if s.nodeID != 0 {
-		return s.capturePipeWire(format, quality)
+	// GNOME: Use D-Bus Screenshot API exclusively (no fallbacks)
+	// gnome-shell must be started with --unsafe-mode to allow D-Bus access
+	if isGNOMEEnvironment() {
+		return s.captureGNOMEScreenshot(format, quality)
 	}
 
-	// KDE: use D-Bus API
+	// KDE: use D-Bus API (doesn't conflict with video pipeline)
 	if isKDEEnvironment() {
 		return s.captureKDE(format, quality)
+	}
+
+	// Sway/wlroots: grim (uses wlr-screencopy protocol, no PipeWire conflict)
+	if data, actualFormat, err := s.captureGrim(format, quality); err == nil {
+		return data, actualFormat, nil
 	}
 
 	// X11 fallback
@@ -67,18 +79,45 @@ func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, 
 		return s.captureX11(format, quality)
 	}
 
-	// Try grim for wlroots-based compositors
-	return s.captureGrim(format, quality)
+	return nil, "", fmt.Errorf("no screenshot method available for this desktop environment")
 }
 
 // capturePipeWire captures from the PipeWire stream via gst-launch-1.0.
+// It retries a few times since the stream may need time to stabilize after
+// session creation, and uses a timeout to prevent hanging.
 func (s *Server) capturePipeWire(format string, quality int) ([]byte, string, error) {
 	s.logger.Debug("capturing via PipeWire", "node_id", s.nodeID)
 
+	var lastErr error
+	maxRetries := 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			s.logger.Debug("PipeWire capture retry", "attempt", attempt+1)
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		data, actualFormat, err := s.tryCapturePipeWire(format, quality)
+		if err == nil {
+			return data, actualFormat, nil
+		}
+		lastErr = err
+		s.logger.Debug("PipeWire capture attempt failed", "attempt", attempt+1, "err", err)
+	}
+
+	return nil, "", fmt.Errorf("PipeWire capture failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// tryCapturePipeWire attempts a single PipeWire capture with timeout.
+func (s *Server) tryCapturePipeWire(format string, quality int) ([]byte, string, error) {
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
 	defer os.Remove(tmpFile)
 
-	cmd := exec.Command("gst-launch-1.0", "-q",
+	// Use context with timeout to prevent hanging on unresponsive PipeWire streams
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gst-launch-1.0", "-q",
 		"pipewiresrc", fmt.Sprintf("path=%d", s.nodeID), "num-buffers=1", "do-timestamp=true",
 		"!", "videoconvert",
 		"!", "pngenc",
@@ -86,7 +125,11 @@ func (s *Server) capturePipeWire(format string, quality int) ([]byte, string, er
 	)
 	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.config.XDGRuntimeDir)
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, "", fmt.Errorf("gst-launch timed out after 5 seconds")
+	}
+	if err != nil {
 		return nil, "", fmt.Errorf("gst-launch failed: %w, output: %s", err, string(output))
 	}
 
@@ -187,6 +230,135 @@ func (s *Server) captureX11(format string, quality int) ([]byte, string, error) 
 	}
 
 	return data, format, nil
+}
+
+// D-Bus constants for GNOME Shell Screenshot interface
+const (
+	shellScreenshotBus   = "org.gnome.Shell"
+	shellScreenshotPath  = "/org/gnome/Shell/Screenshot"
+	shellScreenshotIface = "org.gnome.Shell.Screenshot"
+)
+
+// captureGNOMEScreenshot captures via GNOME Shell Screenshot D-Bus API.
+// Uses org.gnome.Shell.Screenshot interface directly.
+// Requires gnome-shell to be started with --unsafe-mode flag to allow D-Bus access.
+// This avoids conflicts with Wolf's pipewiresrc video pipeline (no PipeWire involvement).
+func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, string, error) {
+	if s.conn == nil {
+		return nil, "", fmt.Errorf("D-Bus connection not available")
+	}
+	return s.captureShellScreenshotDBus(format, quality)
+}
+
+// captureShellScreenshotDBus captures via org.gnome.Shell.Screenshot D-Bus interface.
+// Uses the server's existing D-Bus connection for reliability in headless mode.
+func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte, string, error) {
+	s.logger.Debug("capturing via D-Bus org.gnome.Shell.Screenshot")
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(tmpFile)
+
+	// Call org.gnome.Shell.Screenshot.Screenshot(include_cursor, flash, filename)
+	// Returns: (success: bool, filename_used: string)
+	obj := s.conn.Object(shellScreenshotBus, dbus.ObjectPath(shellScreenshotPath))
+
+	var success bool
+	var filenameUsed string
+
+	// Use CallWithContext for timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	call := obj.CallWithContext(ctx, shellScreenshotIface+".Screenshot", 0,
+		true,    // include_cursor
+		false,   // flash (don't flash screen)
+		tmpFile, // filename
+	)
+
+	if call.Err != nil {
+		return nil, "", fmt.Errorf("D-Bus Screenshot call failed: %w", call.Err)
+	}
+
+	if err := call.Store(&success, &filenameUsed); err != nil {
+		return nil, "", fmt.Errorf("D-Bus Screenshot store result failed: %w", err)
+	}
+
+	if !success {
+		return nil, "", fmt.Errorf("Screenshot method returned success=false")
+	}
+
+	s.logger.Debug("D-Bus Screenshot succeeded", "filename", filenameUsed)
+
+	// Read the screenshot file
+	pngData, err := os.ReadFile(filenameUsed)
+	if err != nil {
+		return nil, "", fmt.Errorf("read screenshot file: %w", err)
+	}
+
+	if len(pngData) == 0 {
+		return nil, "", fmt.Errorf("D-Bus Screenshot produced empty file")
+	}
+
+	// Convert to JPEG if requested
+	if format == "jpeg" {
+		jpegData, err := convertPNGtoJPEG(pngData, quality)
+		if err != nil {
+			s.logger.Warn("JPEG conversion failed, returning PNG", "err", err)
+			return pngData, "png", nil
+		}
+		return jpegData, "jpeg", nil
+	}
+
+	return pngData, "png", nil
+}
+
+// captureGNOMEScreenshotCLI captures via gnome-screenshot CLI.
+// This is a fallback when D-Bus Screenshot doesn't work.
+func (s *Server) captureGNOMEScreenshotCLI(format string, quality int) ([]byte, string, error) {
+	s.logger.Debug("capturing via gnome-screenshot CLI")
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(tmpFile)
+
+	// Use context with timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// gnome-screenshot options:
+	// -f <filename>: save to file
+	// No other options needed - captures full screen by default
+	cmd := exec.CommandContext(ctx, "gnome-screenshot", "-f", tmpFile)
+	cmd.Env = append(os.Environ(),
+		"XDG_RUNTIME_DIR="+s.config.XDGRuntimeDir,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, "", fmt.Errorf("gnome-screenshot timed out after 5 seconds")
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("gnome-screenshot failed: %w, output: %s", err, string(output))
+	}
+
+	pngData, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("read screenshot: %w", err)
+	}
+
+	if len(pngData) == 0 {
+		return nil, "", fmt.Errorf("gnome-screenshot produced empty output")
+	}
+
+	if format == "jpeg" {
+		jpegData, err := convertPNGtoJPEG(pngData, quality)
+		if err != nil {
+			s.logger.Warn("JPEG conversion failed, returning PNG", "err", err)
+			return pngData, "png", nil
+		}
+		return jpegData, "jpeg", nil
+	}
+
+	return pngData, "png", nil
 }
 
 // captureGrim captures via grim for wlroots compositors.

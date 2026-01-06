@@ -448,7 +448,7 @@ if [ "$ENABLE_SETTINGS_SYNC" = "true" ]; then
     # Pass environment variables via script wrapper
     cat > /tmp/start-settings-sync-daemon.sh <<EOF
 #!/bin/bash
-exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$HELIX_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
+exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$USER_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
 EOF
     sudo mv /tmp/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
     sudo chmod +x /usr/local/bin/start-settings-sync-daemon.sh
@@ -681,7 +681,9 @@ fi
 # Background task to set display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
 # gnome-randr doesn't work with Mutter (it's for wlroots). Use D-Bus API directly.
 # See: https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml
-if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+# TEMPORARILY DISABLED: ApplyMonitorsConfig causes invalid pixel-aspect-ratio in PipeWire stream
+# See: design/2026-01-05-screenshot-video-pipeline-interference.md
+if false && [ -n "\$HELIX_SCALE_FACTOR" ]; then
     (
         echo "[gnome-session] Waiting for GNOME Shell to start before setting display scale..."
         for i in \$(seq 1 60); do
@@ -724,13 +726,24 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
             #
             # NOTE: scale must be a double (d) in GVariant notation
             # Method 1 = temporary (doesn't persist), Method 2 = persistent
-            echo "[gnome-session] Calling ApplyMonitorsConfig: serial=\$SERIAL scale=\$HELIX_SCALE_FACTOR mode=${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+            # Extract the actual mode_id from GetCurrentState (format varies between GNOME versions)
+            # Example: '3840x2160@60.000' or '1920x1080@60.000000'
+            MODE_ID=\$(echo "\$STATE" | grep -oP "'${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@[^']+'" | head -1 | tr -d "'")
+            if [ -z "\$MODE_ID" ]; then
+                # Fallback to .000 format (GNOME 49 style)
+                MODE_ID="${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000"
+                echo "[gnome-session] WARNING: Could not extract mode_id from state, using fallback: \$MODE_ID"
+            else
+                echo "[gnome-session] Extracted mode_id from GetCurrentState: \$MODE_ID"
+            fi
+
+            echo "[gnome-session] Calling ApplyMonitorsConfig: serial=\$SERIAL scale=\$HELIX_SCALE_FACTOR mode=\$MODE_ID"
             RESULT=\$(gdbus call --session \\
                 --dest org.gnome.Mutter.DisplayConfig \\
                 --object-path /org/gnome/Mutter/DisplayConfig \\
                 --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
                 \$SERIAL 1 \\
-                "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000000', {})])]" \\
+                "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '\$MODE_ID', {})])]" \\
                 "{}" 2>&1)
 
             echo "[gnome-session] ApplyMonitorsConfig result: \$RESULT"
@@ -764,7 +777,7 @@ fi
     # Settings sync daemon
     if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
         echo "[gnome-session] Starting settings-sync-daemon..."
-        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
+        HELIX_API_TOKEN="\$USER_API_TOKEN" HELIX_API_URL="\$HELIX_API_BASE_URL" HELIX_SESSION_ID="\$HELIX_SESSION_ID" WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
     fi
 
     # Screenshot server (unified: handles RemoteDesktop+ScreenCast sessions, PipeWire node reporting, input bridge)
@@ -790,13 +803,15 @@ if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
     echo "[gnome-session] Starting GNOME Shell in HEADLESS mode (PipeWire capture)..."
     echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
     # --headless: No display output (we capture via pipewiresrc ScreenCast)
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
     # --virtual-monitor WxH@R: Creates a virtual monitor at specified size and refresh rate
-    gnome-shell --headless --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
 else
     echo "[gnome-session] Starting GNOME Shell in NESTED mode (Wayland capture)..."
     echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
     # --nested: Outputs to parent Wayland display (Wolf's waylanddisplaysrc captures this)
-    gnome-shell --nested --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+    gnome-shell --nested --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
 fi
 GNOME_SESSION_EOF
 

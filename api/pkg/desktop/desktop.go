@@ -112,6 +112,13 @@ func (s *Server) Run(ctx context.Context) error {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
+
+		// 6. Start session monitor (detects session closure and recreates)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.monitorSession(ctx)
+		}()
 	} else {
 		s.logger.Info("not GNOME environment, skipping D-Bus session setup")
 	}

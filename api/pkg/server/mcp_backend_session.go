@@ -16,9 +16,9 @@ import (
 // SessionMCPBackend provides session navigation MCP tools via HTTP
 // This allows AI agents to navigate their own conversation history.
 type SessionMCPBackend struct {
-	store     store.Store
-	mcpServer *server.MCPServer
-	sseServer *server.SSEServer
+	store      store.Store
+	mcpServer  *server.MCPServer
+	httpServer *server.StreamableHTTPServer
 }
 
 // NewSessionMCPBackend creates a new session MCP backend
@@ -85,9 +85,10 @@ func NewSessionMCPBackend(s store.Store) *SessionMCPBackend {
 	)
 	backend.mcpServer.AddTool(searchSessionTool, backend.handleSearchSession)
 
-	// Create SSE server
-	backend.sseServer = server.NewSSEServer(backend.mcpServer,
-		server.WithBasePath("/api/v1/mcp/session"),
+	// Create Streamable HTTP server for direct POST support
+	// Use stateless mode so each request is independent (no session tracking required)
+	backend.httpServer = server.NewStreamableHTTPServer(backend.mcpServer,
+		server.WithStateLess(true),
 	)
 
 	return backend
@@ -101,7 +102,7 @@ func (b *SessionMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, us
 	ctx = context.WithValue(ctx, "session_id", r.URL.Query().Get("session_id"))
 	r = r.WithContext(ctx)
 
-	b.sseServer.ServeHTTP(w, r)
+	b.httpServer.ServeHTTP(w, r)
 }
 
 // Helper to get session ID from context or request

@@ -205,6 +205,115 @@ func (s *Server) startSession(ctx context.Context) error {
 	}
 }
 
+// monitorSession monitors the D-Bus session for closure and handles re-creation.
+// This is critical because GNOME ScreenCast sessions can close unexpectedly,
+// which causes Wolf's pipewiresrc to timeout waiting for frames.
+func (s *Server) monitorSession(ctx context.Context) {
+	s.logger.Info("starting D-Bus session monitor...")
+
+	// Subscribe to Closed signal on ScreenCast session
+	if err := s.conn.AddMatchSignal(
+		dbus.WithMatchObjectPath(s.scSessionPath),
+		dbus.WithMatchInterface(screenCastSessionIface),
+		dbus.WithMatchMember("Closed"),
+	); err != nil {
+		s.logger.Error("failed to subscribe to ScreenCast session Closed signal", "err", err)
+		return
+	}
+
+	// Also subscribe to Closed signal on RemoteDesktop session if we have one
+	if s.rdSessionPath != "" {
+		if err := s.conn.AddMatchSignal(
+			dbus.WithMatchObjectPath(s.rdSessionPath),
+			dbus.WithMatchInterface(remoteDesktopSessionIface),
+			dbus.WithMatchMember("Closed"),
+		); err != nil {
+			s.logger.Error("failed to subscribe to RemoteDesktop session Closed signal", "err", err)
+		}
+	}
+
+	signalChan := make(chan *dbus.Signal, 10)
+	s.conn.Signal(signalChan)
+
+	// Periodic health check - verify session is still valid
+	healthTicker := time.NewTicker(10 * time.Second)
+	defer healthTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("session monitor shutting down")
+			return
+
+		case sig := <-signalChan:
+			// Check for session closed signals
+			if sig.Name == screenCastSessionIface+".Closed" {
+				s.logger.Warn("ScreenCast session closed unexpectedly!",
+					"path", sig.Path,
+					"body", sig.Body)
+
+				// Try to recreate the session
+				s.handleSessionClosed(ctx)
+			}
+			if sig.Name == remoteDesktopSessionIface+".Closed" {
+				s.logger.Warn("RemoteDesktop session closed unexpectedly!",
+					"path", sig.Path,
+					"body", sig.Body)
+
+				// Try to recreate the session
+				s.handleSessionClosed(ctx)
+			}
+
+		case <-healthTicker.C:
+			// Periodic health check - try to read a property from the session
+			if s.scSessionPath != "" {
+				scSession := s.conn.Object(screenCastBus, s.scSessionPath)
+				// Introspect to check if session still exists
+				if err := scSession.Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Err; err != nil {
+					s.logger.Error("ScreenCast session health check failed - session may have died",
+						"err", err,
+						"path", s.scSessionPath)
+
+					// Session is dead, try to recreate
+					s.handleSessionClosed(ctx)
+				} else {
+					s.logger.Debug("session health check OK",
+						"sc_session", s.scSessionPath,
+						"node_id", s.nodeID)
+				}
+			}
+		}
+	}
+}
+
+// handleSessionClosed handles session closure by attempting to recreate it.
+func (s *Server) handleSessionClosed(ctx context.Context) {
+	s.logger.Info("attempting to recreate D-Bus session...")
+
+	// Clear old session state
+	s.rdSessionPath = ""
+	s.scSessionPath = ""
+	s.scStreamPath = ""
+	s.nodeID = 0
+
+	// Recreate session
+	if err := s.createSession(ctx); err != nil {
+		s.logger.Error("failed to recreate session", "err", err)
+		return
+	}
+
+	// Restart session to get new PipeWire node ID
+	if err := s.startSession(ctx); err != nil {
+		s.logger.Error("failed to restart session", "err", err)
+		return
+	}
+
+	// Report new node ID to Wolf
+	s.reportToWolf()
+
+	s.logger.Info("session recreated successfully", "new_node_id", s.nodeID)
+}
+
 // reportToWolf reports node ID and input socket to Wolf.
 func (s *Server) reportToWolf() {
 	s.logger.Info("session summary",

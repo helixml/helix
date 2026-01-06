@@ -144,6 +144,32 @@ PINEOF
 
 _INSTALL_BASE
 
+# WirePlumber configuration to disable stream suspension
+# PipeWire/WirePlumber suspends streams after 5 seconds of "inactivity" by default.
+# This causes ScreenCast video streams to stop producing frames, breaking Wolf video capture.
+# See: https://bbs.archlinux.org/viewtopic.php?id=309630
+#
+# Solution: Change the default timeout in suspend-node.lua from 5 seconds to 1 day (86400 seconds)
+# We can't remove or disable the component because policy.node depends on hooks.node.suspend
+RUN <<_WIREPLUMBER_CONFIG
+echo "=== Fixing WirePlumber suspension timeout ==="
+
+# Modify suspend-node.lua to use 1 day timeout instead of 5 seconds
+# Find the line that sets the default timeout (5) and change it to 86400
+if [ -f /usr/share/wireplumber/scripts/node/suspend-node.lua ]; then
+    # The script has: tonumber(node.properties["session.suspend-timeout-seconds"]) or 5
+    # Change the default from 5 to 86400 (1 day)
+    # Use simple pattern matching the end of line to avoid escaping issues
+    sed -i 's/) or 5$/) or 86400/' /usr/share/wireplumber/scripts/node/suspend-node.lua
+
+    # Verify the change
+    echo "Modified suspend-node.lua - checking for 86400:"
+    grep -n "86400" /usr/share/wireplumber/scripts/node/suspend-node.lua || echo "WARNING: 86400 not found!"
+fi
+
+echo "=== WirePlumber suspension fix applied (86400s timeout) ==="
+_WIREPLUMBER_CONFIG
+
 # Create retro user (from GOW base-app)
 # Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
 RUN <<_CREATE_USER
@@ -291,6 +317,7 @@ RUN apt-get update && apt-get install -y \
     kitty \
     scrot xclip x11-utils \
     grim slurp \
+    gnome-screenshot \
     && rm -rf /var/lib/apt/lists/*
 
 # Helix background
@@ -558,7 +585,18 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
         gow_log "[start] ERROR: Failed to extract serial from GetCurrentState"
         gow_log "[start] Full response: \$STATE"
     else
-        gow_log "[start] Serial: \$SERIAL, applying scale \$HELIX_SCALE_FACTOR to Meta-0..."
+        # Extract the actual mode_id from GetCurrentState (format varies between GNOME versions)
+        # Example: '3840x2160@60.000' or '1920x1080@60.000000'
+        MODE_ID=\$(echo "\$STATE" | grep -oP "'${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@[^']+'" | head -1 | tr -d "'")
+        if [ -z "\$MODE_ID" ]; then
+            # Fallback to .000 format (GNOME 49 style)
+            MODE_ID="${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}.000"
+            gow_log "[start] WARNING: Could not extract mode_id, using fallback: \$MODE_ID"
+        else
+            gow_log "[start] Extracted mode_id: \$MODE_ID"
+        fi
+
+        gow_log "[start] Serial: \$SERIAL, applying scale \$HELIX_SCALE_FACTOR to Meta-0 mode=\$MODE_ID..."
 
         # ApplyMonitorsConfig parameters:
         # serial (u), method (u: 1=temporary, 2=persistent),
@@ -569,7 +607,7 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
             --object-path /org/gnome/Mutter/DisplayConfig \\
             --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
             \$SERIAL 1 \\
-            "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}.000000', {})])]" \\
+            "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '\$MODE_ID', {})])]" \\
             "{}" 2>&1)
 
         if echo "\$RESULT" | grep -qi "error"; then
@@ -610,11 +648,14 @@ gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMES
 if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
     gow_log "[start] Starting GNOME Shell in HEADLESS mode (PipeWire capture)"
     # --headless: No display output - Wolf captures via pipewiresrc from ScreenCast
-    gnome-shell --headless --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+    #                (GNOME 41+ restricts this API to whitelisted callers only)
+    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
 else
     gow_log "[start] Starting GNOME Shell in NESTED mode (Wayland capture)"
     # --nested: Outputs to Wolf's Wayland display - Wolf captures via waylanddisplaysrc
-    gnome-shell --nested --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+    gnome-shell --nested --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}
 fi
 GNOME_EOF
 

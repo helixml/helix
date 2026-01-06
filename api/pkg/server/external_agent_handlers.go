@@ -717,20 +717,8 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 	}
 
-	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
-		http.Error(res, "External agent container not found", http.StatusNotFound)
-		return
-	}
-
-	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	// Try RevDial connection to sandbox first (registered as "sandbox-{session_id}")
+	// RevDial is the primary communication mechanism - Wolf API lookup is only for debugging
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
@@ -774,7 +762,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		errorBody, _ := io.ReadAll(screenshotResp.Body)
 		log.Error().
 			Int("status", screenshotResp.StatusCode).
-			Str("container_name", containerName).
+			Str("session_id", sessionID).
 			Str("error_body", string(errorBody)).
 			Msg("Screenshot server returned error")
 		http.Error(res, "Failed to retrieve screenshot from container", screenshotResp.StatusCode)

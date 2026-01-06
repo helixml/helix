@@ -32,6 +32,13 @@ func New() *cobra.Command {
 	cmd.AddCommand(newListAgentsCommand())
 	cmd.AddCommand(newStreamCommand())
 	cmd.AddCommand(newStopCommand())
+	cmd.AddCommand(newInteractCommand())
+	cmd.AddCommand(newLiveCommand())
+	cmd.AddCommand(newTestCommand())
+	cmd.AddCommand(newSendCommand())
+	cmd.AddCommand(newMCPCommand())
+	cmd.AddCommand(newE2ECommand())
+	cmd.AddCommand(newHealthCommand())
 
 	return cmd
 }
