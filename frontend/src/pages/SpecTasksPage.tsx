@@ -1081,22 +1081,6 @@ const SpecTasksPage: FC = () => {
               <Typography variant="h6">New SpecTask</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                component="span"
-                sx={{
-                  fontSize: '0.75rem',
-                  opacity: 0.6,
-                  fontFamily: 'monospace',
-                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                  px: 0.75,
-                  py: 0.25,
-                  borderRadius: '4px',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                }}
-              >
-                Esc
-              </Box>
               <IconButton onClick={() => setCreateDialogOpen(false)}>
                 <X size={20} />
               </IconButton>
@@ -1596,24 +1580,7 @@ const SpecTasksPage: FC = () => {
                     <Plus size={18} />
                   </IconButton>
                 </Tooltip>
-
-                {/* Esc badge and Close button */}
-                <Box
-                  component="span"
-                  sx={{
-                    fontSize: '0.75rem',
-                    opacity: 0.6,
-                    fontFamily: 'monospace',
-                    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                    px: 0.75,
-                    py: 0.25,
-                    borderRadius: '4px',
-                    border: '1px solid',
-                    borderColor: 'divider',
-                  }}
-                >
-                  Esc
-                </Box>
+                                
                 <Tooltip title="Close">
                   <IconButton 
                     onClick={() => setChatPanelOpen(false)}
