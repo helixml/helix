@@ -70,6 +70,7 @@ export const SessionsSidebar: FC<{
     orgId, 
     undefined, 
     undefined,
+    undefined,
     currentPage,
     PAGE_SIZE,
     {

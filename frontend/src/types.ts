@@ -1035,6 +1035,7 @@ export interface ISessionLearnRequest {
 export interface ISessionChatRequest {
   regenerate?: boolean,
   app_id?: string,
+  project_id?: string,
   organization_id?: string,
   assistant_id?: string,
   session_id?: string,

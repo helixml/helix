@@ -89,6 +89,7 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
+import { useListSessions, useGetSession } from '../services/sessionService';
 import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
 
@@ -168,6 +169,31 @@ const SpecTasksPage: FC = () => {
   const [chatIsSearchMode, setChatIsSearchMode] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const { NewInference, setCurrentSessionId } = useStreaming();
+
+  // Selected session ID for persistence across reloads
+  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(() => {
+    if (!projectId) return undefined;
+    return localStorage.getItem(`helix_chat_session_${projectId}`) || undefined;
+  });
+  const [isNewChatMode, setIsNewChatMode] = useState(false);
+
+  // Reset selected session when project changes
+  useEffect(() => {
+    if (projectId) {
+      const stored = localStorage.getItem(`helix_chat_session_${projectId}`);
+      setSelectedSessionId(stored || undefined);
+      setChatSession(undefined);
+    }
+  }, [projectId]);
+
+  // Sync selectedSessionId with URL params (for page refresh or direct URL navigation)
+  useEffect(() => {
+    const urlSessionId = router.params.session_id;
+    if (urlSessionId && urlSessionId !== selectedSessionId) {
+      setSelectedSessionId(urlSessionId);
+      setIsNewChatMode(false);
+    }
+  }, [router.params.session_id, selectedSessionId]);
 
   // Persist chat panel open/closed preference when it changes
   useEffect(() => {
@@ -670,6 +696,50 @@ const SpecTasksPage: FC = () => {
     return apps.apps.find(app => app.id === projectManagerAppId);
   }, [apps.apps, projectManagerAppId]);
 
+  // Persist selected session ID to localStorage
+  useEffect(() => {
+    if (projectId && selectedSessionId) {
+      localStorage.setItem(`helix_chat_session_${projectId}`, selectedSessionId);
+    }
+  }, [projectId, selectedSessionId]);
+
+  // Fetch last 5 sessions for this project (filtered by project manager app)
+  const { data: projectSessionsData } = useListSessions(
+    undefined,
+    undefined,
+    undefined,
+    projectId,
+    0,
+    5,
+    { enabled: !!projectId && !!projectManagerAppId },
+    projectManagerAppId
+  );
+
+  const projectSessions = projectSessionsData?.data?.sessions || [];
+
+  // Load the selected session details
+  const { data: loadedSessionData } = useGetSession(
+    selectedSessionId || '',
+    { enabled: !!selectedSessionId && chatPanelOpen }
+  );
+
+  // When session data loads, set it as the chat session
+  useEffect(() => {
+    if (loadedSessionData?.data && chatPanelOpen && selectedSessionId) {
+      setChatSession(loadedSessionData.data);
+    }
+  }, [loadedSessionData?.data, chatPanelOpen, selectedSessionId]);
+
+  // Auto-select the most recent session when panel opens and no session is selected (unless user wants new chat)
+  useEffect(() => {
+    if (chatPanelOpen && !selectedSessionId && !isNewChatMode && projectSessions.length > 0) {
+      const mostRecentSession = projectSessions[0];
+      if (mostRecentSession?.session_id) {
+        setSelectedSessionId(mostRecentSession.session_id);
+      }
+    }
+  }, [chatPanelOpen, selectedSessionId, isNewChatMode, projectSessions]);
+
   const handleChatInference = useCallback(async () => {
     if (!chatInputValue.trim() || !projectManagerAppId) return;
 
@@ -696,6 +766,7 @@ const SpecTasksPage: FC = () => {
           }
         ],
         appId: projectManagerAppId,
+        projectId: projectId,
         type: SESSION_TYPE_TEXT,
       });
 
@@ -706,18 +777,43 @@ const SpecTasksPage: FC = () => {
     } finally {
       setChatLoading(false);
     }
-  }, [chatInputValue, projectManagerAppId, NewInference, snackbar]);
+  }, [chatInputValue, projectManagerAppId, projectId, NewInference, snackbar]);
 
   const handleChatSessionUpdate = useCallback((session: TypesSession) => {
     setChatSession(session);
+    if (session?.id) {
+      setSelectedSessionId(session.id);
+      setIsNewChatMode(false);
+    }
   }, []);
 
   const handleOpenChatPanel = useCallback(() => {
     setCreateDialogOpen(false);
     setChatPanelOpen(true);
-    setChatSession(undefined);
     setChatInputValue('');
   }, []);
+
+  const handleNewChat = useCallback(() => {
+    setChatSession(undefined);
+    setSelectedSessionId(undefined);
+    setIsNewChatMode(true);
+    setChatInputValue('');
+    if (projectId) {
+      localStorage.removeItem(`helix_chat_session_${projectId}`);
+    }
+    router.removeParams(['session_id']);
+  }, [projectId, router]);
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setIsNewChatMode(false);
+    router.setParams({ session_id: sessionId });
+  }, [router]);
+
+  const truncateTitle = (title: string | undefined, maxLength: number = 15): string => {
+    if (!title) return 'Untitled';
+    return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
+  };
 
   const handleOpenCreateDialog = useCallback(() => {
     setChatPanelOpen(false);
@@ -1439,34 +1535,93 @@ const SpecTasksPage: FC = () => {
             }}
           >
             <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-              {/* Control buttons */}
-              <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 1 }}>
+              {/* Header with session tabs */}
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 0.5, 
+                p: 1, 
+                borderBottom: 1, 
+                borderColor: 'divider',
+                backgroundColor: 'background.paper',
+              }}>
+                {/* Horizontal scrollable session list */}
+                <Box sx={{ 
+                  flex: 1, 
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    gap: 0.5, 
+                    overflowX: 'auto',
+                    whiteSpace: 'nowrap',
+                    '&::-webkit-scrollbar': {
+                      height: '4px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: '2px',
+                    },
+                    '&::-webkit-scrollbar-thumb:hover': {
+                      background: 'rgba(255, 255, 255, 0.3)',
+                    },
+                  }}>
+                    {projectSessions.map((session) => (
+                      <Box
+                        key={session.session_id}
+                        onClick={() => session.session_id && handleSelectSession(session.session_id)}
+                        sx={{
+                          px: 1.5,
+                          py: 0.5,
+                          fontSize: '0.75rem',
+                          cursor: 'pointer',
+                          backgroundColor: selectedSessionId === session.session_id 
+                            ? 'rgba(255, 255, 255, 0.12)' 
+                            : 'transparent',
+                          '&:hover': {
+                            backgroundColor: selectedSessionId === session.session_id 
+                              ? 'rgba(255, 255, 255, 0.15)' 
+                              : 'rgba(255, 255, 255, 0.05)',
+                          },
+                          maxWidth: '120px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {truncateTitle(session.name || session.summary)}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+
+                {/* New chat button */}
                 <Tooltip title="New chat">
                   <IconButton 
-                    onClick={handleOpenChatPanel}
+                    onClick={handleNewChat}
                     size="small"
                     sx={{ 
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                      }
+                      flexShrink: 0,
                     }}
                   >
-                    <AddIcon />
+                    <AddIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
+
+                {/* Close button */}
                 <Tooltip title="Close">
                   <IconButton 
                     onClick={() => setChatPanelOpen(false)}
                     size="small"
                     sx={{ 
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                      }
+                      flexShrink: 0,
                     }}
                   >
-                    <CloseIcon />
+                    <CloseIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               </Box>

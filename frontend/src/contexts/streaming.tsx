@@ -15,6 +15,7 @@ interface NewInferenceParams {
   image?: string;
   image_filename?: string;
   appId?: string;
+  projectId?: string;
   assistantId?: string;
   interactionId?: string;
   provider?: string;
@@ -250,6 +251,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     message,
     messages,
     appId = '',
+    projectId = '',
     assistantId = '',    
     provider = '',
     modelName = '',    
@@ -337,6 +339,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
+      project_id: projectId,
       organization_id: orgId,
       assistant_id: assistantId,
       interaction_id: interactionId,

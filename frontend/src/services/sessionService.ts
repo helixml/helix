@@ -13,14 +13,15 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId ?: string) => [
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string, projectId?: string, appId?: string) => [
   "sessions",
   orgId,
   page,
   pageSize,
   search,
   questionSetExecutionId,
-  projectId
+  projectId,
+  appId,
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -48,12 +49,12 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, projectId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }, appId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? '', projectId ?? '', appId ?? ''),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
@@ -61,6 +62,7 @@ export function useListSessions(orgId?: string, search?: string, questionSetExec
       page: page,
       page_size: pageSize,
       project_id: projectId,
+      app_id: appId,
     }),
     enabled: options?.enabled ?? true
   })
