@@ -10071,6 +10071,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         question_set_id?: string;
         /** Question set execution ID */
         question_set_execution_id?: string;
+        /** App ID */
+        app_id?: string;
         /** Search sessions by name */
         search?: string;
       },

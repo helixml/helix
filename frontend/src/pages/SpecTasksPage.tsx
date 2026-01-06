@@ -158,13 +158,21 @@ const SpecTasksPage: FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Chat panel state
-  const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  // Chat panel state - persist expanded/collapsed preference
+  const [chatPanelOpen, setChatPanelOpen] = useState(() => {
+    const saved = localStorage.getItem('helix_chat_panel_open');
+    return saved === 'true';
+  });
   const [chatInputValue, setChatInputValue] = useState('');
   const [chatSession, setChatSession] = useState<TypesSession | undefined>();
   const [chatIsSearchMode, setChatIsSearchMode] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const { NewInference, setCurrentSessionId } = useStreaming();
+
+  // Persist chat panel open/closed preference when it changes
+  useEffect(() => {
+    localStorage.setItem('helix_chat_panel_open', chatPanelOpen ? 'true' : 'false');
+  }, [chatPanelOpen]);
 
   // Fetch tasks for TabsView
   const { data: tasksData } = useQuery({
