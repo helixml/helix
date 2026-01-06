@@ -4087,6 +4087,7 @@ export interface TypesSession {
    */
   parent_app?: string;
   parent_session?: string;
+  project_id?: string;
   /**
    * huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
    * stabilityai/stable-diffusion-xl-base-1.0
@@ -4122,6 +4123,8 @@ export interface TypesSessionChatRequest {
   model?: string;
   /** The organization this session belongs to, if any */
   organization_id?: string;
+  /** The project this session belongs to, if any */
+  project_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
   /** If true, we will regenerate the response for the last message */
@@ -5126,12 +5129,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -10075,6 +10078,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         app_id?: string;
         /** Search sessions by name */
         search?: string;
+        /** Project ID */
+        project_id?: string;
       },
       params: RequestParams = {},
     ) =>
