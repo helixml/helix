@@ -1649,7 +1649,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               flexShrink: 0, // Prevent shrinking
             }}
           >
-            <Container maxWidth="lg">
+            <Container maxWidth={previewMode ? false : "lg"}>
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
@@ -1661,7 +1661,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       {/* --- Start of new input area --- */}
                       <Box
                         sx={{
-                          width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                          width: '95%',
                           margin: '0 auto',
                           border: '1px solid rgba(255, 255, 255, 0.2)',
                           borderRadius: '12px',
