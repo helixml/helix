@@ -487,7 +487,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 		return nil, fmt.Errorf("failed to create bridge %s: %w", bridgeName, err)
 	}
 
-	// Write daemon.json with NVIDIA runtime support
+	// Write daemon.json with GPU runtime support
 	// We use "bridge": "none" because we created our own bridge
 	// and will configure containers to use the default Docker network
 	// which connects to our custom bridge via --bridge flag
@@ -498,7 +498,15 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	gatewayIP := fmt.Sprintf("10.200.%d.1", bridgeIndex)
 	dnsJSON := fmt.Sprintf(`["%s"]`, gatewayIP)
 
-	daemonConfig := fmt.Sprintf(`{
+	// GPU_VENDOR determines the runtime configuration:
+	// - "nvidia": Use nvidia-container-runtime as default (for GPU device passthrough)
+	// - "amd", "intel", "none": Use default runc runtime (GPU devices passed via Wolf)
+	gpuVendor := os.Getenv("GPU_VENDOR")
+	var daemonConfig string
+	if gpuVendor == "nvidia" {
+		// NVIDIA requires nvidia-container-runtime as default to pass through GPU devices
+		daemonConfig = fmt.Sprintf(`{
+  "default-runtime": "nvidia",
   "runtimes": {
     "nvidia": {
       "path": "nvidia-container-runtime",
@@ -510,6 +518,16 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
   "fixed-cidr": "%s",
   "dns": %s
 }`, bridgeSubnet, dnsJSON)
+	} else {
+		// AMD/Intel/none: Use default runc runtime
+		// GPU devices (/dev/dri/*, /dev/kfd) are passed through by Wolf container config
+		daemonConfig = fmt.Sprintf(`{
+  "storage-driver": "overlay2",
+  "log-level": "warn",
+  "fixed-cidr": "%s",
+  "dns": %s
+}`, bridgeSubnet, dnsJSON)
+	}
 
 	if err := os.WriteFile(configFile, []byte(daemonConfig), 0644); err != nil {
 		m.deleteBridge(bridgeName)
