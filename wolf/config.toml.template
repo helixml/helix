@@ -83,20 +83,25 @@ default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! 
 default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
 default_sink = '''rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
 appsink name=wolf_udp_sink'''
-default_source = 'interpipesrc name=interpipesrc_{}_audio listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false'
+default_source = 'interpipesrc name=interpipesrc_{consumer_id}_audio listen-to={session_id}_audio is-live=true stream-sync=passthrough max-bytes=0 max-buffers=3 block=false'
 
 [gstreamer.video]
 default_sink = '''rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
 appsink sync=false name=wolf_udp_sink
 '''
-default_source = 'interpipesrc name=interpipesrc_{}_video listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream'
+default_source = 'interpipesrc name=interpipesrc_{consumer_id}_video listen-to={session_id}_video is-live=true stream-sync=passthrough max-bytes=0 max-buffers=1 leaky-type=downstream'
 
     [gstreamer.video.defaults.nvcodec]
+    # video_params: Used when source outputs system memory (video/x-raw)
+    # cudaupload converts system memory -> CUDA memory for the encoder
     video_params = '''cudaupload !
 cudaconvertscale add-borders=true !
 video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''cudaupload !
-cudaconvertscale add-borders=true !
+    # video_params_zero_copy: Used when source already outputs CUDA memory
+    # (e.g., pipewirezerocopysrc with output-mode=cuda, waylanddisplaysrc)
+    # NO cudaupload needed - input is already video/x-raw(memory:CUDAMemory)
+    # cudaupload would FAIL with caps mismatch since it only accepts system/GL memory
+    video_params_zero_copy = '''cudaconvertscale add-borders=true !
 video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1
 '''
 
