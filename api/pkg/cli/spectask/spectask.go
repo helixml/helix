@@ -179,7 +179,7 @@ func newScreenshotCommand() *cobra.Command {
 			}
 
 			// Save to file
-			filename := fmt.Sprintf("screenshot-%s.png", time.Now().Format("20060102-150405"))
+			filename := fmt.Sprintf("screenshot-%s.jpg", time.Now().Format("20060102-150405"))
 			if err := os.WriteFile(filename, data, 0644); err != nil {
 				return fmt.Errorf("failed to save screenshot: %w", err)
 			}
