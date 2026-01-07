@@ -39,17 +39,20 @@ type authMiddlewareConfig struct {
 
 type authMiddleware struct {
 	authenticator authpkg.Authenticator
+	oidcClient    authpkg.OIDC // For OIDC token validation (nil if not using OIDC)
 	store         store.Store
 	cfg           authMiddlewareConfig
 }
 
 func newAuthMiddleware(
 	authenticator authpkg.Authenticator,
+	oidcClient authpkg.OIDC,
 	store store.Store,
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
 	return &authMiddleware{
 		authenticator: authenticator,
+		oidcClient:    oidcClient,
 		store:         store,
 		cfg:           cfg,
 	}
@@ -190,8 +193,16 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return user, nil
 	}
 
-	// otherwise we try to decode the token with keycloak
-	user, err := auth.authenticator.ValidateUserToken(ctx, token)
+	// Try to decode the token - use OIDC client if available, otherwise use Helix authenticator
+	var user *types.User
+	var err error
+	if auth.oidcClient != nil {
+		// Use OIDC client for token validation (validates via userinfo endpoint)
+		user, err = auth.oidcClient.ValidateUserToken(ctx, token)
+	} else {
+		// Fall back to Helix authenticator (validates Helix-issued JWTs)
+		user, err = auth.authenticator.ValidateUserToken(ctx, token)
+	}
 	if err != nil {
 		log.Error().Err(err).Str("token", token).Msg("error validating user token")
 		return nil, err

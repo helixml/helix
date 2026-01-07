@@ -9194,8 +9194,20 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Search sessions by name",
                         "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
                         "in": "query"
                     }
                 ],
@@ -19025,6 +19037,9 @@ const docTemplate = `{
                     "description": "How much to penalize new tokens based on whether they appear in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - open minded",
                     "type": "number"
                 },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
                 "provider": {
                     "type": "string"
                 },
@@ -19185,6 +19200,17 @@ const docTemplate = `{
                     }
                 },
                 "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AssistantProjectManager": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -19364,7 +19390,6 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "keycloak",
                 "oidc"
             ],
             "x-enum-comments": {
@@ -19372,7 +19397,6 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderKeycloak",
                 "AuthProviderOIDC"
             ]
         },
@@ -23276,6 +23300,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "project_manager_helix_app_id": {
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -23428,6 +23455,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "project_manager_helix_app_id": {
+                    "description": "Project manager agent",
                     "type": "string"
                 },
                 "startup_script": {
@@ -24881,6 +24912,9 @@ const docTemplate = `{
                 "parent_session": {
                     "type": "string"
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
@@ -24956,6 +24990,10 @@ const docTemplate = `{
                 },
                 "organization_id": {
                     "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "The project this session belongs to, if any",
                     "type": "string"
                 },
                 "provider": {
@@ -26958,7 +26996,6 @@ const docTemplate = `{
             "enum": [
                 "",
                 "runner",
-                "keycloak",
                 "oidc",
                 "api_key",
                 "socket"
@@ -26966,7 +27003,6 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
-                "TokenTypeKeycloak",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
@@ -27161,6 +27197,14 @@ const docTemplate = `{
                 "mcp": {
                     "$ref": "#/definitions/types.ToolMCPClientConfig"
                 },
+                "project": {
+                    "description": "Helix project management skill",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ToolProjectManagerConfig"
+                        }
+                    ]
+                },
                 "web_search": {
                     "$ref": "#/definitions/types.ToolWebSearchConfig"
                 },
@@ -27219,6 +27263,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolProjectManagerConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ToolType": {
             "type": "string",
             "enum": [
@@ -27229,7 +27284,8 @@ const docTemplate = `{
                 "email",
                 "web_search",
                 "azure_devops",
-                "mcp"
+                "mcp",
+                "project_manager"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -27239,7 +27295,8 @@ const docTemplate = `{
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
                 "ToolTypeAzureDevOps",
-                "ToolTypeMCP"
+                "ToolTypeMCP",
+                "ToolTypeProjectManager"
             ]
         },
         "types.ToolWebSearchConfig": {
@@ -27761,6 +27818,9 @@ const docTemplate = `{
         "types.UserResponse": {
             "type": "object",
             "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
                 },

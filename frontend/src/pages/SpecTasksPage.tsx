@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef, useMemo } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Box,
@@ -6,48 +6,41 @@ import {
   Typography,
   Alert,
   Chip,
-  Stack,
-  Drawer,
+  Stack,  
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
   CircularProgress,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Divider,
+  IconButton,  
   Checkbox,
   FormControlLabel,
   Tooltip,
-  Avatar,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  Close as CloseIcon,
   Explore as ExploreIcon,
   Stop as StopIcon,
   SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
-  Tab as TabIcon,
+  Tab as TabIcon,  
 } from '@mui/icons-material';
+import { Plus, X, Play, Settings } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
 import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 import ProjectAuditTrail from '../components/tasks/ProjectAuditTrail';
 import TabsView from '../components/tasks/TabsView';
+import PreviewPanel from '../components/app/PreviewPanel';
 import { AdvancedModelPicker } from '../components/create/AdvancedModelPicker';
 import { CodeAgentRuntime, generateAgentName, ICreateAgentParams } from '../contexts/apps';
-import { AGENT_TYPE_ZED_EXTERNAL, IApp } from '../types';
+import { AGENT_TYPE_ZED_EXTERNAL, IApp, SESSION_TYPE_TEXT } from '../types';
+import { useStreaming } from '../contexts/streaming';
+import { TypesSession } from '../api/api';
 
 // Recommended models for zed_external agents (state-of-the-art coding models)
 const RECOMMENDED_MODELS = [
@@ -84,6 +77,7 @@ import {
   useStopProjectExploratorySession,
   useResumeProjectExploratorySession,
 } from '../services';
+import { useListSessions, useGetSession } from '../services/sessionService';
 import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesBranchMode } from '../api/api';
 import AgentDropdown from '../components/agent/AgentDropdown';
 
@@ -152,6 +146,47 @@ const SpecTasksPage: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Chat panel state - persist expanded/collapsed preference
+  const [chatPanelOpen, setChatPanelOpen] = useState(() => {
+    const saved = localStorage.getItem('helix_chat_panel_open');
+    return saved === 'true';
+  });
+  const [chatInputValue, setChatInputValue] = useState('');
+  const [chatSession, setChatSession] = useState<TypesSession | undefined>();
+  const [chatIsSearchMode, setChatIsSearchMode] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const { NewInference, setCurrentSessionId } = useStreaming();
+
+  // Selected session ID for persistence across reloads
+  const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(() => {
+    if (!projectId) return undefined;
+    return localStorage.getItem(`helix_chat_session_${projectId}`) || undefined;
+  });
+  const [isNewChatMode, setIsNewChatMode] = useState(false);
+
+  // Reset selected session when project changes
+  useEffect(() => {
+    if (projectId) {
+      const stored = localStorage.getItem(`helix_chat_session_${projectId}`);
+      setSelectedSessionId(stored || undefined);
+      setChatSession(undefined);
+    }
+  }, [projectId]);
+
+  // Sync selectedSessionId with URL params (for page refresh or direct URL navigation)
+  useEffect(() => {
+    const urlSessionId = router.params.session_id;
+    if (urlSessionId && urlSessionId !== selectedSessionId) {
+      setSelectedSessionId(urlSessionId);
+      setIsNewChatMode(false);
+    }
+  }, [router.params.session_id, selectedSessionId]);
+
+  // Persist chat panel open/closed preference when it changes
+  useEffect(() => {
+    localStorage.setItem('helix_chat_panel_open', chatPanelOpen ? 'true' : 'false');
+  }, [chatPanelOpen]);
 
   // Fetch tasks for TabsView
   const { data: tasksData } = useQuery({
@@ -390,6 +425,10 @@ const SpecTasksPage: FC = () => {
         }
         e.preventDefault();
         // Toggle behavior: open if closed, close if open and no focus
+        // Also close chat panel when opening create dialog
+        if (!createDialogOpen) {
+          setChatPanelOpen(false);
+        }
         setCreateDialogOpen(prev => !prev);
       }
     };
@@ -416,22 +455,25 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, taskPrompt, justDoItMode, selectedHelixAgent, useHostDocker]);
 
-  // Keyboard shortcut: ESC to close create task panel
+  // Keyboard shortcut: ESC to close create task panel or chat panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (createDialogOpen) {
+        if (chatPanelOpen) {
+          e.preventDefault();
+          setChatPanelOpen(false);
+        } else if (createDialogOpen) {
           e.preventDefault();
           setCreateDialogOpen(false);
         }
       }
     };
 
-    if (createDialogOpen) {
+    if (createDialogOpen || chatPanelOpen) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen]);
+  }, [createDialogOpen, chatPanelOpen]);
 
   // Keyboard shortcut: Ctrl/Cmd+J to toggle Just Do It mode
   useEffect(() => {
@@ -637,6 +679,135 @@ const SpecTasksPage: FC = () => {
     }
   };
 
+  const projectManagerAppId = project?.project_manager_helix_app_id || '';
+  const projectManagerApp = useMemo(() => {
+    return apps.apps.find(app => app.id === projectManagerAppId);
+  }, [apps.apps, projectManagerAppId]);
+
+  // Persist selected session ID to localStorage
+  useEffect(() => {
+    if (projectId && selectedSessionId) {
+      localStorage.setItem(`helix_chat_session_${projectId}`, selectedSessionId);
+    }
+  }, [projectId, selectedSessionId]);
+
+  // Fetch last 5 sessions for this project (filtered by project manager app)
+  const { data: projectSessionsData } = useListSessions(
+    undefined,
+    undefined,
+    undefined,
+    projectId,
+    0,
+    5,
+    { enabled: !!projectId && !!projectManagerAppId },
+    projectManagerAppId
+  );
+
+  const projectSessions = projectSessionsData?.data?.sessions || [];
+
+  // Load the selected session details
+  const { data: loadedSessionData } = useGetSession(
+    selectedSessionId || '',
+    { enabled: !!selectedSessionId && chatPanelOpen }
+  );
+
+  // When session data loads, set it as the chat session
+  useEffect(() => {
+    if (loadedSessionData?.data && chatPanelOpen && selectedSessionId) {
+      setChatSession(loadedSessionData.data);
+    }
+  }, [loadedSessionData?.data, chatPanelOpen, selectedSessionId]);
+
+  // Auto-select the most recent session when panel opens and no session is selected (unless user wants new chat)
+  useEffect(() => {
+    if (chatPanelOpen && !selectedSessionId && !isNewChatMode && projectSessions.length > 0) {
+      const mostRecentSession = projectSessions[0];
+      if (mostRecentSession?.session_id) {
+        setSelectedSessionId(mostRecentSession.session_id);
+      }
+    }
+  }, [chatPanelOpen, selectedSessionId, isNewChatMode, projectSessions]);
+
+  const handleChatInference = useCallback(async () => {
+    if (!chatInputValue.trim() || !projectManagerAppId) return;
+
+    setChatLoading(true);
+    try {
+      const messagePayloadContent = {
+        content_type: "text",
+        parts: [
+          {
+            type: "text",
+            text: chatInputValue,
+          }
+        ],
+      };
+
+      setChatInputValue('');
+
+      const newSessionData = await NewInference({
+        message: '',
+        messages: [
+          {
+            role: 'user',
+            content: messagePayloadContent as any,
+          }
+        ],
+        appId: projectManagerAppId,
+        projectId: projectId,
+        type: SESSION_TYPE_TEXT,
+      });
+
+      setChatSession(newSessionData);
+    } catch (error) {
+      console.error('Chat inference error:', error);
+      snackbar.error('Failed to send message');
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatInputValue, projectManagerAppId, projectId, NewInference, snackbar]);
+
+  const handleChatSessionUpdate = useCallback((session: TypesSession) => {
+    setChatSession(session);
+    if (session?.id) {
+      setSelectedSessionId(session.id);
+      setIsNewChatMode(false);
+    }
+  }, []);
+
+  const handleOpenChatPanel = useCallback(() => {
+    setCreateDialogOpen(false);
+    setChatPanelOpen(true);
+    setChatInputValue('');
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    setChatSession(undefined);
+    setSelectedSessionId(undefined);
+    setIsNewChatMode(true);
+    setChatInputValue('');
+    if (projectId) {
+      localStorage.removeItem(`helix_chat_session_${projectId}`);
+    }
+    router.removeParams(['session_id']);
+  }, [projectId, router]);
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setIsNewChatMode(false);
+    router.setParams({ session_id: sessionId });
+  }, [router]);
+
+  const truncateTitle = (title: string | undefined, maxLength: number = 15): string => {
+    if (!title) return 'Untitled';
+    return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
+  };
+
+  const handleOpenCreateDialog = useCallback(() => {
+    setChatPanelOpen(false);
+    setCreateDialogOpen(true);
+  }, []);
+
   return (
     <Page
       breadcrumbs={project ? [
@@ -654,7 +825,7 @@ const SpecTasksPage: FC = () => {
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
           {/* View mode toggle: Kanban vs Tabs vs Audit Trail */}
-          <Stack direction="row" spacing={0.5} sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 0.5 }}>
+          <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
             <Tooltip title="Kanban View">
               <IconButton
                 size="small"
@@ -699,29 +870,26 @@ const SpecTasksPage: FC = () => {
           {/* Project's default agent lozenge */}
           {project?.default_helix_app_id && appNamesMap[project.default_helix_app_id] && (
             <Tooltip title="Default agent for this project. Click to configure MCPs, skills, and knowledge.">
-              <Chip
-                label={appNamesMap[project.default_helix_app_id]}
-                size="small"
+              <Box
                 onClick={() => {
                   if (project.default_helix_app_id) {
                     account.orgNavigate('app', { app_id: project.default_helix_app_id });
                   }
                 }}
                 sx={{
-                  flexShrink: 0,
-                  cursor: 'pointer',
-                  background: 'linear-gradient(145deg, rgba(120, 120, 140, 0.9) 0%, rgba(90, 90, 110, 0.95) 50%, rgba(70, 70, 90, 0.9) 100%)',
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  fontWeight: 500,
+                  px: 1.5,
+                  py: 0.5,
                   fontSize: '0.75rem',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 3px rgba(0,0,0,0.2)',
+                  cursor: 'pointer',
+                  backgroundColor: 'transparent',
+                  borderRadius: 0,
                   '&:hover': {
-                    background: 'linear-gradient(145deg, rgba(130, 130, 150, 0.95) 0%, rgba(100, 100, 120, 1) 50%, rgba(80, 80, 100, 0.95) 100%)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.25)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
                   },
                 }}
-              />
+              >
+                {appNamesMap[project.default_helix_app_id]}
+              </Box>
             </Tooltip>
           )}
           {!exploratorySessionData ? (
@@ -739,7 +907,7 @@ const SpecTasksPage: FC = () => {
             <Button
               variant="outlined"
               color="secondary"
-              startIcon={<ExploreIcon />}
+              startIcon={<Play size={18} />}
               onClick={handleResumeExploratorySession}
               disabled={resumeExploratorySessionMutation.isPending}
               sx={{ flexShrink: 0 }}
@@ -751,7 +919,7 @@ const SpecTasksPage: FC = () => {
               <Button
                 variant="contained"
                 color="primary"
-                startIcon={<ExploreIcon />}
+                startIcon={<Play size={18} />}
                 onClick={(e) => {
                   floatingModal.showFloatingModal({
                     type: 'exploratory_session',
@@ -778,9 +946,21 @@ const SpecTasksPage: FC = () => {
               </Button>
             </>
           )}
+          {projectManagerAppId && (
+            <Tooltip title="Chat with Project Manager agent">
+              <Button
+                variant="outlined"
+                startIcon={<Plus size={18} />}
+                onClick={handleOpenChatPanel}
+                sx={{ flexShrink: 0 }}
+              >
+                New Chat
+              </Button>
+            </Tooltip>
+          )}
           <Button
             variant="outlined"
-            startIcon={<SettingsIcon />}
+            startIcon={<Settings size={18} />}
             onClick={() => account.orgNavigate('project-settings', { id: projectId })}
             sx={{ flexShrink: 0 }}
           >
@@ -834,7 +1014,7 @@ const SpecTasksPage: FC = () => {
               <SpecTaskKanbanBoard
                 userId={account.user?.id}
                 projectId={projectId}
-                onCreateTask={() => setCreateDialogOpen(true)}
+                onCreateTask={handleOpenCreateDialog}
                 onTaskClick={(task) => {
                   // Add to array of open windows if not already open
                   setOpenTaskWindows(prev => {
@@ -857,7 +1037,7 @@ const SpecTasksPage: FC = () => {
               <TabsView
                 projectId={projectId}
                 tasks={tasksData || []}
-                onCreateTask={() => setCreateDialogOpen(true)}
+                onCreateTask={handleOpenCreateDialog}
                 onRefresh={() => setRefreshTrigger(prev => prev + 1)}
               />
             )}
@@ -901,24 +1081,8 @@ const SpecTasksPage: FC = () => {
               <Typography variant="h6">New SpecTask</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                component="span"
-                sx={{
-                  fontSize: '0.75rem',
-                  opacity: 0.6,
-                  fontFamily: 'monospace',
-                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                  px: 0.75,
-                  py: 0.25,
-                  borderRadius: '4px',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                }}
-              >
-                Esc
-              </Box>
               <IconButton onClick={() => setCreateDialogOpen(false)}>
-                <CloseIcon />
+                <X size={20} />
               </IconButton>
             </Box>
           </Box>
@@ -1323,6 +1487,145 @@ const SpecTasksPage: FC = () => {
           </Box>
         </Box>
         </Box>
+
+        {/* RIGHT PANEL: Chat with Project Manager Agent */}
+        {projectManagerAppId && (
+          <Box
+            sx={{
+              width: chatPanelOpen ? { xs: '100%', sm: '450px', md: '500px' } : 0,
+              flexShrink: 0,
+              overflow: 'hidden',
+              transition: 'width 0.3s ease-in-out',
+              borderLeft: chatPanelOpen ? 1 : 0,
+              borderColor: 'divider',
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: 'background.paper',
+            }}
+          >
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+              {/* Header with session tabs */}
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 0.5, 
+                p: 1, 
+                borderBottom: 1, 
+                borderColor: 'divider',
+                backgroundColor: 'background.paper',
+              }}>
+                {/* Horizontal scrollable session list */}
+                <Box sx={{ 
+                  flex: 1, 
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    gap: 0.5, 
+                    overflowX: 'auto',
+                    whiteSpace: 'nowrap',
+                    '&::-webkit-scrollbar': {
+                      height: '4px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: '2px',
+                    },
+                    '&::-webkit-scrollbar-thumb:hover': {
+                      background: 'rgba(255, 255, 255, 0.3)',
+                    },
+                  }}>
+                    {projectSessions.map((session) => (
+                      <Box
+                        key={session.session_id}
+                        onClick={() => session.session_id && handleSelectSession(session.session_id)}
+                        sx={{
+                          px: 1.5,
+                          py: 0.5,
+                          fontSize: '0.75rem',
+                          cursor: 'pointer',
+                          backgroundColor: selectedSessionId === session.session_id 
+                            ? 'rgba(255, 255, 255, 0.12)' 
+                            : 'transparent',
+                          '&:hover': {
+                            backgroundColor: selectedSessionId === session.session_id 
+                              ? 'rgba(255, 255, 255, 0.15)' 
+                              : 'rgba(255, 255, 255, 0.05)',
+                          },
+                          maxWidth: '120px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {truncateTitle(session.name || session.summary)}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+
+                {/* New chat button */}
+                <Tooltip title="New chat">
+                  <IconButton 
+                    onClick={handleNewChat}
+                    size="small"
+                    sx={{ 
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Plus size={18} />
+                  </IconButton>
+                </Tooltip>
+                                
+                <Tooltip title="Close">
+                  <IconButton 
+                    onClick={() => setChatPanelOpen(false)}
+                    size="small"
+                    sx={{ 
+                      flexShrink: 0,
+                    }}
+                  >
+                    <X size={18} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              {/* Chat Content - Use PreviewPanel */}
+              <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', width: '100%' }}>
+                <PreviewPanel
+                  appId={projectManagerAppId}
+                  loading={chatLoading}
+                  name={projectManagerApp?.config?.helix?.name || 'Project Manager'}
+                  avatar={projectManagerApp?.config?.helix?.avatar || ''}
+                  image=""
+                  isSearchMode={chatIsSearchMode}
+                  setIsSearchMode={setChatIsSearchMode}
+                  inputValue={chatInputValue}
+                  setInputValue={setChatInputValue}
+                  onInference={handleChatInference}
+                  onSearch={() => {}}
+                  hasKnowledgeSources={false}
+                  searchResults={[]}
+                  session={chatSession}
+                  serverConfig={account.serverConfig}
+                  themeConfig={{}}
+                  snackbar={snackbar}
+                  conversationStarters={projectManagerApp?.config?.helix?.assistants?.[0]?.conversation_starters || []}
+                  app={projectManagerApp}
+                  onSessionUpdate={handleChatSessionUpdate}
+                  hideSearchMode={true}
+                  noBackground={true}
+                  fullWidth={true}
+                  hideHeader={true}
+                />
+              </Box>
+            </Box>
+          </Box>
+        )}
 
       </Box>
 

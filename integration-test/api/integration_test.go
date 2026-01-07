@@ -19,7 +19,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/joho/godotenv"
-	"github.com/kelseyhightower/envconfig"
 )
 
 var serverCmd *exec.Cmd
@@ -148,41 +147,33 @@ func getStoreClient() (*store.PostgresStore, error) {
 }
 
 // createUser - creates user in the database and returns the user and api key
-func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenticator, email string) (user *types.User, apiKey string, err error) {
+func createUser(t *testing.T, db *store.PostgresStore, authenticator auth.Authenticator, email string) (user *types.User, apiKey string, err error) {
 	t.Helper()
-	// Create user in Keycloak
+	// Create user with generated ID
 	user = &types.User{
+		ID:       system.GenerateUUID(),
 		Email:    email,
 		Username: email,
 		FullName: "test user " + time.Now().Format("20060102150405"),
 	}
-	createdUser, err := kc.CreateUser(context.Background(), user)
+	createdUser, err := authenticator.CreateUser(context.Background(), user)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create user in Keycloak: %w", err)
+		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	t.Logf("created user in Keycloak: %+v", createdUser)
-
-	user.ID = createdUser.ID
-
-	user, err = db.CreateUser(context.Background(), user)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create user in database: %w", err)
-	}
-
-	t.Logf("created user in database: %+v", user)
+	t.Logf("created user: %+v", createdUser)
 
 	apiKey, err = system.GenerateAPIKey()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate API key: %w", err)
 	}
 
-	t.Logf("generated API key for user %s: %s", user.ID, apiKey)
+	t.Logf("generated API key for user %s: %s", createdUser.ID, apiKey)
 
 	_, err = db.CreateAPIKey(context.Background(), &types.ApiKey{
 		Name:      "first-test-key",
 		Key:       apiKey,
-		Owner:     user.ID,
+		Owner:     createdUser.ID,
 		OwnerType: types.OwnerTypeUser,
 		Type:      types.APIkeytypeAPI,
 	})
@@ -190,7 +181,7 @@ func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenti
 		return nil, "", err
 	}
 
-	return user, apiKey, nil
+	return createdUser, apiKey, nil
 }
 
 func createApp(t *testing.T, apiClient *client.HelixClient, agentConfig *types.App) (*types.App, error) {
@@ -217,32 +208,15 @@ func TestExternalAgentModelParameter(t *testing.T) {
 		t.Fatalf("Failed to get store client: %v", err)
 	}
 
-	// Initialize Keycloak authenticator for user creation
-	var keycloakCfg config.Keycloak
-	err = envconfig.Process("", &keycloakCfg)
-	if err != nil {
-		t.Fatalf("Failed to load Keycloak config: %v", err)
-	}
-
+	// Initialize authenticator for user creation
 	cfg := &config.ServerConfig{}
-	cfg.Auth.Keycloak = config.Keycloak{
-		KeycloakURL:         keycloakCfg.KeycloakURL,
-		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
-		ServerURL:           keycloakCfg.ServerURL,
-		APIClientID:         keycloakCfg.APIClientID,
-		AdminRealm:          keycloakCfg.AdminRealm,
-		Realm:               keycloakCfg.Realm,
-		Username:            keycloakCfg.Username,
-		Password:            keycloakCfg.Password,
-	}
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, db)
+	authenticator, err := auth.NewHelixAuthenticator(cfg, db, "test-secret", nil)
 	if err != nil {
-		t.Fatalf("Failed to create Keycloak authenticator: %v", err)
+		t.Fatalf("Failed to create authenticator: %v", err)
 	}
 
 	// Create test user
-	_, apiKey, err := createUser(t, db, keycloakAuthenticator, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
+	_, apiKey, err := createUser(t, db, authenticator, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
 	if err != nil {
 		t.Fatalf("Failed to create user: %v", err)
 	}

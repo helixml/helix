@@ -67,18 +67,12 @@ import { getBrowserLocale } from '../../hooks/useBrowserLocale';
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
 import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
-import specTaskService, {
+import {
   SpecTask,
   MultiSessionOverview,
-  useSpecTask,
-  useMultiSessionOverview,
 } from '../../services/specTaskService';
-import gitRepositoryService, {
-  SampleType,
+import {
   useCreateSampleRepository,
-  getSampleTypeCategory,
-  isBusinessTask,
-  getBusinessTaskDescription,
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
@@ -354,7 +348,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 }) => {
   const theme = useTheme();
   const api = useApi();
-  const account = useAccount();
+  const account = useAccount(); 
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -680,33 +674,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       console.error('Failed to assign agent:', error);
       setError('Failed to start agent session. Please try again.');
     }
-  }, []);
-
-  // Handle phase transitions with appropriate actions
-  const handlePhaseTransition = async (task: SpecTaskWithExtras, newPhase: SpecTaskPhase) => {
-    try {
-      if (newPhase === 'planning' && !task.hasSpecs) {
-        // Start planning session
-        setSelectedTask(task);
-        setPlanningDialogOpen(true);
-      } else if (newPhase === 'review' && task.planningStatus === 'pending_review') {
-        // Specs are ready for review - just update the local state
-        // The actual review will be done through the review interface
-        setTasks(prev => prev.map(t => 
-          t.id === task.id ? { ...t, phase: newPhase } : t
-        ));
-      } else if (newPhase === 'implementation' && task.hasSpecs) {
-        // Start implementation sessions
-        await startImplementation(task);
-      } else {
-        // Generic status update
-        await updateTaskStatus(task.id || '', newPhase);
-      }
-    } catch (err) {
-      console.error('Failed to handle phase transition:', err);
-      setError('Failed to update task. Please try again.');
-    }
-  };
+  }, []);  
 
   // Start planning session for a task
   const createSampleRepoMutation = useCreateSampleRepository();
@@ -749,118 +717,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       console.error('Failed to start planning:', err);
       setError('Failed to start planning session. Please try again.');
     }
-  };
-
-  // Start implementation sessions
-  const startImplementation = async (task: SpecTaskWithExtras) => {
-    try {
-      const response = await api.post(`/api/v1/spec-tasks/${task.id}/implementation-sessions`, {
-        session_count: 3, // Default to 3 parallel sessions
-        agent_types: ['zed', 'zed', 'zed'],
-      });
-
-      if (response.data) {
-        // Update task status
-        setTasks(prev => prev.map(t => 
-          t.id === task.id 
-            ? { 
-                ...t, 
-                phase: 'implementation',
-                activeSessionsCount: response.data.work_session_count || 3
-              }
-            : t
-        ));
-      }
-    } catch (err) {
-      console.error('Failed to start implementation:', err);
-      setError('Failed to start implementation. Please try again.');
-    }
-  };
-
-  // Update task status
-  const updateTaskStatus = async (taskId: string, phase: SpecTaskPhase) => {
-    try {
-      // Map phase to status (backend uses 'done' for completed tasks)
-      const statusMap: Record<SpecTaskPhase, string> = {
-        backlog: 'draft',
-        planning: 'planning',
-        review: 'pending_approval',
-        implementation: 'implementing',
-        completed: 'done',
-      };
-
-      await api.put(`/api/v1/spec-tasks/${taskId}`, {
-        status: statusMap[phase],
-      });
-
-      // Update local state
-      setTasks(prev => prev.map(t => 
-        t.id === taskId ? { ...t, phase, status: statusMap[phase] } : t
-      ));
-    } catch (err) {
-      console.error('Failed to update task status:', err);
-      throw err;
-    }
-  };
-
-  // Create new SpecTask
-  const createTask = async () => {
-    try {
-      const response = await api.post('/api/v1/spec-tasks/from-prompt', {
-        name: newTaskName,
-        description: newTaskDescription,
-        project_id: projectId || 'default',
-      });
-
-      if (response.data) {
-        // Add to local state
-        const newTask: SpecTaskWithExtras = {
-          ...response.data,
-          hasSpecs: false,
-          planningStatus: 'none',
-          phase: 'backlog',
-          activeSessionsCount: 0,
-          completedSessionsCount: 0,
-        };
-        
-        setTasks(prev => [...prev, newTask]);
-        setCreateDialogOpen(false);
-        setNewTaskName('');
-        setNewTaskDescription('');
-        setSelectedSampleType('');
-      }
-    } catch (err) {
-      console.error('Failed to create task:', err);
-      setError('Failed to create task. Please try again.');
-    }
-  };
-
-  // Get priority color
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'critical': return theme.palette.error.main;
-      case 'high': return theme.palette.warning.main;
-      case 'medium': return theme.palette.info.main;
-      case 'low': return theme.palette.success.main;
-      default: return theme.palette.grey[500];
-    }
-  };
-
-  // Get spec status icon and color
-  const getSpecStatusInfo = (task: SpecTaskWithExtras) => {
-    if (!task.hasSpecs && task.planningStatus === 'none') {
-      return { icon: <SpecIcon />, color: theme.palette.error.main, text: 'No specs' };
-    } else if (task.planningStatus === 'active') {
-      return { icon: <CircularProgress size={16} />, color: theme.palette.warning.main, text: 'Generating specs' };
-    } else if (task.planningStatus === 'pending_review') {
-      return { icon: <ViewIcon />, color: theme.palette.info.main, text: 'Review needed' };
-    } else if (task.planningStatus === 'failed') {
-      return { icon: <CancelIcon />, color: theme.palette.error.main, text: 'Planning failed' };
-    } else if (task.planningStatus === 'completed') {
-      return { icon: <ApproveIcon />, color: theme.palette.success.main, text: 'Specs approved' };
-    }
-    return { icon: <SpecIcon />, color: theme.palette.grey[500], text: 'Unknown' };
-  };
+  };  
 
   // Handle archiving/unarchiving a task
   const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
@@ -1045,131 +902,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       setError('Failed to load design review');
     }
   };
-
-  // Render draggable task card
-  const DraggableTaskCard = ({ task, index }: { task: SpecTaskWithExtras; index: number }) => {
-    const specStatus = getSpecStatusInfo(task);
-    const taskId = task.id || `task-${index}`;
-    
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id: taskId });
-
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-    };
-    
-    return (
-      <Card
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        {...listeners}
-        sx={{
-          mb: 1,
-          cursor: isDragging ? 'grabbing' : 'grab',
-          borderLeft: `4px solid ${getPriorityColor(task.priority || 'medium')}`,
-          opacity: isDragging ? 0.8 : 1,
-          '&:hover': {
-            boxShadow: theme.shadows[4],
-          },
-        }}
-        onClick={() => onTaskClick?.(task)}
-      >
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              {/* Task header - show description (name is derived from it) */}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                  {(task.description || task.name || '').length > 100
-                    ? `${(task.description || task.name || '').substring(0, 100)}...`
-                    : (task.description || task.name || 'Unnamed task')
-                  }
-                </Typography>
-                <IconButton size="small" onClick={(e) => e.stopPropagation()}>
-                  <MoreIcon fontSize="small" />
-                </IconButton>
-              </Box>
-
-              {/* Status chips */}
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
-                {/* Spec status */}
-                <Chip
-                  icon={specStatus.icon}
-                  label={specStatus.text}
-                  size="small"
-                  sx={{ 
-                    backgroundColor: specStatus.color + '20',
-                    color: specStatus.color,
-                  }}
-                />
-
-                {/* Priority */}
-                <Chip
-                  label={task.priority || 'medium'}
-                  size="small"
-                  sx={{ 
-                    backgroundColor: getPriorityColor(task.priority || 'medium') + '20',
-                    color: getPriorityColor(task.priority || 'medium'),
-                  }}
-                />
-
-                {/* Active sessions indicator */}
-                {(task.activeSessionsCount || 0) > 0 && (
-                  <Chip
-                    icon={<CodeIcon />}
-                    label={`${task.activeSessionsCount} active`}
-                    size="small"
-                    color="success"
-                  />
-                )}
-
-                {/* Git repository indicator */}
-                {task.gitRepositoryId && (
-                  <Chip
-                    icon={<GitIcon />}
-                    label="Git repo"
-                    size="small"
-                    color="primary"
-                  />
-                )}
-              </Box>
-
-              {/* Progress indicator for implementation */}
-              {(task as any).phase === 'implementation' && task.multiSessionOverview && (
-                <Box sx={{ mt: 1 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="caption">Progress</Typography>
-                    <Typography variant="caption">
-                      {task.completedSessionsCount || 0}/{(task.activeSessionsCount || 0) + (task.completedSessionsCount || 0)}
-                    </Typography>
-                  </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={
-                      (task.completedSessionsCount || 0) / 
-                      ((task.activeSessionsCount || 0) + (task.completedSessionsCount || 0)) * 100
-                    }
-                    sx={{ height: 4, borderRadius: 2 }}
-                  />
-                </Box>
-              )}
-
-              {/* Last activity */}
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                {task.lastActivity ? formatTimeAgo(new Date(task.lastActivity)) : 'No activity'}
-              </Typography>
-            </CardContent>
-      </Card>
-    );
-  };
-
-
 
   if (loading) {
     return (
@@ -1401,21 +1133,5 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     </Box>
   );
 };
-
-// Helper function to replace date-fns formatDistanceToNow
-function formatTimeAgo(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-  
-  return date.toLocaleDateString();
-}
 
 export default SpecTaskKanbanBoard;

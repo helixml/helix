@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"github.com/coreos/go-oidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -17,8 +17,9 @@ type Authenticator interface {
 	UpdatePassword(ctx context.Context, userID, newPassword string) error
 	ValidatePassword(ctx context.Context, user *types.User, password string) error
 
-	// In both keycloak case and OIDC this is using OIDC client,
-	// in regular auth - it's validating cookies
+	// ValidateUserToken validates an access token and returns the user.
+	// For OIDC mode, this uses the OIDC client.
+	// For regular auth, this validates cookies/JWT.
 	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
 
 	GenerateUserToken(ctx context.Context, user *types.User) (string, error)

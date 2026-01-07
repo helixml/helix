@@ -8,7 +8,6 @@ export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
-export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
 export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
@@ -712,7 +711,6 @@ function stop() {
 
   # Build exclude pattern for services that should not be stopped
   local exclude_services=()
-  [[ -z "$STOP_KEYCLOAK" ]] && exclude_services+=("keycloak")
   [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
   [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
 
@@ -2102,16 +2100,13 @@ function test() {
   fi
 
   # Ensure postgres, tika, typesense and chrome are running
-  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector keycloak
+  docker compose -f docker-compose.dev.yaml up -d postgres tika typesense chrome pgvector
 
   # Database config (running in a sidecar)
   export POSTGRES_USER=postgres
   export POSTGRES_PASSWORD=postgres
   export POSTGRES_DATABASE=postgres
   export POSTGRES_HOST=localhost
-
-  export KEYCLOAK_USER=admin
-  export KEYCLOAK_PASSWORD=oh-hallo-insecure-password
 
   export PGVECTOR_USER=postgres
   export PGVECTOR_PASSWORD=postgres
@@ -2229,7 +2224,6 @@ function help() {
   echo "  WITH_DEMOS=1       - Include demo containers"
   echo "  FORCE_CPU=1        - Force CPU-only mode"
   echo "  WIPE_SLOTS=1       - Wipe database slots on start"
-  echo "  STOP_KEYCLOAK=1    - Stop Keycloak when stopping"
   echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
   echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
   echo "  EXPERIMENTAL_DESKTOPS=\"zorin xfce\" - Build experimental desktops in build-sandbox"

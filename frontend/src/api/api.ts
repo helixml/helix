@@ -1669,6 +1669,7 @@ export interface TypesAssistantConfig {
    * 2 - open minded
    */
   presence_penalty?: number;
+  project_manager?: TypesAssistantProjectManager;
   provider?: string;
   rag_source_id?: string;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
@@ -1756,6 +1757,11 @@ export interface TypesAssistantMCP {
   url?: string;
 }
 
+export interface TypesAssistantProjectManager {
+  enabled?: boolean;
+  project_id?: string;
+}
+
 export interface TypesAssistantWebSearch {
   enabled?: boolean;
   max_results?: number;
@@ -1830,7 +1836,6 @@ export interface TypesAuditMetadata {
 
 export enum TypesAuthProvider {
   AuthProviderRegular = "regular",
-  AuthProviderKeycloak = "keycloak",
   AuthProviderOIDC = "oidc",
 }
 
@@ -3461,6 +3466,7 @@ export interface TypesProject {
    */
   next_task_number?: number;
   organization_id?: string;
+  project_manager_helix_app_id?: string;
   /** Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
@@ -3520,6 +3526,8 @@ export interface TypesProjectUpdateRequest {
   guidelines?: string;
   metadata?: TypesProjectMetadata;
   name?: string;
+  /** Project manager agent */
+  project_manager_helix_app_id?: string;
   startup_script?: string;
   status?: string;
   technologies?: string[];
@@ -4126,6 +4134,7 @@ export interface TypesSession {
    */
   parent_app?: string;
   parent_session?: string;
+  project_id?: string;
   /**
    * huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
    * stabilityai/stable-diffusion-xl-base-1.0
@@ -4161,6 +4170,8 @@ export interface TypesSessionChatRequest {
   model?: string;
   /** The organization this session belongs to, if any */
   organization_id?: string;
+  /** The project this session belongs to, if any */
+  project_id?: string;
   /** The provider to use */
   provider?: TypesProvider;
   /** If true, we will regenerate the response for the last message */
@@ -4971,7 +4982,6 @@ export interface TypesTitleHistoryEntry {
 export enum TypesTokenType {
   TokenTypeNone = "",
   TokenTypeRunner = "runner",
-  TokenTypeKeycloak = "keycloak",
   TokenTypeOIDC = "oidc",
   TokenTypeAPIKey = "api_key",
   TokenTypeSocket = "socket",
@@ -5061,6 +5071,8 @@ export interface TypesToolConfig {
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
   mcp?: TypesToolMCPClientConfig;
+  /** Helix project management skill */
+  project?: TypesToolProjectManagerConfig;
   web_search?: TypesToolWebSearchConfig;
   zapier?: TypesToolZapierConfig;
 }
@@ -5082,6 +5094,11 @@ export interface TypesToolMCPClientConfig {
   url?: string;
 }
 
+export interface TypesToolProjectManagerConfig {
+  enabled?: boolean;
+  project_id?: string;
+}
+
 export enum TypesToolType {
   ToolTypeAPI = "api",
   ToolTypeBrowser = "browser",
@@ -5091,6 +5108,7 @@ export enum TypesToolType {
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
   ToolTypeMCP = "mcp",
+  ToolTypeProjectManager = "project_manager",
 }
 
 export interface TypesToolWebSearchConfig {
@@ -5315,6 +5333,7 @@ export interface TypesUserGuidelinesResponse {
 }
 
 export interface TypesUserResponse {
+  admin?: boolean;
   email?: string;
   id?: string;
   name?: string;
@@ -10147,8 +10166,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         question_set_id?: string;
         /** Question set execution ID */
         question_set_execution_id?: string;
+        /** App ID */
+        app_id?: string;
         /** Search sessions by name */
         search?: string;
+        /** Project ID */
+        project_id?: string;
       },
       params: RequestParams = {},
     ) =>

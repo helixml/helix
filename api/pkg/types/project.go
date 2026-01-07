@@ -33,6 +33,8 @@ type Project struct {
 	// New spec tasks inherit this agent; can be overridden per-task
 	DefaultHelixAppID string `json:"default_helix_app_id,omitempty" gorm:"type:varchar(255)"`
 
+	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id,omitempty"`
+
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
 	Guidelines          string    `json:"guidelines" gorm:"type:text"`
@@ -150,18 +152,19 @@ type ProjectCreateRequest struct {
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                  *string          `json:"name,omitempty"`
-	Description           *string          `json:"description,omitempty"`
-	GitHubRepoURL         *string          `json:"github_repo_url,omitempty"`
-	DefaultBranch         *string          `json:"default_branch,omitempty"`
-	Technologies          []string         `json:"technologies,omitempty"`
-	Status                *string          `json:"status,omitempty"`
-	DefaultRepoID         *string          `json:"default_repo_id,omitempty"`
-	StartupScript         *string          `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks *bool            `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID     *string          `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
-	Guidelines            *string          `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
-	Metadata              *ProjectMetadata `json:"metadata,omitempty"`
+	Name                     *string          `json:"name,omitempty"`
+	Description              *string          `json:"description,omitempty"`
+	GitHubRepoURL            *string          `json:"github_repo_url,omitempty"`
+	DefaultBranch            *string          `json:"default_branch,omitempty"`
+	Technologies             []string         `json:"technologies,omitempty"`
+	Status                   *string          `json:"status,omitempty"`
+	DefaultRepoID            *string          `json:"default_repo_id,omitempty"`
+	StartupScript            *string          `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks    *bool            `json:"auto_start_backlog_tasks,omitempty"`
+	DefaultHelixAppID        *string          `json:"default_helix_app_id,omitempty"`         // Default agent for spec tasks
+	ProjectManagerHelixAppID *string          `json:"project_manager_helix_app_id,omitempty"` // Project manager agent
+	Guidelines               *string          `json:"guidelines,omitempty"`                   // Project-specific AI agent guidelines
+	Metadata                 *ProjectMetadata `json:"metadata,omitempty"`
 }
 
 // ProjectTaskCreateRequest represents a request to create a new project task
@@ -303,9 +306,9 @@ type GuidelinesHistory struct {
 	UserID         string    `json:"user_id,omitempty" gorm:"type:varchar(255);index"`         // Set for user-level (personal workspace) guidelines
 	Version        int       `json:"version"`
 	Guidelines     string    `json:"guidelines" gorm:"type:text"`
-	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"`  // User ID
-	UpdatedByName  string    `json:"updated_by_name" gorm:"-"`             // User display name (not persisted, populated at query time)
-	UpdatedByEmail string    `json:"updated_by_email" gorm:"-"`            // User email (not persisted, populated at query time)
+	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"` // User ID
+	UpdatedByName  string    `json:"updated_by_name" gorm:"-"`            // User display name (not persisted, populated at query time)
+	UpdatedByEmail string    `json:"updated_by_email" gorm:"-"`           // User email (not persisted, populated at query time)
 	UpdatedAt      time.Time `json:"updated_at"`
 	ChangeNote     string    `json:"change_note,omitempty" gorm:"type:text"` // Optional description of what changed
 }

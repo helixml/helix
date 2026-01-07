@@ -46,7 +46,7 @@ type BaseOAuthTestSuite struct {
 	store          store.Store
 	oauth          *oauth.Manager
 	client         *client.HelixClient
-	keycloak       *auth.KeycloakAuthenticator
+	authenticator  auth.Authenticator
 	helixAPIServer *server.HelixAPIServer
 
 	// Server configuration
@@ -264,24 +264,12 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		return fmt.Errorf("failed to create controller: %w", err)
 	}
 
-	// Create Keycloak authenticator
-	keycloakConfig := cfg.Auth.Keycloak
-	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		keycloakConfig.KeycloakURL = keycloakURL
-		keycloakConfig.KeycloakFrontEndURL = keycloakURL
-	} else {
-		keycloakConfig.KeycloakURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-		keycloakConfig.KeycloakFrontEndURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-	}
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg, suite.store)
+	// Create authenticator
+	authenticator, err := auth.NewHelixAuthenticator(&cfg, suite.store, "test-secret", nil)
 	if err != nil {
-		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
+		return fmt.Errorf("failed to create authenticator: %w", err)
 	}
-	suite.keycloak = keycloakAuthenticator
-
-	// Update config with Keycloak settings
-	cfg.Auth.Keycloak = keycloakConfig
+	suite.authenticator = authenticator
 
 	// Create trigger manager
 	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, notifierMock, controller)
@@ -297,7 +285,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		providerManager,
 		modelInfoProvider,
 		nil,
-		keycloakAuthenticator,
+		authenticator,
 		nil,
 		controller,
 		janitor.NewJanitor(config.Janitor{}),
@@ -365,18 +353,11 @@ func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
 		Admin:    false,
 	}
 
-	// Create user in Keycloak first
-	createdUser, err := suite.keycloak.CreateUser(suite.ctx, user)
+	// Generate user ID and create user
+	user.ID = system.GenerateUUID()
+	createdUser, err := suite.authenticator.CreateUser(suite.ctx, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create user in Keycloak: %w", err)
-	}
-
-	user.ID = createdUser.ID
-
-	// Create user in database
-	createdUser, err = suite.store.CreateUser(suite.ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user in database: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	return createdUser, nil

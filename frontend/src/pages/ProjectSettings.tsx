@@ -191,6 +191,7 @@ const ProjectSettings: FC = () => {
 
   // Default agent state
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  const [selectedProjectManagerAgentId, setSelectedProjectManagerAgentId] = useState<string>('')
   const [showCreateAgentForm, setShowCreateAgentForm] = useState(false)
   const [codeAgentRuntime, setCodeAgentRuntime] = useState<CodeAgentRuntime>('zed_agent')
   const [selectedProvider, setSelectedProvider] = useState('')
@@ -240,6 +241,7 @@ const ProjectSettings: FC = () => {
       setGuidelines(project.guidelines || '')
       setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
       setSelectedAgentId(project.default_helix_app_id || '')
+      setSelectedProjectManagerAgentId(project.project_manager_helix_app_id || '')
 
       // Load WIP limits from project metadata
       const projectWipLimits = project.metadata?.board_settings?.wip_limits
@@ -285,6 +287,7 @@ const ProjectSettings: FC = () => {
         guidelines,
         auto_start_backlog_tasks: autoStartBacklogTasks,
         default_helix_app_id: selectedAgentId || undefined,
+        project_manager_helix_app_id: selectedProjectManagerAgentId || undefined,
         metadata: {
           board_settings: {
             wip_limits: wipLimits,
@@ -660,7 +663,7 @@ const ProjectSettings: FC = () => {
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               <SmartToyIcon sx={{ mr: 1 }} />
               <Typography variant="h6">
-                Default Agent
+                Agent configuration
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -674,13 +677,23 @@ const ProjectSettings: FC = () => {
                   value={selectedAgentId}
                   onChange={(newAgentId) => {
                     setSelectedAgentId(newAgentId)
-                    // Save immediately with the new value (don't rely on stale state)
                     updateProjectMutation.mutate({
                       default_helix_app_id: newAgentId || undefined,
                     })
                   }}
                   agents={sortedApps}
-                  label="Select Agent"
+                  label="Default Agent"
+                />
+                <AgentDropdown
+                  value={selectedProjectManagerAgentId}
+                  onChange={(newAgentId) => {
+                    setSelectedProjectManagerAgentId(newAgentId)
+                    updateProjectMutation.mutate({
+                      project_manager_helix_app_id: newAgentId || undefined,
+                    })
+                  }}
+                  agents={sortedApps}
+                  label="Project Manager Agent"
                 />
                 <Button
                   size="small"

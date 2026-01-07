@@ -39,6 +39,14 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
+	if query.AppID != "" {
+		q = q.Where("parent_app = ?", query.AppID)
+	}
+
+	if query.ProjectID != "" {
+		q = q.Where("project_id = ?", query.ProjectID)
+	}
+
 	// Add ordering
 	q = q.Order("created DESC")
 

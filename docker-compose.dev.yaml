@@ -126,6 +126,7 @@ services:
     depends_on:
       - postgres
       - postgres-mcp
+      - chrome
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
@@ -748,7 +749,6 @@ services:
       - "host.docker.internal:host-gateway"
 
 volumes:
-  helix-keycloak-db:
   helix-postgres-db:
   helix-pgvector-db:
   helix-vectorchord-kodit:
