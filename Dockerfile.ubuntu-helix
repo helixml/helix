@@ -474,15 +474,31 @@ export XMODIFIERS=@im=none
 # Display scaling
 # HELIX_ZOOM_LEVEL is a percentage (100, 150, 200) set by wolf_executor
 # Convert to scale factor: 100→1, 150→1.5, 200→2
-# Compositor scaling is set via gnome-randr after gnome-shell starts (see below)
+#
+# Scaling works at TWO levels:
+# 1. Compositor level: MUTTER_DEBUG_DUMMY_MONITOR_SCALES sets the virtual monitor's scale
+#    - This makes GNOME Shell render at the scaled resolution internally
+#    - Required for proper DPI scaling of the entire desktop
+# 2. Client app level: GDK_SCALE/QT_SCALE_FACTOR for GTK/Qt applications
+#    - These tell individual apps to render at the correct scale
+#
+# Reference: https://wiki.gnome.org/HowDoI/HiDpi
 ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
 if [ "\$ZOOM_LEVEL" -gt 100 ]; then
     # Calculate scale factor from zoom percentage (e.g., 200% → 2)
     HELIX_SCALE_FACTOR=\$(echo "scale=1; \$ZOOM_LEVEL / 100" | bc)
+
+    # Set Mutter's virtual monitor scale (compositor-level scaling)
+    # This env var tells Mutter to create the virtual monitor with this scale factor
+    # Works with both --nested and --headless modes
+    export MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR
+
+    # Client app scaling (GTK and Qt applications)
     export GDK_SCALE=\$HELIX_SCALE_FACTOR
-    export GDK_DPI_SCALE=1
+    export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
     export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
-    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=\$ZOOM_LEVEL)"
+
+    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR, GDK_SCALE=\$HELIX_SCALE_FACTOR)"
 else
     HELIX_SCALE_FACTOR=""
     gow_log "[start] Display scaling: 1x (default)"
@@ -553,70 +569,26 @@ if [ -x /usr/local/bin/screenshot-server ]; then
   WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
 fi
 
-# Set display scale after GNOME Shell is ready (if scaling is enabled)
-# Uses D-Bus org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig API
-# gnome-randr is NOT installed and doesn't work with Mutter anyway
+# Verify display scale after GNOME Shell is ready (if scaling is enabled)
+# MUTTER_DEBUG_DUMMY_MONITOR_SCALES sets the scale at startup, this just logs the result
 if [ -n "\$HELIX_SCALE_FACTOR" ]; then
   (
-    gow_log "[start] Waiting for GNOME Shell to start before setting display scale..."
-    for i in \$(seq 1 60); do
+    gow_log "[start] Waiting to verify display scale..."
+    for i in \$(seq 1 30); do
       if pgrep -x gnome-shell > /dev/null 2>&1; then
-        gow_log "[start] gnome-shell detected, waiting 3 seconds for display initialization..."
-        sleep 3
+        sleep 2
         break
       fi
       sleep 1
     done
 
-    gow_log "[start] Setting display scale to \${HELIX_SCALE_FACTOR}x via D-Bus ApplyMonitorsConfig..."
-
-    # Get current state to retrieve serial (required for ApplyMonitorsConfig)
-    # GetCurrentState returns: (serial, monitors, logical_monitors, properties)
+    # Log the current display configuration for debugging
     STATE=\$(gdbus call --session \\
         --dest org.gnome.Mutter.DisplayConfig \\
         --object-path /org/gnome/Mutter/DisplayConfig \\
-        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
+        --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1 || echo "D-Bus call failed")
 
-    gow_log "[start] GetCurrentState response (first 300 chars): \${STATE:0:300}"
-
-    # Extract serial - handle both formats: (uint32 123, ...) or (123, ...)
-    SERIAL=\$(echo "\$STATE" | grep -oP '\(uint32\s+\K\d+|\(\K\d+' | head -1)
-    if [ -z "\$SERIAL" ]; then
-        gow_log "[start] ERROR: Failed to extract serial from GetCurrentState"
-        gow_log "[start] Full response: \$STATE"
-    else
-        # Extract the actual mode_id from GetCurrentState (format varies between GNOME versions)
-        # Example: '3840x2160@60.000' or '1920x1080@60.000000'
-        MODE_ID=\$(echo "\$STATE" | grep -oP "'${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@[^']+'" | head -1 | tr -d "'")
-        if [ -z "\$MODE_ID" ]; then
-            # Fallback to .000 format (GNOME 49 style)
-            MODE_ID="${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}.000"
-            gow_log "[start] WARNING: Could not extract mode_id, using fallback: \$MODE_ID"
-        else
-            gow_log "[start] Extracted mode_id: \$MODE_ID"
-        fi
-
-        gow_log "[start] Serial: \$SERIAL, applying scale \$HELIX_SCALE_FACTOR to Meta-0 mode=\$MODE_ID..."
-
-        # ApplyMonitorsConfig parameters:
-        # serial (u), method (u: 1=temporary, 2=persistent),
-        # logical_monitors [(x:i, y:i, scale:d, transform:u, primary:b, monitors[(connector:s, mode_id:s, props:a{sv})])]
-        # properties (a{sv})
-        RESULT=\$(gdbus call --session \\
-            --dest org.gnome.Mutter.DisplayConfig \\
-            --object-path /org/gnome/Mutter/DisplayConfig \\
-            --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
-            \$SERIAL 1 \\
-            "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '\$MODE_ID', {})])]" \\
-            "{}" 2>&1)
-
-        if echo "\$RESULT" | grep -qi "error"; then
-            gow_log "[start] ERROR: ApplyMonitorsConfig failed: \$RESULT"
-        else
-            gow_log "[start] ApplyMonitorsConfig success: \$RESULT"
-        fi
-    fi
-    gow_log "[start] Display scale configured"
+    gow_log "[start] Display config (MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR): \${STATE:0:400}"
   ) &
 fi
 
@@ -760,7 +732,63 @@ RUN apt-get update && \
     wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
     dpkg -i /tmp/google-chrome.deb || apt-get install -f -y && \
     rm /tmp/google-chrome.deb && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    mkdir -p /etc/opt/chrome/policies/managed && \
+    echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json && \
+    # Create master preferences to skip first run and welcome page
+    mkdir -p /opt/google/chrome && \
+    echo '{ \
+      "distribution": { \
+        "skip_first_run_ui": true, \
+        "suppress_first_run_default_browser_prompt": true, \
+        "do_not_create_desktop_shortcut": true, \
+        "do_not_create_quick_launch_shortcut": true, \
+        "do_not_create_taskbar_shortcut": true, \
+        "do_not_launch_chrome": true, \
+        "do_not_register_for_update_launch": true, \
+        "make_chrome_default": false, \
+        "make_chrome_default_for_user": false, \
+        "suppress_first_run_bubble": true, \
+        "import_bookmarks": false, \
+        "import_history": false, \
+        "import_home_page": false, \
+        "import_search_engine": false \
+      }, \
+      "browser": { \
+        "check_default_browser": false, \
+        "show_home_button": false \
+      }, \
+      "sync_promo": { \
+        "show_on_first_run_allowed": false \
+      }, \
+      "first_run_tabs": ["about:blank"] \
+    }' > /opt/google/chrome/master_preferences && \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+# Chrome checks for this file to determine if it's the first launch
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    # Also create Default profile directory with minimal preferences
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
 
 # Install chrome-devtools-mcp globally
 RUN npm install -g chrome-devtools-mcp@latest
