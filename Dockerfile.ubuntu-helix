@@ -476,29 +476,26 @@ export XMODIFIERS=@im=none
 # Convert to scale factor: 100→1, 150→1.5, 200→2
 #
 # Scaling works at TWO levels:
-# 1. Compositor level: MUTTER_DEBUG_DUMMY_MONITOR_SCALES sets the virtual monitor's scale
-#    - This makes GNOME Shell render at the scaled resolution internally
+# 1. Compositor level: org.gnome.desktop.interface scaling-factor (GSettings)
+#    - This makes GNOME Shell/Mutter use a global scale factor for all monitors
 #    - Required for proper DPI scaling of the entire desktop
+#    - Note: MUTTER_DEBUG_DUMMY_MONITOR_SCALES only works for dummy/test backend, not headless
 # 2. Client app level: GDK_SCALE/QT_SCALE_FACTOR for GTK/Qt applications
 #    - These tell individual apps to render at the correct scale
 #
-# Reference: https://wiki.gnome.org/HowDoI/HiDpi
+# Reference: mutter src/backends/meta-settings.c meta_settings_get_global_scaling_factor()
 ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
 if [ "\$ZOOM_LEVEL" -gt 100 ]; then
-    # Calculate scale factor from zoom percentage (e.g., 200% → 2)
-    HELIX_SCALE_FACTOR=\$(echo "scale=1; \$ZOOM_LEVEL / 100" | bc)
-
-    # Set Mutter's virtual monitor scale (compositor-level scaling)
-    # This env var tells Mutter to create the virtual monitor with this scale factor
-    # Works with both --nested and --headless modes
-    export MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR
+    # Calculate integer scale factor from zoom percentage (e.g., 200% → 2)
+    # Note: scaling-factor is an integer, so 150% becomes 1 (rounded down) or we use 2
+    HELIX_SCALE_FACTOR=\$((\$ZOOM_LEVEL / 100))
 
     # Client app scaling (GTK and Qt applications)
     export GDK_SCALE=\$HELIX_SCALE_FACTOR
     export GDK_DPI_SCALE=1  # Prevent double-scaling with GDK_SCALE
     export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
 
-    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR, GDK_SCALE=\$HELIX_SCALE_FACTOR)"
+    gow_log "[start] Display scaling: \${HELIX_SCALE_FACTOR}x (GDK_SCALE=\$HELIX_SCALE_FACTOR)"
 else
     HELIX_SCALE_FACTOR=""
     gow_log "[start] Display scaling: 1x (default)"
@@ -547,10 +544,14 @@ gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indica
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
 
-# Enable fractional scaling experimental feature (needed for non-integer scales like 1.5)
-# This must be set before gnome-shell starts to take effect
-if [ -n "\$HELIX_SCALE_FACTOR" ]; then
-    gow_log "[start] Enabling fractional scaling experimental feature..."
+# Set global scaling factor before gnome-shell starts
+# This tells Mutter to use this scale for ALL monitors (including virtual ones)
+# The scaling-factor gsetting is read by meta_settings_get_global_scaling_factor()
+# which overrides the calculated per-monitor scale
+if [ -n "\$HELIX_SCALE_FACTOR" ] && [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
+    gow_log "[start] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
+    gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
+    # Also enable fractional scaling feature (needed for the UI to show scale options)
     gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
 fi
 
@@ -570,7 +571,7 @@ if [ -x /usr/local/bin/screenshot-server ]; then
 fi
 
 # Verify display scale after GNOME Shell is ready (if scaling is enabled)
-# MUTTER_DEBUG_DUMMY_MONITOR_SCALES sets the scale at startup, this just logs the result
+# Global scaling-factor from GSettings is applied at Mutter startup
 if [ -n "\$HELIX_SCALE_FACTOR" ]; then
   (
     gow_log "[start] Waiting to verify display scale..."
@@ -588,7 +589,7 @@ if [ -n "\$HELIX_SCALE_FACTOR" ]; then
         --object-path /org/gnome/Mutter/DisplayConfig \\
         --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1 || echo "D-Bus call failed")
 
-    gow_log "[start] Display config (MUTTER_DEBUG_DUMMY_MONITOR_SCALES=\$HELIX_SCALE_FACTOR): \${STATE:0:400}"
+    gow_log "[start] Display config (scaling-factor=\$HELIX_SCALE_FACTOR): \${STATE:0:400}"
   ) &
 fi
 

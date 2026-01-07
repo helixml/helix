@@ -57,21 +57,37 @@ Restore the comprehensive Chrome configuration from previous commits:
 
 ### Scaling Fix
 
-Use `MUTTER_DEBUG_DUMMY_MONITOR_SCALES` environment variable before starting gnome-shell:
+The scaling fix requires **two steps**:
 
-```bash
-# In startup script, before gnome-shell starts:
-export MUTTER_DEBUG_DUMMY_MONITOR_SCALES=2  # For 200% scaling
-gnome-shell --headless --virtual-monitor 1920x1080@60
-```
+1. **GSettings before gnome-shell starts** (for client apps):
+   ```bash
+   gsettings set org.gnome.desktop.interface scaling-factor 2
+   gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
+   ```
 
-This approach:
-- Sets the virtual monitor's scale factor at creation time
-- Works with both `--nested` and `--headless` modes
-- Is the documented method from GNOME HiDPI wiki
-- Doesn't require complex D-Bus calls after startup
+2. **D-Bus ApplyMonitorsConfig after gnome-shell starts** (for compositor):
+   ```bash
+   # Wait for gnome-shell, then apply scale via D-Bus
+   gdbus call --session \
+       --dest org.gnome.Mutter.DisplayConfig \
+       --object-path /org/gnome/Mutter/DisplayConfig \
+       --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \
+       $SERIAL 1 \
+       "[(int32 0, int32 0, double 2.0, uint32 0, true, [('Meta-0', '3840x2160@60.000', {})])]" \
+       "{}"
+   ```
 
-Combined with client-app scaling:
+**Why both are needed**:
+- The GSettings `scaling-factor` alone doesn't affect virtual monitors created via `--virtual-monitor`
+- Virtual monitors get their scale from `ApplyMonitorsConfig`, not from GSettings
+- The `--virtual-monitor` option creates a `Meta-0` connector with default scale 1.0
+- `ApplyMonitorsConfig` must be called after gnome-shell starts to change the scale
+
+**Important Discovery**: `MUTTER_DEBUG_DUMMY_MONITOR_SCALES` environment variable only works for the **dummy/test backend** (`meta-monitor-manager-dummy.c`), NOT for the native/headless backend used with `--virtual-monitor`.
+
+Reference: `mutter/src/backends/meta-settings.c`, `meta-monitor.c`, and `meta-context-main.c`
+
+Client-app scaling (for GTK/Qt applications):
 - `GDK_SCALE` for GTK applications
 - `QT_SCALE_FACTOR` for Qt applications
 
@@ -82,8 +98,12 @@ Combined with client-app scaling:
 - Added Chrome master preferences JSON
 - Added `--password-store=basic` to desktop file
 - Added First Run sentinel file
-- Updated scaling to use `MUTTER_DEBUG_DUMMY_MONITOR_SCALES`
-- Simplified D-Bus verification (logging only)
+
+**`wolf/ubuntu-config/startup-app.sh`**:
+- Fixed heredoc variable escaping for `$HELIX_SCALE_FACTOR` references
+- Re-enabled D-Bus `ApplyMonitorsConfig` call after gnome-shell starts
+- Set GSettings `scaling-factor` before gnome-shell for client apps
+- Set `GDK_SCALE` and `QT_SCALE_FACTOR` environment variables
 
 ## Testing Plan
 

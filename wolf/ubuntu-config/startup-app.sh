@@ -659,19 +659,30 @@ sleep 0.5
 
 # Display scaling for PipeWire mode (headless gnome-shell with virtual monitor)
 # HELIX_ZOOM_LEVEL is percentage (100, 150, 200) set by wolf_executor
-# Convert to scale factor: 100→1, 150→1.5, 200→2
-ZOOM_LEVEL="\${HELIX_ZOOM_LEVEL:-100}"
-if [ "\$ZOOM_LEVEL" -gt 100 ]; then
-    HELIX_SCALE_FACTOR=\$(echo "scale=1; \$ZOOM_LEVEL / 100" | bc)
+# Scaling works via org.gnome.desktop.interface scaling-factor GSettings key
+# Reference: mutter src/backends/meta-settings.c meta_settings_get_global_scaling_factor()
+ZOOM_LEVEL="${HELIX_ZOOM_LEVEL:-100}"
+echo "[DEBUG] ZOOM_LEVEL before comparison: [$ZOOM_LEVEL]"
+if [ "$ZOOM_LEVEL" -gt 100 ]; then
+    # Calculate integer scale factor (200% → 2, 150% → 1)
+    # Using expr instead of $(( )) due to shell compatibility issues
+    HELIX_SCALE_FACTOR=$(expr $ZOOM_LEVEL / 100)
+    echo "[DEBUG] HELIX_SCALE_FACTOR after expr: [\$HELIX_SCALE_FACTOR]"
+
+    # Client app scaling (GTK and Qt applications)
     export GDK_SCALE=\$HELIX_SCALE_FACTOR
     export GDK_DPI_SCALE=1  # Prevent double-scaling
     export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
-    echo "[gnome-session] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=\$ZOOM_LEVEL)"
+    echo "[gnome-session] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=$ZOOM_LEVEL)"
 
-    # Enable fractional scaling experimental features (needed for non-integer scales like 1.5)
-    # Must be set before gnome-shell starts
-    # See: https://wiki.archlinux.org/title/HiDPI
-    echo "[gnome-session] Enabling fractional scaling experimental features..."
+    # Set global scaling factor before gnome-shell starts
+    # This tells Mutter to use this scale for ALL monitors (including virtual ones)
+    if [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
+        echo "[gnome-session] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
+        gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
+    fi
+
+    # Enable fractional scaling feature (needed for UI to show scale options)
     gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
 else
     HELIX_SCALE_FACTOR=""
@@ -681,9 +692,9 @@ fi
 # Background task to set display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
 # gnome-randr doesn't work with Mutter (it's for wlroots). Use D-Bus API directly.
 # See: https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml
-# TEMPORARILY DISABLED: ApplyMonitorsConfig causes invalid pixel-aspect-ratio in PipeWire stream
-# See: design/2026-01-05-screenshot-video-pipeline-interference.md
-if false && [ -n "\$HELIX_SCALE_FACTOR" ]; then
+# Apply display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
+# This is needed because gsettings scaling-factor may not affect virtual monitor scale
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
     (
         echo "[gnome-session] Waiting for GNOME Shell to start before setting display scale..."
         for i in \$(seq 1 60); do
