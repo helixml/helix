@@ -400,12 +400,16 @@ func (c *Client) ListApps(ctx context.Context) ([]App, error) {
 
 // LobbyVideoSettings configures video streaming for a lobby
 type LobbyVideoSettings struct {
-	Width                     int    `json:"width"`
-	Height                    int    `json:"height"`
-	RefreshRate               int    `json:"refresh_rate"`
-	WaylandRenderNode         string `json:"wayland_render_node"`
-	RunnerRenderNode          string `json:"runner_render_node"`
-	VideoProducerBufferCaps   string `json:"video_producer_buffer_caps"`
+	Width                   int    `json:"width"`
+	Height                  int    `json:"height"`
+	RefreshRate             int    `json:"refresh_rate"`
+	WaylandRenderNode       string `json:"wayland_render_node"`
+	RunnerRenderNode        string `json:"runner_render_node"`
+	VideoProducerBufferCaps string `json:"video_producer_buffer_caps"`
+	// VideoSourceMode controls how Wolf captures video from the container.
+	// "wayland" (default) - Wolf creates a Wayland compositor and captures directly
+	// "pipewire" - Container provides video via PipeWire ScreenCast (GNOME 49+)
+	VideoSourceMode string `json:"video_source_mode"`
 }
 
 // LobbyAudioSettings configures audio for a lobby

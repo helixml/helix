@@ -274,10 +274,10 @@ services:
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-      - HELIX_API_URL=http://api:8080
-      - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - HELIX_API_URL=${HELIX_API_URL:-http://api:8080}
+      - HELIX_API_BASE_URL=${HELIX_API_BASE_URL:-http://api:8080}
+      - WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
@@ -397,10 +397,10 @@ services:
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-      - HELIX_API_URL=http://api:8080
-      - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - HELIX_API_URL=${HELIX_API_URL:-http://api:8080}
+      - HELIX_API_BASE_URL=${HELIX_API_BASE_URL:-http://api:8080}
+      - WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
@@ -519,10 +519,10 @@ services:
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
       # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
-      - HELIX_API_URL=http://api:8080
-      - HELIX_API_BASE_URL=http://api:8080
-      - WOLF_INSTANCE_ID=local
-      - RUNNER_TOKEN=oh-hallo-insecure-token
+      - HELIX_API_URL=${HELIX_API_URL:-http://api:8080}
+      - HELIX_API_BASE_URL=${HELIX_API_BASE_URL:-http://api:8080}
+      - WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-oh-hallo-insecure-token}
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
