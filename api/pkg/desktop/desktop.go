@@ -29,12 +29,11 @@ type Config struct {
 // It manages D-Bus sessions for video/input and serves HTTP APIs.
 type Server struct {
 	// D-Bus session state
-	conn                 *dbus.Conn
-	rdSessionPath        dbus.ObjectPath
-	scSessionPath        dbus.ObjectPath
-	scStreamPath         dbus.ObjectPath
-	nodeID               uint32
-	standaloneScreenCast bool // true when ScreenCast is not linked to RemoteDesktop (GNOME 49+)
+	conn          *dbus.Conn
+	rdSessionPath dbus.ObjectPath
+	scSessionPath dbus.ObjectPath
+	scStreamPath  dbus.ObjectPath
+	nodeID        uint32
 
 	// Input socket
 	inputListener   net.Listener

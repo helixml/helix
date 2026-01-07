@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -84,24 +86,33 @@ func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	s.logger.Info("input client connected from Wolf socket")
 
-	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	reader := bufio.NewReader(conn)
 
 	eventCount := 0
+	timeoutCount := 0
 	for s.isRunning() {
 		conn.SetReadDeadline(time.Now().Add(time.Second))
 
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-					continue
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			// Check for timeout - use errors.Is for proper unwrapping
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				timeoutCount++
+				if timeoutCount <= 3 || timeoutCount%100 == 0 {
+					s.logger.Debug("input socket read timeout", "count", timeoutCount)
 				}
-				s.logger.Debug("client read error", "err", err)
+				continue
 			}
+			// Check for EOF (client disconnected)
+			if err.Error() == "EOF" {
+				s.logger.Info("input client disconnected (EOF)")
+				break
+			}
+			s.logger.Error("input socket read error", "err", err, "err_type", fmt.Sprintf("%T", err))
 			break
 		}
 
-		line := scanner.Text()
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -151,7 +162,7 @@ func (s *Server) injectInput(event *InputEvent) {
 
 	case "mouse_move_rel":
 		s.logger.Debug("mouse_move_rel", "dx", event.DX, "dy", event.DY)
-		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotion", 0, event.DX, event.DY).Err
+		err = rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionRelative", 0, event.DX, event.DY).Err
 
 	case "button":
 		s.logger.Debug("button", "button", event.Button, "state", event.State)

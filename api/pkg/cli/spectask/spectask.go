@@ -39,6 +39,7 @@ func New() *cobra.Command {
 	cmd.AddCommand(newMCPCommand())
 	cmd.AddCommand(newE2ECommand())
 	cmd.AddCommand(newHealthCommand())
+	cmd.AddCommand(newKeyboardTestCommand())
 
 	return cmd
 }
@@ -1446,6 +1447,210 @@ func configurePendingSession(apiURL, token, sessionID, clientUniqueID string) er
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
 	}
+
+	return nil
+}
+
+// newKeyboardTestCommand creates a command to test keyboard input via WebSocket
+func newKeyboardTestCommand() *cobra.Command {
+	var keyCode int
+	var count int
+	var delay int
+
+	cmd := &cobra.Command{
+		Use:   "keyboard-test <session-id>",
+		Short: "Test keyboard input over WebSocket stream",
+		Long: `Connects to WebSocket stream and sends keyboard events to debug input path.
+
+This command tests the WebSocket keyboard input path:
+  Browser -> Helix API (moonlight_proxy.go) -> moonlight-web (stream.rs) -> streamer (main.rs) -> Wolf
+
+Uses Windows Virtual Key (VK) codes, same as Moonlight protocol.
+
+Examples:
+  # Send 'a' key (VK code 0x41 = 65)
+  helix spectask keyboard-test ses_01xxx
+
+  # Send specific key (e.g., Enter = 0x0D = 13)
+  helix spectask keyboard-test ses_01xxx --key 13
+
+  # Send multiple keystrokes
+  helix spectask keyboard-test ses_01xxx --count 5 --delay 200
+`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sessionID := args[0]
+			apiURL := getAPIURL()
+			token := getToken()
+
+			return runKeyboardTest(apiURL, token, sessionID, keyCode, count, delay)
+		},
+	}
+
+	cmd.Flags().IntVar(&keyCode, "key", 0x41, "Virtual Key code (default 0x41 = 'A')")
+	cmd.Flags().IntVarP(&count, "count", "n", 1, "Number of keystrokes to send")
+	cmd.Flags().IntVarP(&delay, "delay", "d", 100, "Delay between keystrokes in ms")
+
+	return cmd
+}
+
+// runKeyboardTest connects to WebSocket and sends keyboard events
+func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs int) error {
+	fmt.Printf("⌨️  Keyboard Test - Session %s\n", sessionID)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("Key code: 0x%02X (%d), Count: %d, Delay: %dms\n\n", keyCode, keyCode, count, delayMs)
+
+	// Get Wolf app ID
+	appID, err := getWolfAppID(apiURL, token, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get Wolf app ID: %w", err)
+	}
+	fmt.Printf("✅ Got Wolf app ID: %d\n", appID)
+
+	// Configure pending session
+	clientUniqueID := fmt.Sprintf("helix-kbd-test-%d", time.Now().UnixNano())
+	if err := configurePendingSession(apiURL, token, sessionID, clientUniqueID); err != nil {
+		return fmt.Errorf("failed to configure session: %w", err)
+	}
+	fmt.Printf("✅ Configured pending session: %s\n", clientUniqueID)
+
+	// Build WebSocket URL
+	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	streamURL := fmt.Sprintf("%s/moonlight/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(sessionID))
+
+	fmt.Printf("📡 Connecting to: %s\n", streamURL)
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, resp, err := dialer.Dial(streamURL, header)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("WebSocket dial failed: %s", string(body))
+		}
+		return fmt.Errorf("WebSocket dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	fmt.Printf("✅ WebSocket connected\n")
+
+	// Send init message
+	initMessage := map[string]interface{}{
+		"type":                    "init",
+		"host_id":                 0,
+		"app_id":                  appID,
+		"session_id":              sessionID,
+		"client_unique_id":        clientUniqueID,
+		"width":                   1920,
+		"height":                  1080,
+		"fps":                     60,
+		"bitrate":                 10000,
+		"packet_size":             1024,
+		"play_audio_local":        false,
+		"video_supported_formats": 1,
+	}
+	initJSON, _ := json.Marshal(initMessage)
+	if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
+		return fmt.Errorf("failed to send init: %w", err)
+	}
+	fmt.Printf("✅ Sent init message\n")
+
+	// Start a goroutine to read responses (needed to keep connection alive)
+	done := make(chan struct{})
+	frameCount := 0
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				msgType, data, err := conn.ReadMessage()
+				if err != nil {
+					return
+				}
+				if msgType == websocket.BinaryMessage && len(data) > 0 {
+					if data[0] == WsMsgVideoFrame {
+						frameCount++
+						if frameCount == 1 {
+							fmt.Printf("✅ Receiving video frames\n")
+						}
+					} else if data[0] == WsMsgStreamInit {
+						fmt.Printf("✅ Received stream init\n")
+					}
+				} else if msgType == websocket.TextMessage {
+					fmt.Printf("📩 Text message: %s\n", string(data))
+				}
+			}
+		}
+	}()
+
+	// Wait for stream to initialize (receive at least one frame)
+	time.Sleep(2 * time.Second)
+	if frameCount == 0 {
+		fmt.Printf("⚠️  No video frames received yet, but continuing with keyboard test\n")
+	}
+
+	fmt.Printf("\n⌨️  Sending %d keyboard event(s)...\n", count)
+	fmt.Printf("───────────────────────────────────────────────────────────────────────────────\n")
+
+	for i := 0; i < count; i++ {
+		// Keyboard message format (matches ws_protocol.rs):
+		// [WsMsgKeyboardInput(1)] [subType(1)] [isDown(1)] [modifiers(1)] [keyCode(2 bytes big-endian)]
+		// subType: 0 = key input, 1 = text input
+		// modifiers: bitmask (shift=1, ctrl=2, alt=4, win=8)
+
+		// Send key down
+		keyDownMsg := []byte{
+			WsMsgKeyboardInput, // msg type
+			0x00,               // subType = key input
+			0x01,               // isDown = true
+			0x00,               // modifiers = none
+			byte(keyCode >> 8), byte(keyCode & 0xFF), // keyCode big-endian
+		}
+
+		fmt.Printf("  [%d/%d] Sending key DOWN: 0x%02X (%d) - bytes: %v\n", i+1, count, keyCode, keyCode, keyDownMsg)
+		if err := conn.WriteMessage(websocket.BinaryMessage, keyDownMsg); err != nil {
+			return fmt.Errorf("failed to send key down: %w", err)
+		}
+
+		// Short delay between down and up
+		time.Sleep(50 * time.Millisecond)
+
+		// Send key up
+		keyUpMsg := []byte{
+			WsMsgKeyboardInput, // msg type
+			0x00,               // subType = key input
+			0x00,               // isDown = false
+			0x00,               // modifiers = none
+			byte(keyCode >> 8), byte(keyCode & 0xFF), // keyCode big-endian
+		}
+
+		fmt.Printf("  [%d/%d] Sending key UP:   0x%02X (%d) - bytes: %v\n", i+1, count, keyCode, keyCode, keyUpMsg)
+		if err := conn.WriteMessage(websocket.BinaryMessage, keyUpMsg); err != nil {
+			return fmt.Errorf("failed to send key up: %w", err)
+		}
+
+		if i < count-1 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		}
+	}
+
+	fmt.Printf("───────────────────────────────────────────────────────────────────────────────\n")
+	fmt.Printf("✅ Sent %d keyboard event(s)\n", count)
+	fmt.Printf("📊 Received %d video frames during test\n", frameCount)
+	fmt.Printf("\n💡 Check sandbox logs for keyboard handling:\n")
+	fmt.Printf("   docker compose logs --tail 100 sandbox-nvidia 2>&1 | grep -E 'keyboard|Keyboard|WsStream'\n")
+
+	// Clean close
+	close(done)
+	conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	time.Sleep(100 * time.Millisecond)
 
 	return nil
 }

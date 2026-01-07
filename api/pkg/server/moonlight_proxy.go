@@ -383,6 +383,11 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 				return
 			}
 
+			// Log binary input messages for debugging
+			if messageType == websocket.BinaryMessage && len(message) > 0 {
+				log.Debug().Int("msg_type", int(message[0])).Int("len", len(message)).Msg("🔤 Forwarding binary message to Moonlight Web")
+			}
+
 			// Replace Helix JWT with Moonlight credentials in first message (AuthenticateAndInit)
 			transformedMessage := message
 			if firstMessage && messageType == websocket.TextMessage {

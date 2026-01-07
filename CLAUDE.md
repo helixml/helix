@@ -155,9 +155,10 @@ User operations (creating tasks, sessions, screenshots, etc.) require a real use
 **IMPORTANT**: `source .env.usercreds` does NOT export variables! You must explicitly export:
 
 ```bash
-# CORRECT - explicitly export each variable
-export HELIX_API_KEY=$(grep HELIX_API_KEY .env.usercreds | cut -d= -f2)
-export HELIX_URL=$(grep HELIX_URL .env.usercreds | cut -d= -f2)
+# CORRECT - explicitly export each variable (use backticks, NOT $() - see note below)
+# Use -f2- to preserve values containing = (like base64 API keys)
+export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
+export HELIX_URL=`grep HELIX_URL .env.usercreds | cut -d= -f2-`
 
 # Or use set -a to auto-export (then source)
 set -a && source .env.usercreds && set +a
@@ -165,6 +166,9 @@ set -a && source .env.usercreds && set +a
 # Or inline export for one-off commands
 export HELIX_API_KEY="hl-xxx" HELIX_URL="http://localhost:8080" && /tmp/helix spectask list
 ```
+
+**⚠️ Shell escaping bug**: The Bash tool incorrectly escapes `$()` command substitution
+(escapes `$` and adds space before `(`). Use backticks `` `command` `` instead of `$(command)`.
 
 **File convention:**
 - `.env.usercreds` - **Primary file** for CLI testing (HELIX_API_KEY + HELIX_URL + agent/project IDs)
