@@ -6,12 +6,8 @@ import useApi from '../hooks/useApi';
 export type {
   TypesSpecTask as SpecTask,
   TypesSpecTaskWorkSession as WorkSession,
-  TypesSpecTaskZedThread as ZedThread,
-  TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverview,
+  TypesSpecTaskZedThread as ZedThread,  
   TypesZedInstanceStatus,
-  TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
-  TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
-  TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
   TypesSpecTaskUpdateRequest as SpecTaskUpdateRequest,  
   TypesZedInstanceEvent as ZedInstanceEvent,
   TypesCloneTaskRequest as CloneTaskRequest,
@@ -24,8 +20,7 @@ export type {
 const QUERY_KEYS = {
   specTasks: ['spec-tasks'] as const,
   specTask: (id: string) => ['spec-tasks', id] as const,
-  taskProgress: (id: string) => ['spec-tasks', id, 'progress'] as const,
-  multiSessionOverview: (id: string) => ['spec-tasks', id, 'multi-session-overview'] as const,
+  taskProgress: (id: string) => ['spec-tasks', id, 'progress'] as const,  
   workSessions: (id: string) => ['spec-tasks', id, 'work-sessions'] as const,
   implementationTasks: (id: string) => ['spec-tasks', id, 'implementation-tasks'] as const,
   coordinationLog: (id: string) => ['spec-tasks', id, 'coordination-log'] as const,
@@ -66,59 +61,6 @@ export function useTaskProgress(taskId: string, options?: { enabled?: boolean; r
   });
 }
 
-export function useMultiSessionOverview(taskId: string) {
-  const api = useApi();
-  
-  return useQuery({
-    queryKey: QUERY_KEYS.multiSessionOverview(taskId),
-    queryFn: async () => {
-      const response = await api.getApiClient().v1SpecTasksMultiSessionOverviewDetail(taskId);
-      return response.data;
-    },
-    enabled: !!taskId,
-  });
-}
-
-export function useSpecTaskWorkSessions(taskId: string) {
-  const api = useApi();
-  
-  return useQuery({
-    queryKey: QUERY_KEYS.workSessions(taskId),
-    queryFn: async () => {
-      const response = await api.getApiClient().v1SpecTasksWorkSessionsDetail(taskId);
-      return response.data;
-    },
-    enabled: !!taskId,
-  });
-}
-
-export function useImplementationTasks(taskId: string) {
-  const api = useApi();
-  
-  return useQuery({
-    queryKey: QUERY_KEYS.implementationTasks(taskId),
-    queryFn: async () => {
-      const response = await api.getApiClient().v1SpecTasksImplementationTasksDetail(taskId);
-      return response.data;
-    },
-    enabled: !!taskId,
-  });
-}
-
-export function useCoordinationEvents(taskId: string) {
-  const api = useApi();
-  
-  return useQuery({
-    queryKey: QUERY_KEYS.coordinationLog(taskId),
-    queryFn: async () => {
-      const response = await api.getApiClient().v1SpecTasksCoordinationLogDetail(taskId);
-      return response.data;
-    },
-    enabled: !!taskId,
-    refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
-  });
-}
-
 export function useZedInstanceStatus(taskId: string) {
   const api = useApi();
   
@@ -130,57 +72,6 @@ export function useZedInstanceStatus(taskId: string) {
     },
     enabled: !!taskId,
     refetchInterval: 10000, // Refresh every 10 seconds
-  });
-}
-
-export function useSessionHistory(sessionId: string) {
-  const api = useApi();
-  
-  return useQuery({
-    queryKey: QUERY_KEYS.sessionHistory(sessionId),
-    queryFn: async () => {
-      const response = await api.getApiClient().v1WorkSessionsHistoryDetail(sessionId);
-      return response.data;
-    },
-    enabled: !!sessionId,
-  });
-}
-
-// Mutation hooks
-export function useCreateImplementationSessions() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ taskId, request }: { 
-      taskId: string; 
-      request: any; // TypesSpecTaskImplementationSessionsCreateRequest
-    }) => {
-      const response = await api.getApiClient().v1SpecTasksImplementationSessionsCreate(taskId, request);
-      return response.data;
-    },
-    onSuccess: (_, { taskId }) => {
-      // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workSessions(taskId) });
-    },
-  });
-}
-
-export function useUpdateSpecTaskStatus() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ taskId, status }: { taskId: string; status: string }) => {
-      const response = await api.getApiClient().v1SpecTasksUpdate(taskId, { status });
-      return response.data;
-    },
-    onSuccess: (_, { taskId }) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
-    },
   });
 }
 
@@ -198,7 +89,6 @@ export function useUpdateSpecTask() {
     },
     onSuccess: (_, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasks });
     },
   });
@@ -218,24 +108,6 @@ export function useApproveSpecTask() {
     },
     onSuccess: (_, taskId) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
-    },
-  });
-}
-
-export function useRecordSessionHistory() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ sessionId, entry }: { 
-      sessionId: string; 
-      entry: { content: string; timestamp: string; type: string; }
-    }) => {
-      const response = await api.getApiClient().v1WorkSessionsRecordHistoryCreate(sessionId, entry);
-      return response.data;
-    },
-    onSuccess: (_, { sessionId }) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sessionHistory(sessionId) });
     },
   });
 }
@@ -325,25 +197,6 @@ export function useCloneTask() {
   });
 }
 
-// Real-time updates hook
-export function useSpecTaskRealTimeUpdates(taskId: string) {
-  const queryClient = useQueryClient();
-  
-  // This would typically use WebSocket or Server-Sent Events
-  // For now, we'll use polling via the existing queries
-  const multiSessionQuery = useMultiSessionOverview(taskId);
-  const coordinationQuery = useCoordinationEvents(taskId);
-  const zedStatusQuery = useZedInstanceStatus(taskId);
-  
-  return {
-    multiSession: multiSessionQuery.data,
-    coordination: coordinationQuery.data,
-    zedStatus: zedStatusQuery.data,
-    isLoading: multiSessionQuery.isLoading || coordinationQuery.isLoading || zedStatusQuery.isLoading,
-    error: multiSessionQuery.error || coordinationQuery.error || zedStatusQuery.error,
-  };
-}
-
 // Helper functions
 export function getSessionStatusColor(status: string): 'success' | 'primary' | 'error' | 'warning' | 'default' {
   switch (status) {
@@ -391,28 +244,17 @@ export function formatTimestamp(timestamp: string | undefined): string {
 const specTaskService = {
   // Query functions
   useSpecTask,
-  useTaskProgress,
-  useMultiSessionOverview,
-  useSpecTaskWorkSessions,
-  useImplementationTasks,
-  useCoordinationEvents,
+  useTaskProgress,  
   useZedInstanceStatus,
-  useSessionHistory,
   useCloneGroups,
   useCloneGroupProgress,
   useReposWithoutProjects,
 
-  // Mutation functions
-  useCreateImplementationSessions,
-  useUpdateSpecTaskStatus,
+  // Mutation functions  
   useUpdateSpecTask,
   useApproveSpecTask,
-  useRecordSessionHistory,
   useSendZedEvent,
-  useCloneTask,
-
-  // Real-time updates
-  useSpecTaskRealTimeUpdates,
+  useCloneTask,  
 
   // Helper functions
   getSessionStatusColor,
