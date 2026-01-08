@@ -764,17 +764,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// The proxy validates Helix auth and injects moonlight-web credentials
 	// apiServer.moonlightServer.RegisterRoutes(router)
 
-	// Agent dashboard and management routes
-	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
-	authRouter.HandleFunc("/agents/fleet", system.Wrapper(apiServer.getAgentFleet)).Methods("GET")
-	authRouter.HandleFunc("/agents/sessions", system.Wrapper(apiServer.listAgentSessions)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.listAgentWorkItems)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.createAgentWorkItem)).Methods("POST")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.getAgentWorkItem)).Methods("GET")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
-	authRouter.HandleFunc("/agents/help-requests", system.Wrapper(apiServer.listHelpRequests)).Methods("GET")
-	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.Wrapper(apiServer.resolveHelpRequest)).Methods("POST")
-	authRouter.HandleFunc("/agents/stats", system.Wrapper(apiServer.getWorkQueueStats)).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
 	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
