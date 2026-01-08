@@ -125,7 +125,6 @@ type HelixAPIServer struct {
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
-	externalAgentPool          *services.ExternalAgentPool
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -390,13 +389,11 @@ func NewServer(
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 
 	// Initialize SpecTask Orchestrator components
-	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
 		controller,
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
-		apiServer.externalAgentPool,
 		apiServer.externalAgentExecutor, // Wolf executor for external agent management
 	)
 
