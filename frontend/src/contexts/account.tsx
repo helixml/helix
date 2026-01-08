@@ -403,20 +403,6 @@ export const useAccountContext = (): IAccountContext => {
             const userResponse = await innerClient.v1AuthUserList()
             const user = userResponse.data as IKeycloakUser
 
-            // Log new token expiry after refresh
-            try {
-              if (user.token) {
-                const payload = JSON.parse(atob(user.token.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-              }
-              if (user.refresh_token) {
-                const payload = JSON.parse(atob(user.refresh_token.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-              }
-            } catch (e) {
-              console.warn('[AUTH] Could not decode refreshed token expiry:', e)
-            }
-
             setUser(Object.assign({}, user, {
               token: user.token,
               is_admin: admin,
