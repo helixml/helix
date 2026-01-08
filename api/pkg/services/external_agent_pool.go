@@ -23,28 +23,28 @@ type ExternalAgentPool struct {
 
 // ExternalAgentInstance represents a single external agent (Zed instance)
 type ExternalAgentInstance struct {
-	InstanceID      string              `json:"instance_id"`
-	ZedInstanceID   string              `json:"zed_instance_id"`
-	SpecTaskID      string              `json:"spec_task_id"`
-	CurrentSessionID string             `json:"current_session_id"`
-	HelixSessions   []string            `json:"helix_sessions"` // Track all sessions this agent has worked on
-	WorkingDir      string              `json:"working_dir"`
-	DesignDocsPath  string              `json:"design_docs_path"`
-	RepoPath        string              `json:"repo_path"`
-	Status          ExternalAgentStatus `json:"status"`
-	LastActivity    time.Time           `json:"last_activity"`
-	CreatedAt       time.Time           `json:"created_at"`
+	InstanceID       string              `json:"instance_id"`
+	ZedInstanceID    string              `json:"zed_instance_id"`
+	SpecTaskID       string              `json:"spec_task_id"`
+	CurrentSessionID string              `json:"current_session_id"`
+	HelixSessions    []string            `json:"helix_sessions"` // Track all sessions this agent has worked on
+	WorkingDir       string              `json:"working_dir"`
+	DesignDocsPath   string              `json:"design_docs_path"`
+	RepoPath         string              `json:"repo_path"`
+	Status           ExternalAgentStatus `json:"status"`
+	LastActivity     time.Time           `json:"last_activity"`
+	CreatedAt        time.Time           `json:"created_at"`
 }
 
 // ExternalAgentStatus represents the status of an external agent
 type ExternalAgentStatus string
 
 const (
-	AgentStatusIdle         ExternalAgentStatus = "idle"
-	AgentStatusWorking      ExternalAgentStatus = "working"
+	AgentStatusIdle          ExternalAgentStatus = "idle"
+	AgentStatusWorking       ExternalAgentStatus = "working"
 	AgentStatusTransitioning ExternalAgentStatus = "transitioning" // Moving between sessions
-	AgentStatusStopped      ExternalAgentStatus = "stopped"
-	AgentStatusFailed       ExternalAgentStatus = "failed"
+	AgentStatusStopped       ExternalAgentStatus = "stopped"
+	AgentStatusFailed        ExternalAgentStatus = "failed"
 )
 
 // NewExternalAgentPool creates a new agent pool
@@ -102,17 +102,17 @@ func (p *ExternalAgentPool) createAgentForTask(ctx context.Context, specTask *ty
 	// - REPO_PATH={repoPath}
 
 	agent := &ExternalAgentInstance{
-		InstanceID:      instanceID,
-		ZedInstanceID:   "", // Will be set when Zed instance is created
-		SpecTaskID:      specTask.ID,
+		InstanceID:       instanceID,
+		ZedInstanceID:    "", // Will be set when Zed instance is created
+		SpecTaskID:       specTask.ID,
 		CurrentSessionID: "",
-		HelixSessions:   []string{},
-		WorkingDir:      repoPath,
-		DesignDocsPath:  designDocsPath,
-		RepoPath:        repoPath,
-		Status:          AgentStatusIdle,
-		LastActivity:    time.Now(),
-		CreatedAt:       time.Now(),
+		HelixSessions:    []string{},
+		WorkingDir:       repoPath,
+		DesignDocsPath:   designDocsPath,
+		RepoPath:         repoPath,
+		Status:           AgentStatusIdle,
+		LastActivity:     time.Now(),
+		CreatedAt:        time.Now(),
 	}
 
 	return agent, nil
