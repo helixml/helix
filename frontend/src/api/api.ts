@@ -529,40 +529,11 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
-export interface ServerApprovalWithHandoffRequest {
-  approved?: boolean;
-  changes?: string[];
-  comments?: string;
-  create_pull_request?: boolean;
-  handoff_config?: ServicesDocumentHandoffConfig;
-  project_path?: string;
-}
-
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
   repository_id?: string;
   target_dir?: string;
-}
-
-export interface ServerCombinedApprovalHandoffResult {
-  approval?: TypesSpecApprovalResponse;
-  handoff_result?: ServicesHandoffResult;
-  message?: string;
-  next_steps?: string[];
-  spec_task?: TypesSpecTask;
-  success?: boolean;
-}
-
-export interface ServerCoordinationLogResponse {
-  active_sessions?: number;
-  completed_sessions?: number;
-  events?: ServicesCoordinationEvent[];
-  events_by_type?: Record<string, number>;
-  filtered_events?: number;
-  last_activity?: string;
-  spec_task_id?: string;
-  total_events?: number;
 }
 
 export interface ServerCreateSpecTaskFromDemoRequest {
@@ -768,24 +739,6 @@ export interface ServerSampleTypesResponse {
   sample_types?: ServerSampleType[];
 }
 
-export interface ServerSessionHistoryEntry {
-  activity_type?: string;
-  content?: string;
-  files_affected?: string[];
-  timestamp?: string;
-}
-
-export interface ServerSessionHistoryResponse {
-  activity_type?: string;
-  entries?: ServerSessionHistoryEntry[];
-  git_branch?: string;
-  last_commit?: string;
-  limit?: number;
-  spec_task_id?: string;
-  total_entries?: number;
-  work_session_id?: string;
-}
-
 export interface ServerSessionWolfAppStateResponse {
   /** Unique Moonlight client ID for this agent */
   client_unique_id?: string;
@@ -827,16 +780,6 @@ export interface ServerSlotLogSummary {
   id?: string;
   model?: string;
   runner_id?: string;
-}
-
-export interface ServerSpecDocumentContentResponse {
-  content?: string;
-  content_type?: string;
-  document_name?: string;
-  filename?: string;
-  last_modified?: string;
-  size?: number;
-  spec_task_id?: string;
 }
 
 export interface ServerSpecTaskExternalAgentStatusResponse {
@@ -954,73 +897,6 @@ export interface ServerWolfSystemMemory {
   total_memory_bytes?: number;
 }
 
-export interface ServicesCoordinationEvent {
-  acknowledged?: boolean;
-  acknowledged_at?: string;
-  data?: Record<string, any>;
-  event_type?: ServicesCoordinationEventType;
-  from_session_id?: string;
-  id?: string;
-  message?: string;
-  response?: string;
-  timestamp?: string;
-  /** Empty for broadcast */
-  to_session_id?: string;
-}
-
-export enum ServicesCoordinationEventType {
-  CoordinationEventTypeHandoff = "handoff",
-  CoordinationEventTypeBlocking = "blocking",
-  CoordinationEventTypeNotification = "notification",
-  CoordinationEventTypeRequest = "request",
-  CoordinationEventTypeResponse = "response",
-  CoordinationEventTypeBroadcast = "broadcast",
-  CoordinationEventTypeCompletion = "completion",
-  CoordinationEventTypeSpawn = "spawn",
-}
-
-export interface ServicesDocumentHandoffConfig {
-  auto_merge_approved_specs?: boolean;
-  commit_frequency_minutes?: number;
-  custom_git_hooks?: Record<string, string>;
-  enable_git_integration?: boolean;
-  enable_pull_requests?: boolean;
-  enable_session_recording?: boolean;
-  notification_webhooks?: string[];
-  require_code_review?: boolean;
-  spec_reviewers?: string[];
-}
-
-export interface ServicesDocumentHandoffStatus {
-  current_phase?: string;
-  documents_generated?: boolean;
-  git_integration_status?: string;
-  last_commit_hash?: string;
-  last_commit_time?: string;
-  session_recording_active?: boolean;
-  spec_task_id?: string;
-}
-
-export interface ServicesHandoffResult {
-  branch_name?: string;
-  estimated_completion?: string;
-  files_committed?: string[];
-  git_commit_hash?: string;
-  handoff_timestamp?: string;
-  message?: string;
-  metadata?: Record<string, any>;
-  next_actions?: string[];
-  notifications_sent?: string[];
-  /** "spec_commit", "implementation_start", "progress_update", "completion" */
-  phase?: string;
-  pull_request_url?: string;
-  spec_task_id?: string;
-  success?: boolean;
-  warnings?: string[];
-  work_sessions_created?: string[];
-  zed_instance_id?: string;
-}
-
 export interface ServicesKoditEnrichmentAttributes {
   content?: string;
   created_at?: string;
@@ -1070,84 +946,12 @@ export interface ServicesSampleProjectCode {
   technologies?: string[];
 }
 
-export interface ServicesSessionHistoryRecord {
-  /** "conversation", "code_change", "decision", "coordination" */
-  activity_type?: string;
-  code_changes?: Record<string, any>;
-  content?: string;
-  coordination_data?: Record<string, any>;
-  files_affected?: string[];
-  helix_session_id?: string;
-  metadata?: Record<string, any>;
-  timestamp?: string;
-  work_session_id?: string;
-  zed_thread_id?: string;
-}
-
-export interface ServicesSpecDocumentConfig {
-  branch_name?: string;
-  commit_message?: string;
-  create_pull_request?: boolean;
-  custom_metadata?: Record<string, string>;
-  generate_task_board?: boolean;
-  include_timestamps?: boolean;
-  overwrite_existing?: boolean;
-  project_path?: string;
-  reviewers_needed?: string[];
-  spec_task_id?: string;
-}
-
-export interface ServicesSpecDocumentResult {
-  branch_name?: string;
-  commit_hash?: string;
-  files_created?: string[];
-  /** filename -> content */
-  generated_files?: Record<string, string>;
-  message?: string;
-  metadata?: Record<string, any>;
-  pull_request_url?: string;
-  spec_task_id?: string;
-  success?: boolean;
-  warnings?: string[];
-}
-
 export interface ServicesStartupScriptVersion {
   author?: string;
   commit_hash?: string;
   content?: string;
   message?: string;
   timestamp?: string;
-}
-
-export interface ServicesZedSessionCreationResult {
-  /** "spawned", "planned", "ad_hoc" */
-  creation_method?: string;
-  helix_session?: TypesSession;
-  message?: string;
-  parent_work_session?: TypesSpecTaskWorkSession;
-  spec_task?: TypesSpecTask;
-  success?: boolean;
-  warnings?: string[];
-  work_session?: TypesSpecTaskWorkSession;
-  zed_thread?: TypesSpecTaskZedThread;
-}
-
-export interface ServicesZedThreadCreationContext {
-  agent_configuration?: Record<string, any>;
-  environment_variables?: string[];
-  estimated_duration_hours?: number;
-  expected_work_type?: string;
-  initial_prompt?: string;
-  parent_zed_thread_id?: string;
-  project_path?: string;
-  related_implementation_task?: number;
-  spawn_reason?: string;
-  spec_task_id?: string;
-  thread_description?: string;
-  thread_name?: string;
-  user_id?: string;
-  zed_instance_id?: string;
-  zed_thread_id?: string;
 }
 
 export interface SqlNullString {
@@ -4459,26 +4263,6 @@ export interface TypesSpecTask {
   zed_instance_id?: string;
 }
 
-export interface TypesSpecTaskActivityLogEntry {
-  activity_type?: TypesSpecTaskActivityType;
-  id?: string;
-  message?: string;
-  metadata?: Record<string, any>;
-  spec_task_id?: string;
-  timestamp?: string;
-  work_session_id?: string;
-}
-
-export enum TypesSpecTaskActivityType {
-  SpecTaskActivitySessionCreated = "session_created",
-  SpecTaskActivitySessionCompleted = "session_completed",
-  SpecTaskActivitySessionSpawned = "session_spawned",
-  SpecTaskActivityTaskCompleted = "task_completed",
-  SpecTaskActivityZedConnected = "zed_connected",
-  SpecTaskActivityZedDisconnected = "zed_disconnected",
-  SpecTaskActivityPhaseTransition = "phase_transition",
-}
-
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
 }
@@ -4603,63 +4387,6 @@ export interface TypesSpecTaskDesignReviewSubmitRequest {
   review_id: string;
 }
 
-export interface TypesSpecTaskImplementationSessionsCreateRequest {
-  /** @default true */
-  auto_create_sessions?: boolean;
-  project_path?: string;
-  spec_task_id: string;
-  workspace_config?: Record<string, any>;
-}
-
-export enum TypesSpecTaskImplementationStatus {
-  SpecTaskImplementationStatusPending = "pending",
-  SpecTaskImplementationStatusAssigned = "assigned",
-  SpecTaskImplementationStatusInProgress = "in_progress",
-  SpecTaskImplementationStatusCompleted = "completed",
-  SpecTaskImplementationStatusBlocked = "blocked",
-}
-
-export interface TypesSpecTaskImplementationTask {
-  acceptance_criteria?: string;
-  assigned_work_session?: TypesSpecTaskWorkSession;
-  assigned_work_session_id?: string;
-  completed_at?: string;
-  created_at?: string;
-  /** Array of other task indices */
-  dependencies?: number[];
-  description?: string;
-  /** 'small', 'medium', 'large' */
-  estimated_effort?: string;
-  id?: string;
-  /** Order within the plan */
-  index?: number;
-  priority?: number;
-  /** Relationships */
-  spec_task?: TypesSpecTask;
-  spec_task_id?: string;
-  /** Implementation tracking */
-  status?: TypesSpecTaskImplementationStatus;
-  /** Task details */
-  title?: string;
-}
-
-export interface TypesSpecTaskImplementationTaskListResponse {
-  implementation_tasks?: TypesSpecTaskImplementationTask[];
-  total?: number;
-}
-
-export interface TypesSpecTaskMultiSessionOverviewResponse {
-  active_sessions?: number;
-  completed_sessions?: number;
-  implementation_tasks?: TypesSpecTaskImplementationTask[];
-  last_activity?: string;
-  spec_task?: TypesSpecTask;
-  work_session_count?: number;
-  work_sessions?: TypesSpecTaskWorkSession[];
-  zed_instance_id?: string;
-  zed_thread_count?: number;
-}
-
 export enum TypesSpecTaskPhase {
   SpecTaskPhasePlanning = "planning",
   SpecTaskPhaseImplementation = "implementation",
@@ -4671,19 +4398,6 @@ export enum TypesSpecTaskPriority {
   SpecTaskPriorityMedium = "medium",
   SpecTaskPriorityHigh = "high",
   SpecTaskPriorityCritical = "critical",
-}
-
-export interface TypesSpecTaskProgressResponse {
-  active_work_sessions?: TypesSpecTaskWorkSession[];
-  /** Progress from tasks.md */
-  checklist?: TypesChecklistProgress;
-  /** Task index -> progress */
-  implementation_progress?: Record<string, number>;
-  /** 0.0 to 1.0 */
-  overall_progress?: number;
-  phase_progress?: Record<string, number>;
-  recent_activity?: TypesSpecTaskActivityLogEntry[];
-  spec_task?: TypesSpecTask;
 }
 
 export enum TypesSpecTaskStatus {
@@ -4741,29 +4455,6 @@ export interface TypesSpecTaskWorkSession {
   updated_at?: string;
 }
 
-export interface TypesSpecTaskWorkSessionDetailResponse {
-  child_work_sessions?: TypesSpecTaskWorkSession[];
-  helix_session?: TypesSession;
-  implementation_task?: TypesSpecTaskImplementationTask;
-  spec_task?: TypesSpecTask;
-  work_session?: TypesSpecTaskWorkSession;
-  zed_thread?: TypesSpecTaskZedThread;
-}
-
-export interface TypesSpecTaskWorkSessionListResponse {
-  total?: number;
-  work_sessions?: TypesSpecTaskWorkSession[];
-}
-
-export interface TypesSpecTaskWorkSessionSpawnRequest {
-  agent_config?: Record<string, any>;
-  description?: string;
-  environment_config?: Record<string, any>;
-  /** @maxLength 255 */
-  name: string;
-  parent_work_session_id: string;
-}
-
 export enum TypesSpecTaskWorkSessionStatus {
   SpecTaskWorkSessionStatusPending = "pending",
   SpecTaskWorkSessionStatusActive = "active",
@@ -4771,14 +4462,6 @@ export enum TypesSpecTaskWorkSessionStatus {
   SpecTaskWorkSessionStatusFailed = "failed",
   SpecTaskWorkSessionStatusCancelled = "cancelled",
   SpecTaskWorkSessionStatusBlocked = "blocked",
-}
-
-export interface TypesSpecTaskWorkSessionUpdateRequest {
-  config?: Record<string, any>;
-  description?: string;
-  /** @maxLength 255 */
-  name?: string;
-  status?: "pending" | "active" | "completed" | "failed" | "cancelled" | "blocked";
 }
 
 export enum TypesSpecTaskZedStatus {
@@ -4817,11 +4500,6 @@ export interface TypesSpecTaskZedThreadCreateRequest {
 export interface TypesSpecTaskZedThreadListResponse {
   total?: number;
   zed_threads?: TypesSpecTaskZedThread[];
-}
-
-export interface TypesSpecTaskZedThreadUpdateRequest {
-  status?: "pending" | "active" | "disconnected" | "completed" | "failed";
-  thread_config?: Record<string, any>;
 }
 
 export interface TypesStepInfo {
@@ -10865,30 +10543,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Combined endpoint that approves specifications and immediately executes document handoff workflow
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksApproveWithHandoffCreate
-     * @summary Approve specs and execute document handoff
-     * @request POST:/api/v1/spec-tasks/{taskId}/approve-with-handoff
-     * @secure
-     */
-    v1SpecTasksApproveWithHandoffCreate: (
-      taskId: string,
-      request: ServerApprovalWithHandoffRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerCombinedApprovalHandoffResult, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/approve-with-handoff`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Archive a spec task to hide it from the main view, or unarchive to restore it
      *
      * @tags spec-driven-tasks
@@ -10951,246 +10605,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Commit a progress update to git with current implementation status
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksCommitProgressCreate
-     * @summary Commit implementation progress update
-     * @request POST:/api/v1/spec-tasks/{taskId}/commit-progress
-     * @secure
-     */
-    v1SpecTasksCommitProgressCreate: (taskId: string, request: Record<string, any>, params: RequestParams = {}) =>
-      this.request<ServicesHandoffResult, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/commit-progress`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the coordination log showing inter-session communication for a SpecTask
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksCoordinationLogDetail
-     * @summary Get coordination log for SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/coordination-log
-     * @secure
-     */
-    v1SpecTasksCoordinationLogDetail: (
-      taskId: string,
-      query?: {
-        /**
-         * Limit number of events
-         * @default 100
-         */
-        limit?: number;
-        /** Filter by event type */
-        event_type?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerCoordinationLogResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/coordination-log`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get the current status of document handoff and git integration for a SpecTask
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksDocumentStatusDetail
-     * @summary Get document handoff status for SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/document-status
-     * @secure
-     */
-    v1SpecTasksDocumentStatusDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<ServicesDocumentHandoffStatus, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/document-status`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Retrieve the content of a specific spec document (requirements.md, design.md, or tasks.md)
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksDocumentsDetail
-     * @summary Get specific spec document content
-     * @request GET:/api/v1/spec-tasks/{taskId}/documents/{document}
-     * @secure
-     */
-    v1SpecTasksDocumentsDetail: (
-      taskId: string,
-      document: "requirements" | "design" | "tasks" | "metadata",
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerSpecDocumentContentResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/documents/${document}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Download the generated spec documents as a zip file or individual files
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksDownloadDocumentsDetail
-     * @summary Download generated spec documents
-     * @request GET:/api/v1/spec-tasks/{taskId}/download-documents
-     * @secure
-     */
-    v1SpecTasksDownloadDocumentsDetail: (
-      taskId: string,
-      query?: {
-        /**
-         * Download format
-         * @default "zip"
-         */
-        format?: "zip" | "individual";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<File, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/download-documents`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Execute the complete document handoff when specs are approved, including git commit and implementation start
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksExecuteHandoffCreate
-     * @summary Execute complete document handoff workflow
-     * @request POST:/api/v1/spec-tasks/{taskId}/execute-handoff
-     * @secure
-     */
-    v1SpecTasksExecuteHandoffCreate: (
-      taskId: string,
-      request: ServicesDocumentHandoffConfig,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServicesHandoffResult, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/execute-handoff`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Generate Kiro-style spec documents (requirements.md, design.md, tasks.md) and commit to git repository
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksGenerateDocumentsCreate
-     * @summary Generate and commit spec documents to git
-     * @request POST:/api/v1/spec-tasks/{taskId}/generate-documents
-     * @secure
-     */
-    v1SpecTasksGenerateDocumentsCreate: (
-      taskId: string,
-      request: ServicesSpecDocumentConfig,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServicesSpecDocumentResult, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/generate-documents`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create multiple work sessions from an approved SpecTask implementation plan
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksImplementationSessionsCreate
-     * @summary Create implementation sessions for a SpecTask
-     * @request POST:/api/v1/spec-tasks/{taskId}/implementation-sessions
-     * @secure
-     */
-    v1SpecTasksImplementationSessionsCreate: (
-      taskId: string,
-      request: TypesSpecTaskImplementationSessionsCreateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskMultiSessionOverviewResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/implementation-sessions`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all parsed implementation tasks from a SpecTask's implementation plan
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksImplementationTasksDetail
-     * @summary List implementation tasks for a SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/implementation-tasks
-     * @secure
-     */
-    v1SpecTasksImplementationTasksDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskImplementationTaskListResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/implementation-tasks`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get comprehensive overview of all work sessions and progress for a SpecTask
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksMultiSessionOverviewDetail
-     * @summary Get multi-session overview for a SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/multi-session-overview
-     * @secure
-     */
-    v1SpecTasksMultiSessionOverviewDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskMultiSessionOverviewResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/multi-session-overview`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get detailed progress information including phase progress and implementation task status
+     * @description Get detailed progress information for a spec-driven task including specification and implementation phases
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksProgressDetail
-     * @summary Get detailed progress for a SpecTask
+     * @summary Get spec-driven task progress
      * @request GET:/api/v1/spec-tasks/{taskId}/progress
-     * @secure
      */
     v1SpecTasksProgressDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskProgressResponse, TypesAPIError>({
+      this.request<ServerTaskProgressResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/progress`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -11236,32 +10661,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all work sessions associated with a specific SpecTask
-     *
-     * @tags spec-driven-tasks
-     * @name V1SpecTasksWorkSessionsDetail
-     * @summary List work sessions for a SpecTask
-     * @request GET:/api/v1/spec-tasks/{taskId}/work-sessions
-     * @secure
-     */
-    v1SpecTasksWorkSessionsDetail: (
-      taskId: string,
-      query?: {
-        /** Filter by phase */
-        phase?: "planning" | "implementation" | "validation";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskWorkSessionListResponse, TypesAPIError>({
-        path: `/api/v1/spec-tasks/${taskId}/work-sessions`,
-        method: "GET",
-        query: query,
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -12171,127 +11570,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get comprehensive details about a specific work session including related entities
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsDetail
-     * @summary Get detailed information about a work session
-     * @request GET:/api/v1/work-sessions/{sessionId}
-     * @secure
-     */
-    v1WorkSessionsDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<TypesSpecTaskWorkSessionDetailResponse, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Retrieve the session history log for a work session from git repository
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsHistoryDetail
-     * @summary Get session history log from git
-     * @request GET:/api/v1/work-sessions/{sessionId}/history
-     * @secure
-     */
-    v1WorkSessionsHistoryDetail: (
-      sessionId: string,
-      query?: {
-        /** Filter by activity type */
-        activity_type?: "conversation" | "code_change" | "decision" | "coordination";
-        /**
-         * Limit number of entries
-         * @default 50
-         */
-        limit?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerSessionHistoryResponse, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}/history`,
-        method: "GET",
-        query: query,
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Record session activity (conversation, code changes, decisions) to git repository
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsRecordHistoryCreate
-     * @summary Record session activity to git
-     * @request POST:/api/v1/work-sessions/{sessionId}/record-history
-     * @secure
-     */
-    v1WorkSessionsRecordHistoryCreate: (
-      sessionId: string,
-      request: ServicesSessionHistoryRecord,
-      params: RequestParams = {},
-    ) =>
-      this.request<Record<string, any>, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}/record-history`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new work session that is spawned from an existing active work session
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsSpawnCreate
-     * @summary Spawn a new work session from an existing one
-     * @request POST:/api/v1/work-sessions/{sessionId}/spawn
-     * @secure
-     */
-    v1WorkSessionsSpawnCreate: (
-      sessionId: string,
-      request: TypesSpecTaskWorkSessionSpawnRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskWorkSessionDetailResponse, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}/spawn`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the status of a work session and handle state transitions
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsStatusUpdate
-     * @summary Update work session status
-     * @request PUT:/api/v1/work-sessions/{sessionId}/status
-     * @secure
-     */
-    v1WorkSessionsStatusUpdate: (
-      sessionId: string,
-      request: TypesSpecTaskWorkSessionUpdateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskWorkSession, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}/status`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Manually create a Zed thread for a specific work session
      *
      * @tags zed-integration
@@ -12307,50 +11585,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesSpecTaskZedThread, TypesAPIError>({
         path: `/api/v1/work-sessions/${sessionId}/zed-thread`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Update the status of a Zed thread associated with a work session
-     *
-     * @tags spec-driven-tasks
-     * @name V1WorkSessionsZedThreadUpdate
-     * @summary Update Zed thread status
-     * @request PUT:/api/v1/work-sessions/{sessionId}/zed-thread
-     * @secure
-     */
-    v1WorkSessionsZedThreadUpdate: (
-      sessionId: string,
-      request: TypesSpecTaskZedThreadUpdateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSpecTaskZedThread, TypesAPIError>({
-        path: `/api/v1/work-sessions/${sessionId}/zed-thread`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new Helix work session when a Zed thread is created (reverse flow)
-     *
-     * @tags spec-driven-tasks
-     * @name V1ZedThreadsCreateSessionCreate
-     * @summary Create Helix session from Zed thread
-     * @request POST:/api/v1/zed-threads/create-session
-     * @secure
-     */
-    v1ZedThreadsCreateSessionCreate: (request: ServicesZedThreadCreationContext, params: RequestParams = {}) =>
-      this.request<ServicesZedSessionCreationResult, TypesAPIError>({
-        path: `/api/v1/zed-threads/create-session`,
         method: "POST",
         body: request,
         secure: true,
