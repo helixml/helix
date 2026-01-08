@@ -17,7 +17,6 @@ import (
 // This enables the reverse flow: Zed thread creation → Helix session creation
 type ZedToHelixSessionService struct {
 	store                 store.Store
-	multiSessionManager   *SpecTaskMultiSessionManager
 	sessionContextService *SessionContextService
 	testMode              bool
 }
@@ -57,12 +56,10 @@ type ZedSessionCreationResult struct {
 // NewZedToHelixSessionService creates a new Zed-to-Helix session service
 func NewZedToHelixSessionService(
 	store store.Store,
-	multiSessionManager *SpecTaskMultiSessionManager,
 	sessionContextService *SessionContextService,
 ) *ZedToHelixSessionService {
 	return &ZedToHelixSessionService{
 		store:                 store,
-		multiSessionManager:   multiSessionManager,
 		sessionContextService: sessionContextService,
 		testMode:              false,
 	}
@@ -131,11 +128,6 @@ func (s *ZedToHelixSessionService) CreateHelixSessionFromZedThread(
 			workSession.ID,
 			creationContext.SpawnReason,
 		)
-	}
-
-	// Start the session (unless in test mode)
-	if !s.testMode {
-		go s.startCreatedSession(context.Background(), workSession, helixSession, specTask, creationContext)
 	}
 
 	result := &ZedSessionCreationResult{
@@ -574,43 +566,6 @@ You are working within a multi-session SpecTask where other agents may be workin
 Remember: You are part of a larger coordinated effort. Other agents are working on related tasks in parallel within the same Zed instance.`
 
 	return basePrompt
-}
-
-func (s *ZedToHelixSessionService) startCreatedSession(
-	ctx context.Context,
-	workSession *types.SpecTaskWorkSession,
-	helixSession *types.Session,
-	specTask *types.SpecTask,
-	creationContext *ZedThreadCreationContext,
-) {
-	// Mark work session as active
-	err := s.multiSessionManager.UpdateWorkSessionStatus(
-		ctx,
-		workSession.ID,
-		types.SpecTaskWorkSessionStatusActive,
-	)
-	if err != nil {
-		log.Error().Err(err).
-			Str("work_session_id", workSession.ID).
-			Msg("Failed to mark created session as active")
-		return
-	}
-
-	// Send initial prompt if provided
-	if creationContext.InitialPrompt != "" {
-		// TODO: Send initial prompt to session
-		// This would typically involve creating an initial interaction
-		log.Info().
-			Str("work_session_id", workSession.ID).
-			Str("initial_prompt", creationContext.InitialPrompt).
-			Msg("Initial prompt ready for session")
-	}
-
-	log.Info().
-		Str("work_session_id", workSession.ID).
-		Str("helix_session_id", helixSession.ID).
-		Str("spec_task_id", specTask.ID).
-		Msg("Started session created from Zed thread")
 }
 
 func (s *ZedToHelixSessionService) findZedThreadByZedID(ctx context.Context, zedThreadID string) (*types.SpecTaskZedThread, error) {

@@ -1760,13 +1760,12 @@ type AzureDevOpsTrigger struct {
 // AgentWorkQueueTrigger represents a trigger for agent work queue items
 
 type Trigger struct {
-	Discord        *DiscordTrigger        `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Slack          *SlackTrigger          `json:"slack,omitempty" yaml:"slack,omitempty"`
-	Teams          *TeamsTrigger          `json:"teams,omitempty" yaml:"teams,omitempty"`
-	Cron           *CronTrigger           `json:"cron,omitempty" yaml:"cron,omitempty"`
-	Crisp          *CrispTrigger          `json:"crisp,omitempty" yaml:"crisp,omitempty"`
-	AzureDevOps    *AzureDevOpsTrigger    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
-	AgentWorkQueue *AgentWorkQueueTrigger `json:"agent_work_queue,omitempty" yaml:"agent_work_queue,omitempty"`
+	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Teams       *TeamsTrigger       `json:"teams,omitempty" yaml:"teams,omitempty"`
+	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
+	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {

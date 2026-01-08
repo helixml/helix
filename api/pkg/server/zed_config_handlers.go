@@ -552,10 +552,5 @@ func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context,
 		}
 	}
 
-	log.Debug().
-		Str("spec_task_id", specTaskID).
-		Str("project_id", specTask.ProjectID).
-		Int("repo_count", len(repos)).
-		Msg("No repositories with Kodit indexing enabled")
 	return false
 }

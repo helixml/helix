@@ -494,10 +494,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Start integrations
 	go trigger.Start(ctx)
 
-	// Start agent work queue processor
-	workQueueProcessor := controller.NewAgentWorkQueueProcessor(postgresStore, appController)
-	go workQueueProcessor.Start(ctx)
-
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
 		postgresStore,
