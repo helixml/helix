@@ -983,6 +983,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
+	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
+	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Error().
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("unknown API path")
+		http.Error(w, "Not Found", http.StatusNotFound)
+	})
+
 	// proxy other routes to frontend (MUST BE LAST - catch-all handler)
 	apiServer.registerDefaultHandler(router)
 
@@ -1041,28 +1051,29 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
+	// TODO: remove all?
 	// Multi-session spec-driven task routes
-	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/multi-session-overview", apiServer.getSpecTaskMultiSessionOverview).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/work-sessions", apiServer.listSpecTaskWorkSessions).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-tasks", apiServer.listImplementationTasks).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}", apiServer.getWorkSessionDetail).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/spawn", apiServer.spawnWorkSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/status", apiServer.updateWorkSessionStatus).Methods(http.MethodPut)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.updateZedThreadStatus).Methods(http.MethodPut)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/multi-session-overview", apiServer.getSpecTaskMultiSessionOverview).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/work-sessions", apiServer.listSpecTaskWorkSessions).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-tasks", apiServer.listImplementationTasks).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}", apiServer.getWorkSessionDetail).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}/spawn", apiServer.spawnWorkSession).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}/status", apiServer.updateWorkSessionStatus).Methods(http.MethodPut)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.updateZedThreadStatus).Methods(http.MethodPut)
 
 	// Document handoff and git integration routes
-	authRouter.HandleFunc("/spec-tasks/{taskId}/generate-documents", apiServer.generateSpecDocuments).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/execute-handoff", apiServer.executeDocumentHandoff).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-with-handoff", apiServer.approveSpecsWithHandoff).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/commit-progress", apiServer.commitProgressUpdate).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/document-status", apiServer.getDocumentHandoffStatus).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/download-documents", apiServer.downloadSpecDocuments).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/documents/{document}", apiServer.getSpecDocumentContent).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/coordination-log", apiServer.getCoordinationLog).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/generate-documents", apiServer.generateSpecDocuments).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/execute-handoff", apiServer.executeDocumentHandoff).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/approve-with-handoff", apiServer.approveSpecsWithHandoff).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/commit-progress", apiServer.commitProgressUpdate).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/document-status", apiServer.getDocumentHandoffStatus).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/download-documents", apiServer.downloadSpecDocuments).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/documents/{document}", apiServer.getSpecDocumentContent).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/spec-tasks/{taskId}/coordination-log", apiServer.getCoordinationLog).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
+	// authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
+	// authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
 
 	// Design review routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)

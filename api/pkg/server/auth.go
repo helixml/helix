@@ -73,11 +73,6 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 		// - HTTPS: use Secure cookies (standard secure behavior)
 		// - HTTP: use non-Secure cookies (Safari strictly rejects Secure cookies over HTTP)
 		secureCookies = strings.HasPrefix(config.WebServer.URL, "https://")
-		if !secureCookies {
-			log.Debug().
-				Str("server_url", config.WebServer.URL).
-				Msg("SERVER_URL is HTTP - using non-secure cookies for browser compatibility")
-		}
 	}
 
 	return &CookieManager{
