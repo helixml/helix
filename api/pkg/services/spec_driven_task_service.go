@@ -31,18 +31,16 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
-	store                  store.Store
-	controller             *controller.Controller
-	externalAgentExecutor  external_agent.Executor // Wolf executor for launching external agents
-	gitRepositoryService   *GitRepositoryService   // Service for git repository operations
-	RegisterRequestMapping RequestMappingRegistrar // Callback to register request-to-session mappings
-	SendMessageToAgent     SpecTaskMessageSender   // Callback to send messages to agents via WebSocket
-	helixAgentID           string                  // ID of Helix agent for spec generation
-	zedAgentPool           []string                // Pool of available Zed agents
-	testMode               bool                    // If true, skip async operations for testing
-	// MultiSessionManager    *SpecTaskMultiSessionManager // Manager for multi-session workflows
-	ZedIntegrationService *ZedIntegrationService // Service for Zed instance and thread management
-	// DocumentHandoffService   *DocumentHandoffService   // Service for git-based document handoff
+	store                    store.Store
+	controller               *controller.Controller
+	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
+	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
+	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
+	SendMessageToAgent       SpecTaskMessageSender     // Callback to send messages to agents via WebSocket
+	helixAgentID             string                    // ID of Helix agent for spec generation
+	zedAgentPool             []string                  // Pool of available Zed agents
+	testMode                 bool                      // If true, skip async operations for testing
+	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
 	SpecDocumentService      *SpecDocumentService      // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
