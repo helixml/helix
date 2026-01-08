@@ -250,6 +250,9 @@ RUN <<_FIXES
 _FIXES
 
 # GNOME/Wayland environment variables
+# MUTTER_DEBUG_KMS_THREAD_TYPE=user: Workaround for Mutter frame rate drops (60→40fps)
+# See: https://gitlab.gnome.org/GNOME/mutter/-/issues/3788
+# This switches KMS thread from real-time to user priority, fixing frame scheduling issues
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     XDG_SESSION_TYPE=wayland \
@@ -258,7 +261,8 @@ ENV LANG=en_US.UTF-8 \
     GDK_BACKEND=wayland \
     CLUTTER_BACKEND=wayland \
     SDL_VIDEODRIVER=wayland \
-    MUTTER_ALLOW_NESTED=1
+    MUTTER_ALLOW_NESTED=1 \
+    MUTTER_DEBUG_KMS_THREAD_TYPE=user
 
 # GOW dbus init script
 COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
@@ -345,6 +349,7 @@ RUN echo "qwen-code commit: ${QWEN_CODE_HASH}" && \
 WORKDIR /
 
 # Helix startup script (GNOME Wayland session)
+# Cache-bust: 2026-01-08 Ubuntu theming
 COPY <<'_STARTUP' /opt/gow/startup.sh
 #!/bin/bash -e
 # GOW startup script for Helix Desktop (Ubuntu GNOME Wayland)
@@ -535,11 +540,18 @@ sleep 0.5
 wireplumber &
 sleep 0.5
 
+# Load Ubuntu desktop theming (Yaru dark theme, fonts, Helix background)
+if [ -f /opt/gow/dconf-settings.ini ]; then
+    gow_log "[start] Loading Ubuntu desktop theming from dconf-settings.ini"
+    dconf load / < /opt/gow/dconf-settings.ini || gow_log "[start] Warning: dconf load failed"
+fi
+
 # Enable Just Perfection extension and hide screen recording indicator
 # This MUST be done before gnome-shell starts so the extension is loaded
 # The extension hides the ScreenCast "stop" button that would crash Wolf if clicked
+# Also keep Ubuntu Dock enabled for the Ubuntu experience
 gow_log "[start] Enabling Just Perfection extension to hide screen recording indicator..."
-gsettings set org.gnome.shell enabled-extensions "['just-perfection-desktop@just-perfection']"
+gsettings set org.gnome.shell enabled-extensions "['ubuntu-dock@ubuntu.com', 'just-perfection-desktop@just-perfection']"
 gsettings set org.gnome.shell.extensions.just-perfection screen-recording-indicator false
 gsettings set org.gnome.shell.extensions.just-perfection screen-sharing-indicator false
 gow_log "[start] Just Perfection extension configured"
@@ -646,6 +658,9 @@ ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-scre
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
 
+# Ubuntu desktop theming - Yaru dark theme with Helix background
+ADD wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
+
 # Docker group init script
 ADD wolf/ubuntu-config/16-add-docker-group.sh /etc/cont-init.d/16-add-docker-group.sh
 RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
@@ -688,7 +703,7 @@ RUN mkdir -p /home/retro/.claude && \
     echo '{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","DISABLE_TELEMETRY":"1","DISABLE_ERROR_REPORTING":"1","DISABLE_AUTOUPDATER":"1"}}' > /home/retro/.claude/settings.json
 
 RUN mkdir -p /home/retro/.config/zed && \
-    echo '{"telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
@@ -710,9 +725,36 @@ RUN unzip -o /tmp/just-perfection-desktop@just-perfection.zip -d /usr/share/gnom
     rm /tmp/just-perfection-desktop@just-perfection.zip && \
     # Fix permissions (metadata.json in zip has 600, needs to be readable by retro user)
     chmod -R a+rX /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection && \
-    # Compile the extension's schema for system-wide use
+    # Compile schemas in BOTH locations:
+    # 1. Extension's own directory (required by the extension at runtime)
+    glib-compile-schemas /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/ && \
+    # 2. System-wide schemas (for gsettings CLI access)
     cp /usr/share/gnome-shell/extensions/just-perfection-desktop@just-perfection/schemas/org.gnome.shell.extensions.just-perfection.gschema.xml /usr/share/glib-2.0/schemas/ && \
     glib-compile-schemas /usr/share/glib-2.0/schemas/
+
+# ====================================================================
+# System-wide dconf defaults (Ubuntu branding)
+# ====================================================================
+# GNOME uses dconf for settings. To set system-wide defaults that apply
+# before any user session starts, we must use dconf profiles and keyfiles.
+# Runtime `dconf load` doesn't work reliably because GNOME Shell may
+# reset settings on first launch.
+#
+# Structure:
+# - /etc/dconf/profile/user: defines database priority (user > local)
+# - /etc/dconf/db/local.d/00-helix: our default settings
+# - dconf update: compiles keyfiles into binary database
+
+# Create dconf profile (user settings override local defaults)
+RUN mkdir -p /etc/dconf/profile && \
+    printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+
+# Copy our settings as system defaults
+RUN mkdir -p /etc/dconf/db/local.d
+ADD wolf/ubuntu-config/dconf-settings.ini /etc/dconf/db/local.d/00-helix
+
+# Compile the dconf database
+RUN dconf update
 
 # Pre-build fontconfig cache (major speedup for first browser launch)
 RUN fc-cache -f -v

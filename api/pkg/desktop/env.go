@@ -98,28 +98,17 @@ func getWaylandDisplay(xdgRuntimeDir string) string {
 		return ""
 	}
 
+	// Find the first valid Wayland socket file (not lock file)
+	// Just check file exists - don't spawn wl-paste (causes "Unknown" processes in GNOME panel)
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, "wayland-") && !strings.HasSuffix(name, ".lock") {
-			// Try this socket
-			cmd := exec.Command("wl-paste", "--list-types")
-			cmd.Env = append(os.Environ(),
-				"WAYLAND_DISPLAY="+name,
-				"XDG_RUNTIME_DIR="+xdgRuntimeDir,
-			)
-			if err := cmd.Run(); err == nil {
+			socketPath := xdgRuntimeDir + "/" + name
+			// Check socket file exists and is a socket
+			if info, err := os.Stat(socketPath); err == nil && (info.Mode()&os.ModeSocket) != 0 {
 				envInfo.waylandDisp = name
 				return name
 			}
-		}
-	}
-
-	// Fallback: just use the first one
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, "wayland-") && !strings.HasSuffix(name, ".lock") {
-			envInfo.waylandDisp = name
-			return name
 		}
 	}
 

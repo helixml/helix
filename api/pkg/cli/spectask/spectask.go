@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -40,6 +41,7 @@ func New() *cobra.Command {
 	cmd.AddCommand(newE2ECommand())
 	cmd.AddCommand(newHealthCommand())
 	cmd.AddCommand(newKeyboardTestCommand())
+	cmd.AddCommand(newScrollTestCommand())
 
 	return cmd
 }
@@ -1653,4 +1655,150 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 	time.Sleep(100 * time.Millisecond)
 
 	return nil
+}
+
+// newScrollTestCommand creates a command to test scroll input via DirectInput WebSocket
+func newScrollTestCommand() *cobra.Command {
+	var deltaX, deltaY float32
+	var deltaMode int
+	var count int
+	var delay int
+	var trackpad bool
+
+	cmd := &cobra.Command{
+		Use:   "scroll-test <session-id>",
+		Short: "Test scroll input over DirectInput WebSocket",
+		Long: `Connects to the DirectInput WebSocket and sends scroll events to debug the scroll path.
+
+This command tests the DirectInput WebSocket path that bypasses Moonlight/Wolf:
+  Browser -> Helix API -> RevDial -> screenshot-server -> D-Bus -> GNOME
+
+Uses the same binary protocol as the browser's DirectInputWebSocket class.
+
+Examples:
+  # Send a scroll down event (positive deltaY = scroll down in browser terms)
+  helix spectask scroll-test ses_01xxx
+
+  # Send scroll up (negative deltaY)
+  helix spectask scroll-test ses_01xxx --deltaY -120
+
+  # Send horizontal scroll
+  helix spectask scroll-test ses_01xxx --deltaX 100
+
+  # Send multiple scroll events
+  helix spectask scroll-test ses_01xxx --count 10 --delay 50
+
+  # Simulate trackpad scroll (smooth, small deltas)
+  helix spectask scroll-test ses_01xxx --trackpad --deltaY -30 --count 20 --delay 20
+`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sessionID := args[0]
+			apiURL := getAPIURL()
+			token := getToken()
+
+			return runScrollTest(apiURL, token, sessionID, deltaX, deltaY, deltaMode, trackpad, count, delay)
+		},
+	}
+
+	cmd.Flags().Float32Var(&deltaX, "deltaX", 0, "Horizontal scroll delta (positive = right)")
+	cmd.Flags().Float32Var(&deltaY, "deltaY", 120, "Vertical scroll delta (positive = down, negative = up)")
+	cmd.Flags().IntVar(&deltaMode, "deltaMode", 0, "Delta mode: 0=pixel, 1=line, 2=page")
+	cmd.Flags().BoolVar(&trackpad, "trackpad", false, "Simulate trackpad scroll (sets is_trackpad flag)")
+	cmd.Flags().IntVarP(&count, "count", "n", 1, "Number of scroll events to send")
+	cmd.Flags().IntVarP(&delay, "delay", "d", 100, "Delay between scroll events in ms")
+
+	return cmd
+}
+
+// Message type constants (must match ws_input.go and direct-input.ts)
+const (
+	MsgTypeScroll = 0x05
+)
+
+// runScrollTest connects to DirectInput WebSocket and sends scroll events
+func runScrollTest(apiURL, token, sessionID string, deltaX, deltaY float32, deltaMode int, trackpad bool, count, delayMs int) error {
+	fmt.Printf("🖱️  Scroll Test - Session %s\n", sessionID)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("deltaX=%.1f, deltaY=%.1f, deltaMode=%d, trackpad=%v, count=%d, delay=%dms\n\n",
+		deltaX, deltaY, deltaMode, trackpad, count, delayMs)
+
+	// Build WebSocket URL for DirectInput endpoint
+	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	inputURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/input?access_token=%s",
+		wsURL, url.QueryEscape(sessionID), url.QueryEscape(token))
+
+	fmt.Printf("📡 Connecting to: %s\n", strings.Replace(inputURL, token, "***", 1))
+
+	header := http.Header{}
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, resp, err := dialer.Dial(inputURL, header)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("WebSocket dial failed: %s", string(body))
+		}
+		return fmt.Errorf("WebSocket dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	fmt.Printf("✅ WebSocket connected\n\n")
+
+	fmt.Printf("🖱️  Sending %d scroll event(s)...\n", count)
+	fmt.Printf("───────────────────────────────────────────────────────────────────────────────\n")
+
+	for i := 0; i < count; i++ {
+		// Build binary message: [type:1][deltaMode:1][flags:1][deltaX:4][deltaY:4] = 11 bytes
+		// This matches the format expected by ws_input.go and direct-input.ts
+		buf := make([]byte, 11)
+		buf[0] = MsgTypeScroll
+		buf[1] = byte(deltaMode)
+		if trackpad {
+			buf[2] = 0x01 // is_trackpad flag
+		} else {
+			buf[2] = 0x00
+		}
+
+		// deltaX as little-endian float32 at offset 3
+		putFloat32LE(buf[3:7], deltaX)
+		// deltaY as little-endian float32 at offset 7
+		putFloat32LE(buf[7:11], deltaY)
+
+		fmt.Printf("  [%d/%d] Sending scroll: deltaX=%.1f deltaY=%.1f mode=%d trackpad=%v\n",
+			i+1, count, deltaX, deltaY, deltaMode, trackpad)
+		fmt.Printf("         bytes: %v\n", buf)
+
+		if err := conn.WriteMessage(websocket.BinaryMessage, buf); err != nil {
+			return fmt.Errorf("failed to send scroll: %w", err)
+		}
+
+		if i < count-1 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		}
+	}
+
+	fmt.Printf("───────────────────────────────────────────────────────────────────────────────\n")
+	fmt.Printf("✅ Sent %d scroll event(s)\n", count)
+	fmt.Printf("\n💡 Check sandbox logs for scroll handling:\n")
+	fmt.Printf("   docker compose exec -T sandbox docker logs <container> 2>&1 | grep -i scroll\n")
+
+	// Clean close
+	conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	time.Sleep(100 * time.Millisecond)
+
+	return nil
+}
+
+// putFloat32LE writes a float32 to a byte slice in little-endian format
+func putFloat32LE(b []byte, f float32) {
+	bits := *(*uint32)(unsafe.Pointer(&f))
+	b[0] = byte(bits)
+	b[1] = byte(bits >> 8)
+	b[2] = byte(bits >> 16)
+	b[3] = byte(bits >> 24)
 }

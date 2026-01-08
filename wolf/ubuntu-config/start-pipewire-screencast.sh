@@ -84,19 +84,20 @@ log "Session created: $SESSION_PATH"
 
 # Record the virtual display (for headless/devkit mode) or primary monitor
 # cursor-mode: 0=hidden, 1=embedded (show cursor in capture), 2=metadata
+# is-platform: true = treat as real monitor (cache-bust-1767900711) (may improve framerate), available since API v3
 log "Recording virtual display..."
 STREAM_RESULT=$(gdbus call --session \
     --dest org.gnome.Mutter.ScreenCast \
     --object-path "$SESSION_PATH" \
     --method org.gnome.Mutter.ScreenCast.Session.RecordVirtual \
-    "{'cursor-mode': <uint32 1>}" 2>/dev/null || \
+    "{'cursor-mode': <uint32 1>, 'is-platform': <boolean true>}" 2>/dev/null || \
     # Fallback: try recording XWAYLAND0
     gdbus call --session \
         --dest org.gnome.Mutter.ScreenCast \
         --object-path "$SESSION_PATH" \
         --method org.gnome.Mutter.ScreenCast.Session.RecordMonitor \
         "XWAYLAND0" \
-        "{'cursor-mode': <uint32 1>}")
+        "{'cursor-mode': <uint32 1>, 'is-platform': <boolean true>}")
 
 # Extract stream path
 STREAM_PATH=$(echo "$STREAM_RESULT" | grep -oP "'/[^']+'")

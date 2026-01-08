@@ -93,6 +93,49 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
   // Session panel state
   const [sessionPanelOpen, setSessionPanelOpen] = useState(defaultPanelOpen);
+  // Track uploaded file paths to append to prompt input (uses unique key to trigger append)
+  const [uploadedFilePath, setUploadedFilePath] = useState<string | undefined>();
+  const uploadCountRef = useRef(0);
+
+  // Handle file upload from drag/drop - append path to prompt input with a unique key
+  const handleFileUploaded = useCallback((filePath: string) => {
+    uploadCountRef.current += 1;
+    // Include counter to make each value unique and trigger the useEffect in RobustPromptInput
+    setUploadedFilePath(`${filePath}#${uploadCountRef.current}`);
+  }, []);
+
+  // Handle image paste in RobustPromptInput - uploads without opening file manager
+  const handleImagePaste = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(
+        `/api/v1/external-agents/${sessionId}/upload?open_file_manager=false`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Image upload failed:', response.statusText);
+        snackbar.error('Failed to upload image');
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.path) {
+        snackbar.success(`${file.name} uploaded to ~/work/incoming`);
+        return data.path;
+      }
+      return null;
+    } catch (error) {
+      console.error('Image upload error:', error);
+      snackbar.error('Failed to upload image');
+      return null;
+    }
+  }, [sessionId, snackbar]);
 
   // Once running, remember it to prevent unmounting on transient state changes
   useEffect(() => {
@@ -374,7 +417,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
       {/* Main desktop viewer */}
-      <SandboxDropZone sessionId={sessionId} disabled={!isRunning}>
+      <SandboxDropZone sessionId={sessionId} disabled={!isRunning} onFileUploaded={handleFileUploaded}>
         <Box sx={{
           flex: 1,
           minHeight: 0,
@@ -500,6 +543,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 apiClient={apiClient}
                 onSend={handleSendMessage}
                 placeholder="Send message to agent..."
+                appendText={uploadedFilePath}
+                onImagePaste={handleImagePaste}
               />
             </Box>
           </Box>

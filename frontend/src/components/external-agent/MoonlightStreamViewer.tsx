@@ -28,6 +28,7 @@ import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/moonlight-web-ts/stream/websocket-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
+import { DirectInputWebSocket } from '../../lib/moonlight-web-ts/stream/direct-input';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
@@ -152,6 +153,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Direct input WebSocket for Ubuntu/GNOME sessions (bypasses Moonlight for scroll)
+  const directInputRef = useRef<DirectInputWebSocket | null>(null);
   // Track whether we're waiting for first screenshot after entering screenshot mode
   // This is used to hide the loading overlay - using a ref instead of checking screenshotUrl
   // to avoid race conditions when switching modes rapidly
@@ -1893,6 +1896,49 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount/unmount
 
+  // Direct input WebSocket for Ubuntu/GNOME sessions
+  // Bypasses Moonlight/Wolf for scroll events - sends directly to GNOME via D-Bus
+  // This fixes scroll direction and provides smooth pixel-level scrolling
+  useEffect(() => {
+    // Only connect for WebSocket streaming mode (not WebRTC - that uses Moonlight input)
+    // and only when we have a session ID and auth token
+    if (!isConnected || !sessionId || streamingMode !== 'websocket') {
+      // Disconnect if we were connected
+      if (directInputRef.current) {
+        console.log('[DirectInput] Disconnecting - session not ready or wrong mode');
+        directInputRef.current.disconnect();
+        directInputRef.current = null;
+      }
+      return;
+    }
+
+    const token = account.user?.token;
+    if (!token) {
+      console.warn('[DirectInput] No auth token available');
+      return;
+    }
+
+    // Create DirectInputWebSocket for scroll events
+    // This bypasses Moonlight/Wolf and sends scroll directly to GNOME D-Bus
+    console.log('[DirectInput] Creating connection for session', sessionId);
+    directInputRef.current = new DirectInputWebSocket({
+      sessionId,
+      token,
+      onConnected: () => console.log('[DirectInput] Connected to GNOME input'),
+      onDisconnected: () => console.log('[DirectInput] Disconnected from GNOME input'),
+      onError: (err) => console.warn('[DirectInput] Error:', err),
+    });
+    directInputRef.current.connect();
+
+    return () => {
+      if (directInputRef.current) {
+        console.log('[DirectInput] Cleanup - disconnecting');
+        directInputRef.current.disconnect();
+        directInputRef.current = null;
+      }
+    };
+  }, [isConnected, sessionId, streamingMode, account.user?.token]);
+
   // Auto-focus container when stream connects for keyboard input
   useEffect(() => {
     if (isConnected && containerRef.current) {
@@ -2539,7 +2585,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const wheelHandler = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      // Send to stream (WebSocketStream handles input for all quality modes)
+
+      // Try DirectInputWebSocket first (bypasses Moonlight/Wolf for correct scroll handling)
+      // This is used for Ubuntu/GNOME sessions where we send scroll directly to GNOME via D-Bus
+      if (directInputRef.current?.isConnected()) {
+        directInputRef.current.sendScroll(event);
+        return;
+      }
+
+      // Fallback: Send to Moonlight stream (for Sway sessions or when direct input not connected)
       const input = streamRef.current && 'getInput' in streamRef.current
         ? (streamRef.current as WebSocketStream | Stream).getInput()
         : null;
@@ -3105,13 +3159,21 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           let clipboardPayload: TypesClipboardData;
 
           // Read clipboard data
+          // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
+          console.log(`[Clipboard] Available types: ${item.types.join(', ')}`);
           if (item.types.includes('image/png')) {
+            console.log(`[Clipboard] Reading image/png from clipboard`);
             item.getType('image/png').then(blob => {
+              console.log(`[Clipboard] Got PNG blob, size: ${blob.size} bytes`);
               blob.arrayBuffer().then(arrayBuffer => {
                 const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                console.log(`[Clipboard] Encoded to base64, length: ${base64.length}`);
                 clipboardPayload = { type: 'image', data: base64 };
                 syncAndPaste(clipboardPayload);
               });
+            }).catch(err => {
+              console.error('[Clipboard] Failed to get image/png:', err);
+              showClipboardToast('Failed to read image from clipboard', 'error');
             });
           } else if (item.types.includes('text/plain')) {
             item.getType('text/plain').then(blob => {

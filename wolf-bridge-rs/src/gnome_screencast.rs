@@ -117,6 +117,8 @@ impl GnomeScreencast {
 
         let mut cursor_mode_props: HashMap<&str, Value> = HashMap::new();
         cursor_mode_props.insert("cursor-mode", Value::U32(1)); // 1 = embedded cursor
+        // is-platform: treat as real monitor (may improve framerate), available since API v3
+        cursor_mode_props.insert("is-platform", Value::Bool(true));
 
         let reply: zbus::Message = self.connection.call_method(
             Some(MUTTER_BUS_NAME),
@@ -151,6 +153,8 @@ impl GnomeScreencast {
 
         let mut props: HashMap<&str, Value> = HashMap::new();
         props.insert("cursor-mode", Value::U32(1));
+        // is-platform: treat as real monitor (may improve framerate), available since API v3
+        props.insert("is-platform", Value::Bool(true));
 
         let reply: zbus::Message = self.connection.call_method(
             Some(MUTTER_BUS_NAME),

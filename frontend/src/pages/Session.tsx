@@ -55,7 +55,6 @@ import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
 import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
-import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
 import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
@@ -1611,10 +1610,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             </Box>
           )}
 
-          {/* Zed Settings Viewer - show for external agent sessions */}
-          {isExternalAgent && (
-            <ZedSettingsViewer sessionId={sessionID} />
-          )}
 
         </Box>
 

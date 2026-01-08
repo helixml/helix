@@ -694,10 +694,23 @@ const AppSettings: FC<AppSettingsProps> = ({
                 value={resolution}
                 onChange={(e) => {
                   const newResolution = e.target.value as '1080p' | '4k' | '5k';
+                  const oldResolution = resolution; // Track previous resolution
                   setResolution(newResolution);
-                  const defaultZoom = (newResolution === '5k' || newResolution === '4k') ? 200 : 100;
-                  const newZoom = (newResolution === '4k' || newResolution === '5k') && zoomLevel === 100 ? defaultZoom : zoomLevel;
-                  if ((newResolution === '4k' || newResolution === '5k') && zoomLevel === 100) setZoomLevel(defaultZoom);
+                  // Zoom level logic:
+                  // - 1080p: always 100% (no HiDPI needed)
+                  // - 4k/5k from 1080p: auto-set to 200% if zoom was default 100%
+                  // - 4k/5k from 4k/5k: preserve current zoom (user may intentionally use 100% on large monitor)
+                  let newZoom: number;
+                  if (newResolution === '1080p') {
+                    newZoom = 100;
+                  } else if (oldResolution === '1080p' && zoomLevel === 100) {
+                    // Coming from 1080p with default zoom - auto-set 200% for better readability
+                    newZoom = 200;
+                  } else {
+                    // Already on 4k/5k or user set custom zoom - preserve their choice
+                    newZoom = zoomLevel;
+                  }
+                  setZoomLevel(newZoom);
                   const updatedConfig = { ...external_agent_config, resolution: newResolution, zoom_level: newZoom };
                   setExternalAgentConfig(updatedConfig);
                   onUpdate({ ...app, external_agent_config: updatedConfig });
@@ -742,21 +755,21 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onUpdate({ ...app, external_agent_config: updatedConfig });
                 }}
                 disabled={readOnly}
-                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu 22.04' : 'Sway'}
+                renderValue={(value) => value === 'ubuntu' ? 'Ubuntu Desktop' : 'Sway'}
               >
                 <MenuItem value="ubuntu">
                   <Box>
-                    <Typography variant="body2">Ubuntu 22.04 (X11)</Typography>
+                    <Typography variant="body2">Ubuntu Desktop (25.10)</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      GNOME desktop - recommended
+                      Ubuntu GNOME desktop, user friendly and recommended
                     </Typography>
                   </Box>
                 </MenuItem>
                 <MenuItem value="sway">
                   <Box>
-                    <Typography variant="body2">Sway (native Wayland)</Typography>
+                    <Typography variant="body2">Sway (Ubuntu 25.10)</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      i3-compatible tiling WM, advanced users
+                      i3-compatible tiling WM, for advanced users
                     </Typography>
                   </Box>
                 </MenuItem>
@@ -803,16 +816,17 @@ const AppSettings: FC<AppSettingsProps> = ({
             </FormControl>
           </Stack>
 
-          {/* High Resolution Zoom Setting */}
-          {(resolution === '4k' || resolution === '5k') && (
-            <Box sx={{ mb: 2, maxWidth: 300 }}>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                UI Zoom: {zoomLevel}%
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                4K requires a powerful GPU. Increase zoom if text is too small.
-              </Typography>
-              <Slider
+          {/* UI Zoom Setting */}
+          <Box sx={{ mb: 2, maxWidth: 300 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+              UI Zoom: {zoomLevel}%
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              {resolution === '1080p'
+                ? 'Increase zoom if text is too small on your display.'
+                : 'Higher resolutions require a powerful GPU. Increase zoom if text is too small.'}
+            </Typography>
+            <Slider
                 value={zoomLevel}
                 min={100}
                 max={300}
@@ -832,6 +846,9 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
                 disabled={readOnly}
                 sx={{
+                  ml: 1, // Prevent thumb from being clipped at 100%
+                  mr: 1, // Prevent thumb from being clipped at 300%
+                  width: 'calc(100% - 16px)',
                   '& .MuiSlider-markLabel[data-index="0"]': {
                     transform: 'translateX(0%)',
                   },
@@ -841,7 +858,6 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
               />
             </Box>
-          )}
         </Box>
       )}
 

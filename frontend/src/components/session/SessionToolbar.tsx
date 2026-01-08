@@ -14,6 +14,7 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import Popover from '@mui/material/Popover'
 
 // Lucide
 import {
@@ -57,7 +58,8 @@ import {
   TOOLBAR_HEIGHT,
 } from '../../config'
 import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
-import { ConnectedTv } from '@mui/icons-material'
+import { ConnectedTv, Extension } from '@mui/icons-material'
+import ZedSettingsViewer, { useHasValidMCPTools } from './ZedSettingsViewer'
 
 export const SessionToolbar: FC<{
   session: TypesSession,
@@ -101,6 +103,9 @@ export const SessionToolbar: FC<{
 
   const isOwner = account.user?.id === session.owner
 
+  // Check if there are valid MCP tools to show the icon
+  const hasValidMCPTools = useHasValidMCPTools(isExternalAgent ? (session.id || '') : '')
+
   // Find the app if this session belongs to one
   const app = session.parent_app ? apps?.find(a => a.id === session.parent_app) : undefined
 
@@ -139,6 +144,7 @@ export const SessionToolbar: FC<{
   const [showPin, setShowPin] = useState(false)
   const [clientMenuAnchor, setClientMenuAnchor] = useState<null | HTMLElement>(null)
   const [showMoonlightControls, setShowMoonlightControls] = useState(false)
+  const [mcpToolsAnchor, setMcpToolsAnchor] = useState<null | HTMLElement>(null)
 
   useEffect(() => {
     setSessionName(session.name)
@@ -574,6 +580,46 @@ export const SessionToolbar: FC<{
                       <ConnectedTv sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
+                </Cell>
+              )}
+              {isExternalAgent && hasValidMCPTools && (
+                <Cell>
+                  <Tooltip title="MCP Tools">
+                    <IconButton
+                      onClick={(e) => setMcpToolsAnchor(e.currentTarget)}
+                      size="small"
+                      sx={{
+                        color: Boolean(mcpToolsAnchor)
+                          ? 'primary.main'
+                          : theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        },
+                      }}
+                    >
+                      <Extension sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Popover
+                    open={Boolean(mcpToolsAnchor)}
+                    anchorEl={mcpToolsAnchor}
+                    onClose={() => setMcpToolsAnchor(null)}
+                    anchorReference="none"
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          position: 'fixed',
+                          top: 60,
+                          right: 16,
+                          width: 380,
+                          maxHeight: 500,
+                          overflow: 'auto',
+                        }
+                      }
+                    }}
+                  >
+                    <ZedSettingsViewer sessionId={session.id || ''} />
+                  </Popover>
                 </Cell>
               )}
               <Cell>

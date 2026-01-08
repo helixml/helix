@@ -352,14 +352,31 @@ func (m *MCPServer) handleMouseClick(ctx context.Context, request mcp.CallToolRe
 func (m *MCPServer) handleGetClipboard(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	m.logger.Info("getting clipboard via MCP")
 
-	// Use wl-paste for Wayland
-	cmd := exec.CommandContext(ctx, "wl-paste")
-	output, err := cmd.Output()
+	// Use the HTTP clipboard endpoint (uses D-Bus on GNOME, avoids spawning processes)
+	clipboardURL := strings.Replace(m.screenshotURL, "/screenshot", "/clipboard", 1)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clipboardURL, nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request: " + err.Error()), nil
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return mcp.NewToolResultError("failed to get clipboard: " + err.Error()), nil
 	}
+	defer resp.Body.Close()
 
-	return mcp.NewToolResultText(string(output)), nil
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return mcp.NewToolResultError(fmt.Sprintf("clipboard error: %s", string(body))), nil
+	}
+
+	var clipData ClipboardData
+	if err := json.NewDecoder(resp.Body).Decode(&clipData); err != nil {
+		return mcp.NewToolResultError("failed to decode clipboard: " + err.Error()), nil
+	}
+
+	return mcp.NewToolResultText(clipData.Data), nil
 }
 
 // handleSetClipboard sets clipboard content
@@ -371,10 +388,31 @@ func (m *MCPServer) handleSetClipboard(ctx context.Context, request mcp.CallTool
 
 	m.logger.Info("setting clipboard via MCP", "length", len(text))
 
-	// Use wl-copy for Wayland
-	cmd := exec.CommandContext(ctx, "wl-copy", text)
-	if err := cmd.Run(); err != nil {
+	// Use the HTTP clipboard endpoint (uses D-Bus on GNOME, avoids spawning processes)
+	clipboardURL := strings.Replace(m.screenshotURL, "/screenshot", "/clipboard", 1)
+
+	clipData := ClipboardData{Type: "text", Data: text}
+	body, err := json.Marshal(clipData)
+	if err != nil {
+		return mcp.NewToolResultError("failed to encode clipboard data: " + err.Error()), nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, clipboardURL, strings.NewReader(string(body)))
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request: " + err.Error()), nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
 		return mcp.NewToolResultError("failed to set clipboard: " + err.Error()), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return mcp.NewToolResultError(fmt.Sprintf("clipboard error: %s", string(respBody))), nil
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Copied %d characters to clipboard", len(text))), nil

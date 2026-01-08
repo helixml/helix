@@ -50,6 +50,7 @@ import QueueIcon from '@mui/icons-material/Queue'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import SearchIcon from '@mui/icons-material/Search'
+import ImageIcon from '@mui/icons-material/Image'
 import {
   DndContext,
   closestCenter,
@@ -81,6 +82,11 @@ interface RobustPromptInputProps {
   apiClient?: Api<unknown>['api']
   // Called when the input component height changes (queue added, textarea resized)
   onHeightChange?: () => void
+  // Text to append to the draft (e.g., uploaded file paths)
+  // Pass a new unique value each time to trigger an append
+  appendText?: string
+  // Called when an image is pasted - parent should upload and return the file path
+  onImagePaste?: (file: File) => Promise<string | null>
 }
 
 // Props for sortable queue item
@@ -355,6 +361,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   projectId,
   apiClient,
   onHeightChange,
+  appendText,
+  onImagePaste,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -390,6 +398,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     clearDraft,
     pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
+
+  // Track previous appendText to detect changes
+  const prevAppendTextRef = useRef<string | undefined>(undefined)
+
+  // Handle prepending text from parent (e.g., uploaded file paths)
+  useEffect(() => {
+    if (appendText && appendText !== prevAppendTextRef.current) {
+      // Strip any unique key suffix (format: "text#123")
+      const textToPrepend = appendText.replace(/#\d+$/, '')
+      // Prepend to draft with proper spacing
+      setDraft(prev => {
+        const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
+        return textToPrepend + (needsSpace ? ' ' : '') + prev
+      })
+      prevAppendTextRef.current = appendText
+      // Focus the textarea
+      textareaRef.current?.focus()
+    }
+  }, [appendText, setDraft])
 
   // DnD sensors
   const sensors = useSensors(
@@ -651,6 +678,94 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [draft, disabled, interruptMode, saveToHistory, clearDraft, isOnline, processQueue, navigateUp, navigateDown])
 
+  // Handle paste events for images
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    console.log('[RobustPromptInput] Paste event received, onImagePaste:', !!onImagePaste)
+    if (!onImagePaste) return
+
+    const items = e.clipboardData?.items
+    console.log('[RobustPromptInput] Clipboard items:', items?.length, Array.from(items || []).map(i => i.type))
+    if (!items) return
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.type.startsWith('image/')) {
+        console.log('[RobustPromptInput] Found image in clipboard:', item.type)
+        e.preventDefault()
+        const blob = item.getAsFile()
+        if (blob) {
+          // Create a File with a generated name based on timestamp
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const extension = item.type === 'image/png' ? 'png' : 'jpg'
+          const file = new File([blob], `pasted-image-${timestamp}.${extension}`, { type: item.type })
+
+          console.log('[RobustPromptInput] Uploading pasted image:', file.name)
+          // Call parent to upload and get the path
+          const filePath = await onImagePaste(file)
+          console.log('[RobustPromptInput] Upload result:', filePath)
+          if (filePath) {
+            // Prepend the file path to the draft
+            setDraft(prev => {
+              const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
+              return filePath + (needsSpace ? ' ' : '') + prev
+            })
+          }
+        }
+        break
+      }
+    }
+  }, [onImagePaste, setDraft])
+
+  // Track drag state for visual feedback
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
+
+  // Handle drag enter - show visual feedback
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (onImagePaste) {
+      setIsDraggingOver(true)
+    }
+  }, [onImagePaste])
+
+  // Handle drag leave - hide visual feedback
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+  }, [])
+
+  // Handle drag over - prevent default to allow drop
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (onImagePaste) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [onImagePaste])
+
+  // Handle drop events for files
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+
+    if (!onImagePaste) return
+
+    const files = Array.from(e.dataTransfer.files)
+    console.log('[RobustPromptInput] Dropped files:', files.map(f => f.name))
+    for (const file of files) {
+      // Upload the file and prepend path to draft
+      const filePath = await onImagePaste(file)
+      if (filePath) {
+        setDraft(prev => {
+          const needsSpace = prev.length > 0 && !prev.startsWith(' ') && !prev.startsWith('\n')
+          return filePath + (needsSpace ? ' ' : '') + prev
+        })
+      }
+    }
+  }, [onImagePaste, setDraft])
+
   // Format timestamp
   const formatTime = (timestamp: number): string => {
     const diffMs = Date.now() - timestamp
@@ -847,14 +962,21 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isOnline ? placeholder : 'Offline - messages will queue'}
+          onPaste={handlePaste}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          placeholder={isDraggingOver ? 'Drop file to upload...' : (isOnline ? placeholder : 'Offline - messages will queue')}
           disabled={disabled}
           sx={{
             flex: 1,
             resize: 'none',
-            border: 'none',
+            border: isDraggingOver ? '2px dashed' : 'none',
+            borderColor: 'primary.main',
+            borderRadius: isDraggingOver ? 1 : 0,
             outline: 'none',
-            bgcolor: 'transparent',
+            bgcolor: isDraggingOver ? (theme) => alpha(theme.palette.primary.main, 0.08) : 'transparent',
             color: 'text.primary',
             fontFamily: 'inherit',
             fontSize: '0.875rem',
@@ -863,9 +985,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             minHeight: 40,
             maxHeight: maxHeight,
             overflowY: 'auto',
+            transition: 'background-color 0.15s, border 0.15s',
             '&::placeholder': {
-              color: !isOnline ? 'warning.main' : 'text.secondary',
-              opacity: 0.7,
+              color: isDraggingOver ? 'primary.main' : (!isOnline ? 'warning.main' : 'text.secondary'),
+              opacity: isDraggingOver ? 1 : 0.7,
             },
             '&:disabled': {
               opacity: 0.6,

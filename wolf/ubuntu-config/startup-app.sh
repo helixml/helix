@@ -635,6 +635,11 @@ export WOLF_SESSION_ID="$WOLF_SESSION_ID"
 export XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"
 VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
 
+# Workaround for Mutter frame rate drops (60→40fps)
+# See: https://gitlab.gnome.org/GNOME/mutter/-/issues/3788
+# This switches KMS thread from real-time to user priority, fixing frame scheduling issues
+export MUTTER_DEBUG_KMS_THREAD_TYPE=user
+
 echo "[gnome-session] Starting inside dbus-run-session..."
 echo "[gnome-session] Video source mode: \$VIDEO_SOURCE_MODE"
 

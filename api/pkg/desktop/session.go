@@ -139,6 +139,10 @@ func (s *Server) createSession(ctx context.Context) error {
 
 	recordOptions := map[string]dbus.Variant{
 		"cursor-mode": dbus.MakeVariant(uint32(1)), // Embedded cursor
+		// is-platform=true: Treat as a real monitor rather than screen sharing.
+		// This may improve framerate by bypassing screen sharing optimizations.
+		// Available since Mutter ScreenCast API version 3.
+		"is-platform": dbus.MakeVariant(true),
 	}
 
 	var streamPath dbus.ObjectPath

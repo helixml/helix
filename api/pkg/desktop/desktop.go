@@ -54,7 +54,12 @@ type Server struct {
 	logger  *slog.Logger
 
 	// Stats
-	moveCount int
+	moveCount      int
+	scrollLogCount int
+
+	// Scroll finish detection - send "scroll finished" to Mutter after timeout
+	scrollFinishTimer *time.Timer
+	scrollFinishMu    sync.Mutex
 
 	// Screenshot serialization - GNOME D-Bus Screenshot API only allows
 	// one operation at a time per sender. Concurrent calls return
@@ -106,17 +111,23 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("start session: %w", err)
 		}
 
-		// 4. Create input socket
+		// 4. Prime keyboard input with a dummy Escape key press+release
+		// GNOME's RemoteDesktop keyboard handling requires "priming" - the very first
+		// keyboard event is silently dropped. By sending a harmless Escape key at startup,
+		// we ensure the user's first real keypress works correctly.
+		s.primeKeyboardInput()
+
+		// 5. Create input socket
 		if err := s.createInputSocket(); err != nil {
 			return fmt.Errorf("create input socket: %w", err)
 		}
 		defer s.inputListener.Close()
 		defer os.Remove(s.inputSocketPath)
 
-		// 5. Report to Wolf
+		// 6. Report to Wolf
 		s.reportToWolf()
 
-		// 5b. Create dedicated screenshot ScreenCast session (separate from Wolf's)
+		// 6b. Create dedicated screenshot ScreenCast session (separate from Wolf's)
 		// This allows fast PipeWire-based screenshots without interfering with video
 		if err := s.createScreenshotSession(ctx); err != nil {
 			// Non-fatal - fall back to D-Bus Screenshot API
@@ -133,14 +144,14 @@ func (s *Server) Run(ctx context.Context) error {
 		// immediately because s.running was false when the goroutine started.
 		s.running.Store(true)
 
-		// Start input bridge
+		// 7. Start input bridge
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
 
-		// 6. Start session monitor (detects session closure and recreates)
+		// 8. Start session monitor (detects session closure and recreates)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -152,7 +163,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.running.Store(true)
 	}
 
-	// 6. Start HTTP server
+	// 9. Start HTTP server
 
 	httpServer := &http.Server{
 		Addr:    ":" + s.config.HTTPPort,
@@ -204,6 +215,7 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/keyboard-reset", s.handleKeyboardReset)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/input", s.handleInput)
+	mux.HandleFunc("/ws/input", s.handleWSInput) // Direct WebSocket input (bypasses Moonlight/Wolf)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
