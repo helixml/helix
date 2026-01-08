@@ -375,12 +375,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [selectedSampleType, setSelectedSampleType] = useState('');
 
   // Available sample types for planning
-  const [sampleTypes, setSampleTypes] = useState<any[]>([]);
-
-  // Debug sample types data
-  useEffect(() => {
-    console.log('Sample types data updated:', sampleTypes);
-  }, [sampleTypes]);
+  const [sampleTypes, setSampleTypes] = useState<any[]>([]);  
 
   // Keyboard shortcut for creating new task (Enter key)
   useEffect(() => {
