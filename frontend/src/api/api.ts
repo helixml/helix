@@ -1041,192 +1041,10 @@ export interface TypesAdminResetPasswordRequest {
   new_password?: string;
 }
 
-export interface TypesAgentDashboardSummary {
-  active_help_requests?: TypesHelpRequest[];
-  active_sessions?: TypesAgentSessionStatus[];
-  global_allocation_decisions?: TypesGlobalAllocationDecision[];
-  last_updated?: string;
-  pending_reviews?: TypesJobCompletion[];
-  pending_work?: TypesAgentWorkItem[];
-  queue?: TypesWorkloadSummary[];
-  recent_completions?: TypesJobCompletion[];
-  runners?: TypesDashboardRunner[];
-  running_work?: TypesAgentWorkItem[];
-  scheduling_decisions?: TypesSchedulingDecision[];
-  sessions_needing_help?: TypesAgentSessionStatus[];
-  work_queue_stats?: TypesAgentWorkQueueStats;
-}
-
-export interface TypesAgentFleetSummary {
-  active_help_requests?: TypesHelpRequest[];
-  active_sessions?: TypesAgentSessionStatus[];
-  external_agent_runners?: TypesExternalAgentConnection[];
-  last_updated?: string;
-  pending_reviews?: TypesJobCompletion[];
-  pending_work?: TypesAgentWorkItem[];
-  recent_completions?: TypesJobCompletion[];
-  running_work?: TypesAgentWorkItem[];
-  sessions_needing_help?: TypesAgentSessionStatus[];
-  work_queue_stats?: TypesAgentWorkQueueStats;
-}
-
-export interface TypesAgentSessionStatus {
-  agent_type?: string;
-  app_id?: string;
-  completed_at?: string;
-  configuration?: number[];
-  container_id?: string;
-  created_at?: string;
-  /** What the agent is currently doing */
-  current_task?: string;
-  current_work_item?: string;
-  health_checked_at?: string;
-  /** "healthy", "unhealthy", "unknown" */
-  health_status?: string;
-  id?: string;
-  last_activity?: string;
-  metadata?: number[];
-  metrics?: number[];
-  organization_id?: string;
-  process_id?: number;
-  rdp_port?: number;
-  session_id?: string;
-  state?: number[];
-  /** "starting", "active", "waiting_for_help", "paused", "completed", "pending_review", "failed" */
-  status?: string;
-  updated_at?: string;
-  user_id?: string;
-  workspace_dir?: string;
-}
-
-export interface TypesAgentSessionsResponse {
-  page?: number;
-  page_size?: number;
-  sessions?: TypesAgentSessionStatus[];
-  total?: number;
-}
-
 export enum TypesAgentType {
   AgentTypeHelixBasic = "helix_basic",
   AgentTypeHelixAgent = "helix_agent",
   AgentTypeZedExternal = "zed_external",
-}
-
-export interface TypesAgentWorkConfig {
-  /** Agent environment and setup */
-  environment?: Record<string, string>;
-  /** Source integration settings */
-  github?: TypesGitHubWorkConfig;
-  /** Custom instructions or context */
-  instructions?: string;
-  manual?: TypesManualWorkConfig;
-  /** Skills to enable for this work type */
-  skills?: string[];
-  webhook?: TypesWebhookWorkConfig;
-  working_dir?: string;
-}
-
-export interface TypesAgentWorkItem {
-  /** Required agent type */
-  agent_type?: string;
-  app_id?: string;
-  assigned_session_id?: string;
-  completed_at?: string;
-  /** Agent configuration */
-  config?: Record<string, any>;
-  created_at?: string;
-  deadline_at?: string;
-  description?: string;
-  id?: string;
-  /** Labels/tags for filtering */
-  labels?: string[];
-  last_error?: string;
-  max_retries?: number;
-  metadata?: Record<string, any>;
-  name?: string;
-  organization_id?: string;
-  /** Lower = higher priority */
-  priority?: number;
-  retry_count?: number;
-  /** When to start this work */
-  scheduled_for?: string;
-  /** "github", "manual", "webhook", etc. */
-  source?: string;
-  /** External ID from source system */
-  source_id?: string;
-  /** URL to source (e.g., GitHub issue URL) */
-  source_url?: string;
-  started_at?: string;
-  /** "pending", "assigned", "in_progress", "completed", "failed", "cancelled" */
-  status?: string;
-  /** Links to TriggerConfiguration */
-  trigger_config_id?: string;
-  updated_at?: string;
-  user_id?: string;
-  /** Work-specific data */
-  work_data?: Record<string, any>;
-}
-
-export interface TypesAgentWorkItemCreateRequest {
-  agent_type?: string;
-  config?: Record<string, any>;
-  deadline_at?: string;
-  description?: string;
-  labels?: string[];
-  max_retries?: number;
-  name?: string;
-  priority?: number;
-  scheduled_for?: string;
-  source?: string;
-  source_id?: string;
-  source_url?: string;
-  work_data?: Record<string, any>;
-}
-
-export interface TypesAgentWorkItemUpdateRequest {
-  config?: Record<string, any>;
-  description?: string;
-  labels?: string[];
-  name?: string;
-  priority?: number;
-  status?: string;
-  work_data?: Record<string, any>;
-}
-
-export interface TypesAgentWorkItemsResponse {
-  items?: TypesAgentWorkItem[];
-  page?: number;
-  page_size?: number;
-  total?: number;
-}
-
-export interface TypesAgentWorkQueueStats {
-  active_sessions?: number;
-  average_wait_time_minutes?: number;
-  by_agent_type?: Record<string, number>;
-  by_priority?: Record<string, number>;
-  by_source?: Record<string, number>;
-  oldest_pending?: string;
-  total_completed?: number;
-  total_failed?: number;
-  total_pending?: number;
-  total_running?: number;
-}
-
-export interface TypesAgentWorkQueueTrigger {
-  /** "zed", "helix", etc. */
-  agent_type?: string;
-  /** Auto-assign to available agents */
-  auto_assign?: boolean;
-  enabled?: boolean;
-  /** Maximum retry attempts */
-  max_retries?: number;
-  /** Lower numbers = higher priority */
-  priority?: number;
-  /** Timeout in minutes */
-  timeout_mins?: number;
-  /** Work item configuration */
-  work_config?: TypesAgentWorkConfig;
 }
 
 export enum TypesAgentWorkState {
@@ -2062,13 +1880,6 @@ export interface TypesExternalAgentConfig {
   zoom_level?: number;
 }
 
-export interface TypesExternalAgentConnection {
-  connected_at?: string;
-  last_ping?: string;
-  session_id?: string;
-  status?: string;
-}
-
 export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeGitHub = "github",
   ExternalRepositoryTypeGitLab = "gitlab",
@@ -2246,19 +2057,6 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
-}
-
-export interface TypesGitHubWorkConfig {
-  access_token?: string;
-  /** Comment when starting work */
-  auto_comment?: boolean;
-  enabled?: boolean;
-  /** "issue", "pull_request" */
-  issue_types?: string[];
-  /** Filter by labels */
-  labels?: string[];
-  repo_name?: string;
-  repo_owner?: string;
 }
 
 export interface TypesGitLab {
@@ -2472,44 +2270,6 @@ export interface TypesGuidelinesHistory {
   version?: number;
 }
 
-export interface TypesHelpRequest {
-  app_id?: string;
-  /** What the agent has already tried */
-  attempted_solutions?: string;
-  /** Brief context about the current task */
-  context?: string;
-  created_at?: string;
-  /** "decision", "expertise", "clarification", "review", "guidance", "stuck", "other" */
-  help_type?: string;
-  id?: string;
-  interaction_id?: string;
-  /** Additional metadata as JSON */
-  metadata?: number[];
-  /** The resolution or guidance provided */
-  resolution?: string;
-  resolved_at?: string;
-  /** UserID of the human who resolved this */
-  resolved_by?: string;
-  session_id?: string;
-  /** Specific description of what help is needed */
-  specific_need?: string;
-  /** "pending", "in_progress", "resolved", "cancelled" */
-  status?: string;
-  /** Potential approaches the agent suggests */
-  suggested_approaches?: string;
-  updated_at?: string;
-  /** "low", "medium", "high", "critical" */
-  urgency?: string;
-  user_id?: string;
-}
-
-export interface TypesHelpRequestsListResponse {
-  help_requests?: TypesHelpRequest[];
-  page?: number;
-  page_size?: number;
-  total?: number;
-}
-
 export enum TypesImageURLDetail {
   ImageURLDetailHigh = "high",
   ImageURLDetailLow = "low",
@@ -2590,36 +2350,6 @@ export interface TypesItem {
   object?: string;
   /** Images */
   url?: string;
-}
-
-export interface TypesJobCompletion {
-  app_id?: string;
-  /** "fully_completed", "milestone_reached", etc. */
-  completion_status?: string;
-  /** "high", "medium", "low" */
-  confidence?: string;
-  created_at?: string;
-  deliverables?: string;
-  files_created?: string;
-  id?: string;
-  interaction_id?: string;
-  limitations?: string;
-  metadata?: number[];
-  next_steps?: string;
-  review_needed?: boolean;
-  review_notes?: string;
-  /** "approval", "feedback", "validation", etc. */
-  review_type?: string;
-  reviewed_at?: string;
-  reviewed_by?: string;
-  session_id?: string;
-  /** "pending_review", "approved", "needs_changes", "archived" */
-  status?: string;
-  summary?: string;
-  time_spent?: string;
-  updated_at?: string;
-  user_id?: string;
-  work_item_id?: string;
 }
 
 export interface TypesKnowledge {
@@ -2821,12 +2551,6 @@ export interface TypesLoginRequest {
   email?: string;
   password?: string;
   redirect_uri?: string;
-}
-
-export interface TypesManualWorkConfig {
-  allow_anonymous?: boolean;
-  default_priority?: number;
-  enabled?: boolean;
 }
 
 export interface TypesMemory {
@@ -4741,7 +4465,6 @@ export interface TypesTreeEntry {
 }
 
 export interface TypesTrigger {
-  agent_work_queue?: TypesAgentWorkQueueTrigger;
   azure_devops?: TypesAzureDevOpsTrigger;
   crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
@@ -4812,7 +4535,6 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -4991,14 +4713,6 @@ export interface TypesWallet {
   subscription_status?: StripeSubscriptionStatus;
   updated_at?: string;
   user_id?: string;
-}
-
-export interface TypesWebhookWorkConfig {
-  enabled?: boolean;
-  headers?: Record<string, string>;
-  /** JSONPath to extract work description */
-  json_path?: string;
-  secret?: string;
 }
 
 export interface TypesWebsiteCrawler {
@@ -5450,233 +5164,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "DELETE",
         query: query,
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get agent fleet data including active sessions, work queue, and help requests without dashboard data
-     *
-     * @tags agents
-     * @name V1AgentsFleetList
-     * @summary Get agent fleet data
-     * @request GET:/api/v1/agents/fleet
-     * @secure
-     */
-    v1AgentsFleetList: (params: RequestParams = {}) =>
-      this.request<TypesAgentFleetSummary, any>({
-        path: `/api/v1/agents/fleet`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description List help requests from agents needing human assistance
-     *
-     * @tags agents
-     * @name V1AgentsHelpRequestsList
-     * @summary List help requests
-     * @request GET:/api/v1/agents/help-requests
-     * @secure
-     */
-    v1AgentsHelpRequestsList: (
-      query?: {
-        /**
-         * Page number
-         * @default 0
-         */
-        page?: number;
-        /**
-         * Page size
-         * @default 20
-         */
-        page_size?: number;
-        /** Help request status filter */
-        status?: string;
-        /** Urgency level filter */
-        urgency?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesHelpRequestsListResponse, any>({
-        path: `/api/v1/agents/help-requests`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Provide resolution for a help request from an agent
-     *
-     * @tags agents
-     * @name V1AgentsHelpRequestsResolveCreate
-     * @summary Resolve a help request
-     * @request POST:/api/v1/agents/help-requests/{request_id}/resolve
-     * @secure
-     */
-    v1AgentsHelpRequestsResolveCreate: (
-      requestId: string,
-      request: Record<string, string>,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesHelpRequest, any>({
-        path: `/api/v1/agents/help-requests/${requestId}/resolve`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description List agent sessions with filtering and pagination
-     *
-     * @tags agents
-     * @name V1AgentsSessionsList
-     * @summary List agent sessions
-     * @request GET:/api/v1/agents/sessions
-     * @secure
-     */
-    v1AgentsSessionsList: (
-      query?: {
-        /**
-         * Page number
-         * @default 0
-         */
-        page?: number;
-        /**
-         * Page size
-         * @default 20
-         */
-        page_size?: number;
-        /** Session status filter */
-        status?: string;
-        /** Agent type filter */
-        agent_type?: string;
-        /**
-         * Show only active sessions
-         * @default false
-         */
-        active_only?: boolean;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesAgentSessionsResponse, any>({
-        path: `/api/v1/agents/sessions`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get statistics about the agent work queue
-     *
-     * @tags agents
-     * @name V1AgentsStatsList
-     * @summary Get work queue statistics
-     * @request GET:/api/v1/agents/stats
-     * @secure
-     */
-    v1AgentsStatsList: (params: RequestParams = {}) =>
-      this.request<TypesAgentWorkQueueStats, any>({
-        path: `/api/v1/agents/stats`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description List work items in the agent queue with filtering and pagination
-     *
-     * @tags agents
-     * @name V1AgentsWorkList
-     * @summary List agent work items
-     * @request GET:/api/v1/agents/work
-     * @secure
-     */
-    v1AgentsWorkList: (
-      query?: {
-        /**
-         * Page number
-         * @default 0
-         */
-        page?: number;
-        /**
-         * Page size
-         * @default 20
-         */
-        page_size?: number;
-        /** Work item status filter */
-        status?: string;
-        /** Agent type filter */
-        agent_type?: string;
-        /** Work item source filter */
-        source?: string;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesAgentWorkItemsResponse, any>({
-        path: `/api/v1/agents/work`,
-        method: "GET",
-        query: query,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Create a new work item in the agent queue
-     *
-     * @tags agents
-     * @name V1AgentsWorkCreate
-     * @summary Create a new agent work item
-     * @request POST:/api/v1/agents/work
-     * @secure
-     */
-    v1AgentsWorkCreate: (request: TypesAgentWorkItemCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesAgentWorkItem, any>({
-        path: `/api/v1/agents/work`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Get details of a specific work item
-     *
-     * @tags agents
-     * @name V1AgentsWorkDetail
-     * @summary Get an agent work item
-     * @request GET:/api/v1/agents/work/{work_item_id}
-     * @secure
-     */
-    v1AgentsWorkDetail: (workItemId: string, params: RequestParams = {}) =>
-      this.request<TypesAgentWorkItem, any>({
-        path: `/api/v1/agents/work/${workItemId}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update details of a specific work item
-     *
-     * @tags agents
-     * @name V1AgentsWorkUpdate
-     * @summary Update an agent work item
-     * @request PUT:/api/v1/agents/work/{work_item_id}
-     * @secure
-     */
-    v1AgentsWorkUpdate: (workItemId: string, request: TypesAgentWorkItemUpdateRequest, params: RequestParams = {}) =>
-      this.request<TypesAgentWorkItem, any>({
-        path: `/api/v1/agents/work/${workItemId}`,
-        method: "PUT",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -6492,23 +5979,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1DashboardList: (params: RequestParams = {}) =>
       this.request<TypesDashboardData, any>({
         path: `/api/v1/dashboard`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get comprehensive dashboard data including agent sessions, work queue, and help requests
-     *
-     * @tags dashboard
-     * @name V1DashboardAgentList
-     * @summary Get enhanced dashboard data with agent management
-     * @request GET:/api/v1/dashboard/agent
-     * @secure
-     */
-    v1DashboardAgentList: (params: RequestParams = {}) =>
-      this.request<TypesAgentDashboardSummary, any>({
-        path: `/api/v1/dashboard/agent`,
         method: "GET",
         secure: true,
         ...params,
