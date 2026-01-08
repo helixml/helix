@@ -15,28 +15,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-// InteractionEntry represents a single turn in the conversation
-type InteractionEntry struct {
-	ID              string `json:"id"`
-	PromptMessage   string `json:"prompt_message"`
-	ResponseMessage string `json:"response_message"`
-	Summary         string `json:"summary"`
-	Created         string `json:"created"`
-}
-
-// SessionDetails represents full session information
-type SessionDetails struct {
-	ID       string          `json:"session_id"`
-	Name     string          `json:"name"`
-	Mode     string          `json:"mode"`
-	Type     string          `json:"type"`
-	Created  string          `json:"created"`
-	Updated  string          `json:"updated"`
-	Metadata SessionMetadata `json:"metadata"`
-}
 
 // ChatMessage represents a streaming chat message chunk
 type ChatMessage struct {
@@ -125,7 +106,7 @@ Examples:
 	return cmd
 }
 
-func getSessionDetails(apiURL, token, sessionID string) (*SessionDetails, error) {
+func getSessionDetails(apiURL, token, sessionID string) (*types.Session, error) {
 	url := fmt.Sprintf("%s/api/v1/sessions/%s", apiURL, sessionID)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -146,7 +127,7 @@ func getSessionDetails(apiURL, token, sessionID string) (*SessionDetails, error)
 		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var session SessionDetails
+	var session types.Session
 	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
 		return nil, err
 	}
@@ -154,7 +135,7 @@ func getSessionDetails(apiURL, token, sessionID string) (*SessionDetails, error)
 	return &session, nil
 }
 
-func printSessionInfo(session *SessionDetails) {
+func printSessionInfo(session *types.Session) {
 	fmt.Printf("\n")
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("📋 Session: %s\n", session.Name)
@@ -163,9 +144,6 @@ func printSessionInfo(session *SessionDetails) {
 	fmt.Printf("   Type:       %s\n", session.Type)
 	fmt.Printf("   Mode:       %s\n", session.Mode)
 
-	if session.Metadata.ContainerName != "" {
-		fmt.Printf("   Container:  %s\n", session.Metadata.ContainerName)
-	}
 	if session.Metadata.WolfLobbyPIN != "" {
 		fmt.Printf("   Wolf PIN:   %s (for browser access)\n", session.Metadata.WolfLobbyPIN)
 	}
@@ -175,7 +153,7 @@ func printSessionInfo(session *SessionDetails) {
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 }
 
-func getInteractions(apiURL, token, sessionID string, limit int) ([]InteractionEntry, error) {
+func getInteractions(apiURL, token, sessionID string, limit int) ([]*types.Interaction, error) {
 	url := fmt.Sprintf("%s/api/v1/sessions/%s/interactions?limit=%d", apiURL, sessionID, limit)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -196,7 +174,7 @@ func getInteractions(apiURL, token, sessionID string, limit int) ([]InteractionE
 		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var interactions []InteractionEntry
+	var interactions []*types.Interaction
 	if err := json.NewDecoder(resp.Body).Decode(&interactions); err != nil {
 		return nil, err
 	}
@@ -330,7 +308,7 @@ func sendAndStreamResponse(apiURL, token, sessionID, prompt string) error {
 	return nil
 }
 
-func runInteractiveChat(apiURL, token, sessionID string, session *SessionDetails) error {
+func runInteractiveChat(apiURL, token, sessionID string, session *types.Session) error {
 	fmt.Printf("🎮 Interactive Chat Mode\n")
 	fmt.Printf("───────────────────────────────────────────────────────────────────────────────\n")
 	fmt.Printf("Commands:\n")

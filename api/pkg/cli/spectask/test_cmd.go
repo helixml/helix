@@ -2,6 +2,7 @@ package spectask
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -143,69 +145,37 @@ func runMCPTests(apiURL, token, sessionID string, suite *TestSuite, timeout int)
 	printTestResult(result)
 }
 
-func testMCPTool(apiURL, token, sessionID, toolName string, args map[string]interface{}, timeout int) TestResult {
+func testMCPTool(apiURL, token, sessionID, toolName string, args map[string]interface{}, _ int) TestResult {
 	start := time.Now()
 	result := TestResult{
 		Name: fmt.Sprintf("mcp/%s", toolName),
 	}
 
-	// Call MCP tool via the API
-	// StreamableHTTPServer handles POST at base path
+	ctx := context.Background()
 	mcpURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", apiURL, sessionID)
 
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      toolName,
-			"arguments": args,
+	mcpClient, err := newMCPClient(ctx, mcpURL, token)
+	if err != nil {
+		result.Error = err.Error()
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	toolResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
 		},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewBuffer(jsonData))
+	})
 	if err != nil {
 		result.Error = err.Error()
 		result.Duration = time.Since(start)
 		return result
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		result.Error = err.Error()
-		result.Duration = time.Since(start)
-		return result
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
 	result.Duration = time.Since(start)
-
-	if resp.StatusCode != http.StatusOK {
-		result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))
-		return result
-	}
-
-	// Parse JSON-RPC response
-	var rpcResp map[string]interface{}
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		result.Error = fmt.Sprintf("invalid JSON response: %v", err)
-		return result
-	}
-
-	if errObj, ok := rpcResp["error"]; ok {
-		result.Error = fmt.Sprintf("RPC error: %v", errObj)
-		return result
-	}
-
 	result.Passed = true
-	result.Details = rpcResp["result"]
+	result.Details = toolResult
 	return result
 }
 
@@ -274,61 +244,42 @@ func testScreenshot(apiURL, token, sessionID string, timeout int) TestResult {
 	return result
 }
 
-func testDesktopTool(apiURL, token, sessionID, toolName string, args map[string]interface{}, timeout int) TestResult {
+func testDesktopTool(apiURL, token, sessionID, toolName string, args map[string]interface{}, _ int) TestResult {
 	start := time.Now()
 	result := TestResult{
 		Name: fmt.Sprintf("desktop/%s", toolName),
 	}
 
-	// Desktop MCP runs inside the sandbox, so we need to call it via the external agent proxy
-	// The external agent exposes an MCP endpoint
+	ctx := context.Background()
+	// Desktop MCP runs inside the sandbox via the external agent proxy
 	mcpURL := fmt.Sprintf("%s/api/v1/external-agents/%s/mcp", apiURL, sessionID)
 
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      toolName,
-			"arguments": args,
-		},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewBuffer(jsonData))
+	mcpClient, err := newMCPClient(ctx, mcpURL, token)
 	if err != nil {
-		result.Error = err.Error()
-		result.Duration = time.Since(start)
-		return result
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		result.Error = err.Error()
-		result.Duration = time.Since(start)
-		return result
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	result.Duration = time.Since(start)
-
-	if resp.StatusCode != http.StatusOK {
-		// Desktop MCP might not be exposed via API - mark as skipped
-		if resp.StatusCode == http.StatusNotFound {
+		// Desktop MCP might not be available - mark as skipped
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
 			result.Error = "skipped: desktop MCP not exposed via external API"
 			result.Passed = true // Don't fail the test
 			return result
 		}
-		result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body[:min(200, len(body))]))
+		result.Error = err.Error()
+		result.Duration = time.Since(start)
 		return result
 	}
 
+	_, err = mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
+		},
+	})
+	if err != nil {
+		result.Error = err.Error()
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	result.Duration = time.Since(start)
 	result.Passed = true
 	return result
 }

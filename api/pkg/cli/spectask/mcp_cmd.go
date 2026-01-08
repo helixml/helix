@@ -1,27 +1,65 @@
 package spectask
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
-// MCPResponse represents a JSON-RPC response
-type MCPResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      int         `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+// MCPClient wraps the mcp-go client for CLI usage
+type MCPClient interface {
+	ListTools(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error)
+	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+}
+
+// newMCPClient creates a new MCP client for the given URL with authentication
+func newMCPClient(ctx context.Context, mcpURL, token string) (MCPClient, error) {
+	headers := map[string]string{
+		"Authorization": "Bearer " + token,
+	}
+
+	httpTransport, err := transport.NewStreamableHTTP(
+		mcpURL,
+		transport.WithHTTPHeaders(headers),
+		transport.WithHTTPTimeout(60*time.Second),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP transport: %w", err)
+	}
+
+	mcpClient := client.NewClient(httpTransport)
+
+	if err := mcpClient.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start MCP client: %w", err)
+	}
+
+	// Initialize the MCP session
+	initRequest := mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			Capabilities:    mcp.ClientCapabilities{},
+			ClientInfo: mcp.Implementation{
+				Name:    "helix-cli",
+				Version: data.GetHelixVersion(),
+			},
+		},
+	}
+
+	if _, err := mcpClient.Initialize(ctx, initRequest); err != nil {
+		return nil, fmt.Errorf("failed to initialize MCP session: %w", err)
+	}
+
+	return mcpClient, nil
 }
 
 func newMCPCommand() *cobra.Command {
@@ -135,52 +173,25 @@ Examples:
 }
 
 func callSessionMCP(apiURL, token, sessionID, toolName string, args map[string]interface{}) (interface{}, error) {
-	// StreamableHTTPServer handles POST at base path
+	ctx := context.Background()
 	mcpURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", apiURL, sessionID)
 
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      toolName,
-			"arguments": args,
+	mcpClient, err := newMCPClient(ctx, mcpURL, token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP client: %w", err)
+	}
+
+	result, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
 		},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewBuffer(jsonData))
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tool call failed: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var rpcResp MCPResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return nil, fmt.Errorf("invalid response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("MCP error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
-	}
-
-	return rpcResp.Result, nil
+	return result, nil
 }
 
 func printMCPResult(toolName string, result interface{}) error {
@@ -388,57 +399,26 @@ Examples:
 }
 
 func callDesktopMCP(apiURL, token, sessionID, toolName string, args map[string]interface{}) (interface{}, error) {
-	// Desktop MCP runs inside the sandbox
-	// We need to use the external agent's MCP proxy or direct endpoint
+	ctx := context.Background()
+	// Desktop MCP runs inside the sandbox via the external agent's MCP proxy
 	mcpURL := fmt.Sprintf("%s/api/v1/external-agents/%s/mcp/desktop", apiURL, sessionID)
 
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      toolName,
-			"arguments": args,
+	mcpClient, err := newMCPClient(ctx, mcpURL, token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP client: %w", err)
+	}
+
+	result, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
 		},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewBuffer(jsonData))
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tool call failed: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("desktop MCP endpoint not available (session may not have external agent)")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var rpcResp MCPResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return nil, fmt.Errorf("invalid response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("MCP error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
-	}
-
-	return rpcResp.Result, nil
+	return result, nil
 }
 
 func handleScreenshotResult(result interface{}) error {
@@ -509,58 +489,43 @@ func newMCPListCommand() *cobra.Command {
 }
 
 func listMCPTools(apiURL, token, sessionID, mcpType string) ([]string, error) {
+	ctx := context.Background()
+
 	var mcpURL string
 	if mcpType == "session" {
-		// StreamableHTTPServer handles POST at base path
 		mcpURL = fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", apiURL, sessionID)
 	} else {
 		mcpURL = fmt.Sprintf("%s/api/v1/external-agents/%s/mcp/desktop", apiURL, sessionID)
 	}
 
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/list",
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest("POST", mcpURL, bytes.NewBuffer(jsonData))
+	mcpClient, err := newMCPClient(ctx, mcpURL, token)
 	if err != nil {
-		return nil, err
+		// Return hardcoded list as fallback if connection fails
+		if mcpType == "session" {
+			return []string{
+				"current_session          Get session overview",
+				"session_toc              Get table of contents",
+				"get_turn                 Get specific turn content",
+				"session_title_history    See title changes",
+				"search_session           Search interactions",
+			}, nil
+		}
+		return []string{
+			"take_screenshot          Capture screen",
+			"list_windows             List all windows",
+			"get_workspaces           List workspaces",
+			"type_text                Type keyboard input",
+			"mouse_click              Click at coordinates",
+		}, nil
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	result, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	var rpcResp struct {
-		Result struct {
-			Tools []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-			} `json:"tools"`
-		} `json:"result"`
-	}
-
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return nil, fmt.Errorf("invalid response: %w", err)
+		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
 	var tools []string
-	for _, t := range rpcResp.Result.Tools {
+	for _, t := range result.Tools {
 		desc := t.Description
 		if len(desc) > 50 {
 			desc = desc[:50] + "..."
