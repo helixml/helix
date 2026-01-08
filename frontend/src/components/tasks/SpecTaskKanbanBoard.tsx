@@ -186,9 +186,6 @@ const DroppableColumn: React.FC<{
   hasExternalRepo?: boolean;
   theme: any;
 }> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, theme }): JSX.Element => {
-  const router = useRouter();
-  const account = useAccount();
-
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
@@ -493,7 +490,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       color: '#6b7280',
       backgroundColor: 'transparent',
       description: 'Merged to main',
-      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
+      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done'),
     });
 
     return baseColumns;
