@@ -151,6 +151,76 @@ func (s *Server) createSession(ctx context.Context) error {
 	return nil
 }
 
+// createScreenshotSession creates a standalone ScreenCast session for screenshots.
+// This is SEPARATE from the Wolf video session to avoid buffer renegotiation conflicts.
+// Unlike the Wolf session, this is NOT linked to RemoteDesktop (no input needed).
+func (s *Server) createScreenshotSession(ctx context.Context) error {
+	s.logger.Info("creating standalone ScreenCast session for screenshots...")
+
+	scObj := s.conn.Object(screenCastBus, screenCastPath)
+
+	// Create standalone session (no remote-desktop-session-id = not linked)
+	var scSessionPath dbus.ObjectPath
+	if err := scObj.Call(screenCastIface+".CreateSession", 0, map[string]dbus.Variant{}).Store(&scSessionPath); err != nil {
+		return fmt.Errorf("create screenshot ScreenCast session: %w", err)
+	}
+	s.ssScSessionPath = scSessionPath
+	s.logger.Info("screenshot ScreenCast session created", "path", scSessionPath)
+
+	// Record the virtual monitor Meta-0
+	scSession := s.conn.Object(screenCastBus, scSessionPath)
+	recordOptions := map[string]dbus.Variant{
+		"cursor-mode": dbus.MakeVariant(uint32(1)), // Embedded cursor
+	}
+
+	var streamPath dbus.ObjectPath
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+		return fmt.Errorf("screenshot RecordMonitor: %w", err)
+	}
+	s.ssScStreamPath = streamPath
+	s.logger.Info("screenshot stream created", "path", streamPath)
+
+	// Subscribe to PipeWireStreamAdded signal for this stream
+	if err := s.conn.AddMatchSignal(
+		dbus.WithMatchObjectPath(s.ssScStreamPath),
+		dbus.WithMatchInterface(screenCastStreamIface),
+		dbus.WithMatchMember("PipeWireStreamAdded"),
+	); err != nil {
+		return fmt.Errorf("add screenshot signal match: %w", err)
+	}
+
+	signalChan := make(chan *dbus.Signal, 10)
+	s.conn.Signal(signalChan)
+
+	// Start the standalone ScreenCast session
+	s.logger.Info("starting screenshot ScreenCast session...")
+	if err := scSession.Call(screenCastSessionIface+".Start", 0).Err; err != nil {
+		return fmt.Errorf("start screenshot ScreenCast session: %w", err)
+	}
+
+	// Wait for PipeWire node ID
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case sig := <-signalChan:
+			if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" &&
+				sig.Path == s.ssScStreamPath && len(sig.Body) > 0 {
+				if nodeID, ok := sig.Body[0].(uint32); ok {
+					s.ssNodeID = nodeID
+					s.logger.Info("screenshot PipeWireStreamAdded signal received",
+						"node_id", nodeID,
+						"wolf_node_id", s.nodeID)
+					return nil
+				}
+			}
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for screenshot PipeWireStreamAdded signal")
+		}
+	}
+}
+
 // startSession starts the session and waits for PipeWire node ID.
 func (s *Server) startSession(ctx context.Context) error {
 	s.logger.Info("setting up PipeWireStreamAdded signal handler...")

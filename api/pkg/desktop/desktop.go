@@ -28,12 +28,18 @@ type Config struct {
 // Server is the main desktop integration server.
 // It manages D-Bus sessions for video/input and serves HTTP APIs.
 type Server struct {
-	// D-Bus session state
+	// D-Bus session state (for Wolf video + input)
 	conn          *dbus.Conn
 	rdSessionPath dbus.ObjectPath
 	scSessionPath dbus.ObjectPath
 	scStreamPath  dbus.ObjectPath
 	nodeID        uint32
+
+	// Screenshot-dedicated ScreenCast session (separate from Wolf's video)
+	// This avoids buffer renegotiation conflicts when capturing screenshots
+	ssScSessionPath dbus.ObjectPath
+	ssScStreamPath  dbus.ObjectPath
+	ssNodeID        uint32
 
 	// Input socket
 	inputListener   net.Listener
@@ -49,6 +55,11 @@ type Server struct {
 
 	// Stats
 	moveCount int
+
+	// Screenshot serialization - GNOME D-Bus Screenshot API only allows
+	// one operation at a time per sender. Concurrent calls return
+	// "There is an ongoing operation for this sender" error.
+	screenshotMu sync.Mutex
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -104,6 +115,18 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// 5. Report to Wolf
 		s.reportToWolf()
+
+		// 5b. Create dedicated screenshot ScreenCast session (separate from Wolf's)
+		// This allows fast PipeWire-based screenshots without interfering with video
+		if err := s.createScreenshotSession(ctx); err != nil {
+			// Non-fatal - fall back to D-Bus Screenshot API
+			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
+				"err", err)
+		} else {
+			s.logger.Info("screenshot session ready",
+				"screenshot_node_id", s.ssNodeID,
+				"wolf_node_id", s.nodeID)
+		}
 
 		// Mark as running BEFORE starting goroutines that check isRunning()
 		// CRITICAL: This fixes a race condition where input bridge would exit

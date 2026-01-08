@@ -239,20 +239,98 @@ const (
 	shellScreenshotIface = "org.gnome.Shell.Screenshot"
 )
 
-// captureGNOMEScreenshot captures via GNOME Shell Screenshot D-Bus API.
-// Uses org.gnome.Shell.Screenshot interface directly.
-// Requires gnome-shell to be started with --unsafe-mode flag to allow D-Bus access.
-// This avoids conflicts with Wolf's pipewiresrc video pipeline (no PipeWire involvement).
+// captureGNOMEScreenshot captures a screenshot in GNOME environment.
+//
+// Strategy:
+// 1. If we have a dedicated screenshot ScreenCast session (ssNodeID > 0),
+//    use fast PipeWire capture - this doesn't interfere with Wolf's video.
+// 2. Otherwise, fall back to D-Bus Screenshot API (slower, ~400ms, serialized).
 func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, string, error) {
+	// Fast path: Use dedicated screenshot PipeWire node if available
+	if s.ssNodeID > 0 {
+		return s.captureScreenshotPipeWire(format, quality)
+	}
+
+	// Slow path: Fall back to D-Bus Screenshot API
 	if s.conn == nil {
 		return nil, "", fmt.Errorf("D-Bus connection not available")
 	}
+
+	// Serialize screenshot requests - GNOME only allows one at a time per D-Bus connection
+	s.screenshotMu.Lock()
+	defer s.screenshotMu.Unlock()
+
 	return s.captureShellScreenshotDBus(format, quality)
+}
+
+// captureScreenshotPipeWire captures from the dedicated screenshot PipeWire node.
+// This is SEPARATE from Wolf's video node to avoid buffer renegotiation conflicts.
+func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, string, error) {
+	startTime := time.Now()
+	s.logger.Debug("capturing via dedicated PipeWire screenshot node", "node_id", s.ssNodeID)
+
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
+	defer os.Remove(tmpFile)
+
+	// Use gst-launch with JPEG output directly if requested (faster than PNG->JPEG conversion)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if format == "jpeg" {
+		// Direct JPEG output - much faster
+		cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q",
+			"pipewiresrc", fmt.Sprintf("path=%d", s.ssNodeID), "num-buffers=1", "do-timestamp=true",
+			"!", "videoconvert",
+			"!", "jpegenc", fmt.Sprintf("quality=%d", quality),
+			"!", "filesink", "location="+tmpFile,
+		)
+	} else {
+		cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q",
+			"pipewiresrc", fmt.Sprintf("path=%d", s.ssNodeID), "num-buffers=1", "do-timestamp=true",
+			"!", "videoconvert",
+			"!", "pngenc",
+			"!", "filesink", "location="+tmpFile,
+		)
+	}
+	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+s.config.XDGRuntimeDir)
+
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, "", fmt.Errorf("gst-launch timed out after 3 seconds")
+	}
+	if err != nil {
+		s.logger.Warn("PipeWire screenshot failed, falling back to D-Bus",
+			"err", err,
+			"output", string(output))
+		// Fall back to D-Bus Screenshot
+		s.screenshotMu.Lock()
+		defer s.screenshotMu.Unlock()
+		return s.captureShellScreenshotDBus(format, quality)
+	}
+
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("read screenshot: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("gst-launch produced empty output")
+	}
+
+	totalTime := time.Since(startTime)
+	s.logger.Info("PipeWire screenshot captured",
+		"format", format,
+		"total_ms", totalTime.Milliseconds(),
+		"size", len(data))
+
+	return data, format, nil
 }
 
 // captureShellScreenshotDBus captures via org.gnome.Shell.Screenshot D-Bus interface.
 // Uses the server's existing D-Bus connection for reliability in headless mode.
 func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte, string, error) {
+	startTime := time.Now()
 	s.logger.Debug("capturing via D-Bus org.gnome.Shell.Screenshot")
 
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
@@ -287,7 +365,8 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 		return nil, "", fmt.Errorf("Screenshot method returned success=false")
 	}
 
-	s.logger.Debug("D-Bus Screenshot succeeded", "filename", filenameUsed)
+	dbusTime := time.Since(startTime)
+	s.logger.Debug("D-Bus Screenshot succeeded", "filename", filenameUsed, "dbus_ms", dbusTime.Milliseconds())
 
 	// Read the screenshot file
 	pngData, err := os.ReadFile(filenameUsed)
@@ -299,6 +378,8 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 		return nil, "", fmt.Errorf("D-Bus Screenshot produced empty file")
 	}
 
+	readTime := time.Since(startTime)
+
 	// Convert to JPEG if requested
 	if format == "jpeg" {
 		jpegData, err := convertPNGtoJPEG(pngData, quality)
@@ -306,9 +387,23 @@ func (s *Server) captureShellScreenshotDBus(format string, quality int) ([]byte,
 			s.logger.Warn("JPEG conversion failed, returning PNG", "err", err)
 			return pngData, "png", nil
 		}
+		totalTime := time.Since(startTime)
+		s.logger.Info("screenshot timing",
+			"dbus_ms", dbusTime.Milliseconds(),
+			"read_ms", (readTime - dbusTime).Milliseconds(),
+			"convert_ms", (totalTime - readTime).Milliseconds(),
+			"total_ms", totalTime.Milliseconds(),
+			"png_size", len(pngData),
+			"jpeg_size", len(jpegData))
 		return jpegData, "jpeg", nil
 	}
 
+	totalTime := time.Since(startTime)
+	s.logger.Info("screenshot timing",
+		"dbus_ms", dbusTime.Milliseconds(),
+		"read_ms", (readTime - dbusTime).Milliseconds(),
+		"total_ms", totalTime.Milliseconds(),
+		"png_size", len(pngData))
 	return pngData, "png", nil
 }
 
