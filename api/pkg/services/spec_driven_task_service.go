@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/datatypes"
 )
 
 // Spec-driven development: Specs worktree paths (relative to repository root)
@@ -1208,72 +1206,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 	return nil
 }
 
-// sanitizeBranchName makes a branch name git-safe
-// func sanitizeBranchName(name string) string {
-// 	// Replace spaces with hyphens
-// 	name = strings.ReplaceAll(name, " ", "-")
-// 	// Remove special characters except hyphens and underscores
-// 	result := strings.Builder{}
-// 	for _, r := range name {
-// 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
-// 			result.WriteRune(r)
-// 		}
-// 	}
-// 	return result.String()
-// }
-
-// startMultiSessionImplementation kicks off multi-session implementation using the MultiSessionManager
-// func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Context, task *types.SpecTask) {
-// 	log.Info().
-// 		Str("task_id", task.ID).
-// 		Msg("Starting multi-session implementation")
-
-// 	// Select available Zed agent for implementation
-// 	zedAgent := s.selectZedAgent()
-// 	if zedAgent == "" {
-// 		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-// 		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-// 		return
-// 	}
-
-// 	// No need to update task - we're reusing the planning agent and session
-// 	task.UpdatedAt = time.Now()
-
-// 	err := s.store.UpdateSpecTask(ctx, task)
-// 	if err != nil {
-// 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with implementation agent")
-// 		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-// 		return
-// 	}
-
-// 	// Create implementation sessions configuration
-// 	config := &types.SpecTaskImplementationSessionsCreateRequest{
-// 		SpecTaskID:         task.ID,
-// 		ProjectPath:        "/workspace/" + task.ID, // Default project path
-// 		AutoCreateSessions: true,
-// 		WorkspaceConfig: map[string]interface{}{
-// 			"TASK_ID":    task.ID,
-// 			"TASK_NAME":  task.Name,
-// 			"AGENT_TYPE": zedAgent,
-// 		},
-// 	}
-
-// 	// Create implementation sessions via MultiSessionManager
-// 	// _, err = s.MultiSessionManager.CreateImplementationSessions(ctx, task.ID, config)
-// 	// if err != nil {
-// 	// 	log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create implementation sessions")
-// 	// 	s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-// 	// 	return
-// 	// }
-
-// 	log.Info().
-// 		Str("task_id", task.ID).
-// 		Str("implementation_agent", zedAgent).
-// 		Msg("Multi-session implementation started successfully")
-// }
-
-// NOTE: Planning prompt is now in spec_task_prompts.go:BuildPlanningPrompt
-
 // Helper functions
 func (s *SpecDrivenTaskService) selectZedAgent() string {
 	// Simple round-robin for now
@@ -1282,15 +1214,6 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 		return ""
 	}
 	return s.zedAgentPool[0]
-}
-
-// mustMarshalJSON marshals data to JSON, panicking on error (for static data)
-func mustMarshalJSON(data interface{}) datatypes.JSON {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
-	}
-	return datatypes.JSON(jsonData)
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
