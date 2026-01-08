@@ -1137,9 +1137,10 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:       displayWidth,
-			Height:      displayHeight,
-			RefreshRate: displayRefreshRate,
+			Width:           displayWidth,
+			Height:          displayHeight,
+			RefreshRate:     displayRefreshRate,
+			VideoSourceMode: "wayland", // Wolf creates Wayland compositor and captures directly
 			// Empty strings → Wolf's compute_pipeline_defaults() auto-detects optimal GPU pipeline
 			WaylandRenderNode:       "",
 			RunnerRenderNode:        "",

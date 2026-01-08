@@ -792,7 +792,7 @@ function up() {
   if [ ! -d "$PROJECTS_ROOT/wolf" ]; then
     echo "🐺 Wolf source code not found at $PROJECTS_ROOT/wolf/"
     echo "📥 Cloning Wolf repository..."
-    git clone https://github.com/games-on-whales/wolf.git "$PROJECTS_ROOT/wolf"
+    git clone https://github.com/helixml/wolf.git "$PROJECTS_ROOT/wolf"
     echo "✅ Wolf repository cloned successfully"
   fi
 
@@ -923,7 +923,7 @@ function build-wolf() {
     echo ""
     echo "Please run:"
     echo "  cd $PROJECTS_ROOT"
-    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  git clone https://github.com/helixml/wolf.git"
     echo "  cd helix"
     echo "  ./stack build-wolf"
     exit 1
