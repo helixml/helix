@@ -21,7 +21,6 @@ type SpecTaskOrchestrator struct {
 	controller            *controller.Controller
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
-	agentPool             *ExternalAgentPool
 	wolfExecutor          WolfExecutorInterface // Wolf executor for external agents
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -42,7 +41,6 @@ func NewSpecTaskOrchestrator(
 	controller *controller.Controller,
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
-	agentPool *ExternalAgentPool,
 	wolfExecutor WolfExecutorInterface, // Wolf executor for external agents
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
@@ -50,7 +48,6 @@ func NewSpecTaskOrchestrator(
 		controller:            controller,
 		gitService:            gitService,
 		specTaskService:       specTaskService,
-		agentPool:             agentPool,
 		wolfExecutor:          wolfExecutor,
 		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
@@ -74,10 +71,6 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	// Start PR polling loop (runs every 1 minute to check external PR status)
 	o.wg.Add(1)
 	go o.prPollLoop(ctx)
-
-	// Start cleanup routine
-	o.wg.Add(1)
-	go o.cleanupLoop(ctx)
 
 	return nil
 }
@@ -437,28 +430,6 @@ func (o *SpecTaskOrchestrator) pollPullRequests(ctx context.Context) {
 					Err(err).
 					Str("task_id", task.ID).
 					Msg("Failed to poll PR status")
-			}
-		}
-	}
-}
-
-// cleanupLoop periodically cleans up stale agents
-func (o *SpecTaskOrchestrator) cleanupLoop(ctx context.Context) {
-	defer o.wg.Done()
-
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-o.stopChan:
-			return
-		case <-ticker.C:
-			err := o.agentPool.CleanupStaleAgents(ctx, 30*time.Minute)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to cleanup stale agents")
 			}
 		}
 	}
