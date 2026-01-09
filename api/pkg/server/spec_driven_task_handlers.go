@@ -526,9 +526,6 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		KeyboardLayout: r.URL.Query().Get("keyboard"),
 		Timezone:       r.URL.Query().Get("timezone"),
 	}
-	// if opts.KeyboardLayout != "" {
-	// 	log.Info().Str("task_id", taskID).Str("keyboard", opts.KeyboardLayout).Msg("Using keyboard layout override from query param")
-	// }
 
 	// Get the task
 	task, err := s.Store.GetSpecTask(ctx, taskID)
@@ -551,19 +548,18 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task.PlanningOptions = opts
+	task.UpdatedAt = time.Now()
 
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
 	if task.JustDoItMode {
 		// go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusQueuedImplementation
-		task.UpdatedAt = time.Now()
 	} else {
 		// Normal mode: Start spec generation
 		// go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
 		task.Status = types.TaskStatusQueuedSpecGeneration
-		task.UpdatedAt = time.Now()
 	}
 
 	err = s.Store.UpdateSpecTask(ctx, task)
