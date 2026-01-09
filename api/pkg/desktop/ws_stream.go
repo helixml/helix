@@ -260,12 +260,15 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	}
 
 	// Build full pipeline as flat args
+	// pipewiresrc produces BGRx format from GNOME ScreenCast (verified in video_forwarder.go)
+	// We must specify the format explicitly for reliable caps negotiation
 	args := []string{
 		"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+		"!", "video/x-raw,format=BGRx", // Match SHM forwarder input format
 		"!", "videoconvert",
 		"!", "videoscale",
-		"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-			v.config.Width, v.config.Height, v.config.FPS),
+		"!", fmt.Sprintf("video/x-raw,width=%d,height=%d",
+			v.config.Width, v.config.Height), // Remove framerate constraint, use source rate
 		"!",
 	}
 	args = append(args, encoderArgs...)
