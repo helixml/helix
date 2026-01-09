@@ -100,8 +100,6 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // LoadProviders loads all enabled OAuth providers from the database.
 func (m *Manager) LoadProviders(ctx context.Context) error {
-	log.Info().Msg("Loading OAuth providers")
-
 	// Load all enabled providers
 	providers, err := m.store.ListOAuthProviders(ctx, &store.ListOAuthProvidersQuery{
 		Enabled: true,

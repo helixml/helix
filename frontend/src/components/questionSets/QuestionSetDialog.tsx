@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import {
   DialogTitle,
   DialogContent,
@@ -42,7 +43,7 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [questions, setQuestions] = useState<QuestionState[]>([{ id: crypto.randomUUID(), question: '' }]);
+  const [questions, setQuestions] = useState<QuestionState[]>([{ id: uuidv4(), question: '' }]);
   const [selectedAgent, setSelectedAgent] = useState<IApp | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,24 +76,24 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
       setQuestions(
         existingQuestionSet.questions && existingQuestionSet.questions.length > 0
           ? existingQuestionSet.questions.map((q) => ({
-              id: q.id || crypto.randomUUID(),
+              id: q.id || uuidv4(),
               question: q.question || '',
             }))
-          : [{ id: crypto.randomUUID(), question: '' }]
+          : [{ id: uuidv4(), question: '' }]
       );
       setError(null);
       setCreatedQuestionSetId(questionSetId);
     } else if (open && !questionSetId) {
       setName('');
       setDescription('');
-      setQuestions([{ id: crypto.randomUUID(), question: '' }]);
+      setQuestions([{ id: uuidv4(), question: '' }]);
       setError(null);
       setCreatedQuestionSetId(undefined);
     }
   }, [open, questionSetId, existingQuestionSet]);
 
   const handleAddQuestion = () => {
-    setQuestions([...questions, { id: crypto.randomUUID(), question: '' }]);
+    setQuestions([...questions, { id: uuidv4(), question: '' }]);
   };
 
   const handleRemoveQuestion = (id: string) => {

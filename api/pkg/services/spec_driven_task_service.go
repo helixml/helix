@@ -2,9 +2,7 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/datatypes"
 )
 
 // Spec-driven development: Specs worktree paths (relative to repository root)
@@ -34,20 +31,17 @@ type RequestMappingRegistrar func(requestID, sessionID string)
 type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
-	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
-	gitRepositoryService     *GitRepositoryService        // Service for git repository operations
-	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
-	SendMessageToAgent       SpecTaskMessageSender        // Callback to send messages to agents via WebSocket
-	helixAgentID             string                       // ID of Helix agent for spec generation
-	zedAgentPool             []string                     // Pool of available Zed agents
-	testMode                 bool                         // If true, skip async operations for testing
-	MultiSessionManager      *SpecTaskMultiSessionManager // Manager for multi-session workflows
-	ZedIntegrationService    *ZedIntegrationService       // Service for Zed instance and thread management
-	DocumentHandoffService   *DocumentHandoffService      // Service for git-based document handoff
-	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
-	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
-	SessionContextService    *SessionContextService       // Service for inter-session coordination
-	auditLogService          *AuditLogService             // Service for audit logging
+	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
+	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
+	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
+	SendMessageToAgent       SpecTaskMessageSender     // Callback to send messages to agents via WebSocket
+	helixAgentID             string                    // ID of Helix agent for spec generation
+	zedAgentPool             []string                  // Pool of available Zed agents
+	testMode                 bool                      // If true, skip async operations for testing
+	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
+	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
+	SessionContextService    *SessionContextService    // Service for inter-session coordination
+	auditLogService          *AuditLogService          // Service for audit logging
 	wg                       sync.WaitGroup
 }
 
@@ -81,46 +75,12 @@ func NewSpecDrivenTaskService(
 		pubsub,
 	)
 
-	// Initialize document services
-	service.SpecDocumentService = NewSpecDocumentService(
-		store,
-		"/workspace/git",  // Default git base path
-		"Helix System",    // Default git user name
-		"system@helix.ml", // Default git email
-	)
-
 	service.SessionContextService = NewSessionContextService(store)
-
-	service.DocumentHandoffService = NewDocumentHandoffService(
-		store,
-		service.SpecDocumentService,
-		nil, // Will be set after MultiSessionManager is created
-		"/workspace/git",
-		"Helix System",
-		"system@helix.ml",
-	)
-
-	// Initialize multi-session manager
-	var defaultImplementationApp string
-	if len(zedAgentPool) > 0 {
-		defaultImplementationApp = zedAgentPool[0]
-	}
-
-	service.MultiSessionManager = NewSpecTaskMultiSessionManager(
-		store,
-		controller,
-		service,
-		service.ZedIntegrationService,
-		defaultImplementationApp,
-	)
-
-	// Set MultiSessionManager reference in DocumentHandoffService
-	service.DocumentHandoffService.multiSessionManager = service.MultiSessionManager
 
 	// Initialize Zed-to-Helix session service
 	service.ZedToHelixSessionService = NewZedToHelixSessionService(
 		store,
-		service.MultiSessionManager,
+		// service.MultiSessionManager,
 		service.SessionContextService,
 	)
 
@@ -130,17 +90,9 @@ func NewSpecDrivenTaskService(
 // SetTestMode enables or disables test mode (prevents async operations)
 func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 	s.testMode = enabled
-	if s.MultiSessionManager != nil {
-		s.MultiSessionManager.SetTestMode(enabled)
-	}
+
 	if s.ZedIntegrationService != nil {
 		s.ZedIntegrationService.SetTestMode(enabled)
-	}
-	if s.DocumentHandoffService != nil {
-		s.DocumentHandoffService.SetTestMode(enabled)
-	}
-	if s.SpecDocumentService != nil {
-		s.SpecDocumentService.SetTestMode(enabled)
 	}
 	if s.ZedToHelixSessionService != nil {
 		s.ZedToHelixSessionService.SetTestMode(enabled)
@@ -251,7 +203,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
 // opts contains optional settings like keyboard layout from browser locale detection
-func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
+func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
 	// Add panic recovery for debugging
 	defer func() {
 		if r := recover(); r != nil {
@@ -369,8 +321,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntime,           // For open_thread on resume
+		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntime,          // For open_thread on resume
 		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
@@ -555,7 +507,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -596,7 +548,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
 // opts contains optional settings like keyboard layout from browser locale detection
-func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
+func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
 	// Add panic recovery for debugging (match StartSpecGeneration pattern)
 	defer func() {
 		if r := recover(); r != nil {
@@ -731,8 +683,8 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		SystemPrompt:     "",             // Don't override agent's system prompt
 		AgentType:        "zed_external", // Use Zed agent for git access
 		Stream:           false,
-		SpecTaskID:       task.ID,                    // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
-		CodeAgentRuntime: codeAgentRuntimeJDI,        // For open_thread on resume
+		SpecTaskID:       task.ID,                   // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
+		CodeAgentRuntime: codeAgentRuntimeJDI,       // For open_thread on resume
 		DesiredState:     types.DesiredStateRunning, // Session should be running (for reconciler)
 	}
 
@@ -945,7 +897,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -1257,72 +1209,6 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 	return nil
 }
 
-// sanitizeBranchName makes a branch name git-safe
-func sanitizeBranchName(name string) string {
-	// Replace spaces with hyphens
-	name = strings.ReplaceAll(name, " ", "-")
-	// Remove special characters except hyphens and underscores
-	result := strings.Builder{}
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
-}
-
-// startMultiSessionImplementation kicks off multi-session implementation using the MultiSessionManager
-func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Context, task *types.SpecTask) {
-	log.Info().
-		Str("task_id", task.ID).
-		Msg("Starting multi-session implementation")
-
-	// Select available Zed agent for implementation
-	zedAgent := s.selectZedAgent()
-	if zedAgent == "" {
-		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-		return
-	}
-
-	// No need to update task - we're reusing the planning agent and session
-	task.UpdatedAt = time.Now()
-
-	err := s.store.UpdateSpecTask(ctx, task)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with implementation agent")
-		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-		return
-	}
-
-	// Create implementation sessions configuration
-	config := &types.SpecTaskImplementationSessionsCreateRequest{
-		SpecTaskID:         task.ID,
-		ProjectPath:        "/workspace/" + task.ID, // Default project path
-		AutoCreateSessions: true,
-		WorkspaceConfig: map[string]interface{}{
-			"TASK_ID":    task.ID,
-			"TASK_NAME":  task.Name,
-			"AGENT_TYPE": zedAgent,
-		},
-	}
-
-	// Create implementation sessions via MultiSessionManager
-	_, err = s.MultiSessionManager.CreateImplementationSessions(ctx, task.ID, config)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create implementation sessions")
-		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
-		return
-	}
-
-	log.Info().
-		Str("task_id", task.ID).
-		Str("implementation_agent", zedAgent).
-		Msg("Multi-session implementation started successfully")
-}
-
-// NOTE: Planning prompt is now in spec_task_prompts.go:BuildPlanningPrompt
-
 // Helper functions
 func (s *SpecDrivenTaskService) selectZedAgent() string {
 	// Simple round-robin for now
@@ -1331,15 +1217,6 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 		return ""
 	}
 	return s.zedAgentPool[0]
-}
-
-// mustMarshalJSON marshals data to JSON, panicking on error (for static data)
-func mustMarshalJSON(data interface{}) datatypes.JSON {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
-	}
-	return datatypes.JSON(jsonData)
 }
 
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {

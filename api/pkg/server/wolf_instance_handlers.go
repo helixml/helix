@@ -124,14 +124,6 @@ func (apiServer *HelixAPIServer) wolfInstanceHeartbeat(rw http.ResponseWriter, r
 		return
 	}
 
-	// Log versions if provided (helps debugging)
-	if len(req.DesktopVersions) > 0 {
-		log.Debug().
-			Str("wolf_id", id).
-			Interface("desktop_versions", req.DesktopVersions).
-			Msg("Wolf heartbeat received with desktop versions")
-	}
-
 	// Check for disk alert level changes and send notifications
 	if len(req.DiskUsage) > 0 {
 		// Store disk usage history for time-series visualization

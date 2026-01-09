@@ -134,40 +134,6 @@ func GenerateUniqueDesignDocPath(ctx context.Context, store DesignDocStore, task
 
 	// Uniqueness check disabled - see TODO above
 	return basePath, nil
-
-	/*
-		// Check if this path exists (across all projects)
-		tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-			DesignDocPath:   basePath,
-			IncludeArchived: true,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to check design doc path uniqueness: %w", err)
-		}
-
-		// If no existing task with this path, use it
-		if len(tasks) == 0 {
-			return basePath, nil
-		}
-
-		// Path exists, try with suffixes _1, _2, etc.
-		for suffix := 1; suffix <= 100; suffix++ {
-			candidatePath := fmt.Sprintf("%s_%d", basePath, suffix)
-			tasks, err := store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-				DesignDocPath:   candidatePath,
-				IncludeArchived: true,
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to check design doc path uniqueness: %w", err)
-			}
-			if len(tasks) == 0 {
-				return candidatePath, nil
-			}
-		}
-
-		// Fallback: use task ID for guaranteed uniqueness
-		return fmt.Sprintf("%s_%s", basePath, task.ID[:8]), nil
-	*/
 }
 
 // GenerateUniqueBranchName creates a branch name for the task.

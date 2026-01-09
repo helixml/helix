@@ -124,7 +124,6 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Knowledge{},
 		&types.KnowledgeVersion{},
 		&types.DataEntity{},
-
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
@@ -161,11 +160,6 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SpecTaskDesignReviewComment{},
 		&types.SpecTaskDesignReviewCommentReply{},
 		&types.SpecTaskGitPushEvent{},
-		&types.AgentWorkItem{},
-		&types.AgentSession{},
-		&types.AgentSessionStatus{},
-		&types.HelpRequest{},
-		&types.JobCompletion{},
 		&types.GitRepository{},
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},

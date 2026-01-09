@@ -82,13 +82,19 @@ type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // Helper function to map backend status to frontend phase
 // IMPORTANT: This must be used consistently everywhere to prevent tasks from disappearing
-function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed'; hasSpecs: boolean } {
+function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued'; hasSpecs: boolean } {
   let phase: SpecTaskPhase = 'backlog';
-  let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+  let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued' = 'none';
   let hasSpecs = status !== 'backlog';
 
+  // Queued states - show in backlog but with queued status
+  if (status === 'queued_spec_generation' || status === 'queued_implementation') {
+    phase = 'backlog';
+    planningStatus = 'queued';
+    hasSpecs = false;
+  }
   // Spec generation phase
-  if (status === 'spec_generation') {
+  else if (status === 'spec_generation') {
     phase = 'planning';
     planningStatus = 'active';
   }
@@ -123,7 +129,7 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
   else if (status === 'spec_failed') {
     phase = 'backlog';
     planningStatus = 'failed';
-    hasSpecs = false; // Allow it to show in backlog column
+    hasSpecs = false;
   }
   // Default: backlog (for 'backlog' status and any unknown status)
   // hasSpecs is already set based on status !== 'backlog'
@@ -134,7 +140,7 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
 interface SpecTaskWithExtras extends SpecTask {
   hasSpecs: boolean;
   phase: SpecTaskPhase;
-  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed';
+  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued';
   gitRepositoryId?: string;
   gitRepositoryUrl?: string;
   multiSessionOverview?: MultiSessionOverview;
@@ -186,9 +192,6 @@ const DroppableColumn: React.FC<{
   hasExternalRepo?: boolean;
   theme: any;
 }> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, theme }): JSX.Element => {
-  const router = useRouter();
-  const account = useAccount();
-
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
@@ -375,12 +378,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [selectedSampleType, setSelectedSampleType] = useState('');
 
   // Available sample types for planning
-  const [sampleTypes, setSampleTypes] = useState<any[]>([]);
-
-  // Debug sample types data
-  useEffect(() => {
-    console.log('Sample types data updated:', sampleTypes);
-  }, [sampleTypes]);
+  const [sampleTypes, setSampleTypes] = useState<any[]>([]);  
 
   // Keyboard shortcut for creating new task (Enter key)
   useEffect(() => {
@@ -498,7 +496,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       color: '#6b7280',
       backgroundColor: 'transparent',
       description: 'Merged to main',
-      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done' || t.status === 'completed'),
+      tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'done'),
     });
 
     return baseColumns;

@@ -526,9 +526,6 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		KeyboardLayout: r.URL.Query().Get("keyboard"),
 		Timezone:       r.URL.Query().Get("timezone"),
 	}
-	if opts.KeyboardLayout != "" {
-		log.Info().Str("task_id", taskID).Str("keyboard", opts.KeyboardLayout).Msg("Using keyboard layout override from query param")
-	}
 
 	// Get the task
 	task, err := s.Store.GetSpecTask(ctx, taskID)
@@ -550,18 +547,26 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	task.PlanningOptions = opts
+	task.UpdatedAt = time.Now()
+
 	// Check if Just Do It mode is enabled - skip spec and go straight to implementation
 	if task.JustDoItMode {
-		go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task, opts)
+		// go s.specDrivenTaskService.StartJustDoItMode(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
-		task.Status = types.TaskStatusImplementation
-		task.UpdatedAt = time.Now()
+		task.Status = types.TaskStatusQueuedImplementation
 	} else {
 		// Normal mode: Start spec generation
-		go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task, opts)
+		// go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task, opts)
 		// Return updated task (status will be updated asynchronously)
-		task.Status = types.TaskStatusSpecGeneration
-		task.UpdatedAt = time.Now()
+		task.Status = types.TaskStatusQueuedSpecGeneration
+	}
+
+	err = s.Store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
+		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

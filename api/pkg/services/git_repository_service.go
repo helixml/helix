@@ -1152,12 +1152,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 			branches = append(branches, branch)
 		}
 		gitRepo.Branches = branches
-
-		log.Debug().
-			Str("repo_id", gitRepo.ID).
-			Strs("branches", branches).
-			Str("default_branch", gitRepo.DefaultBranch).
-			Msg("Updated repository branch information")
 	}
 
 	gitRepo.LastActivity = time.Now()
@@ -1172,11 +1166,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 				Str("default_branch", gitRepo.DefaultBranch).
 				Msg("Failed to persist detected default branch to database")
 			// Don't fail - the in-memory value is correct
-		} else {
-			log.Info().
-				Str("repo_id", gitRepo.ID).
-				Str("default_branch", gitRepo.DefaultBranch).
-				Msg("Persisted detected default branch to database")
 		}
 	}
 

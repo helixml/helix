@@ -72,12 +72,6 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			}
 
 			// If user hasn't modified the model, keep it in sync with code definitions
-			log.Debug().
-				Str("model_id", model.ID).
-				Bool("user_modified", existingModel.UserModified).
-				Bool("existing_prewarm", existingModel.Prewarm).
-				Bool("code_prewarm", model.Prewarm).
-				Msg("checking if model needs seeding updates")
 			if !existingModel.UserModified {
 				// Update all system-managed fields from code definitions
 				if existingModel.Memory != model.Memory {
@@ -532,13 +526,13 @@ func (s *PostgresStore) DeleteModel(ctx context.Context, id string) error {
 func (s *PostgresStore) seedSampleProjects(ctx context.Context) error {
 	sampleProjects := []types.SampleProject{
 		{
-			ID:          "sample-todo-app",
-			Name:        "Todo App (React + FastAPI)",
-			Description: "A full-stack todo application with React frontend and FastAPI backend. Perfect for learning full-stack development patterns.",
-			Category:    "web",
-			Difficulty:  "beginner",
+			ID:            "sample-todo-app",
+			Name:          "Todo App (React + FastAPI)",
+			Description:   "A full-stack todo application with React frontend and FastAPI backend. Perfect for learning full-stack development patterns.",
+			Category:      "web",
+			Difficulty:    "beginner",
 			RepositoryURL: "https://github.com/helixml/sample-todo-app",
-			ThumbnailURL: "",
+			ThumbnailURL:  "",
 			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{
@@ -568,13 +562,13 @@ func (s *PostgresStore) seedSampleProjects(ctx context.Context) error {
 			}),
 		},
 		{
-			ID:          "sample-chat-app",
-			Name:        "Real-time Chat (Node.js + Socket.io)",
-			Description: "A real-time chat application using Node.js, Express, and Socket.io. Learn WebSocket programming and real-time communication.",
-			Category:    "web",
-			Difficulty:  "intermediate",
+			ID:            "sample-chat-app",
+			Name:          "Real-time Chat (Node.js + Socket.io)",
+			Description:   "A real-time chat application using Node.js, Express, and Socket.io. Learn WebSocket programming and real-time communication.",
+			Category:      "web",
+			Difficulty:    "intermediate",
 			RepositoryURL: "https://github.com/helixml/sample-chat-app",
-			ThumbnailURL: "",
+			ThumbnailURL:  "",
 			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{
@@ -604,13 +598,13 @@ func (s *PostgresStore) seedSampleProjects(ctx context.Context) error {
 			}),
 		},
 		{
-			ID:          "sample-blog",
-			Name:        "Blog Platform (Next.js + Markdown)",
-			Description: "A modern blog platform built with Next.js and Markdown. Learn static site generation, file-based routing, and content management.",
-			Category:    "web",
-			Difficulty:  "beginner",
+			ID:            "sample-blog",
+			Name:          "Blog Platform (Next.js + Markdown)",
+			Description:   "A modern blog platform built with Next.js and Markdown. Learn static site generation, file-based routing, and content management.",
+			Category:      "web",
+			Difficulty:    "beginner",
 			RepositoryURL: "https://github.com/helixml/sample-blog",
-			ThumbnailURL: "",
+			ThumbnailURL:  "",
 			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{

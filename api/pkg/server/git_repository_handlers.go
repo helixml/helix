@@ -62,18 +62,13 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 
 	// Pass API key for Kodit to clone local repos (non-external repos)
 	if request.KoditIndexing && request.ExternalURL == "" {
-		if user.TokenType == types.TokenTypeAPIKey {
-			// User authenticated with API key - use it directly
-			request.KoditAPIKey = user.Token
-		} else {
-			// User authenticated via session - look up or create an API key
-			apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
-			if err != nil {
-				log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to get/create API key for Kodit indexing")
-			} else {
-				request.KoditAPIKey = apiKey
-			}
+		// User authenticated via session - look up or create an API key
+		apiKey, err := s.getOrCreateUserAPIKey(r.Context(), user)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get/create API key for Kodit indexing: %s", err.Error()), http.StatusInternalServerError)
+			return
 		}
+		request.KoditAPIKey = apiKey
 	}
 
 	// Set creator credentials for git commits
@@ -1530,7 +1525,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 				FullName:      fullName,
 				CloneURL:      cloneURL,
 				HTMLURL:       htmlURL,
-				Description:   "", // ADO repos don't have description in the basic response
+				Description:   "",   // ADO repos don't have description in the basic response
 				Private:       true, // ADO repos are private by default
 				DefaultBranch: defaultBranch,
 			})

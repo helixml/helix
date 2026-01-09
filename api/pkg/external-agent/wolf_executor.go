@@ -1192,7 +1192,7 @@ func (w *WolfExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent) 
 			DisplayFPS:        displayRefreshRate,
 			DesktopType:       desktopType,
 			ZedImage:          w.computeZedImageFromVersion(desktopType, wolfInstance), // Use version from sandbox heartbeat
-			DockerSocket:      dockerSocket,                                                        // Hydra-managed socket (empty = default)
+			DockerSocket:      dockerSocket,                                            // Hydra-managed socket (empty = default)
 		}).Runner, // Use the runner config from the app
 	}
 
@@ -2374,45 +2374,6 @@ func (w *WolfExecutor) logWolfInstanceMetrics(instanceID string, memory *wolf.Sy
 		log.Debug().Msg("GPU stats not available from Wolf")
 	}
 
-	// Log GStreamer pipeline stats if available
-	if memory.GStreamerPipelines != nil {
-		log.Info().
-			Int("producer_pipelines", memory.GStreamerPipelines.ProducerPipelines).
-			Int("consumer_pipelines", memory.GStreamerPipelines.ConsumerPipelines).
-			Int("total_pipelines", memory.GStreamerPipelines.TotalPipelines).
-			Msg("🎬 GStreamer Pipelines")
-	}
-
-	// Log per-lobby breakdown if we have lobbies
-	if len(memory.Lobbies) > 0 {
-		for _, lobby := range memory.Lobbies {
-			log.Debug().
-				Str("lobby_id", lobby.LobbyID).
-				Str("lobby_name", lobby.LobbyName).
-				Int("client_count", lobby.ClientCount).
-				Int64("memory_bytes", lobby.MemoryBytes).
-				Msg("🏛️ Lobby details")
-		}
-	}
-}
-
-// cleanupOrphanedWolfUISessionsLoop runs periodically to cleanup Wolf-UI streaming sessions
-// that don't have a corresponding active Zed container (orphaned after crashes, etc.)
-func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Minute) // Check every 2 minutes
-	defer ticker.Stop()
-
-	log.Info().Msg("Starting orphaned Wolf-UI session cleanup loop (checks every 2 minutes)")
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info().Msg("Orphaned Wolf-UI cleanup loop context canceled")
-			return
-		case <-ticker.C:
-			w.cleanupOrphanedWolfUISessions(ctx)
-		}
-	}
 }
 
 // FindExistingLobbyForSession checks if a lobby already exists for this Helix session
