@@ -2521,14 +2521,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       event.preventDefault();
       event.stopPropagation();
 
-      // Try DirectInputWebSocket first (bypasses Moonlight/Wolf for correct scroll handling)
-      // This is used for Ubuntu/GNOME sessions where we send scroll directly to GNOME via D-Bus
-      if (directInputRef.current?.isConnected()) {
-        directInputRef.current.sendScroll(event);
-        return;
-      }
-
-      // Fallback: Send to Moonlight stream (for Sway sessions or when direct input not connected)
+      // Send scroll via WebSocketStream (bypasses Wolf/Moonlight, goes directly to GNOME/Sway)
       const input = streamRef.current && 'getInput' in streamRef.current
         ? (streamRef.current as WebSocketStream | Stream).getInput()
         : null;
