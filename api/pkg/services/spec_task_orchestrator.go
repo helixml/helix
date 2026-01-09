@@ -252,7 +252,7 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.specTaskService.StartSpecGeneration(ctx, task)
+		o.specTaskService.StartJustDoItMode(ctx, task)
 	}()
 
 	return nil

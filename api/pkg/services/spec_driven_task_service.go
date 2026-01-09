@@ -541,7 +541,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
 // opts contains optional settings like keyboard layout from browser locale detection
-func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
+func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
 	// Add panic recovery for debugging (match StartSpecGeneration pattern)
 	defer func() {
 		if r := recover(); r != nil {
@@ -890,7 +890,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
