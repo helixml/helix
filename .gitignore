@@ -67,7 +67,8 @@ wolf/key.pem
 sandbox-heartbeat
 sandbox-images
 
-hydra
+# Hydra binary (not the api/pkg/hydra directory)
+/hydra
 qwen-code-build/
 
 # Screenshots from spectask testing

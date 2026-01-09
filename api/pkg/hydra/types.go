@@ -134,3 +134,98 @@ type BridgeDesktopResponse struct {
 	Subnet    string `json:"subnet"`     // Subnet for this Hydra network (e.g., "10.200.3.0/24")
 	Interface string `json:"interface"`  // Interface name added to desktop (e.g., "eth1")
 }
+
+// DevContainerType represents the type of dev container
+type DevContainerType string
+
+const (
+	DevContainerTypeSway     DevContainerType = "sway"     // Sway compositor with Zed
+	DevContainerTypeUbuntu   DevContainerType = "ubuntu"   // GNOME with Zed
+	DevContainerTypeHeadless DevContainerType = "headless" // No GUI, just agent (future)
+)
+
+// DevContainerStatus represents the current status of a dev container
+type DevContainerStatus string
+
+const (
+	DevContainerStatusStarting DevContainerStatus = "starting"
+	DevContainerStatusRunning  DevContainerStatus = "running"
+	DevContainerStatusStopped  DevContainerStatus = "stopped"
+	DevContainerStatusError    DevContainerStatus = "error"
+)
+
+// MountConfig represents a volume mount configuration
+type MountConfig struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	ReadOnly    bool   `json:"readonly,omitempty"`
+}
+
+// CreateDevContainerRequest creates a dev container (Zed+agent environment) for a session
+type CreateDevContainerRequest struct {
+	SessionID string `json:"session_id"`
+
+	// Container configuration
+	Image         string        `json:"image"`          // e.g., "helix-sway:latest"
+	ContainerName string        `json:"container_name"` // e.g., "sway-external-ses_xxx"
+	Hostname      string        `json:"hostname"`
+	Env           []string      `json:"env"` // KEY=value format
+	Mounts        []MountConfig `json:"mounts"`
+
+	// Display settings (optional - headless containers omit these)
+	DisplayWidth  int `json:"display_width,omitempty"`
+	DisplayHeight int `json:"display_height,omitempty"`
+	DisplayFPS    int `json:"display_fps,omitempty"`
+
+	// Dev container type
+	// - "sway": Sway compositor with Zed (current default)
+	// - "ubuntu": GNOME with Zed
+	// - "headless": No GUI, just agent (future)
+	ContainerType DevContainerType `json:"container_type"`
+
+	// GPU settings
+	GPUVendor string `json:"gpu_vendor"` // "nvidia", "amd", "intel", ""
+
+	// Docker socket to use (from Hydra isolation or Wolf's default dockerd)
+	// If empty, uses the sandbox's default Docker socket
+	DockerSocket string `json:"docker_socket,omitempty"`
+
+	// User ID for SSH key mounting and ownership
+	UserID string `json:"user_id,omitempty"`
+
+	// Network to attach to (defaults to helix_default)
+	Network string `json:"network,omitempty"`
+}
+
+// DevContainerResponse is the response after creating/querying a dev container
+type DevContainerResponse struct {
+	SessionID     string             `json:"session_id"`
+	ContainerID   string             `json:"container_id"`
+	ContainerName string             `json:"container_name"`
+	Status        DevContainerStatus `json:"status"`
+	Error         string             `json:"error,omitempty"`
+
+	// Network info for RevDial/screenshot-server connections
+	IPAddress string `json:"ip_address,omitempty"`
+
+	// Container type
+	ContainerType DevContainerType `json:"container_type"`
+}
+
+// DevContainer represents a running dev container managed by Hydra
+type DevContainer struct {
+	SessionID     string             `json:"session_id"`
+	ContainerID   string             `json:"container_id"`
+	ContainerName string             `json:"container_name"`
+	Status        DevContainerStatus `json:"status"`
+	IPAddress     string             `json:"ip_address"`
+	ContainerType DevContainerType   `json:"container_type"`
+	UserID        string             `json:"user_id"`
+	CreatedAt     time.Time          `json:"created_at"`
+	DockerSocket  string             `json:"docker_socket"` // Which dockerd manages this container
+}
+
+// ListDevContainersResponse is the response listing all dev containers
+type ListDevContainersResponse struct {
+	Containers []DevContainerResponse `json:"containers"`
+}

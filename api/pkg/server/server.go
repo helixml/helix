@@ -231,14 +231,40 @@ func NewServer(
 		sandboxAPIURL = cfg.WebServer.URL
 	}
 
-	externalAgentExecutor := external_agent.NewWolfExecutor(
-		wolfSocketPath,
-		zedImage,
-		sandboxAPIURL,
-		cfg.WebServer.RunnerToken,
-		store,
-		connectionManager,
-	)
+	// Create executor based on EXECUTOR_MODE environment variable
+	// - "wolf" (default): Use Wolf for container lifecycle
+	// - "hydra": Use Hydra for container lifecycle (Wolf-free)
+	executorMode := os.Getenv("EXECUTOR_MODE")
+	if executorMode == "" {
+		executorMode = "wolf" // Default to Wolf for backward compatibility
+	}
+
+	var externalAgentExecutor external_agent.Executor
+	switch executorMode {
+	case "hydra":
+		log.Info().Msg("Using Hydra executor (Wolf-free mode)")
+		externalAgentExecutor = external_agent.NewHydraExecutor(external_agent.HydraExecutorConfig{
+			Store:                         store,
+			ZedImage:                      zedImage,
+			HelixAPIURL:                   sandboxAPIURL,
+			HelixAPIToken:                 cfg.WebServer.RunnerToken,
+			WorkspaceBasePathForContainer: "/workspace",                                                       // Path inside dev container
+			WorkspaceBasePathForCloning:   filepath.Join(cfg.FileStore.LocalFSPath, "workspaces"),             // Path from API container
+			WorkspaceUserSSHKeyDir:        filepath.Join(cfg.FileStore.LocalFSPath, "user-ssh-keys"),          // SSH keys dir
+			Connman:                       connectionManager,
+			GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
+		})
+	default:
+		log.Info().Msg("Using Wolf executor (default mode)")
+		externalAgentExecutor = external_agent.NewWolfExecutor(
+			wolfSocketPath,
+			zedImage,
+			sandboxAPIURL,
+			cfg.WebServer.RunnerToken,
+			store,
+			connectionManager,
+		)
+	}
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()

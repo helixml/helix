@@ -400,6 +400,11 @@ type SessionMetadata struct {
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	// Hydra executor fields (Wolf-free mode)
+	ContainerName string `json:"container_name,omitempty"` // Docker container name
+	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
+	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on helix_default network
+	ExecutorMode  string `json:"executor_mode,omitempty"`  // "wolf" or "hydra"
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
 	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
@@ -1909,6 +1914,13 @@ type ZedAgent struct {
 	// Privileged mode - use host Docker socket instead of isolated dockerd
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
 	UseHostDocker bool `json:"use_host_docker,omitempty"`
+
+	// Hydra executor settings (Wolf-free mode)
+	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
+	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers
+	CustomImage    string `json:"custom_image,omitempty"`     // Custom container image (overrides desktop type)
+	GitRepoURL     string `json:"git_repo_url,omitempty"`     // Git repository URL for cloning
+	GitBranch      string `json:"git_branch,omitempty"`       // Git branch to checkout
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
@@ -1960,6 +1972,8 @@ type ZedAgentResponse struct {
 	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
+	// Container IP address on helix_default network (Hydra executor only)
+	ContainerIP string `json:"container_ip,omitempty"`
 	// helix-sway image version (commit hash) running in this sandbox
 	SwayVersion string `json:"sway_version,omitempty"`
 	// WebSocket URL for thread sync connection

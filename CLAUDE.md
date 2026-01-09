@@ -52,6 +52,7 @@ helix-sandbox (outer container)
 | Wolf Rust plugins (`~/pm/wolf/gst-pipewire-zerocopy/`) | `./stack build-wolf && ./stack build-sandbox` | Same as above |
 | Desktop image (helix-sway) | `./stack build-sway` | Creates tarball in sandbox-images/ |
 | Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Creates tarball in sandbox-images/ |
+| Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
 | Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |

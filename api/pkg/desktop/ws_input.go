@@ -1,9 +1,12 @@
 package desktop
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"net/http"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -110,14 +113,27 @@ func (s *Server) handleWSKeyboard(data []byte) {
 	// modifiers := data[1] // Currently unused, could be used for modifier sync
 	keycode := binary.LittleEndian.Uint16(data[2:4])
 
-	if s.conn == nil || s.rdSessionPath == "" {
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(keycode), isDown).Err
+		if err != nil {
+			s.logger.Error("WebSocket keyboard D-Bus call failed", "keycode", keycode, "err", err)
+		}
 		return
 	}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(keycode), isDown).Err
-	if err != nil {
-		s.logger.Error("WebSocket keyboard D-Bus call failed", "keycode", keycode, "err", err)
+	// Fallback to ydotool for Sway/wlroots
+	// ydotool uses evdev keycodes with format: keycode:state (1=down, 0=up)
+	state := 0
+	if isDown {
+		state = 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ydotool", "key", fmt.Sprintf("%d:%d", keycode, state))
+	if err := cmd.Run(); err != nil {
+		s.logger.Debug("ydotool keyboard failed", "keycode", keycode, "err", err)
 	}
 }
 
@@ -148,14 +164,37 @@ func (s *Server) handleWSMouseButton(data []byte) {
 		evdevButton = 276 + int32(button-5) // BTN_EXTRA and beyond
 	}
 
-	if s.conn == nil || s.rdSessionPath == "" {
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerButton", 0, evdevButton, isDown).Err
+		if err != nil {
+			s.logger.Error("WebSocket mouse button D-Bus call failed", "button", evdevButton, "err", err)
+		}
 		return
 	}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerButton", 0, evdevButton, isDown).Err
-	if err != nil {
-		s.logger.Error("WebSocket mouse button D-Bus call failed", "button", evdevButton, "err", err)
+	// Fallback to ydotool for Sway/wlroots
+	// ydotool click: 0=left, 1=right, 2=middle
+	var ydoButton string
+	switch button {
+	case 1:
+		ydoButton = "0xC0" // left down+up
+	case 2:
+		ydoButton = "0xC2" // middle down+up
+	case 3:
+		ydoButton = "0xC1" // right down+up
+	default:
+		ydoButton = "0xC0"
+	}
+	// Only send click on button up to avoid double-clicks
+	if !isDown {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "ydotool", "click", ydoButton)
+		if err := cmd.Run(); err != nil {
+			s.logger.Debug("ydotool click failed", "button", button, "err", err)
+		}
 	}
 }
 
@@ -171,25 +210,33 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 	refWidth := binary.LittleEndian.Uint16(data[8:10])
 	refHeight := binary.LittleEndian.Uint16(data[10:12])
 
-	if s.conn == nil || s.rdSessionPath == "" {
-		return
-	}
-
-	// Convert normalized coordinates to absolute screen coordinates
-	// The stream path is needed for NotifyPointerMotionAbsolute
-	stream := string(s.scStreamPath)
-	if stream == "" {
-		return
-	}
-
-	// Scale from reference coordinates to absolute
-	absX := float64(x) / float64(refWidth) * 1920  // TODO: Get actual screen size
+	// Scale from reference coordinates to absolute (use 1920x1080 as default)
+	// TODO: Get actual screen size from compositor
+	absX := float64(x) / float64(refWidth) * 1920
 	absY := float64(y) / float64(refHeight) * 1080
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0, stream, absX, absY).Err
-	if err != nil {
-		s.logger.Error("WebSocket mouse absolute D-Bus call failed", "err", err)
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		stream := string(s.scStreamPath)
+		if stream == "" {
+			return
+		}
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionAbsolute", 0, stream, absX, absY).Err
+		if err != nil {
+			s.logger.Error("WebSocket mouse absolute D-Bus call failed", "err", err)
+		}
+		return
+	}
+
+	// Fallback to ydotool for Sway/wlroots
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ydotool", "mousemove", "--absolute",
+		"-x", fmt.Sprintf("%.0f", absX),
+		"-y", fmt.Sprintf("%.0f", absY))
+	if err := cmd.Run(); err != nil {
+		s.logger.Debug("ydotool mousemove failed", "err", err)
 	}
 }
 
@@ -203,14 +250,24 @@ func (s *Server) handleWSMouseRelative(data []byte) {
 	dx := math.Float32frombits(binary.LittleEndian.Uint32(data[0:4]))
 	dy := math.Float32frombits(binary.LittleEndian.Uint32(data[4:8]))
 
-	if s.conn == nil || s.rdSessionPath == "" {
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionRelative", 0, float64(dx), float64(dy)).Err
+		if err != nil {
+			s.logger.Error("WebSocket mouse relative D-Bus call failed", "err", err)
+		}
 		return
 	}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerMotionRelative", 0, float64(dx), float64(dy)).Err
-	if err != nil {
-		s.logger.Error("WebSocket mouse relative D-Bus call failed", "err", err)
+	// Fallback to ydotool for Sway/wlroots
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ydotool", "mousemove",
+		"-x", fmt.Sprintf("%.0f", dx),
+		"-y", fmt.Sprintf("%.0f", dy))
+	if err := cmd.Run(); err != nil {
+		s.logger.Debug("ydotool mousemove relative failed", "err", err)
 	}
 }
 

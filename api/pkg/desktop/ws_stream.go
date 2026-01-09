@@ -416,9 +416,17 @@ func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 					return
 				}
 
-			default:
-				// Other NAL types (SEI, AUD, etc.) - accumulate with access unit
+			case 9: // Access Unit Delimiter - discard (WebCodecs doesn't need them)
+				// AUD NAL units are used for stream synchronization but WebCodecs
+				// expects keyframes to start with SPS, not AUD
+				continue
+
+			case 6: // SEI - can be useful, accumulate with access unit
 				accessUnit = append(accessUnit, nalUnit...)
+
+			default:
+				// Other NAL types - discard unknown types to avoid confusing decoder
+				v.logger.Debug("discarding unknown NAL type", "type", nalType)
 			}
 		}
 	}

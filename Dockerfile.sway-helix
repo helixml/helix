@@ -129,6 +129,8 @@ ARG DE_PACKAGES=" \
     swaybg \
     swayidle \
     wl-clipboard \
+    ydotool \
+    wtype \
     pipewire \
     pipewire-audio \
     xdg-desktop-portal \

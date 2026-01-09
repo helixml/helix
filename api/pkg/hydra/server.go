@@ -25,11 +25,12 @@ const (
 
 // Server is the Hydra HTTP server
 type Server struct {
-	manager    *Manager
-	socketPath string
-	listener   net.Listener
-	server     *http.Server
-	dnsServer  *DNSServer // DNS server for container name resolution
+	manager             *Manager
+	devContainerManager *DevContainerManager // Dev container management (Wolf replacement)
+	socketPath          string
+	listener            net.Listener
+	server              *http.Server
+	dnsServer           *DNSServer // DNS server for container name resolution
 
 	// Privileged mode settings
 	privilegedModeEnabled bool // Controlled by HYDRA_PRIVILEGED_MODE_ENABLED env var
@@ -65,8 +66,12 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	dnsServer := NewDNSServer(manager, upstreamDNS)
 	manager.SetDNSServer(dnsServer)
 
+	// Create dev container manager for Wolf replacement functionality
+	devContainerManager := NewDevContainerManager(manager)
+
 	return &Server{
 		manager:               manager,
+		devContainerManager:   devContainerManager,
 		socketPath:            socketPath,
 		dnsServer:             dnsServer,
 		privilegedModeEnabled: privilegedModeEnabled,
@@ -187,6 +192,12 @@ func (s *Server) registerRoutes(router *mux.Router) {
 
 	// Bridge desktop container to Hydra network (for desktop-to-dev-container communication)
 	api.HandleFunc("/bridge-desktop", s.handleBridgeDesktop).Methods("POST")
+
+	// Dev container management (Wolf replacement - container lifecycle)
+	api.HandleFunc("/dev-containers", s.handleCreateDevContainer).Methods("POST")
+	api.HandleFunc("/dev-containers", s.handleListDevContainers).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
+	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 }
 
 // handleHealth returns server health status
@@ -397,6 +408,93 @@ func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 			Str("desktop_container_id", req.DesktopContainerID).
 			Msg("Failed to bridge desktop to Hydra network")
 		http.Error(w, fmt.Sprintf("failed to bridge desktop: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleCreateDevContainer creates a new dev container (Wolf replacement)
+func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request) {
+	var req CreateDevContainerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.SessionID == "" {
+		http.Error(w, "session_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.Image == "" {
+		http.Error(w, "image is required", http.StatusBadRequest)
+		return
+	}
+	if req.ContainerName == "" {
+		http.Error(w, "container_name is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.CreateDevContainer(ctx, &req)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", req.SessionID).
+			Str("container_name", req.ContainerName).
+			Msg("Failed to create dev container")
+		http.Error(w, fmt.Sprintf("failed to create dev container: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleListDevContainers lists all active dev containers
+func (s *Server) handleListDevContainers(w http.ResponseWriter, r *http.Request) {
+	resp := s.devContainerManager.ListDevContainers()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleGetDevContainer returns status of a specific dev container
+func (s *Server) handleGetDevContainer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.GetDevContainer(ctx, sessionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDeleteDevContainer stops and removes a dev container
+func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	sessionID := vars["session_id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	resp, err := s.devContainerManager.DeleteDevContainer(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to delete dev container")
+		http.Error(w, fmt.Sprintf("failed to delete dev container: %s", err), http.StatusInternalServerError)
 		return
 	}
 

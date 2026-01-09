@@ -106,4 +106,9 @@ type ZedSession struct {
 	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
 	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
 	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
+
+	// Hydra executor fields (Wolf-free mode)
+	ContainerID string `json:"container_id,omitempty"` // Docker container ID
+	ContainerIP string `json:"container_ip,omitempty"` // Container IP address on helix_default network
+	SandboxID   string `json:"sandbox_id,omitempty"`   // Sandbox running this container (for RevDial routing)
 }
