@@ -92,6 +92,174 @@ Instead, with pure proxy:
 - Helix API is just a pipe (no protocol understanding needed)
 - screenshot-server implements what Wolf currently does
 
+## Video Capture Options Analysis
+
+A comprehensive analysis of solutions for PipeWire → H.264 → WebSocket streaming.
+
+### Option A: GStreamer pipewiresrc (RECOMMENDED)
+
+```bash
+gst-launch-1.0 pipewiresrc path=<node_id> ! nvh264enc ! appsink
+```
+
+**Pros:**
+- Already in our stack (Wolf uses GStreamer)
+- Direct PipeWire integration
+- NVENC hardware encoding
+- Simple command-line or Go bindings (go-gst)
+- No additional dependencies
+
+**Cons:**
+- Need to implement WebSocket framing ourselves
+
+**Verdict:** Best choice - minimal complexity, we control everything.
+
+### Option B: OBS Studio
+
+OBS can capture from PipeWire and stream via RTMP/WHIP.
+
+**Headless options:**
+- [obs-headless (Docker + gRPC)](https://github.com/a-rose/obs-headless)
+- [obs-headless (nelsonxb)](https://github.com/nelsonxb/obs-headless)
+- Virtual display (Xvfb) + obs-websocket control
+
+**Pros:**
+- Feature-rich (scenes, transitions, overlays)
+- [PipeWire Video Capture](https://www.gamingonlinux.com/2024/03/obs-studio-30-1-out-now-with-av1-support-for-va-api-pipewire-video-capture/) in OBS 30.1+
+- [obs-websocket](https://github.com/obsproject/obs-websocket) for remote control
+
+**Cons:**
+- Designed for RTMP/WHIP, not raw WebSocket
+- Requires virtual display or X11 session
+- Heavy dependency (~100MB+)
+- Overkill for our use case (no scenes/overlays needed)
+- [Headless mode still a feature request](https://ideas.obsproject.com/posts/16/add-a-headless-mode-that-allows-full-control-via-scripting-api)
+
+**Verdict:** Too heavy, wrong protocol (RTMP vs WebSocket).
+
+### Option C: FFmpeg
+
+**Current status:** Native PipeWire support is [still under development](https://trac.ffmpeg.org/ticket/10742).
+
+A [`pipewiregrab` filter patch](https://ffmpeg.org/pipermail/ffmpeg-devel/2024-May/327141.html) was submitted in 2024:
+- Uses XDG Desktop Portal ScreenCast interface
+- Supports DMA buffer sharing
+- **Not yet merged into mainline FFmpeg**
+
+**Workaround (if pipewiregrab gets merged):**
+```bash
+ffmpeg -f lavfi -i "pipewiregrab=capture_type=desktop" \
+    -c:v h264_nvenc -f mpegts pipe:1
+```
+
+**Pros:**
+- Universal tool, widely understood
+- Many output formats (mpegts, rtmp, etc.)
+- Would be simpler than GStreamer if working
+
+**Cons:**
+- [PipeWire support not merged yet](https://trac.ffmpeg.org/ticket/10742) (as of 2024)
+- Designed for file/stream output, not raw WebSocket
+- Would need to parse container format and reframe for WebSocket
+- Less control over pipeline than GStreamer
+
+**Verdict:** Wait for pipewiregrab to merge. Until then, GStreamer is the only option with native PipeWire support.
+
+### Option D: WebRTC-Streamer
+
+[webrtc-streamer](https://github.com/mpromonet/webrtc-streamer) - WebRTC streamer for V4L2, RTSP, and screen capture.
+
+```bash
+./webrtc-streamer -u screen://
+```
+
+**Pros:**
+- Purpose-built for browser streaming
+- WebRTC output (low latency)
+- Hardware H.264 encoding support
+
+**Cons:**
+- Uses X11/Xvfb for screen capture, not native PipeWire
+- WebRTC instead of raw WebSocket (more overhead)
+- Another C++ dependency
+
+**Verdict:** Good for WebRTC, but we want raw WebSocket for simplicity.
+
+### Option E: SRS Media Server
+
+[SRS](https://github.com/ossrs/srs) - Real-time media server supporting RTMP, WebRTC, HLS, HTTP-FLV.
+
+**Pros:**
+- Production-ready media server
+- H.264, H.265, AV1 support
+- WebRTC output
+
+**Cons:**
+- Expects RTMP input (would need ffmpeg/gstreamer to feed it)
+- Adds another server component
+- Overkill for single-viewer streaming
+
+**Verdict:** Good for multi-viewer broadcasting, overkill for our use case.
+
+### Option F: Browser-Native Screen Sharing (Reference)
+
+[Firefox 84+](https://bugzilla.mozilla.org/show_bug.cgi?id=1672944) and [Chromium 110+](https://wiki.archlinux.org/title/PipeWire#WebRTC_screen_sharing) support PipeWire screen sharing via WebRTC.
+
+This is what users do when sharing their screen in a video call. Not applicable for server-side capture, but shows PipeWire+WebRTC is mature.
+
+### Option G: websocket-mse-demo Pattern
+
+[websocket-mse-demo](https://github.com/elsampsa/websocket-mse-demo) - Stream H264 to browsers with WebSocket + Media Source Extensions.
+
+**Architecture:**
+```
+Video source → H.264 encoder → WebSocket server → Browser MSE
+```
+
+**Pros:**
+- Exactly what we want to build
+- Proven pattern (Raspberry Pi streaming projects use this)
+- Low latency
+
+**Cons:**
+- Not a library, just a demo
+- We'd implement the same thing ourselves
+
+**Verdict:** This IS our approach - validates the architecture.
+
+### Summary Table
+
+| Option | PipeWire Native | Output Protocol | Complexity | Status |
+|--------|----------------|-----------------|------------|--------|
+| **GStreamer** | ✅ Yes | stdout/appsink | Low | **Recommended** |
+| OBS | ✅ Yes | RTMP/WHIP | High | Too heavy |
+| FFmpeg | 🚧 Patch pending | File/mpegts | Medium | Wait |
+| webrtc-streamer | ❌ X11 | WebRTC | Medium | Wrong capture |
+| SRS | ❌ Needs input | RTMP/WebRTC | High | Overkill |
+| websocket-mse-demo | ❌ V4L2 | WebSocket | Low | Our pattern |
+
+### Recommendation
+
+**Use GStreamer pipewiresrc directly.** It's already proven (Wolf uses it), we control the pipeline, and we just need to add WebSocket framing in Go.
+
+```go
+// Minimal implementation in screenshot-server
+cmd := exec.Command("gst-launch-1.0",
+    "pipewiresrc", fmt.Sprintf("path=%d", nodeID),
+    "!", "nvh264enc", "preset=low-latency-hq",
+    "!", "video/x-h264,stream-format=byte-stream",
+    "!", "fdsink", "fd=1")
+
+stdout, _ := cmd.StdoutPipe()
+go func() {
+    // Read H.264 NAL units, frame into WebSocket binary messages
+    for {
+        nalUnit := readNALUnit(stdout)
+        ws.WriteMessage(websocket.BinaryMessage, frameVideoMessage(nalUnit))
+    }
+}()
+```
+
 ## Comparison with Input WebSocket Pattern
 
 ### Input (Browser → Container) - Already Working
