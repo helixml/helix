@@ -28,12 +28,13 @@ See also: `.cursor/rules/*.mdc`
 
 ## Build Pipeline
 
-**Sandbox architecture**: Host → helix-sandbox container (Wolf + Moonlight Web + DinD) → helix-sway container (Zed + Qwen Code + daemons)
+**Sandbox architecture**: Host → helix-sandbox container (Hydra + Wolf + Moonlight Web + DinD) → helix-sway container (Zed + Qwen Code + daemons)
 
 ### Component Dependencies
 
 ```
 helix-sandbox (outer container)
+├── hydra (Go, dev container lifecycle, Docker isolation)
 ├── wolf:helix-fixed (streaming server, GStreamer plugins)
 │   ├── Wolf C++ server
 │   ├── gst-wayland-display (Rust, for Sway compositor capture)
@@ -50,6 +51,7 @@ helix-sandbox (outer container)
 |---------|---------|-------|
 | Wolf C++ (`~/pm/wolf/src/`) | `./stack build-wolf && ./stack build-sandbox` | Wolf is embedded in sandbox |
 | Wolf Rust plugins (`~/pm/wolf/gst-pipewire-zerocopy/`) | `./stack build-wolf && ./stack build-sandbox` | Same as above |
+| Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
 | Desktop image (helix-sway) | `./stack build-sway` | Creates tarball in sandbox-images/ |
 | Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Creates tarball in sandbox-images/ |
 | Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
