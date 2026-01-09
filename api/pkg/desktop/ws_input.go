@@ -141,18 +141,50 @@ func (s *Server) handleWSKeyboard(data []byte) {
 	}
 }
 
-// handleWSMouseButton handles mouse button input messages.
-// Format: [subType:1][isDown:1][button:1]
-// subType=2 for button events
+// handleWSMouseButton handles mouse click/wheel messages (message type 0x11).
+// Dispatches based on subType:
+//   - subType=2: Button click [subType:1][isDown:1][button:1]
+//   - subType=3: High-res wheel [subType:1][deltaX:2 BE][deltaY:2 BE]
+//   - subType=4: Normal wheel [subType:1][deltaX:1][deltaY:1]
 func (s *Server) handleWSMouseButton(data []byte) {
-	if len(data) < 3 {
+	if len(data) < 1 {
 		return
 	}
 
-	// subType := data[0] // 2 for button
-	isDown := data[1] != 0
-	button := int(data[2])
+	subType := data[0]
+	switch subType {
+	case 2: // Button click
+		if len(data) < 3 {
+			return
+		}
+		isDown := data[1] != 0
+		button := int(data[2])
+		s.handleMouseButtonClick(button, isDown)
 
+	case 3: // High-res wheel (int16 deltas, big-endian)
+		if len(data) < 5 {
+			return
+		}
+		deltaX := int16(binary.BigEndian.Uint16(data[1:3]))
+		deltaY := int16(binary.BigEndian.Uint16(data[3:5]))
+		s.handleMouseWheel(float64(deltaX), float64(deltaY))
+
+	case 4: // Normal wheel (int8 deltas)
+		if len(data) < 3 {
+			return
+		}
+		deltaX := int8(data[1])
+		deltaY := int8(data[2])
+		// Normal wheel has smaller values, scale up for consistency
+		s.handleMouseWheel(float64(deltaX)*10, float64(deltaY)*10)
+
+	default:
+		s.logger.Debug("unknown mouse click subType", "subType", subType)
+	}
+}
+
+// handleMouseButtonClick handles a mouse button press/release
+func (s *Server) handleMouseButtonClick(button int, isDown bool) {
 	// Convert Moonlight button codes to evdev button codes
 	// Moonlight: 1=left, 2=middle, 3=right
 	// Evdev: 272=BTN_LEFT, 273=BTN_RIGHT, 274=BTN_MIDDLE
@@ -191,6 +223,30 @@ func (s *Server) handleWSMouseButton(data []byte) {
 		if err != nil {
 			s.logger.Debug("virtual mouse button failed", "button", button, "err", err)
 		}
+	}
+}
+
+// handleMouseWheel handles scroll wheel events
+func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
+	// Negate Y to match browser→GNOME convention (browser +Y = scroll down, GNOME +Y = content moves down)
+	deltaY = -deltaY
+
+	// Convert from frontend units to GNOME scroll units
+	// Frontend sends pixel-like deltas, GNOME expects smaller values
+	gnomeDX := deltaX / 10.0
+	gnomeDY := deltaY / 10.0
+
+	// GNOME scroll flags: 0x04 = WHEEL source (discrete clicks)
+	gnomeFlags := uint32(0x04)
+
+	if s.conn == nil || s.rdSessionPath == "" {
+		return
+	}
+
+	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
+	if err != nil {
+		s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
 	}
 }
 

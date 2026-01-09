@@ -28,7 +28,6 @@ import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/moonlight-web-ts/stream/websocket-stream';
 import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
-import { DirectInputWebSocket } from '../../lib/moonlight-web-ts/stream/direct-input';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
@@ -153,8 +152,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Screenshot-based low-quality mode state
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const screenshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  // Direct input WebSocket for Ubuntu/GNOME sessions (bypasses Moonlight for scroll)
-  const directInputRef = useRef<DirectInputWebSocket | null>(null);
   // Track whether we're waiting for first screenshot after entering screenshot mode
   // This is used to hide the loading overlay - using a ref instead of checking screenshotUrl
   // to avoid race conditions when switching modes rapidly
@@ -1876,49 +1873,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount/unmount
-
-  // Direct input WebSocket for Ubuntu/GNOME sessions
-  // Bypasses Moonlight/Wolf for scroll events - sends directly to GNOME via D-Bus
-  // This fixes scroll direction and provides smooth pixel-level scrolling
-  useEffect(() => {
-    // Only connect for WebSocket streaming mode (not WebRTC - that uses Moonlight input)
-    // and only when we have a session ID and auth token
-    if (!isConnected || !sessionId || streamingMode !== 'websocket') {
-      // Disconnect if we were connected
-      if (directInputRef.current) {
-        console.log('[DirectInput] Disconnecting - session not ready or wrong mode');
-        directInputRef.current.disconnect();
-        directInputRef.current = null;
-      }
-      return;
-    }
-
-    const token = account.user?.token;
-    if (!token) {
-      console.warn('[DirectInput] No auth token available');
-      return;
-    }
-
-    // Create DirectInputWebSocket for scroll events
-    // This bypasses Moonlight/Wolf and sends scroll directly to GNOME D-Bus
-    console.log('[DirectInput] Creating connection for session', sessionId);
-    directInputRef.current = new DirectInputWebSocket({
-      sessionId,
-      token,
-      onConnected: () => console.log('[DirectInput] Connected to GNOME input'),
-      onDisconnected: () => console.log('[DirectInput] Disconnected from GNOME input'),
-      onError: (err) => console.warn('[DirectInput] Error:', err),
-    });
-    directInputRef.current.connect();
-
-    return () => {
-      if (directInputRef.current) {
-        console.log('[DirectInput] Cleanup - disconnecting');
-        directInputRef.current.disconnect();
-        directInputRef.current = null;
-      }
-    };
-  }, [isConnected, sessionId, streamingMode, account.user?.token]);
 
   // Auto-focus container when stream connects for keyboard input
   useEffect(() => {
