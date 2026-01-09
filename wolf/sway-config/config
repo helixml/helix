@@ -9,7 +9,7 @@ xwayland disable
 output * bg /usr/share/backgrounds/helix-logo.png fill
 
 # Note: Display scaling is configured dynamically in startup-app.sh based on HELIX_ZOOM_LEVEL
-# Default: output WL-1 scale 1 (100%), can be 2.0 for 200% zoom, etc.
+# Default: output HEADLESS-1 scale 1 (100%), can be 2.0 for 200% zoom, etc.
 
 # Keyboard configuration: US, UK, French layouts with Caps Lock as Ctrl
 # Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)

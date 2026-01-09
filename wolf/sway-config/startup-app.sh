@@ -84,6 +84,16 @@ cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
 FONTCONFIG_EOF
 echo "✅ Fontconfig set to grayscale antialiasing"
 
+# Configure xdg-desktop-portal-wlr for headless operation (no chooser prompt)
+# This allows screen capture without user interaction
+mkdir -p ~/.config/xdg-desktop-portal-wlr
+cat > ~/.config/xdg-desktop-portal-wlr/config << 'PORTAL_EOF'
+[screencast]
+# Skip the output chooser dialog - use first available output
+chooser_type=none
+PORTAL_EOF
+echo "✅ xdg-desktop-portal-wlr configured for headless screen capture"
+
 # Configure Qwen Code session persistence
 # Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
 # By setting QWEN_DATA_DIR to workspace, sessions persist across container restarts
@@ -147,6 +157,8 @@ custom_launcher() {
     # This creates a virtual display that applications connect to.
     # xdg-desktop-portal-wlr captures via wlr-screencopy → PipeWire → our GStreamer pipeline
     export WLR_BACKENDS=headless
+    # Suppress libinput errors about missing physical input devices
+    export WLR_LIBINPUT_NO_DEVICES=1
 
     # Create waybar config directory (config files generated inline below)
     mkdir -p $HOME/.config/waybar
@@ -408,7 +420,8 @@ EOF
         SWAY_SCALE="1"
     fi
     echo "# Configure display scaling (HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)" >> $HOME/.config/sway/config
-    echo "output WL-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
+    echo "# HEADLESS-1 is the output name when running with WLR_BACKENDS=headless" >> $HOME/.config/sway/config
+    echo "output HEADLESS-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
     echo "[Sway] Display scale set to $SWAY_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
     echo "" >> $HOME/.config/sway/config
     echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
@@ -471,8 +484,9 @@ EOF
     # Pass required environment variables to settings-sync-daemon
     echo "exec env HELIX_SESSION_ID=\$HELIX_SESSION_ID HELIX_API_URL=\$HELIX_API_URL HELIX_API_TOKEN=\$HELIX_API_TOKEN /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
 
-    # Add resolution and app launch (like the original launcher)
-    echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config
+    # Configure headless output resolution (using GAMESCOPE_WIDTH/HEIGHT like Ubuntu desktop)
+    echo "# Headless output resolution: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz" >> $HOME/.config/sway/config
+    echo "output HEADLESS-1 resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz position 0,0" >> $HOME/.config/sway/config
     echo "workspace number 1; exec $@" >> $HOME/.config/sway/config
 
     # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop

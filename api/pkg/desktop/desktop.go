@@ -187,6 +187,8 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	} else if isSwayEnvironment() {
 		// Sway: Use XDG Desktop Portal D-Bus APIs (via xdg-desktop-portal-wlr)
+		// Sway runs as a headless compositor, xdg-desktop-portal-wlr captures via wlr-screencopy,
+		// exposes frames via PipeWire, and our GStreamer pipeline consumes directly.
 		s.compositorType = "sway"
 
 		// 1. Connect to D-Bus portal (with retry)
@@ -211,16 +213,9 @@ func (s *Server) Run(ctx context.Context) error {
 				"err", err)
 		}
 
-		// 5. Start video forwarder - same as GNOME, captures from PipeWire
-		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
-		s.videoForwarder = NewVideoForwarder(s.nodeID, shmSocketPath, s.logger)
-		if err := s.videoForwarder.Start(ctx); err != nil {
-			s.logger.Warn("failed to start video forwarder",
-				"err", err)
-		}
-
-		// 6. Report to Wolf
-		s.reportToWolf()
+		// Note: No video forwarder needed for Sway - we consume directly from PipeWire
+		// via GStreamer pipewiresrc in ws_stream.go. The node ID from the portal session
+		// is all we need.
 
 		s.running.Store(true)
 		s.logger.Info("Sway portal session ready",
