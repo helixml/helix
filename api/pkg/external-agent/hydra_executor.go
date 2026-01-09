@@ -527,9 +527,18 @@ func (h *HydraExecutor) getContainerImage(containerType string, agent *types.Zed
 }
 
 // buildEnvVars builds environment variables for the container
+// This matches Wolf executor's env var setup for compatibility
 func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, workspaceDir string) []string {
+	// Build GPU devices string (matches Wolf's gpuDevices)
+	gpuDevices := "/dev/dri/card*:/dev/dri/renderD*:/dev/uinput:/dev/input/event*:/dev/input/js*:/dev/input/mice"
+
+	// Determine Helix URL for Zed's WebSocket connection
+	zedHelixURL := strings.TrimPrefix(h.helixAPIURL, "https://")
+	zedHelixURL = strings.TrimPrefix(zedHelixURL, "http://")
+	zedHelixTLS := strings.HasPrefix(h.helixAPIURL, "https://")
+
 	env := []string{
-		// Core Helix env vars
+		// Core Helix env vars (matches Wolf lines 357-363)
 		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
@@ -541,12 +550,53 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 		"UMASK=022",
 		// RevDial connection - startup-app.sh expects these specific names
 		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
+
+		// GPU/input device passthrough (matches Wolf line 334)
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
+
+		// LLM proxy configuration for Zed's built-in agent (matches Wolf lines 339-340)
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", h.helixAPIToken),
+		fmt.Sprintf("ANTHROPIC_BASE_URL=%s", h.helixAPIURL),
+
+		// Zed sync configuration (matches Wolf lines 341-354)
+		"ZED_EXTERNAL_SYNC_ENABLED=true",
+		"ZED_ALLOW_EMULATED_GPU=1", // Allow software rendering with llvmpipe
+		fmt.Sprintf("ZED_HELIX_URL=%s", zedHelixURL),
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", h.helixAPIToken),
+		fmt.Sprintf("ZED_HELIX_TLS=%t", zedHelixTLS),
+		"ZED_HELIX_SKIP_TLS_VERIFY=true", // Enterprise internal CAs
+
+		// Debug logging (matches Wolf lines 354-355)
+		"RUST_LOG=info,gst_wayland_display=debug",
+		"SHOW_ACP_DEBUG_LOGS=true",
+
+		// Settings sync daemon (matches Wolf line 361)
+		"SETTINGS_SYNC_PORT=9877",
+
+		// ZED_WORK_DIR: Consistent cwd for ACP session storage (matches Wolf line 366)
+		"ZED_WORK_DIR=/home/retro/work",
+
+		// Keep desktop alive when Zed restarts (matches Wolf line 776)
+		"SWAY_STOP_ON_APP_EXIT=no",
 	}
 
-	// Add API token if available (both names for compatibility)
+	// Add API tokens (both names for compatibility)
 	if h.helixAPIToken != "" {
 		env = append(env, fmt.Sprintf("HELIX_API_TOKEN=%s", h.helixAPIToken))
 		env = append(env, fmt.Sprintf("USER_API_TOKEN=%s", h.helixAPIToken))
+	}
+
+	// Agent identification (matches Wolf lines 768-774)
+	env = append(env,
+		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agent.SessionID),
+		"HELIX_SCOPE_TYPE=session",
+		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
+		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
+	)
+
+	// Helix session ID for WebSocket communication
+	if agent.HelixSessionID != "" {
+		env = append(env, fmt.Sprintf("HELIX_SESSION_ID=%s", agent.HelixSessionID))
 	}
 
 	// Add project path if provided
@@ -562,16 +612,48 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 		env = append(env, fmt.Sprintf("GIT_BRANCH=%s", agent.GitBranch))
 	}
 
-	// Add display settings for non-headless containers
+	// Branch configuration (matches Wolf lines 826-834)
+	if agent.BranchMode != "" {
+		env = append(env, fmt.Sprintf("HELIX_BRANCH_MODE=%s", agent.BranchMode))
+	}
+	if agent.BaseBranch != "" {
+		env = append(env, fmt.Sprintf("HELIX_BASE_BRANCH=%s", agent.BaseBranch))
+	}
+	if agent.WorkingBranch != "" {
+		env = append(env, fmt.Sprintf("HELIX_WORKING_BRANCH=%s", agent.WorkingBranch))
+	}
+
+	// SpecTask info (matches Wolf lines 781-792)
+	if agent.SpecTaskID != "" {
+		env = append(env, fmt.Sprintf("HELIX_SPEC_TASK_ID=%s", agent.SpecTaskID))
+	}
+	if agent.ProjectID != "" {
+		env = append(env, fmt.Sprintf("HELIX_PROJECT_ID=%s", agent.ProjectID))
+	}
+	if agent.PrimaryRepositoryID != "" {
+		env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", agent.PrimaryRepositoryID))
+	}
+
+	// Display settings for non-headless containers (matches Wolf lines 883-893)
 	if containerType != "headless" {
-		if agent.DisplayWidth > 0 {
-			env = append(env, fmt.Sprintf("GAMESCOPE_WIDTH=%d", agent.DisplayWidth))
+		width, height, refreshRate := agent.GetEffectiveResolution()
+		env = append(env,
+			fmt.Sprintf("GAMESCOPE_WIDTH=%d", width),
+			fmt.Sprintf("GAMESCOPE_HEIGHT=%d", height),
+			fmt.Sprintf("GAMESCOPE_REFRESH=%d", refreshRate),
+			fmt.Sprintf("HELIX_DESKTOP_TYPE=%s", containerType),
+		)
+
+		// Zoom level (matches Wolf line 886)
+		zoomLevel := 100
+		if agent.ZoomLevel > 0 {
+			zoomLevel = agent.ZoomLevel
 		}
-		if agent.DisplayHeight > 0 {
-			env = append(env, fmt.Sprintf("GAMESCOPE_HEIGHT=%d", agent.DisplayHeight))
-		}
-		if agent.DisplayRefreshRate > 0 {
-			env = append(env, fmt.Sprintf("GAMESCOPE_REFRESH=%d", agent.DisplayRefreshRate))
+		env = append(env, fmt.Sprintf("HELIX_ZOOM_LEVEL=%d", zoomLevel))
+
+		// Display scale for KDE/Qt (matches Wolf lines 891-893)
+		if agent.DisplayScale > 0 {
+			env = append(env, fmt.Sprintf("HELIX_DISPLAY_SCALE=%d", agent.DisplayScale))
 		}
 	}
 
@@ -592,15 +674,36 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 // buildMounts builds volume mounts for the container
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 // containerType is "sway", "ubuntu", or "headless"
+// This matches Wolf executor's mount setup (wolf_executor.go lines 385-394)
 func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string, containerType string) []hydra.MountConfig {
+	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility (matches Wolf lines 385-393):
+	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
+	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
+	// This eliminates symlink confusion where tools resolve the symlink and get confused.
 	mounts := []hydra.MountConfig{
-		// Workspace mount - workspaceDir is the sandbox-local path
+		// Mount 1: Same path for Docker wrapper hacks
 		{
 			Source:      workspaceDir,
-			Destination: h.workspaceBasePathForContainer,
+			Destination: workspaceDir,
+			ReadOnly:    false,
+		},
+		// Mount 2: /home/retro/work for agent tools
+		{
+			Source:      workspaceDir,
+			Destination: "/home/retro/work",
 			ReadOnly:    false,
 		},
 	}
+
+	// Docker socket mount (matches Wolf line 393)
+	// Note: Hydra may use isolated dockerd - DockerSocket field in request handles this
+	// For now, mount the default socket; Hydra's CreateDevContainerRequest.DockerSocket
+	// overrides this when using isolated Docker instances
+	mounts = append(mounts, hydra.MountConfig{
+		Source:      "/var/run/docker.sock",
+		Destination: "/var/run/docker.sock",
+		ReadOnly:    false,
+	})
 
 	// For Ubuntu/GNOME containers, create a per-session pipewire directory
 	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
