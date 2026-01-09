@@ -582,6 +582,10 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 		// Force GNOME Shell to use headless mode with PipeWire capture
 		// (no Wolf compositor providing WAYLAND_DISPLAY, so can't use --nested)
 		"WOLF_VIDEO_SOURCE_MODE=pipewire",
+
+		// Wolf-free mode: Skip Wolf socket reporting in screenshot-server
+		// Video streaming happens via direct WebSocket (ws_stream.go) instead of Wolf/Moonlight
+		"WOLF_FREE_MODE=true",
 	}
 
 	// Add API tokens (both names for compatibility)

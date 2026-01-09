@@ -24,6 +24,7 @@ type Config struct {
 	WolfSocketPath string // Wolf lobby socket path
 	XDGRuntimeDir  string // XDG_RUNTIME_DIR for sockets
 	SessionID      string // HELIX_SESSION_ID for Wolf
+	WolfFreeMode   bool   // Skip Wolf socket reporting (for Hydra/direct WebSocket streaming)
 }
 
 // Server is the main desktop integration server.

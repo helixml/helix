@@ -405,7 +405,15 @@ func (s *Server) reportToWolf() {
 		"node_id", s.nodeID,
 		"shm_socket", shmSocketPath,
 		"input_socket", s.inputSocketPath,
+		"wolf_free_mode", s.config.WolfFreeMode,
 	)
+
+	// In Wolf-free mode (Hydra executor), skip reporting to Wolf entirely
+	// Video streaming happens via direct WebSocket from ws_stream.go
+	if s.config.WolfFreeMode {
+		s.logger.Info("Wolf-free mode: skipping Wolf socket reporting (using direct WebSocket streaming)")
+		return
+	}
 
 	// Retry reporting to Wolf with exponential backoff
 	// Wolf's lobby socket may not be ready when the container starts

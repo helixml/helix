@@ -224,27 +224,73 @@ func checkGstElement(element string) bool {
 
 // buildPipelineArgs creates GStreamer pipeline arguments as a flat slice
 // Pipeline configurations match Wolf's tested settings from config.v6.toml
+//
+// GPU optimization notes:
+// - NVIDIA: Uses cudaupload to get frames into CUDA memory, nvh264enc does
+//   BGRx→NV12 colorspace conversion internally on NVENC hardware (zero-copy)
+// - AMD/Intel VA-API: Uses CPU-based videoconvert since vapostproc isn't widely
+//   available; vah264enc handles GPU upload. Not true zero-copy but still HW-accelerated.
+// - Software: Uses CPU-based videoconvert + x264enc (slowest fallback)
 func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
-	var encoderArgs []string
+	var args []string
 
+	// Step 1: Build source section (shmsrc or pipewiresrc)
+	if v.shmSocketPath != "" {
+		// Use shmsrc to read from video forwarder's shared memory socket
+		// This avoids PipeWire node conflicts when the forwarder is running
+		// IMPORTANT: shmsrc needs FULL caps (width, height, framerate) specified immediately
+		// because shmsink doesn't embed caps metadata in the shared memory buffers
+		args = []string{
+			"shmsrc", fmt.Sprintf("socket-path=%s", v.shmSocketPath), "is-live=true", "do-timestamp=true",
+			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
+				v.config.Width, v.config.Height),
+		}
+	} else {
+		// Use pipewiresrc to capture directly from PipeWire (legacy mode)
+		args = []string{
+			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+			"!", "video/x-raw,format=BGRx",
+		}
+	}
+
+	// Step 2: Add encoder-specific conversion and encoding pipeline
+	// Each encoder type has its own GPU-optimized path
 	switch encoder {
 	case "nvenc":
-		// NVIDIA hardware encoder - matches Wolf's nvcodec pipeline
-		// Requires cudaconvertscale and cudaupload for optimal performance
-		encoderArgs = []string{
-			"nvh264enc",
+		// NVIDIA zero-copy pipeline:
+		// 1. videorate + videoscale: CPU-side scaling to target resolution/framerate
+		// 2. cudaupload: Upload system memory to CUDA memory (one CPU→GPU copy)
+		// 3. nvh264enc: NVENC encoding directly from CUDA memory
+		//
+		// nvh264enc handles BGRx→NV12 colorspace conversion internally on GPU.
+		// This is faster than videoconvert (CPU) + nvh264enc because:
+		// - Only one CPU→GPU copy (via cudaupload)
+		// - Colorspace conversion happens on NVENC hardware
+		args = append(args,
+			"!", "videorate",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!", "cudaupload",
+			"!", "nvh264enc",
 			"preset=low-latency-hq",
 			"zerolatency=true",
 			"gop-size=15",
 			"rc-mode=cbr-ld-hq",
 			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
 			"aud=false",
-		}
+		)
 
 	case "qsv":
-		// Intel Quick Sync Video - matches Wolf's qsv pipeline
-		encoderArgs = []string{
-			"qsvh264enc",
+		// Intel Quick Sync Video
+		// QSV has its own memory system, uses CPU conversion for now
+		// TODO: Use qsvvpp for GPU-side conversion when available
+		args = append(args,
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!", "qsvh264enc",
 			"b-frames=0",
 			"gop-size=15",
 			"idr-interval=1",
@@ -252,12 +298,21 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
 			"rate-control=cbr",
 			"target-usage=6",
-		}
+		)
 
 	case "vaapi":
-		// VA-API for Intel/AMD - matches Wolf's va pipeline
-		encoderArgs = []string{
-			"vah264enc",
+		// AMD/Intel VA-API pipeline:
+		// Uses CPU-based videoconvert for colorspace conversion (vapostproc not widely available)
+		// vah264enc handles the upload to GPU memory internally
+		//
+		// This is slightly less optimal than true zero-copy (vapostproc → vah264enc)
+		// but works on systems where vapostproc isn't available
+		args = append(args,
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!", "vah264enc",
 			"aud=false",
 			"b-frames=0",
 			"ref-frames=1",
@@ -266,12 +321,18 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 			"key-int-max=1024",
 			"rate-control=cqp",
 			"target-usage=6",
-		}
+		)
 
 	case "vaapi-lp":
-		// VA-API Low Power mode for Intel - matches Wolf's va LP pipeline
-		encoderArgs = []string{
-			"vah264lpenc",
+		// VA-API Low Power mode (Intel-specific)
+		// Same as vaapi but uses the low-power encoder variant
+		// Uses CPU-based videoconvert (vapostproc not widely available)
+		args = append(args,
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!", "vah264lpenc",
 			"aud=false",
 			"b-frames=0",
 			"ref-frames=1",
@@ -280,12 +341,17 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 			"key-int-max=1024",
 			"rate-control=cqp",
 			"target-usage=6",
-		}
+		)
 
 	default:
-		// Software x264 fallback - matches Wolf's x264 pipeline
-		encoderArgs = []string{
-			"x264enc",
+		// Software x264 fallback - CPU-based conversion
+		// This is the slowest path but works on any system
+		args = append(args,
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!", "x264enc",
 			"pass=qual",
 			"tune=zerolatency",
 			"speed-preset=superfast",
@@ -294,45 +360,13 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 			"ref=1",
 			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
 			"aud=false",
-		}
+		)
 	}
 
-	// Build full pipeline as flat args
-	// Choose source based on whether we're reading from SHM or PipeWire
-	var args []string
-	if v.shmSocketPath != "" {
-		// Use shmsrc to read from video forwarder's shared memory socket
-		// This avoids PipeWire node conflicts when the forwarder is running
-		// IMPORTANT: shmsrc needs FULL caps (width, height, framerate) specified immediately
-		// because shmsink doesn't embed caps metadata in the shared memory buffers
-		args = []string{
-			"shmsrc", fmt.Sprintf("socket-path=%s", v.shmSocketPath), "is-live=true", "do-timestamp=true",
-			// Full caps required for shmsrc - must match what pipewiresrc produces
-			// The video forwarder captures at desktop resolution (typically 1920x1080)
-			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
-				v.config.Width, v.config.Height),
-			"!", "videoconvert",
-			"!", "videorate",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
-			"!",
-		}
-	} else {
-		// Use pipewiresrc to capture directly from PipeWire (legacy mode)
-		args = []string{
-			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-			"!", "video/x-raw,format=BGRx",
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d",
-				v.config.Width, v.config.Height),
-			"!",
-		}
-	}
-	args = append(args, encoderArgs...)
+	// Step 3: Add h264parse and output
+	// h264parse with config-interval=-1 inserts SPS/PPS before every keyframe
+	// This is required for WebCodecs which needs parameter sets for decoding
 	args = append(args,
-		// h264parse with config-interval=-1 inserts SPS/PPS before every keyframe
-		// This is required for WebCodecs which needs parameter sets for decoding
 		"!", "h264parse", "config-interval=-1",
 		"!", "video/x-h264,stream-format=byte-stream",
 		"!", "fdsink", "fd=1",
