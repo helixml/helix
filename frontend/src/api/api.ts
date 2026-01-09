@@ -3938,6 +3938,7 @@ export interface TypesSpecTask {
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
+  planning_options?: TypesStartPlanningOptions;
   /**
    * Session tracking (single Helix session for entire workflow - planning + implementation)
    * The same external agent/session is reused throughout the entire SpecTask lifecycle
@@ -4126,6 +4127,8 @@ export enum TypesSpecTaskPriority {
 
 export enum TypesSpecTaskStatus {
   TaskStatusBacklog = "backlog",
+  TaskStatusQueuedImplementation = "queued_implementation",
+  TaskStatusQueuedSpecGeneration = "queued_spec_generation",
   TaskStatusSpecGeneration = "spec_generation",
   TaskStatusSpecReview = "spec_review",
   TaskStatusSpecRevision = "spec_revision",
@@ -4224,6 +4227,16 @@ export interface TypesSpecTaskZedThreadCreateRequest {
 export interface TypesSpecTaskZedThreadListResponse {
   total?: number;
   zed_threads?: TypesSpecTaskZedThread[];
+}
+
+export interface TypesStartPlanningOptions {
+  /**
+   * KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
+   * Used to configure the desktop container's keyboard layout from browser detection
+   */
+  keyboard_layout?: string;
+  /** Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris") */
+  timezone?: string;
 }
 
 export interface TypesStepInfo {
