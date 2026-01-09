@@ -2,6 +2,7 @@ import { StreamCapabilities, StreamControllerCapabilities, StreamMouseButton } f
 import { ByteBuffer, I16_MAX, U16_MAX, U8_MAX } from "./buffer"
 import { ControllerConfig, extractGamepadState, GamepadState, SUPPORTED_BUTTONS } from "./gamepad"
 import { convertToKey, convertToModifiers } from "./keyboard"
+import { convertToEvdevKey, convertToEvdevModifiers } from "./evdev-keys"
 import { convertToButton } from "./mouse"
 
 // Smooth scrolling multiplier
@@ -40,6 +41,9 @@ export type StreamInputConfig = {
     mouseScrollMode: MouseScrollMode
     touchMode: "touch" | "mouseRelative" | "pointAndDrag"
     controllerConfig: ControllerConfig
+    // Use Linux evdev keycodes instead of Windows VK codes for direct WebSocket mode
+    // This eliminates backend VK→evdev conversion for lower latency
+    useEvdevCodes?: boolean
 }
 
 export function defaultStreamInputConfig(): StreamInputConfig {
@@ -164,11 +168,20 @@ export class StreamInput {
     private sendKeyEvent(isDown: boolean, event: KeyboardEvent) {
         this.buffer.reset()
 
-        const key = convertToKey(event)
+        // Use evdev codes for direct WebSocket mode (Linux backend)
+        // VK codes are only needed for Moonlight/Wolf compatibility
+        let key: number | null
+        let modifiers: number
+        if (this.config.useEvdevCodes) {
+            key = convertToEvdevKey(event)
+            modifiers = convertToEvdevModifiers(event)
+        } else {
+            key = convertToKey(event)
+            modifiers = convertToModifiers(event)
+        }
         if (!key) {
             return
         }
-        const modifiers = convertToModifiers(event)
 
         this.sendKey(isDown, key, modifiers)
     }

@@ -270,10 +270,12 @@ export class WebSocketStream {
     this.mouseThrottleMs = Math.floor(1000 / settings.fps)
 
     // Initialize input handler
+    // Use evdev keycodes for direct WebSocket mode - bypasses VK→evdev conversion on backend
     const streamInputConfig = defaultStreamInputConfig()
     Object.assign(streamInputConfig, {
       mouseScrollMode: this.settings.mouseScrollMode,
       controllerConfig: this.settings.controllerConfig,
+      useEvdevCodes: true,  // Direct Linux evdev codes for WebSocket mode
     })
     this.input = new StreamInput(streamInputConfig)
 

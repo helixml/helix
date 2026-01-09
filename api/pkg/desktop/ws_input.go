@@ -100,28 +100,29 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWSKeyboard handles keyboard input messages.
-// Format: [isDown:1][modifiers:1][keycode:2]
+// Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
+// The keycode is a Linux evdev keycode sent directly by the frontend.
+// This eliminates the VK→evdev conversion that was previously needed for Moonlight compatibility.
 func (s *Server) handleWSKeyboard(data []byte) {
-	if len(data) < 4 {
+	if len(data) < 5 {
 		return
 	}
 
-	isDown := data[0] != 0
-	// modifiers := data[1] // Currently unused, could be used for modifier sync
-	vkCode := binary.LittleEndian.Uint16(data[2:4])
+	// subType := data[0] // Always 0 for keyboard, unused
+	isDown := data[1] != 0
+	// modifiers := data[2] // Currently unused, could be used for modifier sync
+	evdevCode := int(binary.BigEndian.Uint16(data[3:5]))
+
+	if evdevCode == 0 {
+		return
+	}
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
-		// D-Bus expects evdev keycodes, not VK codes
-		evdevCode := VKToEvdev(vkCode)
-		if evdevCode == 0 {
-			s.logger.Debug("unknown VK code for D-Bus", "vk", vkCode)
-			return
-		}
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(evdevCode), isDown).Err
 		if err != nil {
-			s.logger.Error("WebSocket keyboard D-Bus call failed", "vk", vkCode, "evdev", evdevCode, "err", err)
+			s.logger.Error("WebSocket keyboard D-Bus call failed", "evdev", evdevCode, "err", err)
 		}
 		return
 	}
@@ -130,25 +131,27 @@ func (s *Server) handleWSKeyboard(data []byte) {
 	if s.virtualInput != nil {
 		var err error
 		if isDown {
-			err = s.virtualInput.KeyDown(vkCode)
+			err = s.virtualInput.KeyDownEvdev(evdevCode)
 		} else {
-			err = s.virtualInput.KeyUp(vkCode)
+			err = s.virtualInput.KeyUpEvdev(evdevCode)
 		}
 		if err != nil {
-			s.logger.Debug("virtual keyboard failed", "vk", vkCode, "err", err)
+			s.logger.Debug("virtual keyboard failed", "evdev", evdevCode, "err", err)
 		}
 	}
 }
 
 // handleWSMouseButton handles mouse button input messages.
-// Format: [isDown:1][button:1]
+// Format: [subType:1][isDown:1][button:1]
+// subType=2 for button events
 func (s *Server) handleWSMouseButton(data []byte) {
-	if len(data) < 2 {
+	if len(data) < 3 {
 		return
 	}
 
-	isDown := data[0] != 0
-	button := int(data[1])
+	// subType := data[0] // 2 for button
+	isDown := data[1] != 0
+	button := int(data[2])
 
 	// Convert Moonlight button codes to evdev button codes
 	// Moonlight: 1=left, 2=middle, 3=right
@@ -192,16 +195,18 @@ func (s *Server) handleWSMouseButton(data []byte) {
 }
 
 // handleWSMouseAbsolute handles absolute mouse position messages.
-// Format: [x:4][y:4][refWidth:2][refHeight:2]
+// Format: [subType:1][x:2 BE int16][y:2 BE int16][refWidth:2 BE int16][refHeight:2 BE int16]
+// subType=1 for absolute position
 func (s *Server) handleWSMouseAbsolute(data []byte) {
-	if len(data) < 12 {
+	if len(data) < 9 {
 		return
 	}
 
-	x := math.Float32frombits(binary.LittleEndian.Uint32(data[0:4]))
-	y := math.Float32frombits(binary.LittleEndian.Uint32(data[4:8]))
-	refWidth := binary.LittleEndian.Uint16(data[8:10])
-	refHeight := binary.LittleEndian.Uint16(data[10:12])
+	// subType := data[0] // 1 for absolute
+	x := int16(binary.BigEndian.Uint16(data[1:3]))
+	y := int16(binary.BigEndian.Uint16(data[3:5]))
+	refWidth := int16(binary.BigEndian.Uint16(data[5:7]))
+	refHeight := int16(binary.BigEndian.Uint16(data[7:9]))
 
 	// Scale from reference coordinates to absolute (use 1920x1080 as default)
 	// TODO: Get actual screen size from compositor
@@ -233,14 +238,16 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 }
 
 // handleWSMouseRelative handles relative mouse movement messages.
-// Format: [dx:4][dy:4]
+// Format: [subType:1][dx:2 BE int16][dy:2 BE int16]
+// subType=0 for relative movement
 func (s *Server) handleWSMouseRelative(data []byte) {
-	if len(data) < 8 {
+	if len(data) < 5 {
 		return
 	}
 
-	dx := math.Float32frombits(binary.LittleEndian.Uint32(data[0:4]))
-	dy := math.Float32frombits(binary.LittleEndian.Uint32(data[4:8]))
+	// subType := data[0] // 0 for relative
+	dx := int16(binary.BigEndian.Uint16(data[1:3]))
+	dy := int16(binary.BigEndian.Uint16(data[3:5]))
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {

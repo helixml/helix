@@ -67,10 +67,29 @@ func (v *VirtualInput) Close() error {
 
 // KeyDown sends a key press event.
 // vkCode is a Windows Virtual Key code which gets converted to evdev.
+// Deprecated: Use KeyDownEvdev for direct evdev codes.
 func (v *VirtualInput) KeyDown(vkCode uint16) error {
 	evdevCode := VKToEvdev(vkCode)
 	if evdevCode == 0 {
 		v.logger.Debug("unknown VK code", "vk", vkCode)
+		return nil
+	}
+	return v.KeyDownEvdev(evdevCode)
+}
+
+// KeyUp sends a key release event.
+// Deprecated: Use KeyUpEvdev for direct evdev codes.
+func (v *VirtualInput) KeyUp(vkCode uint16) error {
+	evdevCode := VKToEvdev(vkCode)
+	if evdevCode == 0 {
+		return nil
+	}
+	return v.KeyUpEvdev(evdevCode)
+}
+
+// KeyDownEvdev sends a key press event with a Linux evdev keycode.
+func (v *VirtualInput) KeyDownEvdev(evdevCode int) error {
+	if evdevCode == 0 {
 		return nil
 	}
 
@@ -84,9 +103,8 @@ func (v *VirtualInput) KeyDown(vkCode uint16) error {
 	return v.keyboard.KeyDown(evdevCode)
 }
 
-// KeyUp sends a key release event.
-func (v *VirtualInput) KeyUp(vkCode uint16) error {
-	evdevCode := VKToEvdev(vkCode)
+// KeyUpEvdev sends a key release event with a Linux evdev keycode.
+func (v *VirtualInput) KeyUpEvdev(evdevCode int) error {
 	if evdevCode == 0 {
 		return nil
 	}
