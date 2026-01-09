@@ -1612,3 +1612,167 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 
 	log.Info().Str("session_id", sessionID).Msg("Input WebSocket connection closed")
 }
+
+// proxyStreamWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/stream
+// This provides direct video streaming from screenshot-server to browser, bypassing Wolf/Moonlight.
+// @Summary Direct WebSocket video streaming for PipeWire/GNOME sessions
+// @Description Provides a WebSocket connection for receiving H.264 video frames directly from the
+// screenshot-server in the sandbox. This bypasses Wolf/Moonlight-Web for video streaming.
+// Only available for PipeWire/GNOME desktop sessions.
+// @Tags ExternalAgents
+// @Param sessionID path string true "Session ID"
+// @Success 101 "Switching Protocols"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 503 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/ws/stream [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for stream WebSocket")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership (or streaming access grant)
+	if session.Owner != user.ID && !isAdmin(user) {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not have access to session for stream WebSocket")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
+	// For Sway sessions, return an error - they should use Moonlight streaming
+	var desktopType string
+	if session.Metadata.ExternalAgentConfig != nil {
+		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
+	} else {
+		desktopType = "ubuntu" // Default to ubuntu if no config
+	}
+	if desktopType != "ubuntu" {
+		log.Warn().Str("session_id", sessionID).Str("desktop_type", desktopType).Msg("Direct stream WebSocket not supported for non-Ubuntu sessions")
+		http.Error(res, "Direct video streaming only supported for Ubuntu/GNOME sessions", http.StatusNotImplemented)
+		return
+	}
+
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Msg("Proxying stream WebSocket to screenshot-server via RevDial")
+
+	// Hijack the HTTP connection to get the underlying net.Conn
+	hijacker, ok := res.(http.Hijacker)
+	if !ok {
+		log.Error().Msg("ResponseWriter doesn't support Hijacker interface")
+		http.Error(res, "Server doesn't support connection hijacking", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to hijack connection")
+		http.Error(res, "Failed to hijack connection", http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	// Get RevDial connection to the screenshot-server
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	defer cancel()
+
+	serverConn, err := apiServer.connman.Dial(ctx, runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial for stream WebSocket")
+		// Write HTTP error response since we've already hijacked
+		clientConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nSandbox not connected"))
+		return
+	}
+	defer serverConn.Close()
+
+	// Construct WebSocket upgrade request to forward to screenshot-server
+	upgradeReq := fmt.Sprintf("GET /ws/stream HTTP/1.1\r\n"+
+		"Host: localhost:9876\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: %s\r\n"+
+		"Sec-WebSocket-Version: 13\r\n"+
+		"\r\n", req.Header.Get("Sec-WebSocket-Key"))
+
+	// Forward the WebSocket upgrade request
+	if _, err := serverConn.Write([]byte(upgradeReq)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade to screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nFailed to connect to screenshot-server"))
+		return
+	}
+
+	// Read the upgrade response from screenshot-server
+	serverReader := bufio.NewReader(serverConn)
+	upgradeResp, err := http.ReadResponse(serverReader, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read WebSocket upgrade response from screenshot-server")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nScreenshot-server connection failed"))
+		return
+	}
+	defer upgradeResp.Body.Close()
+
+	// Check if upgrade was successful
+	if upgradeResp.StatusCode != http.StatusSwitchingProtocols {
+		log.Error().Int("status", upgradeResp.StatusCode).Msg("Screenshot-server didn't accept WebSocket upgrade")
+		clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", upgradeResp.StatusCode, upgradeResp.Status)))
+		return
+	}
+
+	// Forward the 101 Switching Protocols response to the client
+	upgradeRespBytes := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\n"+
+		"Upgrade: websocket\r\n"+
+		"Connection: Upgrade\r\n"+
+		"Sec-WebSocket-Accept: %s\r\n"+
+		"\r\n", upgradeResp.Header.Get("Sec-WebSocket-Accept"))
+
+	if _, err := clientConn.Write([]byte(upgradeRespBytes)); err != nil {
+		log.Error().Err(err).Msg("Failed to send WebSocket upgrade response to client")
+		return
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection established, starting bidirectional proxy")
+
+	// Bidirectional copy between client and server
+	// Video frames go server→client, init/ping messages go client→server
+	done := make(chan struct{})
+
+	// Client -> Server (init message, pongs)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(serverConn, clientConn)
+	}()
+
+	// Server -> Client (video frames, pings)
+	go func() {
+		defer func() { done <- struct{}{} }()
+		io.Copy(clientConn, serverConn)
+	}()
+
+	// Wait for either direction to complete
+	<-done
+
+	log.Info().Str("session_id", sessionID).Msg("Stream WebSocket connection closed")
+}

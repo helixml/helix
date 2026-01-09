@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -65,6 +66,9 @@ type Server struct {
 	// one operation at a time per sender. Concurrent calls return
 	// "There is an ongoing operation for this sender" error.
 	screenshotMu sync.Mutex
+
+	// Video forwarder - captures PipeWire inside container and forwards to Wolf via SHM
+	videoForwarder *VideoForwarder
 }
 
 // NewServer creates a new desktop server with the given config.
@@ -124,9 +128,19 @@ func (s *Server) Run(ctx context.Context) error {
 		defer s.inputListener.Close()
 		defer os.Remove(s.inputSocketPath)
 
-		// 6. Report to Wolf (linked session node ID for video capture)
-		// NOTE: The linked RemoteDesktop+ScreenCast session uses SHM-only formats due to
-		// GNOME Mutter limitation. DmaBuf requires a standalone session.
+		// 6. Start video forwarder - captures from PipeWire inside container
+		// and forwards to Wolf via shared memory. This bypasses the cross-container
+		// PipeWire authorization issue that prevents Wolf from directly consuming
+		// the ScreenCast stream.
+		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
+		s.videoForwarder = NewVideoForwarder(s.nodeID, shmSocketPath, s.logger)
+		if err := s.videoForwarder.Start(ctx); err != nil {
+			s.logger.Warn("failed to start video forwarder, Wolf will try direct PipeWire",
+				"err", err)
+		}
+
+		// 7. Report to Wolf - includes both node ID (for direct access attempt)
+		// and SHM socket path (for forwarder mode)
 		s.reportToWolf()
 
 		// 6b. Create dedicated screenshot ScreenCast session (separate from Wolf's video)
@@ -193,6 +207,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.running.Store(false)
 
+	// Stop video forwarder
+	if s.videoForwarder != nil {
+		s.videoForwarder.Stop()
+	}
+
 	// Graceful HTTP shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -218,7 +237,8 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/keyboard-reset", s.handleKeyboardReset)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/input", s.handleInput)
-	mux.HandleFunc("/ws/input", s.handleWSInput) // Direct WebSocket input (bypasses Moonlight/Wolf)
+	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input (bypasses Moonlight/Wolf)
+	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming (bypasses Wolf)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -230,4 +250,17 @@ func (s *Server) httpHandler() http.Handler {
 // isRunning returns whether the server is still running.
 func (s *Server) isRunning() bool {
 	return s.running.Load()
+}
+
+// handleWSStream handles the combined WebSocket video+input streaming endpoint.
+// This streams H.264 encoded video directly from PipeWire to the browser
+// and handles input events in the same connection, bypassing Wolf and Moonlight-Web entirely.
+// Uses the exact same protocol as moonlight-web-stream for frontend compatibility.
+func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
+	if s.nodeID == 0 {
+		s.logger.Error("cannot stream video: no PipeWire node ID available")
+		http.Error(w, "Video streaming not available - no screen capture session", http.StatusServiceUnavailable)
+		return
+	}
+	s.handleStreamWebSocketWithServer(w, r)
 }

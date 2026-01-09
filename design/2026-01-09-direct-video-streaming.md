@@ -578,38 +578,79 @@ WebSocket can easily handle these rates.
 | Latency | ~30-50ms | ~6-17ms |
 | 4K60 support | Needs testing | Should work easily |
 
+## Combined WebSocket Protocol (from moonlight-web-stream)
+
+**Key insight:** We implement the EXACT SAME protocol that moonlight-web-stream uses,
+so the frontend requires ZERO CHANGES.
+
+The protocol is defined in `moonlight-web-stream/moonlight-web/common/src/ws_protocol.rs`:
+
+### Message Types
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| 0x01 | S→C | VideoFrame |
+| 0x02 | S→C | AudioFrame |
+| 0x03 | S→C | VideoBatch (congestion) |
+| 0x10 | C→S | KeyboardInput |
+| 0x11 | C→S | MouseClick |
+| 0x12 | C→S | MouseAbsolute |
+| 0x13 | C→S | MouseRelative |
+| 0x14 | C→S | TouchEvent |
+| 0x20 | Bi | ControlMessage |
+| 0x30 | S→C | StreamInit |
+| 0x31 | S→C | StreamError |
+| 0x40 | C→S | Ping |
+| 0x41 | S→C | Pong |
+
+### StreamInit (0x30) - 13 bytes
+```
+[type:1][codec:1][width:2][height:2][fps:1][audio_channels:1][sample_rate:4][touch:1]
+```
+
+### VideoFrame (0x01) - 15 byte header + NAL data
+```
+[type:1][codec:1][flags:1][pts:8][width:2][height:2][nal_data...]
+```
+
+### Input Messages (0x10-0x14)
+Same binary format as ws_input.go already implements.
+
+### Ping/Pong (0x40/0x41)
+```
+Ping: [type:1][seq:4][client_time_us:8]
+Pong: [type:1][seq:4][client_time_us:8][server_time_us:8]
+```
+
 ## Implementation Plan
 
-### Phase 1: Proof of Concept (Day 1)
-1. Add GStreamer H.264 encoding to screenshot-server
-2. Create `/ws/video` WebSocket endpoint in screenshot-server
-3. Create `/api/v1/sessions/{id}/video` proxy in Helix API
-4. Create simple HTML page with WebCodecs decoder
+### Phase 1: Combined Protocol (In Progress)
+1. ✅ Create `ws_stream.go` with GStreamer pipeline + WebSocket framing
+2. ✅ Add `/ws/stream` route to screenshot-server
+3. ✅ Add WebSocket proxy in Helix API (`/api/v1/external-agents/{id}/ws/stream`)
+4. 🔄 Merge input handling from ws_input.go into ws_stream.go (combined protocol)
+5. Build and test
 
-### Phase 2: Integration (Day 2)
-1. Add video player component to frontend
-2. Detect WebCodecs support, fallback to jMuxer if needed
-3. Add bitrate/quality controls
-4. Integrate with existing session UI
+### Phase 2: Frontend Integration
+1. Frontend WebSocketStream already speaks this protocol - NO CHANGES needed
+2. Test with existing streaming UI
+3. Verify input works through combined WebSocket
 
-### Phase 3: Optimization (Day 3)
-1. Add adaptive bitrate based on connection quality
-2. Add keyframe request mechanism (for seeking/reconnect)
-3. Measure and optimize latency
-4. Add metrics/monitoring
+### Phase 3: Optimization
+1. Add NVENC hardware encoding support
+2. Add adaptive bitrate based on connection quality
+3. Add keyframe request mechanism (for seeking/reconnect)
+4. Measure and optimize latency
 
-## Files to Create/Modify
+## Files Created/Modified
 
 ### New Files
-- `api/pkg/desktop/video_encoder.go` - GStreamer pipeline management
-- `api/pkg/desktop/video_websocket.go` - WebSocket handler
-- `frontend/src/components/sessions/DirectVideoPlayer.tsx` - WebCodecs player
+- `api/pkg/desktop/ws_stream.go` - Combined WebSocket handler (video + input)
 
 ### Modified Files
-- `api/pkg/desktop/session.go` - Add video encoder initialization
-- `api/pkg/desktop/server.go` - Add /ws/video route
-- `api/pkg/server/session_handlers.go` - Add video proxy endpoint
-- `api/pkg/server/routes.go` - Register video route
+- `api/pkg/desktop/desktop.go` - Add `/ws/stream` route
+- `api/pkg/server/external_agent_handlers.go` - Add `proxyStreamWebSocket`
+- `api/pkg/server/server.go` - Register `/external-agents/{id}/ws/stream`
 
 ## Fallback Strategy
 
