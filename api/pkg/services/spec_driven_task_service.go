@@ -39,7 +39,6 @@ type SpecDrivenTaskService struct {
 	zedAgentPool             []string                  // Pool of available Zed agents
 	testMode                 bool                      // If true, skip async operations for testing
 	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
-	SpecDocumentService      *SpecDocumentService      // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
@@ -94,9 +93,6 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 
 	if s.ZedIntegrationService != nil {
 		s.ZedIntegrationService.SetTestMode(enabled)
-	}
-	if s.SpecDocumentService != nil {
-		s.SpecDocumentService.SetTestMode(enabled)
 	}
 	if s.ZedToHelixSessionService != nil {
 		s.ZedToHelixSessionService.SetTestMode(enabled)
