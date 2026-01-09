@@ -33,8 +33,11 @@ const (
 	StreamMsgKeyboard      = 0x10
 	StreamMsgMouseClick    = 0x11
 	StreamMsgMouseAbsolute = 0x12
-	StreamMsgMouseRelative = 0x13
-	StreamMsgTouch         = 0x14
+	StreamMsgMouseRelative  = 0x13
+	StreamMsgTouch          = 0x14
+	StreamMsgControllerEvent = 0x15
+	StreamMsgControllerState = 0x16
+	StreamMsgControlMessage  = 0x20
 )
 
 // Video codec types
@@ -74,16 +77,27 @@ type VideoStreamer struct {
 	// Frame tracking
 	frameCount uint64
 	startTime  time.Time
+
+	// Video pause control (for screenshot mode switching)
+	videoEnabled atomic.Bool
 }
 
 // NewVideoStreamer creates a new video streamer
 func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
-	return &VideoStreamer{
+	v := &VideoStreamer{
 		nodeID: nodeID,
 		config: config,
 		ws:     ws,
 		logger: logger,
 	}
+	v.videoEnabled.Store(true) // Video enabled by default
+	return v
+}
+
+// SetVideoEnabled controls video frame sending (for screenshot mode switching)
+func (v *VideoStreamer) SetVideoEnabled(enabled bool) {
+	v.videoEnabled.Store(enabled)
+	v.logger.Info("video streaming", "enabled", enabled)
 }
 
 // Start begins capturing and streaming video
@@ -127,9 +141,14 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 
 	v.running.Store(true)
 
-	// Send StreamInit to client
+	// Send StreamInit to client (binary protocol)
 	if err := v.sendStreamInit(); err != nil {
 		v.logger.Error("failed to send StreamInit", "err", err)
+	}
+
+	// Send ConnectionComplete to signal frontend that connection is ready
+	if err := v.sendConnectionComplete(); err != nil {
+		v.logger.Error("failed to send ConnectionComplete", "err", err)
 	}
 
 	// Read H.264 NAL units and send to WebSocket
@@ -299,6 +318,26 @@ func (v *VideoStreamer) sendStreamInit() error {
 	return v.ws.WriteMessage(websocket.BinaryMessage, msg)
 }
 
+// connectionCompleteMsg is the JSON structure expected by frontend websocket-stream.ts
+type connectionCompleteMsg struct {
+	ConnectionComplete struct {
+		Capabilities struct {
+			Touch bool `json:"touch"`
+		} `json:"capabilities"`
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	} `json:"ConnectionComplete"`
+}
+
+// sendConnectionComplete sends the JSON control message to signal connection is ready
+func (v *VideoStreamer) sendConnectionComplete() error {
+	msg := connectionCompleteMsg{}
+	msg.ConnectionComplete.Capabilities.Touch = false
+	msg.ConnectionComplete.Width = v.config.Width
+	msg.ConnectionComplete.Height = v.config.Height
+	return v.ws.WriteJSON(msg)
+}
+
 // readAndSend reads H.264 data and sends to WebSocket
 func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 	defer v.Stop()
@@ -452,6 +491,11 @@ func findNALUnit(buf []byte) (nalUnit, remaining []byte, found bool) {
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
 func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool) error {
+	// Skip sending if video is paused (screenshot mode)
+	if !v.videoEnabled.Load() {
+		return nil
+	}
+
 	v.frameCount++
 	pts := uint64(time.Since(v.startTime).Microseconds())
 
@@ -626,6 +670,17 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 					if err := ws.WriteMessage(websocket.BinaryMessage, pong); err != nil {
 						logger.Debug("failed to send pong", "err", err)
 					}
+				}
+				continue
+			}
+
+			// Handle ControlMessage (0x20) for video pause/resume
+			if msgType == StreamMsgControlMessage && len(msg) > 1 {
+				var ctrl struct {
+					SetVideoEnabled *bool `json:"set_video_enabled"`
+				}
+				if err := json.Unmarshal(msg[1:], &ctrl); err == nil && ctrl.SetVideoEnabled != nil {
+					streamer.SetVideoEnabled(*ctrl.SetVideoEnabled)
 				}
 				continue
 			}

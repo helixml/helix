@@ -5,7 +5,7 @@ set -e
 
 echo "Starting Helix Desktop (Sway)..."
 
-# NOTE: Telemetry firewall is configured in the sandbox container (Wolf host),
+# NOTE: Telemetry firewall is configured in the sandbox container,
 # not inside agent containers. This provides centralized monitoring across all agents.
 
 # Create symlink to Zed binary if not exists
@@ -14,7 +14,7 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# Workspace setup: Wolf executor mounts workspace at BOTH paths via bind mount:
+# Workspace setup: Container executor mounts workspace at BOTH paths via bind mount:
 # 1. $WORKSPACE_DIR (e.g., /data/workspaces/spec-tasks/{id}) - for Docker wrapper hacks
 # 2. /home/retro/work - so agent tools see a real directory (not a symlink)
 # This eliminates symlink confusion where tools resolve symlinks and get confused.
@@ -29,7 +29,7 @@ if [ ! -d "$WORKSPACE_DIR" ]; then
     exit 1
 fi
 if [ ! -d /home/retro/work ]; then
-    echo "FATAL: /home/retro/work bind mount not present - Wolf executor must mount workspace at both paths"
+    echo "FATAL: /home/retro/work bind mount not present - container executor must mount workspace at both paths"
     exit 1
 fi
 # Ensure correct ownership on both workspace paths (same underlying directory)
@@ -143,10 +143,10 @@ custom_launcher() {
     export XDG_CURRENT_DESKTOP=sway
     export XDG_SESSION_DESKTOP=sway
     export XDG_SESSION_TYPE=wayland
-    # CRITICAL: Force Wayland-only backend to prevent DRM assertion failure
-    # wlroots' legacy_drm_handle_device can fail when receiving DRM device
-    # info from Wolf's compositor. Setting WLR_BACKENDS=wayland prevents this.
-    export WLR_BACKENDS=wayland
+    # Run Sway as a headless compositor (no outer display needed)
+    # This creates a virtual display that applications connect to.
+    # xdg-desktop-portal-wlr captures via wlr-screencopy → PipeWire → our GStreamer pipeline
+    export WLR_BACKENDS=headless
 
     # Create waybar config directory (config files generated inline below)
     mkdir -p $HOME/.config/waybar
