@@ -34,8 +34,7 @@ type HydraExecutor struct {
 
 	// Workspace path configuration
 	workspaceBasePathForContainer string // Path as seen from inside dev container
-	workspaceBasePathForCloning   string // Path as seen from API container (for git clone)
-	workspaceUserSSHKeyDir        string // Directory containing user SSH keys
+	workspaceBasePathForCloning   string // Path on sandbox filesystem (Hydra creates dirs)
 
 	// RevDial connection manager for communicating with Hydra in sandbox
 	connman connmanInterface
@@ -61,7 +60,6 @@ type HydraExecutorConfig struct {
 	HelixAPIToken                 string
 	WorkspaceBasePathForContainer string
 	WorkspaceBasePathForCloning   string
-	WorkspaceUserSSHKeyDir        string
 	Connman                       connmanInterface
 	GPUVendor                     string
 }
@@ -80,7 +78,6 @@ func NewHydraExecutor(cfg HydraExecutorConfig) *HydraExecutor {
 		helixAPIToken:                 cfg.HelixAPIToken,
 		workspaceBasePathForContainer: cfg.WorkspaceBasePathForContainer,
 		workspaceBasePathForCloning:   cfg.WorkspaceBasePathForCloning,
-		workspaceUserSSHKeyDir:        cfg.WorkspaceUserSSHKeyDir,
 		connman:                       cfg.Connman,
 		creationLocks:                 make(map[string]*sync.Mutex),
 		gpuVendor:                     cfg.GPUVendor,
@@ -582,37 +579,13 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 	return env
 }
 
-// translateToHostPath converts API container path to sandbox container path for Hydra mounting
-// This is the same logic as WolfExecutor.translateToHostPath
-//
-// Architecture:
-// - API container: mounts helix-filestore volume at /filestore/workspaces/...
-// - Sandbox container: mounts sandbox-data volume at /data/workspaces/...
-// - These are DIFFERENT volumes (helix-filestore vs sandbox-data)
-// - Hydra runs inside sandbox, so it needs /data/... paths
-func (h *HydraExecutor) translateToHostPath(containerPath string) string {
-	// Convert /filestore/workspaces/... to /data/workspaces/...
-	// This maps API container paths to sandbox container paths
-	if strings.HasPrefix(containerPath, "/filestore/workspaces/") {
-		return strings.Replace(containerPath, "/filestore/workspaces/", "/data/workspaces/", 1)
-	}
-	return containerPath
-}
-
 // buildMounts builds volume mounts for the container
+// workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
 func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string) []hydra.MountConfig {
-	// Translate workspace path from API container path to sandbox container path
-	workspaceDirForMount := h.translateToHostPath(workspaceDir)
-
-	log.Info().
-		Str("workspace_dir_api", workspaceDir).
-		Str("workspace_dir_sandbox", workspaceDirForMount).
-		Msg("Translated workspace path for Hydra mounting")
-
 	mounts := []hydra.MountConfig{
-		// Workspace mount
+		// Workspace mount - workspaceDir is the sandbox-local path
 		{
-			Source:      workspaceDirForMount,
+			Source:      workspaceDir,
 			Destination: h.workspaceBasePathForContainer,
 			ReadOnly:    false,
 		},

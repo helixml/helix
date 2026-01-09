@@ -248,9 +248,8 @@ func NewServer(
 			ZedImage:                      zedImage,
 			HelixAPIURL:                   sandboxAPIURL,
 			HelixAPIToken:                 cfg.WebServer.RunnerToken,
-			WorkspaceBasePathForContainer: "/workspace",                                                       // Path inside dev container
-			WorkspaceBasePathForCloning:   filepath.Join(cfg.FileStore.LocalFSPath, "workspaces"),             // Path from API container
-			WorkspaceUserSSHKeyDir:        filepath.Join(cfg.FileStore.LocalFSPath, "user-ssh-keys"),          // SSH keys dir
+			WorkspaceBasePathForContainer: "/workspace",       // Path inside dev container
+			WorkspaceBasePathForCloning:   "/data/workspaces", // Path on sandbox filesystem (not API - Hydra creates dirs)
 			Connman:                       connectionManager,
 			GPUVendor:                     os.Getenv("GPU_VENDOR"), // "nvidia", "amd", "intel", or ""
 		})

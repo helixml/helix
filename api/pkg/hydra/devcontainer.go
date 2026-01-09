@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -518,22 +517,3 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	return nil
 }
 
-// MountSSHKeys adds SSH key mount to the request if user has SSH keys
-func (dm *DevContainerManager) MountSSHKeys(req *CreateDevContainerRequest, sshKeyDir string) {
-	if sshKeyDir == "" || req.UserID == "" {
-		return
-	}
-
-	sshKeyPath := filepath.Join(sshKeyDir, req.UserID)
-	if _, err := os.Stat(sshKeyPath); err == nil {
-		req.Mounts = append(req.Mounts, MountConfig{
-			Source:      sshKeyPath,
-			Destination: "/home/retro/.ssh",
-			ReadOnly:    true,
-		})
-		log.Info().
-			Str("user_id", req.UserID).
-			Str("ssh_key_path", sshKeyPath).
-			Msg("Mounting SSH keys for git access")
-	}
-}
