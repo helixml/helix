@@ -42,6 +42,11 @@ type Server struct {
 	ssScStreamPath  dbus.ObjectPath
 	ssNodeID        uint32
 
+	// Portal session state (for Sway/wlroots via xdg-desktop-portal-wlr)
+	portalSessionHandle   string // ScreenCast session handle
+	portalRDSessionHandle string // RemoteDesktop session handle (optional)
+	compositorType        string // "gnome", "sway", or "unknown"
+
 	// Input socket
 	inputListener   net.Listener
 	inputSocketPath string
@@ -97,8 +102,14 @@ func (s *Server) Run(ctx context.Context) error {
 		"session_id", s.config.SessionID,
 	)
 
-	// Only do D-Bus session setup if we're in GNOME environment
+	// Detect compositor type and setup D-Bus sessions accordingly
+	s.compositorType = s.detectCompositor()
+	s.logger.Info("detected compositor", "type", s.compositorType)
+
 	if isGNOMEEnvironment() {
+		// GNOME: Use native Mutter ScreenCast/RemoteDesktop D-Bus APIs
+		s.compositorType = "gnome"
+
 		// 1. Connect to D-Bus (with retry)
 		if err := s.connectDBus(ctx); err != nil {
 			return fmt.Errorf("dbus connect: %w", err)
@@ -174,9 +185,50 @@ func (s *Server) Run(ctx context.Context) error {
 			defer s.wg.Done()
 			s.monitorSession(ctx)
 		}()
+	} else if isSwayEnvironment() {
+		// Sway: Use XDG Desktop Portal D-Bus APIs (via xdg-desktop-portal-wlr)
+		s.compositorType = "sway"
+
+		// 1. Connect to D-Bus portal (with retry)
+		if err := s.connectDBusPortal(ctx); err != nil {
+			return fmt.Errorf("dbus portal connect: %w", err)
+		}
+		defer s.conn.Close()
+
+		// 2. Create ScreenCast session via portal
+		if err := s.createPortalSession(ctx); err != nil {
+			return fmt.Errorf("create portal session: %w", err)
+		}
+
+		// 3. Start portal session, get PipeWire node ID
+		if err := s.startPortalSession(ctx); err != nil {
+			return fmt.Errorf("start portal session: %w", err)
+		}
+
+		// 4. Optional: Create RemoteDesktop session for input (Sway may use wlroots virtual input instead)
+		if err := s.createPortalRemoteDesktopSession(ctx); err != nil {
+			s.logger.Warn("portal RemoteDesktop not available, using wlroots virtual input",
+				"err", err)
+		}
+
+		// 5. Start video forwarder - same as GNOME, captures from PipeWire
+		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
+		s.videoForwarder = NewVideoForwarder(s.nodeID, shmSocketPath, s.logger)
+		if err := s.videoForwarder.Start(ctx); err != nil {
+			s.logger.Warn("failed to start video forwarder",
+				"err", err)
+		}
+
+		// 6. Report to Wolf
+		s.reportToWolf()
+
+		s.running.Store(true)
+		s.logger.Info("Sway portal session ready",
+			"node_id", s.nodeID,
+			"session_handle", s.portalSessionHandle)
 	} else {
-		s.logger.Info("not GNOME environment, skipping D-Bus session setup")
-		// In non-GNOME mode, still set running for HTTP server
+		s.logger.Info("unknown compositor environment, skipping D-Bus session setup")
+		// In non-GNOME/non-Sway mode, still set running for HTTP server
 		s.running.Store(true)
 	}
 

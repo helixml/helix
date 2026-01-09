@@ -131,6 +131,8 @@ ARG DE_PACKAGES=" \
     wl-clipboard \
     pipewire \
     pipewire-audio \
+    xdg-desktop-portal \
+    xdg-desktop-portal-wlr \
     "
 
 # Install patched wlroots library FIRST (before sway pulls in stock version)

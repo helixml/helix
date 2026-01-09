@@ -460,6 +460,12 @@ EOF
     echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+    echo "# Start PipeWire and XDG portal for screen capture" >> $HOME/.config/sway/config
+    echo "exec pipewire > /tmp/pipewire.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec pipewire-pulse > /tmp/pipewire-pulse.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
     # Pass required environment variables to settings-sync-daemon

@@ -13,6 +13,7 @@ var (
 	envInfo struct {
 		gnome       bool
 		kde         bool
+		sway        bool
 		x11         bool
 		x11Checked  bool
 		waylandDisp string
@@ -37,6 +38,12 @@ func detectEnvironment() {
 			strings.Contains(strings.ToLower(session), "kde") {
 			envInfo.kde = true
 		}
+
+		// Sway detection
+		if strings.ToLower(desktop) == "sway" || strings.ToLower(session) == "sway" ||
+			os.Getenv("SWAYSOCK") != "" {
+			envInfo.sway = true
+		}
 	})
 }
 
@@ -50,6 +57,12 @@ func isGNOMEEnvironment() bool {
 func isKDEEnvironment() bool {
 	detectEnvironment()
 	return envInfo.kde
+}
+
+// isSwayEnvironment returns true if running in Sway/wlroots.
+func isSwayEnvironment() bool {
+	detectEnvironment()
+	return envInfo.sway
 }
 
 // isX11Mode returns true if we should use X11 tools (xclip, scrot).
