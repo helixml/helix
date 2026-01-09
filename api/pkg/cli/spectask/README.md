@@ -89,20 +89,18 @@ helix spectask stop --all  # Stop all sessions
 
 ## Video Stream Protocol
 
-**Status:** Working! The `stream` command connects to the WebSocket video endpoint in moonlight-web.
+**Status:** Working! The `stream` command connects directly to the desktop container via RevDial, bypassing Wolf/Moonlight.
 
 The `stream` command uses the WebSocket-only protocol (not WebRTC) for raw video frame access:
 
-**Endpoint:** `/moonlight/api/ws/stream?session_id={session_id}`
+**Endpoint:** `/api/v1/external-agents/{session_id}/ws/stream`
 
 **Connection Flow:**
-1. CLI fetches Wolf app ID from `/api/v1/wolf/ui-app-id`
-2. CLI pre-configures Wolf with client_unique_id via `/api/v1/external-agents/{session}/configure-pending-session`
-3. CLI connects to WebSocket endpoint
-4. CLI sends `{ type: "init", app_id, session_id, client_unique_id, ... }`
-5. Server responds with `StreamInit` (codec, resolution, FPS)
-6. Server responds with `ConnectionComplete`
-7. Server streams binary video frames
+1. CLI connects to WebSocket endpoint (proxied via RevDial to desktop container)
+2. CLI sends `{ type: "init", session_id, client_unique_id, width, height, ... }`
+3. Server responds with `StreamInit` (codec, resolution, FPS)
+4. Server responds with `ConnectionComplete`
+5. Server streams H.264 video frames directly from PipeWire/GStreamer
 
 **Binary Message Types:**
 - `0x01` - VideoFrame: codec(1) + flags(1) + pts(8) + width(2) + height(2) + NAL data

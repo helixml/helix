@@ -570,10 +570,10 @@ func runLiveMode(apiURL, token, sessionID string) error {
 		return fmt.Errorf("failed to configure session: %w", err)
 	}
 
-	// Build WebSocket URL
+	// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
 	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-	streamURL := fmt.Sprintf("%s/moonlight/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(sessionID))
+	streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token)

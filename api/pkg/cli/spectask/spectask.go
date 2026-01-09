@@ -1490,10 +1490,10 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 	}
 	fmt.Printf("✅ Configured pending session: %s\n", clientUniqueID)
 
-	// Build WebSocket URL
+	// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
 	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-	streamURL := fmt.Sprintf("%s/moonlight/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(sessionID))
+	streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))
 
 	fmt.Printf("📡 Connecting to: %s\n", streamURL)
 
