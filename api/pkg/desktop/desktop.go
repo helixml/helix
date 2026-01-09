@@ -47,6 +47,9 @@ type Server struct {
 	portalRDSessionHandle string // RemoteDesktop session handle (optional)
 	compositorType        string // "gnome", "sway", or "unknown"
 
+	// Virtual input for Sway (uinput-based, no D-Bus RemoteDesktop)
+	virtualInput *VirtualInput
+
 	// Input socket
 	inputListener   net.Listener
 	inputSocketPath string
@@ -207,10 +210,17 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("start portal session: %w", err)
 		}
 
-		// 4. Optional: Create RemoteDesktop session for input (Sway may use wlroots virtual input instead)
+		// 4. Optional: Create RemoteDesktop session for input (Sway may use uinput instead)
 		if err := s.createPortalRemoteDesktopSession(ctx); err != nil {
-			s.logger.Warn("portal RemoteDesktop not available, using wlroots virtual input",
+			s.logger.Warn("portal RemoteDesktop not available, using uinput virtual input",
 				"err", err)
+			// Create uinput virtual devices for keyboard/mouse input
+			vi, err := NewVirtualInput(s.logger)
+			if err != nil {
+				s.logger.Warn("failed to create virtual input devices", "err", err)
+			} else {
+				s.virtualInput = vi
+			}
 		}
 
 		// Note: No video forwarder needed for Sway - we consume directly from PipeWire
@@ -268,6 +278,11 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.rdSessionPath != "" && s.conn != nil {
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 		rdSession.Call(remoteDesktopSessionIface+".Stop", 0)
+	}
+
+	// Close virtual input devices
+	if s.virtualInput != nil {
+		s.virtualInput.Close()
 	}
 
 	s.wg.Wait()

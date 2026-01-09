@@ -1,12 +1,9 @@
 package desktop
 
 import (
-	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"net/http"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -111,29 +108,35 @@ func (s *Server) handleWSKeyboard(data []byte) {
 
 	isDown := data[0] != 0
 	// modifiers := data[1] // Currently unused, could be used for modifier sync
-	keycode := binary.LittleEndian.Uint16(data[2:4])
+	vkCode := binary.LittleEndian.Uint16(data[2:4])
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
+		// D-Bus expects evdev keycodes, not VK codes
+		evdevCode := VKToEvdev(vkCode)
+		if evdevCode == 0 {
+			s.logger.Debug("unknown VK code for D-Bus", "vk", vkCode)
+			return
+		}
 		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(keycode), isDown).Err
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyKeyboardKeycode", 0, uint32(evdevCode), isDown).Err
 		if err != nil {
-			s.logger.Error("WebSocket keyboard D-Bus call failed", "keycode", keycode, "err", err)
+			s.logger.Error("WebSocket keyboard D-Bus call failed", "vk", vkCode, "evdev", evdevCode, "err", err)
 		}
 		return
 	}
 
-	// Fallback to ydotool for Sway/wlroots
-	// ydotool uses evdev keycodes with format: keycode:state (1=down, 0=up)
-	state := 0
-	if isDown {
-		state = 1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ydotool", "key", fmt.Sprintf("%d:%d", keycode, state))
-	if err := cmd.Run(); err != nil {
-		s.logger.Debug("ydotool keyboard failed", "keycode", keycode, "err", err)
+	// Fallback to uinput virtual keyboard for Sway/wlroots
+	if s.virtualInput != nil {
+		var err error
+		if isDown {
+			err = s.virtualInput.KeyDown(vkCode)
+		} else {
+			err = s.virtualInput.KeyUp(vkCode)
+		}
+		if err != nil {
+			s.logger.Debug("virtual keyboard failed", "vk", vkCode, "err", err)
+		}
 	}
 }
 
@@ -145,7 +148,7 @@ func (s *Server) handleWSMouseButton(data []byte) {
 	}
 
 	isDown := data[0] != 0
-	button := data[1]
+	button := int(data[1])
 
 	// Convert Moonlight button codes to evdev button codes
 	// Moonlight: 1=left, 2=middle, 3=right
@@ -174,26 +177,16 @@ func (s *Server) handleWSMouseButton(data []byte) {
 		return
 	}
 
-	// Fallback to ydotool for Sway/wlroots
-	// ydotool click: 0=left, 1=right, 2=middle
-	var ydoButton string
-	switch button {
-	case 1:
-		ydoButton = "0xC0" // left down+up
-	case 2:
-		ydoButton = "0xC2" // middle down+up
-	case 3:
-		ydoButton = "0xC1" // right down+up
-	default:
-		ydoButton = "0xC0"
-	}
-	// Only send click on button up to avoid double-clicks
-	if !isDown {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "ydotool", "click", ydoButton)
-		if err := cmd.Run(); err != nil {
-			s.logger.Debug("ydotool click failed", "button", button, "err", err)
+	// Fallback to uinput virtual mouse for Sway/wlroots
+	if s.virtualInput != nil {
+		var err error
+		if isDown {
+			err = s.virtualInput.MouseButtonDown(button)
+		} else {
+			err = s.virtualInput.MouseButtonUp(button)
+		}
+		if err != nil {
+			s.logger.Debug("virtual mouse button failed", "button", button, "err", err)
 		}
 	}
 }
@@ -229,14 +222,13 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 		return
 	}
 
-	// Fallback to ydotool for Sway/wlroots
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ydotool", "mousemove", "--absolute",
-		"-x", fmt.Sprintf("%.0f", absX),
-		"-y", fmt.Sprintf("%.0f", absY))
-	if err := cmd.Run(); err != nil {
-		s.logger.Debug("ydotool mousemove failed", "err", err)
+	// Fallback to uinput for Sway/wlroots
+	// Note: uinput mouse doesn't support absolute positioning well,
+	// but we log it for debugging
+	if s.virtualInput != nil {
+		if err := s.virtualInput.MouseMoveAbsolute(absX/1920, absY/1080, 1920, 1080); err != nil {
+			s.logger.Debug("virtual mouse absolute failed", "err", err)
+		}
 	}
 }
 
@@ -260,14 +252,11 @@ func (s *Server) handleWSMouseRelative(data []byte) {
 		return
 	}
 
-	// Fallback to ydotool for Sway/wlroots
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ydotool", "mousemove",
-		"-x", fmt.Sprintf("%.0f", dx),
-		"-y", fmt.Sprintf("%.0f", dy))
-	if err := cmd.Run(); err != nil {
-		s.logger.Debug("ydotool mousemove relative failed", "err", err)
+	// Fallback to uinput virtual mouse for Sway/wlroots
+	if s.virtualInput != nil {
+		if err := s.virtualInput.MouseMove(int32(dx), int32(dy)); err != nil {
+			s.logger.Debug("virtual mouse move failed", "err", err)
+		}
 	}
 }
 
