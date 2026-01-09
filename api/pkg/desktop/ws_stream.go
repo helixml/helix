@@ -65,14 +65,15 @@ type StreamConfig struct {
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket
 type VideoStreamer struct {
-	nodeID  uint32
-	config  StreamConfig
-	ws      *websocket.Conn
-	logger  *slog.Logger
-	cmd     *exec.Cmd
-	running atomic.Bool
-	cancel  context.CancelFunc
-	mu      sync.Mutex
+	nodeID        uint32
+	shmSocketPath string // If set, use shmsrc instead of pipewiresrc
+	config        StreamConfig
+	ws            *websocket.Conn
+	logger        *slog.Logger
+	cmd           *exec.Cmd
+	running       atomic.Bool
+	cancel        context.CancelFunc
+	mu            sync.Mutex
 
 	// Frame tracking
 	frameCount uint64
@@ -91,6 +92,19 @@ func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, lo
 		logger: logger,
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
+	return v
+}
+
+// NewVideoStreamerWithSHM creates a video streamer that reads from shared memory
+// This is used when a video forwarder is running to avoid PipeWire node conflicts
+func NewVideoStreamerWithSHM(shmSocketPath string, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
+	v := &VideoStreamer{
+		shmSocketPath: shmSocketPath,
+		config:        config,
+		ws:            ws,
+		logger:        logger,
+	}
+	v.videoEnabled.Store(true)
 	return v
 }
 
@@ -118,8 +132,13 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	// Build GStreamer pipeline args
 	pipelineArgs := v.buildPipelineArgs(encoder)
 
+	// Log with appropriate source info
+	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
+	if v.shmSocketPath != "" {
+		sourceInfo = fmt.Sprintf("shm:%s", v.shmSocketPath)
+	}
 	v.logger.Info("starting video capture",
-		"node_id", v.nodeID,
+		"source", sourceInfo,
 		"encoder", encoder,
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
@@ -279,16 +298,36 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	}
 
 	// Build full pipeline as flat args
-	// pipewiresrc produces BGRx format from GNOME ScreenCast (verified in video_forwarder.go)
-	// We must specify the format explicitly for reliable caps negotiation
-	args := []string{
-		"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-		"!", "video/x-raw,format=BGRx", // Match SHM forwarder input format
-		"!", "videoconvert",
-		"!", "videoscale",
-		"!", fmt.Sprintf("video/x-raw,width=%d,height=%d",
-			v.config.Width, v.config.Height), // Remove framerate constraint, use source rate
-		"!",
+	// Choose source based on whether we're reading from SHM or PipeWire
+	var args []string
+	if v.shmSocketPath != "" {
+		// Use shmsrc to read from video forwarder's shared memory socket
+		// This avoids PipeWire node conflicts when the forwarder is running
+		// IMPORTANT: shmsrc needs FULL caps (width, height, framerate) specified immediately
+		// because shmsink doesn't embed caps metadata in the shared memory buffers
+		args = []string{
+			"shmsrc", fmt.Sprintf("socket-path=%s", v.shmSocketPath), "is-live=true", "do-timestamp=true",
+			// Full caps required for shmsrc - must match what pipewiresrc produces
+			// The video forwarder captures at desktop resolution (typically 1920x1080)
+			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
+				v.config.Width, v.config.Height),
+			"!", "videoconvert",
+			"!", "videorate",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+				v.config.Width, v.config.Height, v.config.FPS),
+			"!",
+		}
+	} else {
+		// Use pipewiresrc to capture directly from PipeWire (legacy mode)
+		args = []string{
+			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+			"!", "video/x-raw,format=BGRx",
+			"!", "videoconvert",
+			"!", "videoscale",
+			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d",
+				v.config.Width, v.config.Height),
+			"!",
+		}
 	}
 	args = append(args, encoderArgs...)
 	args = append(args,
@@ -639,8 +678,17 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		"bitrate", config.Bitrate,
 	)
 
-	// Create and start video streamer
-	streamer := NewVideoStreamer(nodeID, config, ws, logger)
+	// Create video streamer - prefer SHM source if video forwarder is running
+	// This avoids PipeWire node conflicts (forwarder already claimed the ScreenCast node)
+	var streamer *VideoStreamer
+	if server != nil && server.videoForwarder != nil && server.videoForwarder.IsRunning() {
+		shmSocketPath := server.videoForwarder.ShmSocketPath()
+		logger.Info("using SHM video source (forwarder running)", "socket", shmSocketPath)
+		streamer = NewVideoStreamerWithSHM(shmSocketPath, config, ws, logger)
+	} else {
+		logger.Info("using PipeWire video source", "node_id", nodeID)
+		streamer = NewVideoStreamer(nodeID, config, ws, logger)
+	}
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

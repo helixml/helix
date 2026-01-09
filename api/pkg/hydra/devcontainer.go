@@ -82,18 +82,9 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	// Configure GPU passthrough
 	dm.configureGPU(hostConfig, req.GPUVendor)
 
-	// Determine network
-	networkName := req.Network
-	if networkName == "" {
-		networkName = "helix_default"
-	}
-
-	// Network configuration
-	networkConfig := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
-			networkName: {},
-		},
-	}
+	// Network configuration is nil for host network mode
+	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
+	var networkConfig *network.NetworkingConfig
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
@@ -132,17 +123,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Get container IP
+	// For host network mode, the container shares the host's network namespace
+	// so we use "host" to indicate this
 	inspect, err := dockerClient.ContainerInspect(ctx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 
-	ipAddress := ""
-	if inspect.NetworkSettings != nil && inspect.NetworkSettings.Networks != nil {
-		if net, ok := inspect.NetworkSettings.Networks[networkName]; ok {
-			ipAddress = net.IPAddress
-		}
-	}
+	// With host network mode, container shares host network - use "host" as indicator
+	ipAddress := "host"
+	_ = inspect // Container info is available but IP is shared with host
 
 	// Track container
 	dc := &DevContainer{
@@ -222,8 +212,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
+	// Use host network mode so dev containers share sandbox's network namespace.
+	// This allows them to resolve DNS names like "api:8080" that the sandbox can access.
+	// The sandbox is on helix_default network, so dev containers will also have access.
 	hostConfig := &container.HostConfig{
-		NetworkMode: container.NetworkMode(req.Network),
+		NetworkMode: "host",
 		IpcMode:     "host",
 		Privileged:  false,
 		CapAdd:      []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"},

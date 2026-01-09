@@ -578,6 +578,10 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 
 		// Keep desktop alive when Zed restarts (matches Wolf line 776)
 		"SWAY_STOP_ON_APP_EXIT=no",
+
+		// Force GNOME Shell to use headless mode with PipeWire capture
+		// (no Wolf compositor providing WAYLAND_DISPLAY, so can't use --nested)
+		"WOLF_VIDEO_SOURCE_MODE=pipewire",
 	}
 
 	// Add API tokens (both names for compatibility)
