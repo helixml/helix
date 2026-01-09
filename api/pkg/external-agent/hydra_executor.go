@@ -529,14 +529,18 @@ func (h *HydraExecutor) getContainerImage(containerType string, agent *types.Zed
 // buildEnvVars builds environment variables for the container
 func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, workspaceDir string) []string {
 	env := []string{
+		// Core Helix env vars
 		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		// RevDial connection - startup-app.sh expects these specific names
+		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
 	}
 
-	// Add API token if available
+	// Add API token if available (both names for compatibility)
 	if h.helixAPIToken != "" {
 		env = append(env, fmt.Sprintf("HELIX_API_TOKEN=%s", h.helixAPIToken))
+		env = append(env, fmt.Sprintf("USER_API_TOKEN=%s", h.helixAPIToken))
 	}
 
 	// Add project path if provided
