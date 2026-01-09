@@ -161,7 +161,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent)
 	env := h.buildEnvVars(agent, containerType, workspaceDir)
 
 	// Build mounts
-	mounts := h.buildMounts(agent, workspaceDir)
+	mounts := h.buildMounts(agent, workspaceDir, containerType)
 
 	// Create dev container request
 	req := &hydra.CreateDevContainerRequest{
@@ -581,7 +581,8 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 
 // buildMounts builds volume mounts for the container
 // workspaceDir is already a sandbox-local path (e.g., /data/workspaces/spec-tasks/spt_xxx)
-func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string) []hydra.MountConfig {
+// containerType is "sway", "ubuntu", or "headless"
+func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string, containerType string) []hydra.MountConfig {
 	mounts := []hydra.MountConfig{
 		// Workspace mount - workspaceDir is the sandbox-local path
 		{
@@ -591,13 +592,17 @@ func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string) 
 		},
 	}
 
-	// Add PipeWire socket mount for GNOME ScreenCast (ubuntu containers)
-	// This is required for the Wolf-free video streaming via ws_stream.go
-	mounts = append(mounts, hydra.MountConfig{
-		Source:      "/run/user/1000",
-		Destination: "/run/user/1000",
-		ReadOnly:    false,
-	})
+	// For Ubuntu/GNOME containers, create a per-session pipewire directory
+	// and mount it to /run/user/1000 where PipeWire daemon creates its socket
+	// This matches how Wolf handles pipewire mode (see docker.cpp:91-108)
+	if containerType == "ubuntu" {
+		pipewireDir := filepath.Join("/data/sessions", agent.SessionID, "pipewire")
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      pipewireDir,
+			Destination: "/run/user/1000",
+			ReadOnly:    false,
+		})
+	}
 
 	return mounts
 }
