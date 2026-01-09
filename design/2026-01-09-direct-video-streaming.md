@@ -28,25 +28,69 @@ Browser <video> element
 3. WebRTC overhead for simple streaming use case
 4. Difficult to debug multi-component pipeline
 
+## Existing Frontend Infrastructure (REUSE)
+
+The frontend already has complete WebSocket and SSE video streaming implementations:
+
+### WebSocketStream (`frontend/src/lib/moonlight-web-ts/stream/websocket-stream.ts`)
+- **1900+ lines** of production-ready code
+- WebCodecs VideoDecoder for H.264/H.265/AV1
+- Input handling (keyboard, mouse, wheel, touch)
+- Ping/pong RTT measurement
+- Adaptive bitrate detection
+- Reconnection with exponential backoff
+- Stats tracking (FPS, bitrate, latency, decode queue)
+
+### SseStream (`frontend/src/lib/moonlight-web-ts/stream/sse-stream.ts`)
+- Server-Sent Events for unidirectional video
+- Base64-encoded frames in JSON
+- Can pair with WebSocket for input (separate channels)
+- Simpler implementation for video-only
+
+### Video codec detection (`frontend/src/lib/moonlight-web-ts/stream/video.ts`)
+- WebCodecs hardware decoder probing
+- Fallback to software decoding
+- Codec capability bits for server negotiation
+
+**Key insight:** We should REUSE these existing components, not create new ones.
+
 ## Proposed Architecture (Direct WebSocket)
 
-Mirror the input WebSocket pattern but in reverse:
+**Key insight:** Move the WebSocket protocol handling from Helix API to screenshot-server.
+Helix API becomes a pure proxy, just like it already does for input.
 
 ```
+Browser
+    ↓ WebSocket connect
+EXISTING WebSocketStream class  <-- REUSE (no changes!)
+    ↓ /api/v1/sessions/{id}/stream
+Helix API (pure WebSocket proxy)
+    ↓ Proxy to container:9876/ws/stream
+screenshot-server (NEW: ws_stream.go)
+    ↓ Implements full WebSocket protocol (init, video, audio, input, ping/pong)
+    ↓ Input: forward to GNOME Mutter D-Bus
+    ↓ Video: GStreamer pipewiresrc → nvh264enc → WebSocket frames
 GNOME ScreenCast (PipeWire)
-    ↓ PipeWire frames
-GStreamer pipewiresrc (in container)
-    ↓ Raw video frames
-GStreamer nvh264enc / x264enc
-    ↓ H.264 NAL units
-Go screenshot-server (video.go)
-    ↓ WebSocket frames
-Helix API WebSocket proxy
-    ↓ /api/v1/sessions/{id}/video
-Browser MediaSource Extensions
-    ↓ fMP4 segments
-Browser <video> element
 ```
+
+**This approach:**
+- Frontend code: **NO CHANGES** (uses existing WebSocketStream)
+- Helix API: **PURE PROXY** (like /api/v1/sessions/{id}/input already)
+- Wolf/Moonlight: **BYPASSED ENTIRELY**
+- screenshot-server: **NEW** - implements the WebSocket binary protocol
+
+**Critical benefit: ONE protocol, not two.**
+
+If we invented a new protocol between container→API and another API→frontend, we'd have:
+- Protocol A: screenshot-server → Helix API (custom encoding)
+- Protocol B: Helix API → Browser (different encoding)
+- Translation layer in Helix API (complexity, latency, bugs)
+
+Instead, with pure proxy:
+- **ONE protocol:** Browser ↔ Helix API ↔ screenshot-server
+- All speak the SAME binary WebSocket format
+- Helix API is just a pipe (no protocol understanding needed)
+- screenshot-server implements what Wolf currently does
 
 ## Comparison with Input WebSocket Pattern
 
@@ -431,6 +475,116 @@ function createVideoPlayer(sessionId: string): VideoPlayer {
 
 4. **Audio:** Include audio in same WebSocket or separate?
    - Recommendation: Separate WebSocket for audio (simpler, matches video pattern)
+
+## Session Sharing Without Wolf Lobbies
+
+Wolf has a "lobby" concept where multiple viewers can watch the same desktop session.
+Without Wolf, we need an alternative approach for multi-viewer support.
+
+### Current Wolf Lobby Approach
+- Wolf creates one NVENC encoding session per lobby
+- Multiple Moonlight clients connect to the same lobby
+- Each client receives the same encoded video stream
+- Efficient: encode once, broadcast many
+
+### Options for Wolf-Free Multi-Viewer
+
+#### Option A: Multiple PipeWire Streams (Recommended for simplicity)
+Each viewer gets their own independent pipeline:
+
+```
+Viewer 1 WebSocket → screenshot-server instance 1 → pipewiresrc node=44 → nvh264enc → frames
+Viewer 2 WebSocket → screenshot-server instance 2 → pipewiresrc node=44 → nvh264enc → frames
+```
+
+**Pros:**
+- Simple implementation (each connection is independent)
+- Each viewer can have different bitrate/resolution
+- No fan-out complexity
+
+**Cons:**
+- Multiple NVENC sessions (GPU encoder limit: typically 3-5 concurrent)
+- Higher GPU encoding load
+
+**When to use:** Low viewer count (1-5 viewers per session)
+
+#### Option B: Single Encoder with WebSocket Fan-Out
+One encoding pipeline, broadcast to multiple WebSocket connections:
+
+```
+pipewiresrc node=44 → nvh264enc → [screenshot-server hub]
+                                       ↓
+                                ├── Viewer 1 WebSocket
+                                ├── Viewer 2 WebSocket
+                                └── Viewer N WebSocket
+```
+
+**Pros:**
+- Only one NVENC session per desktop
+- Scales to many viewers
+- Same encoded frames for all (efficient)
+
+**Cons:**
+- All viewers get same bitrate/resolution
+- Need hub/broadcast logic in screenshot-server
+- Keyframe requests affect all viewers
+
+**When to use:** Many viewers watching same session (webinar-style)
+
+#### Option C: External SFU/Media Server
+Route video through a Selective Forwarding Unit:
+
+```
+screenshot-server → Janus/Mediasoup/Livekit → Multiple viewers
+```
+
+**Pros:**
+- Purpose-built for multi-viewer
+- Adaptive bitrate per viewer possible
+- Recording, analytics built-in
+
+**Cons:**
+- Additional infrastructure component
+- More deployment complexity
+- Latency increase
+
+**When to use:** Enterprise deployments with strict multi-viewer requirements
+
+### Recommendation
+
+**Start with Option A (multiple PipeWire streams)** for MVP:
+1. Simple implementation
+2. NVENC supports 3-5 concurrent sessions (enough for typical use)
+3. Each viewer isolated (one viewer's network issues don't affect others)
+
+**Upgrade to Option B** if we see:
+- Users hitting NVENC session limits
+- High GPU encoding load with multiple viewers
+- Need for efficient broadcasting
+
+### Multiple PipeWire Sessions - How It Works
+
+GNOME ScreenCast allows multiple consumers of the same node:
+
+```go
+// Each WebSocket connection creates its own capture session
+func (s *Server) handleWebSocketStream(ws *websocket.Conn) {
+    // Create D-Bus ScreenCast session for this viewer
+    screencast := gnome.NewScreenCastSession()
+    nodeID := screencast.RecordVirtualMonitor()
+
+    // Create GStreamer pipeline for this viewer
+    pipeline := fmt.Sprintf(
+        "pipewiresrc path=%d ! nvh264enc ! appsink",
+        nodeID,
+    )
+
+    // Each viewer has independent session and pipeline
+}
+```
+
+PipeWire handles the multi-consumer case efficiently - all pipelines
+read from the same compositor output without additional copying.
 
 ## Conclusion
 
