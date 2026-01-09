@@ -128,6 +128,7 @@ interface SpecTaskWithExtras {
   name: string
   status: string
   phase: SpecTaskPhase
+  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued'
   planning_session_id?: string
   archived?: boolean
   metadata?: { error?: string }
@@ -649,11 +650,8 @@ export default function TaskCard({
                 setMenuAnchorEl(null)
                 setShowCloneDialog(true)
               }}
-            >
-              <ListItemIcon>
-                <CopyIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>Clone to Other Projects</ListItemText>
+            >              
+              <ListItemText>Clone to other projects</ListItemText>
             </MenuItem>
             <MenuItem
               disabled={isArchiving}
@@ -664,16 +662,7 @@ export default function TaskCard({
                 }
               }}
             >
-              <ListItemIcon>
-                {isArchiving ? (
-                  <CircularProgress size={18} />
-                ) : task.archived ? (
-                  <RestoreIcon fontSize="small" />
-                ) : (
-                  <ArchiveIcon fontSize="small" />
-                )}
-              </ListItemIcon>
-              <ListItemText>{task.archived ? 'Restore' : 'Archive'}</ListItemText>
+              <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
           </Menu>
         </Box>
@@ -785,12 +774,14 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="warning"
-              startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
+              startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
               onClick={handleStartPlanning}
-              disabled={isPlanningFull || isStartingPlanning}
+              disabled={isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
               fullWidth
             >
-              {isStartingPlanning
+              {task.planningStatus === 'queued'
+                ? 'Queued'
+                : isStartingPlanning
                 ? 'Starting...'
                 : task.metadata?.error
                 ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')
