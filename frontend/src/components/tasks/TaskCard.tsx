@@ -39,7 +39,8 @@ import {
 } from '@mui/icons-material'
 import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
-import { useTaskProgress } from '../../services/specTaskService'
+import { useTaskProgress, useUpdateSpecTask } from '../../services/specTaskService'
+import { TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
@@ -476,8 +477,10 @@ export default function TaskCard({
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
+  const updateSpecTask = useUpdateSpecTask()
 
   // Ref for Start Planning button to enable keyboard focus
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
@@ -525,6 +528,21 @@ export default function TaskCard({
       } finally {
         setIsStartingPlanning(false)
       }
+    }
+  }
+
+  const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation'
+
+  const handleRemoveFromQueue = async () => {
+    if (!task.id) return
+    setIsRemovingFromQueue(true)
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { status: TypesSpecTaskStatus.TaskStatusBacklog },
+      })
+    } finally {
+      setIsRemovingFromQueue(false)
     }
   }
 
@@ -645,6 +663,17 @@ export default function TaskCard({
                 <ListItemText>Clone Batch Progress</ListItemText>
               </MenuItem>
             )}
+            {isQueued && (
+              <MenuItem
+                disabled={isRemovingFromQueue}
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  handleRemoveFromQueue()
+                }}
+              >
+                <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
+              </MenuItem>
+            )}
             <MenuItem
               onClick={() => {
                 setMenuAnchorEl(null)
@@ -652,7 +681,7 @@ export default function TaskCard({
               }}
             >              
               <ListItemText>Clone to other projects</ListItemText>
-            </MenuItem>
+            </MenuItem>            
             <MenuItem
               disabled={isArchiving}
               onClick={() => {
