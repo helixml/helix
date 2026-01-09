@@ -365,14 +365,11 @@ export class WebSocketStream {
     // Reset stream state for fresh connection
     this.resetStreamState()
 
-    // Build WebSocket URL - must be absolute with ws:// or wss:// protocol
-    const queryParams = this.sessionId
-      ? `?session_id=${encodeURIComponent(this.sessionId)}`
-      : ""
-
-    // Convert relative URL to absolute WebSocket URL
+    // Build WebSocket URL - direct endpoint (bypasses Wolf/Moonlight)
+    // Uses /api/v1/external-agents/{sessionId}/ws/stream for direct GStreamer encoding
+    // Auth is handled via cookies (same-origin WebSocket includes cookies automatically)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}${this.api.host_url}/api/ws/stream${queryParams}`
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
     this.ws = new WebSocket(wsUrl)
@@ -421,14 +418,15 @@ export class WebSocketStream {
     // Start heartbeat monitoring for stale connections
     this.startHeartbeat()
 
-    // Start RTT measurement pings
+    // Send initialization message FIRST - server expects this before any binary messages
+    // The server reads the first message and parses it as JSON init config
+    this.sendInit()
+
+    // Start RTT measurement pings AFTER init is sent
     this.startPingInterval()
 
     // Start event loop latency tracking
     this.startEventLoopTracking()
-
-    // Send initialization message
-    this.sendInit()
   }
 
   private onClose(event: CloseEvent) {
@@ -620,8 +618,12 @@ export class WebSocketStream {
     // Initialize video decoder
     this.initVideoDecoder(codec, width, height)
 
-    // Initialize audio decoder
-    this.initAudioDecoder(audioChannels, sampleRate)
+    // Initialize audio decoder (skip if no audio configured)
+    if (audioChannels > 0 && sampleRate > 0) {
+      this.initAudioDecoder(audioChannels, sampleRate)
+    } else {
+      console.log("[WebSocketStream] Audio disabled (no audio channels or sample rate)")
+    }
   }
 
   private async initVideoDecoder(codec: WsVideoCodecType, width: number, height: number) {

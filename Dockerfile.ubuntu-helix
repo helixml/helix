@@ -95,16 +95,18 @@ ARG DE_PACKAGES=" \
     gstreamer1.0-pipewire \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
     gstreamer1.0-gl \
     wl-clipboard \
     mutter-dev-bin \
     "
 
 # Install base packages, PPAs, and GNOME
+# Cache bust: added gstreamer1.0-plugins-bad for shmsink/shmsrc
 RUN <<_INSTALL_BASE
   set -e
 
-  echo "**** Update apt database ****"
+  echo "**** Update apt database (v2: added gst-plugins-bad) ****"
   apt-get update
 
   echo "**** Install base packages ****"
@@ -668,7 +670,7 @@ RUN chmod 755 /etc/cont-init.d/16-add-docker-group.sh
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# Helix Go binaries
+# Helix Go binaries (v2: socket wait fix)
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client

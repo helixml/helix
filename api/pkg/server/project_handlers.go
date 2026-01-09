@@ -1101,6 +1101,12 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					}
 				}
 
+				// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+				// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+				if desktopType == "" {
+					desktopType = "ubuntu"
+				}
+
 				// Restart Zed agent with existing session
 				zedAgent := &types.ZedAgent{
 					SessionID:           existingSession.ID,
@@ -1248,6 +1254,12 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				Str("desktop_type", desktopType).
 				Msg("Using display settings from project's default agent for new exploratory session")
 		}
+	}
+
+	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+	if desktopType == "" {
+		desktopType = "ubuntu"
 	}
 
 	// Create ZedAgent for exploratory session

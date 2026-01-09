@@ -3,7 +3,7 @@
 
 services:
   api:
-    image: registry.helixml.tech/helix/controlplane:latest
+    image: helix-api:latest  # LOCAL BUILD - registry.helixml.tech/helix/controlplane:latest for prod
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # connect to Helix

@@ -530,6 +530,13 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		}
 	}
 
+	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+	if desktopType == "" {
+		desktopType = "ubuntu"
+		log.Debug().Str("task_id", task.ID).Msg("Using default desktop type: ubuntu")
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create ZedAgent struct")
 	zedAgent := &types.ZedAgent{

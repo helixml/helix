@@ -750,35 +750,13 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			// Step 1: Get Wolf app ID for this session
 			fmt.Printf("📊 Video Stream for session %s\n", sessionID)
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-			fmt.Printf("Fetching Wolf app ID...\n")
 
-			appID, err := getWolfAppID(apiURL, token, sessionID)
-			if err != nil {
-				return fmt.Errorf("failed to get Wolf app ID: %w", err)
-			}
-			fmt.Printf("Wolf app ID: %d\n", appID)
-
-			// Step 2: Generate client unique ID and pre-configure Wolf
-			clientUniqueID := fmt.Sprintf("helix-cli-%d", time.Now().UnixNano())
-			fmt.Printf("Configuring Wolf pending session with client ID: %s\n", clientUniqueID)
-
-			if err := configurePendingSession(apiURL, token, sessionID, clientUniqueID); err != nil {
-				return fmt.Errorf("failed to configure pending session: %w", err)
-			}
-			fmt.Printf("✅ Wolf pre-configured\n")
-
-			// Step 3: Build WebSocket URL for video protocol
+			// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
 			wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 			wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-
-			// WebSocket-only video endpoint (NOT WebRTC)
-			// The path is: /moonlight/api/ws/stream which uses the simpler binary video protocol
-			// This is the WebSocketStream class endpoint, not the WebRTC Stream class endpoint
-			moonlightSessionID := sessionID
-			streamURL := fmt.Sprintf("%s/moonlight/api/ws/stream?session_id=%s", wsURL, url.QueryEscape(moonlightSessionID))
+			streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))
 
 			fmt.Printf("WebSocket URL: %s\n", streamURL)
 			if duration > 0 {
@@ -811,14 +789,10 @@ Examples:
 			connectTime := time.Since(startTime)
 			fmt.Printf("✅ Connected in %v\n\n", connectTime.Round(time.Millisecond))
 
-			// Step 5: Send init message (WebSocketStream format - simpler than WebRTC)
-			// This uses the binary video protocol, not WebRTC signaling
+			// Send init message (direct WebSocket protocol)
 			initMessage := map[string]interface{}{
 				"type":                    "init",
-				"host_id":                 0,
-				"app_id":                  appID,
-				"session_id":              moonlightSessionID,
-				"client_unique_id":        clientUniqueID,
+				"session_id":              sessionID,
 				"width":                   width,
 				"height":                  height,
 				"fps":                     fps,
@@ -828,8 +802,8 @@ Examples:
 				"video_supported_formats": 1, // H264 = 0x01
 			}
 			initJSON, _ := json.Marshal(initMessage)
-			fmt.Printf("📤 Sending WebSocket init message (app_id=%d, %dx%d@%dfps, %dkbps)...\n",
-				appID, width, height, fps, bitrate)
+			fmt.Printf("📤 Sending init message (%dx%d@%dfps, %dkbps)...\n",
+				width, height, fps, bitrate)
 			if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
 				return fmt.Errorf("failed to send init: %w", err)
 			}

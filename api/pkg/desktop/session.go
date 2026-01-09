@@ -383,42 +383,93 @@ func (s *Server) handleSessionClosed(ctx context.Context) {
 	s.logger.Info("session recreated successfully", "new_node_id", s.nodeID)
 }
 
-// reportToWolf reports node ID and input socket to Wolf.
+// reportToWolf reports node ID, SHM socket path, and input socket to Wolf with retry.
+// Wolf's lobby socket may not be ready immediately, so we retry with backoff.
+//
+// Video capture modes:
+// 1. SHM mode (preferred): If video forwarder is running, Wolf reads from shmsrc
+// 2. Direct mode (fallback): Wolf tries to connect directly to PipeWire via node_id
+//
+// Direct mode fails for cross-container access due to PipeWire authorization.
+// SHM mode works because the forwarder runs inside the container with PipeWire.
 func (s *Server) reportToWolf() {
-	// Use the linked RemoteDesktop+ScreenCast session's node ID for video capture.
-	// NOTE: The linked session uses SHM-only formats (no DmaBuf) due to GNOME Mutter limitation.
-	// DmaBuf with NVIDIA modifiers requires a standalone (non-linked) ScreenCast session.
+	// Determine SHM socket path if video forwarder is running
+	var shmSocketPath string
+	if s.videoForwarder != nil && s.videoForwarder.IsRunning() {
+		shmSocketPath = s.videoForwarder.ShmSocketPath()
+	}
+
 	s.logger.Info("session summary",
 		"rd_session", s.rdSessionPath,
 		"sc_stream", s.scStreamPath,
 		"node_id", s.nodeID,
+		"shm_socket", shmSocketPath,
 		"input_socket", s.inputSocketPath,
 	)
 
-	if _, err := os.Stat(s.config.WolfSocketPath); os.IsNotExist(err) {
-		s.logger.Warn("Wolf socket not found", "path", s.config.WolfSocketPath)
+	// Retry reporting to Wolf with exponential backoff
+	// Wolf's lobby socket may not be ready when the container starts
+	maxRetries := 30
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Check if socket file exists
+		if _, err := os.Stat(s.config.WolfSocketPath); os.IsNotExist(err) {
+			s.logger.Debug("Wolf socket not found, retrying...",
+				"path", s.config.WolfSocketPath,
+				"attempt", attempt+1)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// Try to report node ID and SHM socket path
+		s.logger.Info("reporting video config to Wolf...",
+			"node_id", s.nodeID,
+			"shm_socket", shmSocketPath,
+			"attempt", attempt+1)
+
+		// Include SHM socket path in the request - Wolf will use this for SHM mode
+		// if available, otherwise fall back to direct PipeWire access
+		requestData := map[string]interface{}{
+			"node_id":      s.nodeID,
+			"session_path": string(s.rdSessionPath),
+		}
+		if shmSocketPath != "" {
+			requestData["shm_socket_path"] = shmSocketPath
+		}
+
+		lastErr = s.postToWolfWithError("/set-pipewire-node-id", requestData)
+
+		if lastErr != nil {
+			s.logger.Debug("Wolf not ready, retrying...", "err", lastErr, "attempt", attempt+1)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// Node ID reported successfully, now report input socket
+		s.logger.Info("reporting input socket to Wolf...")
+		if err := s.postToWolfWithError("/set-input-socket", map[string]interface{}{
+			"input_socket": s.inputSocketPath,
+		}); err != nil {
+			s.logger.Warn("failed to report input socket", "err", err)
+		}
+
+		s.logger.Info("successfully reported to Wolf",
+			"node_id", s.nodeID,
+			"shm_socket", shmSocketPath)
 		return
 	}
 
-	// Report node ID (linked session - SHM only for now)
-	s.logger.Info("reporting node ID to Wolf...", "node_id", s.nodeID)
-	s.postToWolf("/set-pipewire-node-id", map[string]interface{}{
-		"node_id":      s.nodeID,
-		"session_path": string(s.rdSessionPath),
-	})
-
-	// Report input socket
-	s.logger.Info("reporting input socket to Wolf...")
-	s.postToWolf("/set-input-socket", map[string]interface{}{
-		"input_socket": s.inputSocketPath,
-	})
+	s.logger.Error("failed to report to Wolf after retries",
+		"attempts", maxRetries,
+		"last_err", lastErr)
 }
 
-func (s *Server) postToWolf(endpoint string, data map[string]interface{}) {
+// postToWolfWithError posts to Wolf and returns any error for retry handling.
+func (s *Server) postToWolfWithError(endpoint string, data map[string]interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		s.logger.Error("failed to marshal data", "err", err)
-		return
+		return fmt.Errorf("marshal: %w", err)
 	}
 
 	client := &http.Client{
@@ -432,10 +483,14 @@ func (s *Server) postToWolf(endpoint string, data map[string]interface{}) {
 
 	resp, err := client.Post("http://localhost"+endpoint, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
-		s.logger.Error("failed to report to Wolf", "endpoint", endpoint, "err", err)
-		return
+		return fmt.Errorf("post: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+
 	s.logger.Info("Wolf response", "endpoint", endpoint, "status", resp.Status)
+	return nil
 }

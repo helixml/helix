@@ -542,28 +542,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // - 'sse': Video over SSE (hot-switched via useEffect)
       // - 'low': Screenshot polling (hot-switched via useEffect)
       if (streamingMode === 'websocket') {
-        // WebSocket mode: use WebSocket for input, qualityMode determines video source
-        console.log('[MoonlightStreamViewer] Using WebSocket streaming mode, qualityMode:', qualityMode);
+        // WebSocket mode: direct streaming (bypasses Wolf/Moonlight)
+        console.log('[MoonlightStreamViewer] Using direct WebSocket streaming, qualityMode:', qualityMode);
 
         const streamSettings = { ...settings };
-        const qualitySessionId = sessionId ? `${sessionId}-hq` : undefined;
-
-        // Generate a random unique client ID for Wolf session matching
-        // This ID is passed to BOTH the Helix API (to pre-configure Wolf) AND moonlight-web
-        // This enables immediate lobby attachment without auto-join polling
-        const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
-        console.log('[MoonlightStreamViewer] Generated clientUniqueId:', clientUniqueId);
-
-        // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
-        // This ensures Wolf is ready to attach us to the lobby immediately when we connect
-        if (sessionId) {
-          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session...');
-          setStatus('Configuring session...');
-          const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
-            client_unique_id: clientUniqueId,
-          });
-          console.log('[MoonlightStreamViewer] Wolf pre-configured:', configResponse.data);
-        }
 
         if (qualityMode === 'low') {
           console.log('[MoonlightStreamViewer] Low mode: WebSocket for input + screenshot overlay');
@@ -580,8 +562,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           streamSettings,
           supportedFormats,
           [width, height],
-          qualitySessionId,
-          clientUniqueId  // Pass clientUniqueId for immediate lobby attachment
+          sessionId  // Use raw session ID for direct endpoint
         );
 
         // Set canvas for WebSocket stream rendering
@@ -1233,8 +1214,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       // Open SSE connection for video
-      const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
-      const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
+      // TODO: SSE mode still uses moonlight path - will need to be updated or removed
+      const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
       console.log('[MoonlightStreamViewer] Opening SSE for video:', sseUrl);
 
       const eventSource = new EventSource(sseUrl, { withCredentials: true });
@@ -1491,8 +1472,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     wsStream.setVideoEnabled(false);
 
     // Open SSE connection for video
-    const qualitySessionId = sessionId ? `${sessionId}-hq` : sessionId;
-    const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(qualitySessionId || '')}`;
+    // TODO: SSE mode still uses moonlight path - will need to be updated or removed
+    const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
     console.log('[MoonlightStreamViewer] Opening SSE for initial video:', sseUrl);
 
     const eventSource = new EventSource(sseUrl, { withCredentials: true });
@@ -3398,13 +3379,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
+        {/* WebRTC toggle disabled - Wolf/Moonlight removed, may add Pion later */}
+        {/* Quality mode toggle: WS Video (high) → Screenshots (low) */}
+        {/* SSE mode disabled - Wolf/Moonlight removed, may bring back later */}
         <Tooltip
           title={
             modeSwitchCooldown
               ? 'Please wait...'
-              : streamingMode === 'websocket'
-              ? 'Currently: WebSocket (L7) — Click for WebRTC'
-              : 'Currently: WebRTC — Click for WebSocket'
+              : qualityMode === 'high'
+              ? 'Video streaming (60fps) — Click for Screenshot mode'
+              : 'Screenshot mode — Click for Video streaming'
           }
           arrow
           slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
@@ -3414,74 +3398,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
               size="small"
               disabled={modeSwitchCooldown}
               onClick={() => {
-                // Toggle between websocket and webrtc (connection protocol)
-                // Video source (WS/SSE/screenshot) is controlled by Speed toggle
+                // Toggle: high → low → high (SSE disabled for now)
                 setModeSwitchCooldown(true);
-                setStreamingMode(prev => prev === 'websocket' ? 'webrtc' : 'websocket');
+                setQualityMode(prev => prev === 'high' ? 'low' : 'high');
                 setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
               }}
               sx={{
-                color: streamingMode === 'websocket' ? 'primary.main' : 'white'
+                color: qualityMode === 'high'
+                  ? '#4caf50'  // Green for video streaming
+                  : '#ff9800',  // Orange for screenshot mode
               }}
             >
-              {streamingMode === 'websocket' ? (
-                <Wifi fontSize="small" />
+              {qualityMode === 'high' ? (
+                <Speed fontSize="small" />
               ) : (
-                <SignalCellularAlt fontSize="small" />
+                <CameraAlt fontSize="small" />
               )}
             </IconButton>
           </span>
         </Tooltip>
-        {/* Quality mode toggle: WS Video (high) → SSE Video (sse) → Screenshots (low) */}
-        {streamingMode === 'websocket' && (
-          <Tooltip
-            title={
-              modeSwitchCooldown
-                ? 'Please wait...'
-                : qualityMode === 'high'
-                ? 'WebSocket Video (60fps) — Click for SSE Video'
-                : qualityMode === 'sse'
-                ? 'SSE Video (60fps) — Click for Screenshot mode'
-                : 'Screenshot mode — Click for WebSocket Video'
-            }
-            arrow
-            slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}
-          >
-            <span>
-              <IconButton
-                size="small"
-                disabled={modeSwitchCooldown}
-                onClick={() => {
-                  // Cycle: high → sse → low → high
-                  // All modes use WebSocket for input, just different video delivery
-                  setModeSwitchCooldown(true);
-                  setQualityMode(prev => {
-                    if (prev === 'high') return 'sse';
-                    if (prev === 'sse') return 'low';
-                    return 'high';
-                  });
-                  setTimeout(() => setModeSwitchCooldown(false), 3000); // 3 second cooldown
-                }}
-                sx={{
-                  // Different colors for each mode
-                  color: qualityMode === 'high'
-                    ? '#4caf50'  // Green for WebSocket video
-                    : qualityMode === 'sse'
-                    ? '#2196f3'  // Blue for SSE
-                    : '#ff9800',  // Orange for screenshot mode
-                }}
-              >
-                {qualityMode === 'high' ? (
-                  <Speed fontSize="small" />
-                ) : qualityMode === 'sse' ? (
-                  <StreamIcon fontSize="small" />
-                ) : (
-                  <CameraAlt fontSize="small" />
-                )}
-              </IconButton>
-            </span>
-          </Tooltip>
-        )}
         {/* Bitrate selector - hidden in screenshot mode (has its own adaptive quality) */}
         {qualityMode !== 'low' && (
           <Tooltip title="Select streaming bitrate" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>

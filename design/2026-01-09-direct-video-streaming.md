@@ -934,6 +934,34 @@ api/pkg/sandbox/health.go          # Health monitoring
 sandbox/05-start-sandbox-server.sh # Init script
 ```
 
+## Future: WebRTC with Pion
+
+If we need lower latency than WebSocket can provide, we can add WebRTC support using **Pion** (https://github.com/pion/webrtc):
+
+- **Pure Go** - no CGO, compiles to static binary
+- **Full WebRTC stack** - data channels, media tracks, TURN/STUN
+- **Production-proven** - used by Cloudflare, Twitch, Discord, Jitsi, Livekit
+- **Active development** - ~6K GitHub stars, regular releases
+
+### WebRTC vs WebSocket Trade-offs
+
+| Aspect | WebSocket | WebRTC (Pion) |
+|--------|-----------|---------------|
+| Latency | ~50-100ms | ~20-50ms |
+| NAT traversal | Requires proxy | Built-in (STUN/TURN) |
+| Congestion control | Manual | Built-in (REMB, TWCC) |
+| Complexity | Simple | More complex |
+| Browser support | Universal | Universal |
+
+### When to Consider WebRTC
+
+- Sub-50ms latency requirements
+- Direct peer-to-peer without proxy overhead
+- Adaptive bitrate with congestion feedback
+- Audio/video sync requirements
+
+For now, WebSocket + WebCodecs provides sufficient latency for desktop streaming use cases.
+
 ## Conclusion
 
 The direct WebSocket approach is simpler, lower-latency, and eliminates Wolf/Moonlight dependencies. It mirrors the already-working input WebSocket pattern, making the architecture symmetric and easier to understand.

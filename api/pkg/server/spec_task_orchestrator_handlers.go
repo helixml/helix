@@ -490,6 +490,12 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
+	// Ensure desktopType has a sensible default (ubuntu) when not set by app config
+	// This is critical for video_source_mode: ubuntu uses "pipewire", sway uses "wayland"
+	if desktopType == "" {
+		desktopType = "ubuntu"
+	}
+
 	// Resurrect agent with SAME workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           externalAgent.ID,
