@@ -612,21 +612,6 @@ type Store interface {
 	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
 	DeleteSampleProject(ctx context.Context, id string) error
 
-	// Personal Dev Environment methods (DEPRECATED - these are stubs for backward compatibility)
-	// TODO: Remove these after cleaning up wolf_executor.go
-	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
-	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
-	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
-	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
-	DeletePersonalDevEnvironment(ctx context.Context, id string) error
-
-	// SSH Key methods
-	CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types.SSHKey, error)
-	GetSSHKey(ctx context.Context, id string) (*types.SSHKey, error)
-	ListSSHKeys(ctx context.Context, userID string) ([]*types.SSHKey, error)
-	UpdateSSHKeyLastUsed(ctx context.Context, id string) error
-	DeleteSSHKey(ctx context.Context, id string) error
-
 	// Zed Settings Override methods
 	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
 	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)

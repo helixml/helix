@@ -170,8 +170,6 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
-		&types.PersonalDevEnvironment{}, // DEPRECATED - stub for backward compatibility
-		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},
 		&types.QuestionSet{},

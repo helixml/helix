@@ -46,8 +46,23 @@ export interface FilestoreItem {
   url?: string;
 }
 
+export interface GithubComHelixmlHelixApiPkgTypesCommit {
+  author?: string;
+  email?: string;
+  message?: string;
+  sha?: string;
+  timestamp?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
+}
+
+export enum GithubComHelixmlHelixApiPkgTypesRuntime {
+  RuntimeOllama = "ollama",
+  RuntimeDiffusers = "diffusers",
+  RuntimeAxolotl = "axolotl",
+  RuntimeVLLM = "vllm",
 }
 
 export interface GormDeletedAt {
@@ -1504,7 +1519,7 @@ export interface TypesAllocationPlanView {
   runner_id?: string;
   /** GPU index -> allocated memory */
   runner_memory_state?: Record<string, number>;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   tensor_parallel_size?: number;
   total_memory_required?: number;
   validation_error?: string;
@@ -2055,14 +2070,6 @@ export interface TypesCommentQueueStatusResponse {
   planning_session_id?: string;
   /** Comments waiting in queue */
   queued_comment_ids?: string[];
-}
-
-export interface TypesCommit {
-  author?: string;
-  email?: string;
-  message?: string;
-  sha?: string;
-  timestamp?: string;
 }
 
 export interface TypesContainerDiskUsage {
@@ -2676,7 +2683,7 @@ export interface TypesGlobalAllocationDecision {
   /** Timing information */
   planning_time_ms?: number;
   reason?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   selected_plan?: TypesAllocationPlanView;
   session_id?: string;
   /** Decision outcome */
@@ -3048,7 +3055,7 @@ export enum TypesLLMCallStep {
 }
 
 export interface TypesListCommitsResponse {
-  commits?: TypesCommit[];
+  commits?: GithubComHelixmlHelixApiPkgTypesCommit[];
   external_status?: TypesExternalStatus;
   page?: number;
   per_page?: number;
@@ -3147,7 +3154,7 @@ export interface TypesModel {
   name?: string;
   /** Whether to prewarm this model to fill free GPU memory on runners */
   prewarm?: boolean;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   /** Runtime-specific arguments (e.g., VLLM command line args) */
   runtime_args?: Record<string, any>;
   /** Order for sorting models in UI (lower numbers appear first) */
@@ -3859,7 +3866,7 @@ export interface TypesRunnerModelStatus {
   /** Memory requirement in bytes */
   memory?: number;
   model_id?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
 }
 
 export interface TypesRunnerSlot {
@@ -3878,7 +3885,7 @@ export interface TypesRunnerSlot {
   model_memory_requirement?: number;
   ready?: boolean;
   runner_id?: string;
-  runtime?: TypesRuntime;
+  runtime?: GithubComHelixmlHelixApiPkgTypesRuntime;
   runtime_args?: Record<string, any>;
   status?: string;
   tensor_parallel_size?: number;
@@ -3895,41 +3902,6 @@ export interface TypesRunnerStateView {
   runner_id?: string;
   total_slots?: number;
   warm_slots?: number;
-}
-
-export enum TypesRuntime {
-  RuntimeOllama = "ollama",
-  RuntimeDiffusers = "diffusers",
-  RuntimeAxolotl = "axolotl",
-  RuntimeVLLM = "vllm",
-}
-
-export interface TypesSSHKeyCreateRequest {
-  key_name: string;
-  private_key: string;
-  public_key: string;
-}
-
-export interface TypesSSHKeyGenerateRequest {
-  key_name: string;
-  /** "ed25519" or "rsa", defaults to ed25519 */
-  key_type?: string;
-}
-
-export interface TypesSSHKeyGenerateResponse {
-  id?: string;
-  key_name?: string;
-  /** Only returned once during generation */
-  private_key?: string;
-  public_key?: string;
-}
-
-export interface TypesSSHKeyResponse {
-  created?: string;
-  id?: string;
-  key_name?: string;
-  last_used?: string;
-  public_key?: string;
 }
 
 export interface TypesSandboxFileUploadResponse {
@@ -4212,6 +4184,12 @@ export interface TypesSessionMetadata {
   avatar?: string;
   /** Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.) */
   code_agent_runtime?: TypesCodeAgentRuntime;
+  /** Docker container ID */
+  container_id?: string;
+  /** Container IP on helix_default network */
+  container_ip?: string;
+  /** Hydra executor fields (Wolf-free mode) */
+  container_name?: string;
   /** "running" = should be running, "stopped" = can terminate */
   desired_state?: string;
   document_group_id?: string;
@@ -4228,6 +4206,8 @@ export interface TypesSessionMetadata {
   eval_run_id?: string;
   eval_user_reason?: string;
   eval_user_score?: string;
+  /** "wolf" or "hydra" */
+  executor_mode?: string;
   /** Configuration for external agents */
   external_agent_config?: TypesExternalAgentConfig;
   /** NEW: External agent ID for this session */
@@ -5196,12 +5176,12 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeTeams = "teams",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -7033,6 +7013,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.FormData,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Provides a WebSocket connection for sending input events directly to the screenshot-server
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWsInputDetail
+     * @summary Direct WebSocket input for PipeWire/GNOME sessions
+     * @request GET:/api/v1/external-agents/{sessionID}/ws/input
+     * @secure
+     */
+    v1ExternalAgentsWsInputDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<any, void | SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/ws/input`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Provides a WebSocket connection for receiving H.264 video frames directly from the
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsWsStreamDetail
+     * @summary Direct WebSocket video streaming for PipeWire/GNOME sessions
+     * @request GET:/api/v1/external-agents/{sessionID}/ws/stream
+     * @secure
+     */
+    v1ExternalAgentsWsStreamDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<any, void | SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/ws/stream`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -11570,84 +11584,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/specs/sample-types`,
         method: "GET",
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all SSH keys for the current user
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysList
-     * @summary List SSH keys
-     * @request GET:/api/v1/ssh-keys
-     * @secure
-     */
-    v1SshKeysList: (params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse[], SystemHTTPError>({
-        path: `/api/v1/ssh-keys`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new SSH key for git operations
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysCreate
-     * @summary Create SSH key
-     * @request POST:/api/v1/ssh-keys
-     * @secure
-     */
-    v1SshKeysCreate: (request: TypesSSHKeyCreateRequest, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete an SSH key
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysDelete
-     * @summary Delete SSH key
-     * @request DELETE:/api/v1/ssh-keys/{id}
-     * @secure
-     */
-    v1SshKeysDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys/${id}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Generate a new SSH key pair
-     *
-     * @tags SSHKeys
-     * @name V1SshKeysGenerateCreate
-     * @summary Generate SSH key
-     * @request POST:/api/v1/ssh-keys/generate
-     * @secure
-     */
-    v1SshKeysGenerateCreate: (request: TypesSSHKeyGenerateRequest, params: RequestParams = {}) =>
-      this.request<TypesSSHKeyGenerateResponse, SystemHTTPError>({
-        path: `/api/v1/ssh-keys/generate`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),

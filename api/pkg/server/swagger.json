@@ -2454,6 +2454,110 @@
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/ws/input": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provides a WebSocket connection for sending input events directly to the screenshot-server",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Direct WebSocket input for PipeWire/GNOME sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/ws/stream": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provides a WebSocket connection for receiving H.264 video frames directly from the",
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Direct WebSocket video streaming for PipeWire/GNOME sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/filestore/config": {
             "get": {
                 "security": [
@@ -12576,216 +12680,6 @@
                 }
             }
         },
-        "/api/v1/ssh-keys": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all SSH keys for the current user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SSHKeys"
-                ],
-                "summary": "List SSH keys",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.SSHKeyResponse"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a new SSH key for git operations",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SSHKeys"
-                ],
-                "summary": "Create SSH key",
-                "parameters": [
-                    {
-                        "description": "SSH key details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SSHKeyCreateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SSHKeyResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/ssh-keys/generate": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Generate a new SSH key pair",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SSHKeys"
-                ],
-                "summary": "Generate SSH key",
-                "parameters": [
-                    {
-                        "description": "SSH key generation parameters",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SSHKeyGenerateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SSHKeyGenerateResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/ssh-keys/{id}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Delete an SSH key",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SSHKeys"
-                ],
-                "summary": "Delete SSH key",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SSH key ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SSHKeyResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -14964,6 +14858,26 @@
                 }
             }
         },
+        "github_com_helixml_helix_api_pkg_types.Commit": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "sha": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
             "properties": {
@@ -14974,6 +14888,21 @@
                     }
                 }
             }
+        },
+        "github_com_helixml_helix_api_pkg_types.Runtime": {
+            "type": "string",
+            "enum": [
+                "ollama",
+                "diffusers",
+                "axolotl",
+                "vllm"
+            ],
+            "x-enum-varnames": [
+                "RuntimeOllama",
+                "RuntimeDiffusers",
+                "RuntimeAxolotl",
+                "RuntimeVLLM"
+            ]
         },
         "gorm.DeletedAt": {
             "type": "object",
@@ -18645,7 +18574,7 @@
                     }
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.Runtime"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 },
                 "tensor_parallel_size": {
                     "type": "integer"
@@ -19907,26 +19836,6 @@
                     "items": {
                         "type": "string"
                     }
-                }
-            }
-        },
-        "types.Commit": {
-            "type": "object",
-            "properties": {
-                "author": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "sha": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
                 }
             }
         },
@@ -21420,7 +21329,7 @@
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.Runtime"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 },
                 "selected_plan": {
                     "$ref": "#/definitions/types.AllocationPlanView"
@@ -22289,7 +22198,7 @@
                 "commits": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.Commit"
+                        "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Commit"
                     }
                 },
                 "external_status": {
@@ -22498,7 +22407,7 @@
                     "type": "boolean"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.Runtime"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 },
                 "runtime_args": {
                     "description": "Runtime-specific arguments (e.g., VLLM command line args)",
@@ -24231,7 +24140,7 @@
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.Runtime"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 }
             }
         },
@@ -24289,7 +24198,7 @@
                     "type": "string"
                 },
                 "runtime": {
-                    "$ref": "#/definitions/types.Runtime"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Runtime"
                 },
                 "runtime_args": {
                     "type": "object",
@@ -24337,93 +24246,6 @@
                 },
                 "warm_slots": {
                     "type": "integer"
-                }
-            }
-        },
-        "types.Runtime": {
-            "type": "string",
-            "enum": [
-                "ollama",
-                "diffusers",
-                "axolotl",
-                "vllm"
-            ],
-            "x-enum-varnames": [
-                "RuntimeOllama",
-                "RuntimeDiffusers",
-                "RuntimeAxolotl",
-                "RuntimeVLLM"
-            ]
-        },
-        "types.SSHKeyCreateRequest": {
-            "type": "object",
-            "required": [
-                "key_name",
-                "private_key",
-                "public_key"
-            ],
-            "properties": {
-                "key_name": {
-                    "type": "string"
-                },
-                "private_key": {
-                    "type": "string"
-                },
-                "public_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.SSHKeyGenerateRequest": {
-            "type": "object",
-            "required": [
-                "key_name"
-            ],
-            "properties": {
-                "key_name": {
-                    "type": "string"
-                },
-                "key_type": {
-                    "description": "\"ed25519\" or \"rsa\", defaults to ed25519",
-                    "type": "string"
-                }
-            }
-        },
-        "types.SSHKeyGenerateResponse": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "key_name": {
-                    "type": "string"
-                },
-                "private_key": {
-                    "description": "Only returned once during generation",
-                    "type": "string"
-                },
-                "public_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.SSHKeyResponse": {
-            "type": "object",
-            "properties": {
-                "created": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "key_name": {
-                    "type": "string"
-                },
-                "last_used": {
-                    "type": "string"
-                },
-                "public_key": {
-                    "type": "string"
                 }
             }
         },
@@ -25097,6 +24919,18 @@
                         }
                     ]
                 },
+                "container_id": {
+                    "description": "Docker container ID",
+                    "type": "string"
+                },
+                "container_ip": {
+                    "description": "Container IP on helix_default network",
+                    "type": "string"
+                },
+                "container_name": {
+                    "description": "Hydra executor fields (Wolf-free mode)",
+                    "type": "string"
+                },
                 "desired_state": {
                     "description": "\"running\" = should be running, \"stopped\" = can terminate",
                     "type": "string"
@@ -25136,6 +24970,10 @@
                     "type": "string"
                 },
                 "eval_user_score": {
+                    "type": "string"
+                },
+                "executor_mode": {
+                    "description": "\"wolf\" or \"hydra\"",
                     "type": "string"
                 },
                 "external_agent_config": {
@@ -27502,20 +27340,20 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {

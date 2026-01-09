@@ -52,6 +52,19 @@ definitions:
         description: the URL that can be used to load the object directly
         type: string
     type: object
+  github_com_helixml_helix_api_pkg_types.Commit:
+    properties:
+      author:
+        type: string
+      email:
+        type: string
+      message:
+        type: string
+      sha:
+        type: string
+      timestamp:
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -59,6 +72,18 @@ definitions:
           $ref: '#/definitions/types.Rule'
         type: array
     type: object
+  github_com_helixml_helix_api_pkg_types.Runtime:
+    enum:
+    - ollama
+    - diffusers
+    - axolotl
+    - vllm
+    type: string
+    x-enum-varnames:
+    - RuntimeOllama
+    - RuntimeDiffusers
+    - RuntimeAxolotl
+    - RuntimeVLLM
   gorm.DeletedAt:
     properties:
       time:
@@ -2584,7 +2609,7 @@ definitions:
         description: GPU index -> allocated memory
         type: object
       runtime:
-        $ref: '#/definitions/types.Runtime'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
       tensor_parallel_size:
         type: integer
       total_memory_required:
@@ -3502,19 +3527,6 @@ definitions:
         items:
           type: string
         type: array
-    type: object
-  types.Commit:
-    properties:
-      author:
-        type: string
-      email:
-        type: string
-      message:
-        type: string
-      sha:
-        type: string
-      timestamp:
-        type: string
     type: object
   types.ContainerDiskUsage:
     properties:
@@ -4530,7 +4542,7 @@ definitions:
       reason:
         type: string
       runtime:
-        $ref: '#/definitions/types.Runtime'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
       selected_plan:
         $ref: '#/definitions/types.AllocationPlanView'
       session_id:
@@ -5154,7 +5166,7 @@ definitions:
     properties:
       commits:
         items:
-          $ref: '#/definitions/types.Commit'
+          $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Commit'
         type: array
       external_status:
         $ref: '#/definitions/types.ExternalStatus'
@@ -5302,7 +5314,7 @@ definitions:
         description: Whether to prewarm this model to fill free GPU memory on runners
         type: boolean
       runtime:
-        $ref: '#/definitions/types.Runtime'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
       runtime_args:
         additionalProperties: true
         description: Runtime-specific arguments (e.g., VLLM command line args)
@@ -6520,7 +6532,7 @@ definitions:
       model_id:
         type: string
       runtime:
-        $ref: '#/definitions/types.Runtime'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
     type: object
   types.RunnerSlot:
     properties:
@@ -6559,7 +6571,7 @@ definitions:
       runner_id:
         type: string
       runtime:
-        $ref: '#/definitions/types.Runtime'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Runtime'
       runtime_args:
         additionalProperties: {}
         type: object
@@ -6592,66 +6604,6 @@ definitions:
         type: integer
       warm_slots:
         type: integer
-    type: object
-  types.Runtime:
-    enum:
-    - ollama
-    - diffusers
-    - axolotl
-    - vllm
-    type: string
-    x-enum-varnames:
-    - RuntimeOllama
-    - RuntimeDiffusers
-    - RuntimeAxolotl
-    - RuntimeVLLM
-  types.SSHKeyCreateRequest:
-    properties:
-      key_name:
-        type: string
-      private_key:
-        type: string
-      public_key:
-        type: string
-    required:
-    - key_name
-    - private_key
-    - public_key
-    type: object
-  types.SSHKeyGenerateRequest:
-    properties:
-      key_name:
-        type: string
-      key_type:
-        description: '"ed25519" or "rsa", defaults to ed25519'
-        type: string
-    required:
-    - key_name
-    type: object
-  types.SSHKeyGenerateResponse:
-    properties:
-      id:
-        type: string
-      key_name:
-        type: string
-      private_key:
-        description: Only returned once during generation
-        type: string
-      public_key:
-        type: string
-    type: object
-  types.SSHKeyResponse:
-    properties:
-      created:
-        type: string
-      id:
-        type: string
-      key_name:
-        type: string
-      last_used:
-        type: string
-      public_key:
-        type: string
     type: object
   types.SandboxFileUploadResponse:
     properties:
@@ -7127,6 +7079,15 @@ definitions:
         - $ref: '#/definitions/types.CodeAgentRuntime'
         description: Which code agent runtime is used (zed_agent, qwen_code, claude_code,
           etc.)
+      container_id:
+        description: Docker container ID
+        type: string
+      container_ip:
+        description: Container IP on helix_default network
+        type: string
+      container_name:
+        description: Hydra executor fields (Wolf-free mode)
+        type: string
       desired_state:
         description: '"running" = should be running, "stopped" = can terminate'
         type: string
@@ -7156,6 +7117,9 @@ definitions:
       eval_user_reason:
         type: string
       eval_user_score:
+        type: string
+      executor_mode:
+        description: '"wolf" or "hydra"'
         type: string
       external_agent_config:
         allOf:
@@ -8839,20 +8803,20 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - teams
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeTeams
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UnifiedSearchResponse:
     properties:
       query:
@@ -11030,6 +10994,74 @@ paths:
       security:
       - BearerAuth: []
       summary: Upload file to sandbox
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/ws/input:
+    get:
+      description: Provides a WebSocket connection for sending input events directly
+        to the screenshot-server
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Direct WebSocket input for PipeWire/GNOME sessions
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/ws/stream:
+    get:
+      description: Provides a WebSocket connection for receiving H.264 video frames
+        directly from the
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Direct WebSocket video streaming for PipeWire/GNOME sessions
       tags:
       - ExternalAgents
   /api/v1/filestore/config:
@@ -17504,139 +17536,6 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
-  /api/v1/ssh-keys:
-    get:
-      consumes:
-      - application/json
-      description: Get all SSH keys for the current user
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.SSHKeyResponse'
-            type: array
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: List SSH keys
-      tags:
-      - SSHKeys
-    post:
-      consumes:
-      - application/json
-      description: Create a new SSH key for git operations
-      parameters:
-      - description: SSH key details
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SSHKeyCreateRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SSHKeyResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Create SSH key
-      tags:
-      - SSHKeys
-  /api/v1/ssh-keys/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: Delete an SSH key
-      parameters:
-      - description: SSH key ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SSHKeyResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Delete SSH key
-      tags:
-      - SSHKeys
-  /api/v1/ssh-keys/generate:
-    post:
-      consumes:
-      - application/json
-      description: Generate a new SSH key pair
-      parameters:
-      - description: SSH key generation parameters
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SSHKeyGenerateRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SSHKeyGenerateResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Generate SSH key
-      tags:
-      - SSHKeys
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription
