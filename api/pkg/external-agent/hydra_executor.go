@@ -126,11 +126,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// Get Hydra client via RevDial
-	// Hydra runner ID follows pattern: hydra-{sandbox_id}
+	// Hydra runner ID follows pattern: hydra-{WOLF_INSTANCE_ID}
+	// Hydra defaults WOLF_INSTANCE_ID to "local" (see api/cmd/hydra/main.go:112)
 	sandboxID := agent.SandboxID
 	if sandboxID == "" {
-		// Use default sandbox ID for backward compatibility
-		sandboxID = "default"
+		// Use "local" to match Hydra's default WOLF_INSTANCE_ID
+		sandboxID = "local"
 	}
 	hydraRunnerID := fmt.Sprintf("hydra-%s", sandboxID)
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
@@ -289,7 +290,8 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	}
 
 	if sandboxID == "" {
-		sandboxID = "default"
+		// Use "local" to match Hydra's default WOLF_INSTANCE_ID
+		sandboxID = "local"
 	}
 
 	// Get Hydra client via RevDial
@@ -580,27 +582,40 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 	return env
 }
 
+// translateToHostPath converts API container path to sandbox container path for Hydra mounting
+// This is the same logic as WolfExecutor.translateToHostPath
+//
+// Architecture:
+// - API container: mounts helix-filestore volume at /filestore/workspaces/...
+// - Sandbox container: mounts sandbox-data volume at /data/workspaces/...
+// - These are DIFFERENT volumes (helix-filestore vs sandbox-data)
+// - Hydra runs inside sandbox, so it needs /data/... paths
+func (h *HydraExecutor) translateToHostPath(containerPath string) string {
+	// Convert /filestore/workspaces/... to /data/workspaces/...
+	// This maps API container paths to sandbox container paths
+	if strings.HasPrefix(containerPath, "/filestore/workspaces/") {
+		return strings.Replace(containerPath, "/filestore/workspaces/", "/data/workspaces/", 1)
+	}
+	return containerPath
+}
+
 // buildMounts builds volume mounts for the container
 func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string) []hydra.MountConfig {
+	// Translate workspace path from API container path to sandbox container path
+	workspaceDirForMount := h.translateToHostPath(workspaceDir)
+
+	log.Info().
+		Str("workspace_dir_api", workspaceDir).
+		Str("workspace_dir_sandbox", workspaceDirForMount).
+		Msg("Translated workspace path for Hydra mounting")
+
 	mounts := []hydra.MountConfig{
 		// Workspace mount
 		{
-			Source:      workspaceDir,
+			Source:      workspaceDirForMount,
 			Destination: h.workspaceBasePathForContainer,
 			ReadOnly:    false,
 		},
-	}
-
-	// Add SSH key mount if user has SSH keys
-	if h.workspaceUserSSHKeyDir != "" && agent.UserID != "" {
-		sshKeyPath := filepath.Join(h.workspaceUserSSHKeyDir, agent.UserID)
-		if _, err := os.Stat(sshKeyPath); err == nil {
-			mounts = append(mounts, hydra.MountConfig{
-				Source:      sshKeyPath,
-				Destination: "/home/retro/.ssh",
-				ReadOnly:    true,
-			})
-		}
 	}
 
 	// Add PipeWire socket mount for GNOME ScreenCast (ubuntu containers)

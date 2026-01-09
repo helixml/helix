@@ -180,7 +180,16 @@ load_desktop_image "kde" "false"
 echo ""
 echo "🧹 Cleaning up old desktop images in nested Docker..."
 
-# First, build a list of expected versions from the embedded .version files
+# First, remove ALL stopped containers to allow image removal
+# This is safe because Wolf/Hydra creates fresh containers for each session
+# Stopped containers are just leftovers from previous sessions
+STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
+if [ "$STOPPED_COUNT" -gt 0 ]; then
+    echo "   Removing $STOPPED_COUNT stopped container(s)..."
+    docker container prune -f >/dev/null 2>&1 || true
+fi
+
+# Next, build a list of expected versions from the embedded .version files
 # These are the versions we just loaded (or already had loaded)
 # This also tells us which desktop types exist (no hardcoded list needed)
 declare -A EXPECTED_VERSIONS
@@ -231,14 +240,16 @@ else
             continue
         fi
 
-        # Keep images matching the expected version from .version file
+        # Keep images matching the expected version from .version file OR tagged as :latest
         # Remove everything else (old versions)
-        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ]; then
+        if [ "$IMAGE_TAG" = "$EXPECTED_VERSION" ] || [ "$IMAGE_TAG" = "latest" ]; then
             KEPT_COUNT=$((KEPT_COUNT + 1))
         else
             echo "   Removing old image: $image (expected version: $EXPECTED_VERSION)"
             if docker rmi "$image" 2>/dev/null; then
                 REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            else
+                echo "   ⚠️  Failed to remove $image (may still be in use)"
             fi
         fi
     done
