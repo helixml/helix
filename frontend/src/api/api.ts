@@ -12601,3 +12601,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
   };
 }
+
+// Alias exports for backward compatibility with shorter type names
+export { GithubComHelixmlHelixApiPkgTypesRuntime as TypesRuntime };
