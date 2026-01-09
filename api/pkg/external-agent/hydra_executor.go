@@ -533,6 +533,12 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 		fmt.Sprintf("HELIX_API_URL=%s", h.helixAPIURL),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		// WORKSPACE_DIR is required by /opt/gow/startup.sh (Ubuntu container)
+		fmt.Sprintf("WORKSPACE_DIR=%s", h.workspaceBasePathForContainer),
+		// XDG_RUNTIME_DIR is required for PipeWire, D-Bus, and Wayland sockets
+		"XDG_RUNTIME_DIR=/run/user/1000",
+		// Override default UMASK=000 which causes permission issues
+		"UMASK=022",
 		// RevDial connection - startup-app.sh expects these specific names
 		fmt.Sprintf("HELIX_API_BASE_URL=%s", h.helixAPIURL),
 	}
