@@ -586,6 +586,127 @@ func (s *Server) handleWebSocketStream(ws *websocket.Conn) {
 PipeWire handles the multi-consumer case efficiently - all pipelines
 read from the same compositor output without additional copying.
 
+## Eliminating Wolf and Moonlight-Web Entirely
+
+After implementing Wolf-free video streaming, the **only remaining Wolf dependency** is:
+- **Container lifecycle management** - starting/stopping desktop containers via Docker API
+
+### Current Sandbox Architecture
+
+```
+helix-sandbox container
+├── Wolf (C++ server) ─────────────────────────┐
+│   ├── Docker API: start/stop desktop containers
+│   ├── Video: NVENC encoding + RTP/RTSP      │ Replace with
+│   ├── Audio: Opus encoding                   │ Go program
+│   └── Input: relay to containers             │
+├── Moonlight Web (Rust) ──────────────────────┘
+│   └── WebRTC bridge to browser
+└── Init scripts (cont-init.d)
+    ├── 04-start-dockerd.sh
+    ├── 05-init-wolf-config.sh
+    └── ...
+```
+
+### Proposed: Go Program in Sandbox
+
+Replace Wolf and Moonlight-Web with a single Go program:
+
+```
+helix-sandbox container
+├── helix-sandbox-server (NEW Go program) ─────┐
+│   ├── Docker API: start/stop desktop containers
+│   ├── WebSocket: direct connection to browsers │ Single program
+│   ├── Video: spawn gst-launch for encoding    │ replaces Wolf +
+│   ├── Audio: spawn gst-launch for encoding    │ Moonlight-Web
+│   └── Proxy: WebSocket ↔ screenshot-server    │
+└── Init scripts (cont-init.d)
+    ├── 04-start-dockerd.sh
+    └── 05-start-helix-sandbox-server.sh (NEW)
+```
+
+**Note:** Currently there is NO Go program running in the sandbox. This would be new.
+
+### What the Go Program Would Handle
+
+1. **Container Lifecycle** (currently Wolf)
+   ```go
+   // Start desktop container for session
+   func (s *Server) StartDesktop(sessionID, image string) error {
+       ctx := context.Background()
+       resp, err := s.docker.ContainerCreate(ctx, &container.Config{
+           Image: image,
+           Env:   []string{"HELIX_SESSION_ID=" + sessionID, ...},
+       }, hostConfig, nil, nil, containerName)
+       return s.docker.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
+   }
+   ```
+
+2. **WebSocket Proxy** (currently Moonlight-Web)
+   ```go
+   // Proxy browser WebSocket to container's screenshot-server
+   func (s *Server) HandleStream(w http.ResponseWriter, r *http.Request) {
+       browserWS := upgradeToWebSocket(w, r)
+       containerWS := dialContainer(sessionID, ":9876/ws/stream")
+       go io.Copy(browserWS, containerWS)  // video/audio: container → browser
+       go io.Copy(containerWS, browserWS)  // input: browser → container
+   }
+   ```
+
+3. **Health Monitoring** (currently Wolf watchdog)
+   ```go
+   // Monitor container health, restart if needed
+   func (s *Server) MonitorContainers() {
+       for range time.Tick(10 * time.Second) {
+           for _, session := range s.sessions {
+               if !s.isContainerHealthy(session.ContainerID) {
+                   s.restartContainer(session)
+               }
+           }
+       }
+   }
+   ```
+
+### Migration Path
+
+**Phase 1: Wolf-free video streaming (this design doc)**
+- screenshot-server handles encoding
+- Wolf still manages containers
+- Helix API proxies to Wolf's WebSocket
+
+**Phase 2: Go sandbox server (future)**
+- New Go program handles container lifecycle
+- WebSocket proxy moves from Wolf to Go program
+- Wolf removed from sandbox
+
+**Phase 3: Complete removal**
+- Remove Wolf from Dockerfile.sandbox
+- Remove Moonlight-Web from Dockerfile.sandbox
+- Sandbox image shrinks significantly (~1GB smaller)
+
+### Benefits of Go Replacement
+
+| Aspect | Wolf (C++) | Go Program |
+|--------|-----------|------------|
+| Language | C++17 | Go |
+| Complexity | ~50K lines | ~5K lines estimated |
+| Dependencies | Boost, GStreamer, libpulse, etc. | Docker SDK, gorilla/websocket |
+| Debug | GDB, core dumps | go tool pprof, delve |
+| Build time | ~10 min | ~30 sec |
+| Binary size | ~50MB + libs | ~20MB static |
+| Maintainability | Requires C++ expertise | Standard Go |
+
+### Files to Create
+
+```
+api/cmd/sandbox-server/main.go     # Entry point
+api/pkg/sandbox/server.go          # HTTP/WebSocket server
+api/pkg/sandbox/docker.go          # Container lifecycle
+api/pkg/sandbox/proxy.go           # WebSocket proxy
+api/pkg/sandbox/health.go          # Health monitoring
+sandbox/05-start-sandbox-server.sh # Init script
+```
+
 ## Conclusion
 
 The direct WebSocket approach is simpler, lower-latency, and eliminates Wolf/Moonlight dependencies. It mirrors the already-working input WebSocket pattern, making the architecture symmetric and easier to understand.
@@ -593,3 +714,5 @@ The direct WebSocket approach is simpler, lower-latency, and eliminates Wolf/Moo
 The main trade-off is implementing the H.264→WebCodecs pipeline, but this is well-documented and libraries exist. The WebCodecs API is supported in all modern browsers and provides hardware-accelerated decoding.
 
 **Recommendation:** Implement as experiment alongside SHM approach, then deprecate SHM if WebSocket works well.
+
+**Long-term:** Replace Wolf entirely with a Go sandbox server for simpler maintenance and faster iteration.
