@@ -22421,6 +22421,9 @@ const docTemplate = `{
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
                 },
+                "planning_options": {
+                    "$ref": "#/definitions/types.StartPlanningOptions"
+                },
                 "planning_session_id": {
                     "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
@@ -22860,6 +22863,8 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "backlog",
+                "queued_implementation",
+                "queued_spec_generation",
                 "spec_generation",
                 "spec_review",
                 "spec_revision",
@@ -22880,6 +22885,8 @@ const docTemplate = `{
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
+                "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
+                "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusSpecApproved": "Specs approved, ready for implementation",
                 "TaskStatusSpecFailed": "Spec generation failed",
                 "TaskStatusSpecGeneration": "Helix agent generating specs",
@@ -22888,6 +22895,8 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "TaskStatusBacklog",
+                "TaskStatusQueuedImplementation",
+                "TaskStatusQueuedSpecGeneration",
                 "TaskStatusSpecGeneration",
                 "TaskStatusSpecReview",
                 "TaskStatusSpecRevision",
@@ -23108,6 +23117,19 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.SpecTaskZedThread"
                     }
+                }
+            }
+        },
+        "types.StartPlanningOptions": {
+            "type": "object",
+            "properties": {
+                "keyboard_layout": {
+                    "description": "KeyboardLayout is the XKB keyboard layout code (e.g., \"us\", \"fr\", \"de\")\nUsed to configure the desktop container's keyboard layout from browser detection",
+                    "type": "string"
+                },
+                "timezone": {
+                    "description": "Timezone is the IANA timezone (e.g., \"America/New_York\", \"Europe/Paris\")",
+                    "type": "string"
                 }
             }
         },
