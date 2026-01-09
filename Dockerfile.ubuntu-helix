@@ -654,9 +654,8 @@ RUN chmod +x /opt/gow/startup.sh
 ADD wolf/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD wolf/ubuntu-config/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
 ADD wolf/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-ADD wolf/ubuntu-config/start-pipewire-screencast.sh /opt/gow/start-pipewire-screencast.sh
 ADD wolf/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh /opt/gow/start-pipewire-screencast.sh
+RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/helix-specs-create.sh /usr/local/bin/start-gnome-bridge.sh /usr/local/bin/helix-git-hooks.sh
 
 # Ubuntu desktop theming - Yaru dark theme with Helix background
 ADD wolf/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini

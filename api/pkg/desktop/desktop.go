@@ -124,11 +124,14 @@ func (s *Server) Run(ctx context.Context) error {
 		defer s.inputListener.Close()
 		defer os.Remove(s.inputSocketPath)
 
-		// 6. Report to Wolf
+		// 6. Report to Wolf (linked session node ID for video capture)
+		// NOTE: The linked RemoteDesktop+ScreenCast session uses SHM-only formats due to
+		// GNOME Mutter limitation. DmaBuf requires a standalone session.
 		s.reportToWolf()
 
-		// 6b. Create dedicated screenshot ScreenCast session (separate from Wolf's)
-		// This allows fast PipeWire-based screenshots without interfering with video
+		// 6b. Create dedicated screenshot ScreenCast session (separate from Wolf's video)
+		// This standalone session gets DmaBuf with NVIDIA modifiers, but it's reserved
+		// for fast PipeWire-based screenshots - NOT for Wolf video streaming.
 		if err := s.createScreenshotSession(ctx); err != nil {
 			// Non-fatal - fall back to D-Bus Screenshot API
 			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
@@ -136,7 +139,7 @@ func (s *Server) Run(ctx context.Context) error {
 		} else {
 			s.logger.Info("screenshot session ready",
 				"screenshot_node_id", s.ssNodeID,
-				"wolf_node_id", s.nodeID)
+				"video_node_id", s.nodeID)
 		}
 
 		// Mark as running BEFORE starting goroutines that check isRunning()

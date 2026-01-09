@@ -139,10 +139,10 @@ func (s *Server) createSession(ctx context.Context) error {
 
 	recordOptions := map[string]dbus.Variant{
 		"cursor-mode": dbus.MakeVariant(uint32(1)), // Embedded cursor
-		// is-platform=true: Treat as a real monitor rather than screen sharing.
-		// This may improve framerate by bypassing screen sharing optimizations.
-		// Available since Mutter ScreenCast API version 3.
-		"is-platform": dbus.MakeVariant(true),
+		// NOTE: Do NOT use is-platform=true here!
+		// While the docs suggest it "bypasses screen sharing optimizations", it actually
+		// forces GNOME to use SHM-only formats instead of DmaBuf with NVIDIA modifiers.
+		// Without is-platform, GNOME offers DmaBuf with tiled modifiers for zero-copy GPU rendering.
 	}
 
 	var streamPath dbus.ObjectPath
@@ -385,6 +385,9 @@ func (s *Server) handleSessionClosed(ctx context.Context) {
 
 // reportToWolf reports node ID and input socket to Wolf.
 func (s *Server) reportToWolf() {
+	// Use the linked RemoteDesktop+ScreenCast session's node ID for video capture.
+	// NOTE: The linked session uses SHM-only formats (no DmaBuf) due to GNOME Mutter limitation.
+	// DmaBuf with NVIDIA modifiers requires a standalone (non-linked) ScreenCast session.
 	s.logger.Info("session summary",
 		"rd_session", s.rdSessionPath,
 		"sc_stream", s.scStreamPath,
@@ -397,8 +400,8 @@ func (s *Server) reportToWolf() {
 		return
 	}
 
-	// Report node ID
-	s.logger.Info("reporting node ID to Wolf...")
+	// Report node ID (linked session - SHM only for now)
+	s.logger.Info("reporting node ID to Wolf...", "node_id", s.nodeID)
 	s.postToWolf("/set-pipewire-node-id", map[string]interface{}{
 		"node_id":      s.nodeID,
 		"session_path": string(s.rdSessionPath),
