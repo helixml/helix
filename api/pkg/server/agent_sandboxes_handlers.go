@@ -870,25 +870,29 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		// Check if Wolf app/lobby still exists (container might be running without moonlight session)
 		resourceExists := false
 
-		if isLobbiesMode {
-			// Check lobbies
-			lobbies, err := fetchWolfLobbies(ctx, wolfClient)
-			if err == nil {
-				for _, lobby := range lobbies {
-					if lobby.ID == wolfLobbyID {
-						resourceExists = true
-						break
+		// Only check Wolf resources if we have a valid Wolf client
+		// wolfClient can be nil in Wolf-free mode (direct PipeWire streaming)
+		if wolfClient != nil {
+			if isLobbiesMode {
+				// Check lobbies
+				lobbies, err := fetchWolfLobbies(ctx, wolfClient)
+				if err == nil {
+					for _, lobby := range lobbies {
+						if lobby.ID == wolfLobbyID {
+							resourceExists = true
+							break
+						}
 					}
 				}
-			}
-		} else {
-			// Check apps
-			apps, err := fetchWolfApps(ctx, wolfClient)
-			if err == nil {
-				for _, app := range apps {
-					if app.ID == wolfAppID {
-						resourceExists = true
-						break
+			} else {
+				// Check apps
+				apps, err := fetchWolfApps(ctx, wolfClient)
+				if err == nil {
+					for _, app := range apps {
+						if app.ID == wolfAppID {
+							resourceExists = true
+							break
+						}
 					}
 				}
 			}
@@ -899,6 +903,7 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		} else {
 			// No app/lobby found and we have a WolfInstanceID = container was stopped
 			// (if no WolfInstanceID, we already returned "starting" earlier)
+			// In Wolf-free mode, this means the desktop container isn't running
 			state = "absent"
 		}
 	}
