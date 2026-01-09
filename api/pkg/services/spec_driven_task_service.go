@@ -39,7 +39,6 @@ type SpecDrivenTaskService struct {
 	zedAgentPool             []string                  // Pool of available Zed agents
 	testMode                 bool                      // If true, skip async operations for testing
 	ZedIntegrationService    *ZedIntegrationService    // Service for Zed instance and thread management
-	SpecDocumentService      *SpecDocumentService      // Service for Kiro-style document generation
 	ZedToHelixSessionService *ZedToHelixSessionService // Service for Zed→Helix session creation
 	SessionContextService    *SessionContextService    // Service for inter-session coordination
 	auditLogService          *AuditLogService          // Service for audit logging
@@ -94,9 +93,6 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 
 	if s.ZedIntegrationService != nil {
 		s.ZedIntegrationService.SetTestMode(enabled)
-	}
-	if s.SpecDocumentService != nil {
-		s.SpecDocumentService.SetTestMode(enabled)
 	}
 	if s.ZedToHelixSessionService != nil {
 		s.ZedToHelixSessionService.SetTestMode(enabled)
@@ -207,7 +203,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
 // opts contains optional settings like keyboard layout from browser locale detection
-func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
+func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
 	// Add panic recovery for debugging
 	defer func() {
 		if r := recover(); r != nil {
@@ -504,7 +500,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:          resolution,
 		ZoomLevel:           zoomLevel,
 		DesktopType:         desktopType,
-		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,
@@ -545,7 +541,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 // StartJustDoItMode skips spec generation and goes straight to implementation with just the user's prompt
 // This is for tasks that don't require planning code changes
 // opts contains optional settings like keyboard layout from browser locale detection
-func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask, opts types.StartPlanningOptions) {
+func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *types.SpecTask) {
 	// Add panic recovery for debugging (match StartSpecGeneration pattern)
 	defer func() {
 		if r := recover(); r != nil {
@@ -894,7 +890,7 @@ Follow these guidelines when making changes:
 		Resolution:          resolutionJDI,
 		ZoomLevel:           zoomLevelJDI,
 		DesktopType:         desktopTypeJDI,
-		Env:                 buildEnvWithLocale(userAPIKey, opts),
+		Env:                 buildEnvWithLocale(userAPIKey, task.PlanningOptions),
 		// Branch configuration - startup script will checkout correct branch
 		BranchMode:    string(task.BranchMode),
 		BaseBranch:    task.BaseBranch,

@@ -127,27 +127,37 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		return nil, fmt.Errorf("failed to get target project: %w", err)
 	}
 
+	var initialStatus types.SpecTaskStatus = "backlog"
+
+	if autoStart {
+		if source.JustDoItMode {
+			initialStatus = types.TaskStatusQueuedImplementation
+		} else {
+			initialStatus = types.TaskStatusQueuedSpecGeneration
+		}
+	}
+
 	// Create new task with copied data
 	newTask := &types.SpecTask{
-		ID:                 system.GenerateSpecTaskID(),
-		ProjectID:          projectID,
-		Name:               source.Name,
-		Description:        source.Description,
-		Type:               source.Type,
-		Priority:           source.Priority,
-		Status:             "backlog",
-		OriginalPrompt:     source.OriginalPrompt,
-		RequirementsSpec:   source.RequirementsSpec,
-		TechnicalDesign:    source.TechnicalDesign,
-		ImplementationPlan: source.ImplementationPlan,
-		JustDoItMode:       source.JustDoItMode,
-		UseHostDocker:      source.UseHostDocker,
-		ClonedFromID:       source.ID,
+		ID:                  system.GenerateSpecTaskID(),
+		ProjectID:           projectID,
+		Name:                source.Name,
+		Description:         source.Description,
+		Type:                source.Type,
+		Priority:            source.Priority,
+		Status:              initialStatus,
+		OriginalPrompt:      source.OriginalPrompt,
+		RequirementsSpec:    source.RequirementsSpec,
+		TechnicalDesign:     source.TechnicalDesign,
+		ImplementationPlan:  source.ImplementationPlan,
+		JustDoItMode:        source.JustDoItMode,
+		UseHostDocker:       source.UseHostDocker,
+		ClonedFromID:        source.ID,
 		ClonedFromProjectID: source.ProjectID,
-		CloneGroupID:       cloneGroupID,
-		CreatedBy:          userID,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CloneGroupID:        cloneGroupID,
+		CreatedBy:           userID,
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 
 	if err := s.Store.CreateSpecTask(ctx, newTask); err != nil {
@@ -163,26 +173,12 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		TaskID:      newTask.ID,
 		ProjectID:   projectID,
 		ProjectName: project.Name,
-		Status:      "created",
 	}
 
-	// Auto-start if requested
 	if autoStart {
-		go func() {
-			// Use background context since the HTTP request will complete before this finishes
-			bgCtx := context.Background()
-
-			// Start spec generation using the spec-driven task service
-			// Auto-start from clone doesn't have browser context, so pass empty options
-			if newTask.JustDoItMode {
-				s.specDrivenTaskService.StartJustDoItMode(bgCtx, newTask, types.StartPlanningOptions{})
-			} else {
-				s.specDrivenTaskService.StartSpecGeneration(bgCtx, newTask, types.StartPlanningOptions{})
-			}
-
-			log.Info().Str("task_id", newTask.ID).Msg("Auto-started cloned task")
-		}()
 		result.Status = "started"
+	} else {
+		result.Status = "created"
 	}
 
 	return result, nil

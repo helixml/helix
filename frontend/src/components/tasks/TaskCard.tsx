@@ -39,7 +39,8 @@ import {
 } from '@mui/icons-material'
 import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
-import { useTaskProgress } from '../../services/specTaskService'
+import { useTaskProgress, useUpdateSpecTask } from '../../services/specTaskService'
+import { TypesSpecTaskStatus } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
@@ -128,6 +129,7 @@ interface SpecTaskWithExtras {
   name: string
   status: string
   phase: SpecTaskPhase
+  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued'
   planning_session_id?: string
   archived?: boolean
   metadata?: { error?: string }
@@ -475,8 +477,10 @@ export default function TaskCard({
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [showCloneBatchProgress, setShowCloneBatchProgress] = useState(false)
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [isRemovingFromQueue, setIsRemovingFromQueue] = useState(false)
   const approveImplementationMutation = useApproveImplementation(task.id!)
   const stopAgentMutation = useStopAgent(task.id!)
+  const updateSpecTask = useUpdateSpecTask()
 
   // Ref for Start Planning button to enable keyboard focus
   const startPlanningButtonRef = useRef<HTMLButtonElement>(null)
@@ -524,6 +528,21 @@ export default function TaskCard({
       } finally {
         setIsStartingPlanning(false)
       }
+    }
+  }
+
+  const isQueued = task.status === 'queued_implementation' || task.status === 'queued_spec_generation'
+
+  const handleRemoveFromQueue = async () => {
+    if (!task.id) return
+    setIsRemovingFromQueue(true)
+    try {
+      await updateSpecTask.mutateAsync({
+        taskId: task.id,
+        updates: { status: TypesSpecTaskStatus.TaskStatusBacklog },
+      })
+    } finally {
+      setIsRemovingFromQueue(false)
     }
   }
 
@@ -644,17 +663,25 @@ export default function TaskCard({
                 <ListItemText>Clone Batch Progress</ListItemText>
               </MenuItem>
             )}
+            {isQueued && (
+              <MenuItem
+                disabled={isRemovingFromQueue}
+                onClick={() => {
+                  setMenuAnchorEl(null)
+                  handleRemoveFromQueue()
+                }}
+              >
+                <ListItemText>{isRemovingFromQueue ? 'Removing...' : 'Remove from queue'}</ListItemText>
+              </MenuItem>
+            )}
             <MenuItem
               onClick={() => {
                 setMenuAnchorEl(null)
                 setShowCloneDialog(true)
               }}
-            >
-              <ListItemIcon>
-                <CopyIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>Clone to Other Projects</ListItemText>
-            </MenuItem>
+            >              
+              <ListItemText>Clone to other projects</ListItemText>
+            </MenuItem>            
             <MenuItem
               disabled={isArchiving}
               onClick={() => {
@@ -664,16 +691,7 @@ export default function TaskCard({
                 }
               }}
             >
-              <ListItemIcon>
-                {isArchiving ? (
-                  <CircularProgress size={18} />
-                ) : task.archived ? (
-                  <RestoreIcon fontSize="small" />
-                ) : (
-                  <ArchiveIcon fontSize="small" />
-                )}
-              </ListItemIcon>
-              <ListItemText>{task.archived ? 'Restore' : 'Archive'}</ListItemText>
+              <ListItemText>{isArchiving ? 'Archiving...' : task.archived ? 'Restore' : 'Archive'}</ListItemText>
             </MenuItem>
           </Menu>
         </Box>
@@ -785,12 +803,14 @@ export default function TaskCard({
               size="small"
               variant="contained"
               color="warning"
-              startIcon={isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
+              startIcon={task.planningStatus === 'queued' ? <CircularProgress size={16} color="inherit" /> : isStartingPlanning ? <CircularProgress size={16} color="inherit" /> : <PlayIcon />}
               onClick={handleStartPlanning}
-              disabled={isPlanningFull || isStartingPlanning}
+              disabled={isPlanningFull || isStartingPlanning || task.planningStatus === 'queued'}
               fullWidth
             >
-              {isStartingPlanning
+              {task.planningStatus === 'queued'
+                ? 'Queued'
+                : isStartingPlanning
                 ? 'Starting...'
                 : task.metadata?.error
                 ? (task.just_do_it_mode ? 'Retry' : 'Retry Planning')

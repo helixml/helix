@@ -6532,6 +6532,8 @@ definitions:
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
+      planning_options:
+        $ref: '#/definitions/types.StartPlanningOptions'
       planning_session_id:
         description: |-
           Session tracking (single Helix session for entire workflow - planning + implementation)
@@ -6854,6 +6856,8 @@ definitions:
   types.SpecTaskStatus:
     enum:
     - backlog
+    - queued_implementation
+    - queued_spec_generation
     - spec_generation
     - spec_review
     - spec_revision
@@ -6874,6 +6878,10 @@ definitions:
       TaskStatusImplementationQueued: Waiting for Zed agent pickup
       TaskStatusImplementationReview: Code review (PR created)
       TaskStatusPullRequest: 'External repo: PR opened, awaiting merge'
+      TaskStatusQueuedImplementation: Transitional state, waiting for the orchestrator
+        to pick it up
+      TaskStatusQueuedSpecGeneration: Transitional state, waiting for the orchestrator
+        to pick it up
       TaskStatusSpecApproved: Specs approved, ready for implementation
       TaskStatusSpecFailed: Spec generation failed
       TaskStatusSpecGeneration: Helix agent generating specs
@@ -6881,6 +6889,8 @@ definitions:
       TaskStatusSpecRevision: Human requested spec changes
     x-enum-varnames:
     - TaskStatusBacklog
+    - TaskStatusQueuedImplementation
+    - TaskStatusQueuedSpecGeneration
     - TaskStatusSpecGeneration
     - TaskStatusSpecReview
     - TaskStatusSpecRevision
@@ -7042,6 +7052,17 @@ definitions:
         items:
           $ref: '#/definitions/types.SpecTaskZedThread'
         type: array
+    type: object
+  types.StartPlanningOptions:
+    properties:
+      keyboard_layout:
+        description: |-
+          KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
+          Used to configure the desktop container's keyboard layout from browser detection
+        type: string
+      timezone:
+        description: Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
+        type: string
     type: object
   types.StepInfo:
     properties:
