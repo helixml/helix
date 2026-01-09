@@ -273,7 +273,9 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	}
 	args = append(args, encoderArgs...)
 	args = append(args,
-		"!", "h264parse",
+		// h264parse with config-interval=-1 inserts SPS/PPS before every keyframe
+		// This is required for WebCodecs which needs parameter sets for decoding
+		"!", "h264parse", "config-interval=-1",
 		"!", "video/x-h264,stream-format=byte-stream",
 		"!", "fdsink", "fd=1",
 	)
@@ -304,8 +306,12 @@ func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 	reader := bufio.NewReaderSize(stdout, 256*1024) // 256KB buffer
 
 	// H.264 Annex B format: NAL units prefixed with 00 00 00 01 or 00 00 01
-	// We need to find NAL unit boundaries and send each as a video frame
+	// We accumulate complete Access Units (SPS+PPS+IDR or just slice) before sending
 	nalBuffer := make([]byte, 0, 256*1024)
+
+	// Access Unit accumulator - bundles SPS+PPS+IDR together
+	accessUnit := make([]byte, 0, 256*1024)
+	hasParameterSets := false // true if we've accumulated SPS or PPS
 
 	for {
 		select {
@@ -327,23 +333,72 @@ func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 		// Accumulate data
 		nalBuffer = append(nalBuffer, buf[:n]...)
 
-		// Find and send complete NAL units
+		// Find and process NAL units
 		for {
 			nalUnit, remaining, found := findNALUnit(nalBuffer)
 			if !found {
 				break
 			}
+			nalBuffer = remaining
 
-			if len(nalUnit) > 0 {
-				if err := v.sendVideoFrame(nalUnit); err != nil {
+			if len(nalUnit) == 0 {
+				continue
+			}
+
+			// Get NAL type
+			nalType := getNALType(nalUnit)
+
+			switch nalType {
+			case 7, 8: // SPS or PPS - accumulate, don't send yet
+				accessUnit = append(accessUnit, nalUnit...)
+				hasParameterSets = true
+
+			case 5: // IDR slice - send with accumulated SPS/PPS as keyframe
+				accessUnit = append(accessUnit, nalUnit...)
+				if err := v.sendVideoFrame(accessUnit, true); err != nil {
+					v.logger.Error("send keyframe error", "err", err)
+					return
+				}
+				accessUnit = accessUnit[:0] // Reset accumulator
+				hasParameterSets = false
+
+			case 1, 2, 3, 4: // Non-IDR slice - send immediately as delta frame
+				// If we have accumulated SPS/PPS without IDR, send them first (shouldn't happen normally)
+				if hasParameterSets {
+					if err := v.sendVideoFrame(accessUnit, true); err != nil {
+						v.logger.Error("send params error", "err", err)
+						return
+					}
+					accessUnit = accessUnit[:0]
+					hasParameterSets = false
+				}
+				if err := v.sendVideoFrame(nalUnit, false); err != nil {
 					v.logger.Error("send frame error", "err", err)
 					return
 				}
-			}
 
-			nalBuffer = remaining
+			default:
+				// Other NAL types (SEI, AUD, etc.) - accumulate with access unit
+				accessUnit = append(accessUnit, nalUnit...)
+			}
 		}
 	}
+}
+
+// getNALType extracts the NAL unit type from a NAL unit with start code
+func getNALType(nalUnit []byte) byte {
+	if len(nalUnit) < 4 {
+		return 0
+	}
+	// Find the byte after start code
+	if len(nalUnit) > 2 && nalUnit[2] == 1 {
+		// 3-byte start code: 00 00 01
+		return nalUnit[3] & 0x1f
+	} else if len(nalUnit) > 3 && nalUnit[3] == 1 {
+		// 4-byte start code: 00 00 00 01
+		return nalUnit[4] & 0x1f
+	}
+	return 0
 }
 
 // findNALUnit finds the next NAL unit in the buffer
@@ -395,22 +450,10 @@ func findNALUnit(buf []byte) (nalUnit, remaining []byte, found bool) {
 }
 
 // sendVideoFrame sends a video frame to the WebSocket
-func (v *VideoStreamer) sendVideoFrame(nalUnit []byte) error {
+// isKeyframe should be true for Access Units containing SPS+PPS+IDR
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool) error {
 	v.frameCount++
 	pts := uint64(time.Since(v.startTime).Microseconds())
-
-	// Determine if this is a keyframe (IDR NAL unit type 5)
-	isKeyframe := false
-	if len(nalUnit) > 4 {
-		// NAL unit type is in lower 5 bits of first byte after start code
-		var nalType byte
-		if len(nalUnit) > 2 && nalUnit[2] == 1 {
-			nalType = nalUnit[3] & 0x1f
-		} else if len(nalUnit) > 3 && nalUnit[3] == 1 {
-			nalType = nalUnit[4] & 0x1f
-		}
-		isKeyframe = nalType == 5 // IDR slice
-	}
 
 	// VideoFrame format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
 	header := make([]byte, 15)
@@ -424,14 +467,16 @@ func (v *VideoStreamer) sendVideoFrame(nalUnit []byte) error {
 	binary.BigEndian.PutUint16(header[13:15], uint16(v.config.Height))
 
 	// Combine header and payload
-	msg := make([]byte, 15+len(nalUnit))
+	msg := make([]byte, 15+len(data))
 	copy(msg[:15], header)
-	copy(msg[15:], nalUnit)
+	copy(msg[15:], data)
 
 	return v.ws.WriteMessage(websocket.BinaryMessage, msg)
 }
 
-// heartbeat sends periodic pings to keep connection alive
+// heartbeat sends periodic WebSocket pings to keep connection alive
+// Uses WebSocket's built-in ping/pong mechanism, not binary protocol messages.
+// The binary Ping (0x40) / Pong (0x41) messages are for client-initiated RTT measurement.
 func (v *VideoStreamer) heartbeat(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -441,7 +486,8 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := v.ws.WriteMessage(websocket.BinaryMessage, []byte{StreamMsgPing}); err != nil {
+			// Use WebSocket ping frame, not binary message
+			if err := v.ws.WriteMessage(websocket.PingMessage, nil); err != nil {
 				v.logger.Debug("ping failed", "err", err)
 				return
 			}
@@ -503,21 +549,35 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	logger.Info("stream WebSocket connected", "remote", r.RemoteAddr)
 
 	// Wait for init message from client
-	_, msg, err := ws.ReadMessage()
-	if err != nil {
-		logger.Error("failed to read init message", "err", err)
-		return
-	}
-
+	// Like the Rust implementation, we skip any binary messages that arrive before the JSON init
+	// This handles clients that may send ping or other binary messages before init
 	var config StreamConfig
-	if err := json.Unmarshal(msg, &config); err != nil {
-		logger.Error("failed to parse init message", "err", err)
-		return
-	}
+	initReceived := false
+	for !initReceived {
+		messageType, msg, err := ws.ReadMessage()
+		if err != nil {
+			logger.Error("failed to read init message", "err", err)
+			return
+		}
 
-	if config.Type != "init" {
-		logger.Error("expected init message", "got", config.Type)
-		return
+		// Skip binary messages (client may send ping before init)
+		if messageType == websocket.BinaryMessage {
+			logger.Debug("skipping binary message while waiting for init", "len", len(msg))
+			continue
+		}
+
+		// Parse JSON init message
+		if err := json.Unmarshal(msg, &config); err != nil {
+			logger.Error("failed to parse init message", "err", err, "msg", string(msg))
+			return
+		}
+
+		if config.Type != "init" {
+			logger.Error("expected init message", "got", config.Type)
+			return
+		}
+
+		initReceived = true
 	}
 
 	logger.Info("stream init received",
@@ -539,7 +599,7 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	}
 	defer streamer.Stop()
 
-	// Handle incoming messages (input events, pong, etc.)
+	// Handle incoming messages (input events, ping/pong, etc.)
 	for {
 		messageType, msg, err := ws.ReadMessage()
 		if err != nil {
@@ -550,11 +610,31 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		}
 
 		if messageType == websocket.BinaryMessage && len(msg) > 0 {
-			// Handle messages using moonlight-web-stream protocol
+			msgType := msg[0]
+
+			// Handle Ping/Pong at this level (needs ws access for response)
+			if msgType == StreamMsgPing {
+				// Client sent Ping for RTT measurement - respond with Pong
+				// Pong format: type(1) + seq(4) + clientTime(8) + serverTime(8) = 21 bytes
+				if len(msg) >= 13 {
+					pong := make([]byte, 21)
+					pong[0] = StreamMsgPong
+					copy(pong[1:13], msg[1:13]) // Echo back seq + clientTime
+					// Add server time (microseconds since epoch)
+					serverTime := uint64(time.Now().UnixMicro())
+					binary.BigEndian.PutUint64(pong[13:21], serverTime)
+					if err := ws.WriteMessage(websocket.BinaryMessage, pong); err != nil {
+						logger.Debug("failed to send pong", "err", err)
+					}
+				}
+				continue
+			}
+
+			// Delegate other messages to input handler
 			if server != nil {
 				server.handleStreamInputMessage(msg)
 			} else {
-				logger.Debug("received input event (no server context)", "type", msg[0])
+				logger.Debug("received input event (no server context)", "type", msgType)
 			}
 		}
 	}
@@ -562,6 +642,7 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 
 // handleStreamInputMessage processes input messages from the combined stream WebSocket
 // Uses the moonlight-web-stream protocol for compatibility with existing frontend.
+// Note: Ping/Pong (0x40/0x41) are handled in the message loop, not here.
 func (s *Server) handleStreamInputMessage(data []byte) {
 	if len(data) < 1 {
 		return
@@ -584,11 +665,7 @@ func (s *Server) handleStreamInputMessage(data []byte) {
 	case StreamMsgTouch: // 0x14
 		s.handleWSTouch(payload)
 	case StreamMsgPong: // 0x41
-		// Client responded to ping - currently no action needed
-	case StreamMsgPing: // 0x40
-		// Client sent ping for RTT measurement - we should respond with pong
-		// TODO: implement pong response with timing
-		s.logger.Debug("received ping from client")
+		// Client responded to our WebSocket ping - no action needed
 	default:
 		s.logger.Debug("unknown stream message type", "type", msgType)
 	}
