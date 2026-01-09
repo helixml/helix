@@ -1257,7 +1257,7 @@ services:
       - name: integration-test
         path: /integration-test
 
----
+# ---
 # Spectask/Sandbox Integration Tests
 # These tests can run with software rendering (no GPU required).
 # Run locally with: go test -v -tags=spectask ./integration-test/smoke/... -run TestSpectask
