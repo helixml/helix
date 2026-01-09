@@ -676,10 +676,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.ZedAgent, containerType, works
 // containerType is "sway", "ubuntu", or "headless"
 // This matches Wolf executor's mount setup (wolf_executor.go lines 385-394)
 func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string, containerType string) []hydra.MountConfig {
-	// CRITICAL: Mount workspace at BOTH paths for Hydra bind-mount compatibility (matches Wolf lines 385-393):
+	// CRITICAL: Mount workspace at MULTIPLE paths for compatibility:
 	// 1. Same path (/data/workspaces/...) - for Docker wrapper hacks that resolve symlinks
 	// 2. /home/retro/work - so agent tools see a real directory (not a symlink)
-	// This eliminates symlink confusion where tools resolve the symlink and get confused.
+	// 3. workspaceBasePathForContainer (/workspace) - where startup.sh expects WORKSPACE_DIR
+	// This eliminates path confusion in various tools.
 	mounts := []hydra.MountConfig{
 		// Mount 1: Same path for Docker wrapper hacks
 		{
@@ -687,10 +688,16 @@ func (h *HydraExecutor) buildMounts(agent *types.ZedAgent, workspaceDir string, 
 			Destination: workspaceDir,
 			ReadOnly:    false,
 		},
-		// Mount 2: /home/retro/work for agent tools
+		// Mount 2: /home/retro/work for agent tools (Wolf's ZED_WORK_DIR)
 		{
 			Source:      workspaceDir,
 			Destination: "/home/retro/work",
+			ReadOnly:    false,
+		},
+		// Mount 3: /workspace for WORKSPACE_DIR (startup.sh expects this)
+		{
+			Source:      workspaceDir,
+			Destination: h.workspaceBasePathForContainer,
 			ReadOnly:    false,
 		},
 	}

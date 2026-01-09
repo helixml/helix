@@ -97,13 +97,18 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Ensure mount source directories exist before creating container
 	for _, m := range req.Mounts {
-		if m.Source != "" && !strings.HasPrefix(m.Source, "/run/") {
-			// Create the directory if it doesn't exist
-			if err := os.MkdirAll(m.Source, 0755); err != nil {
-				log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
-			} else {
-				log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
-			}
+		// Skip socket files and runtime directories - they're not directories to create
+		if m.Source == "" ||
+			strings.HasPrefix(m.Source, "/run/") ||
+			strings.HasPrefix(m.Source, "/var/run/") ||
+			strings.HasSuffix(m.Source, ".sock") {
+			continue
+		}
+		// Create the directory if it doesn't exist
+		if err := os.MkdirAll(m.Source, 0755); err != nil {
+			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
+		} else {
+			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
 		}
 	}
 
