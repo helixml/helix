@@ -226,18 +226,20 @@ func (s *Server) handleMouseButtonClick(button int, isDown bool) {
 	}
 }
 
-// handleMouseWheel handles scroll wheel events
+// handleMouseWheel handles scroll wheel events with pixel-perfect accuracy
 func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
-	// Negate Y to match browser→GNOME convention (browser +Y = scroll down, GNOME +Y = content moves down)
-	deltaY = -deltaY
+	// Pass through absolute scroll values for smooth pixel-perfect scrolling
+	// Frontend already normalizes to pixels (see input.ts onMouseWheel)
+	//
+	// GNOME NotifyPointerAxis conventions:
+	// - Uses GNOME's coordinate system (no inversion needed for our use case)
+	// - Values passed through as-is for pixel-perfect scrolling
+	gnomeDX := deltaX
+	gnomeDY := deltaY
 
-	// Convert from frontend units to GNOME scroll units
-	// Frontend sends pixel-like deltas, GNOME expects smaller values
-	gnomeDX := deltaX / 10.0
-	gnomeDY := deltaY / 10.0
-
-	// GNOME scroll flags: 0x04 = WHEEL source (discrete clicks)
-	gnomeFlags := uint32(0x04)
+	// GNOME scroll flags: 0x08 = CONTINUOUS source (smooth/touchpad scrolling)
+	// This enables pixel-perfect scrolling rather than discrete notches
+	gnomeFlags := uint32(0x08)
 
 	if s.conn == nil || s.rdSessionPath == "" {
 		return
