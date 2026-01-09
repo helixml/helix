@@ -142,35 +142,120 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 }
 
 // selectEncoder chooses the best available encoder
+// Priority order matches Wolf's tested configurations:
+// 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
+// 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
+// 3. VA-API (vah264enc) - Intel/AMD VA-API
+// 4. VA-API LP (vah264lpenc) - Intel/AMD VA-API Low Power mode
+// 5. x264 (x264enc) - software fallback
 func (v *VideoStreamer) selectEncoder() string {
 	// Try NVENC first (NVIDIA)
-	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+	if checkGstElement("nvh264enc") {
+		v.logger.Info("using NVIDIA NVENC encoder")
 		return "nvenc"
 	}
+
+	// Try Intel QSV (Quick Sync Video)
+	if checkGstElement("qsvh264enc") {
+		v.logger.Info("using Intel QSV encoder")
+		return "qsv"
+	}
+
+	// Try VA-API (Intel/AMD)
+	if checkGstElement("vah264enc") {
+		v.logger.Info("using VA-API encoder")
+		return "vaapi"
+	}
+
+	// Try VA-API Low Power mode (some Intel chips)
+	if checkGstElement("vah264lpenc") {
+		v.logger.Info("using VA-API Low Power encoder")
+		return "vaapi-lp"
+	}
+
 	// Fallback to software
+	v.logger.Info("using software x264 encoder (no hardware encoder found)")
 	return "x264"
 }
 
+// checkGstElement checks if a GStreamer element is available
+func checkGstElement(element string) bool {
+	cmd := exec.Command("gst-inspect-1.0", element)
+	return cmd.Run() == nil
+}
+
 // buildPipelineArgs creates GStreamer pipeline arguments as a flat slice
+// Pipeline configurations match Wolf's tested settings from config.v6.toml
 func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	var encoderArgs []string
 
 	switch encoder {
 	case "nvenc":
-		// NVIDIA hardware encoder
+		// NVIDIA hardware encoder - matches Wolf's nvcodec pipeline
+		// Requires cudaconvertscale and cudaupload for optimal performance
 		encoderArgs = []string{
 			"nvh264enc",
 			"preset=low-latency-hq",
-			"rc-mode=cbr",
+			"zerolatency=true",
+			"gop-size=15",
+			"rc-mode=cbr-ld-hq",
 			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+			"aud=false",
 		}
+
+	case "qsv":
+		// Intel Quick Sync Video - matches Wolf's qsv pipeline
+		encoderArgs = []string{
+			"qsvh264enc",
+			"b-frames=0",
+			"gop-size=15",
+			"idr-interval=1",
+			"ref-frames=1",
+			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+			"rate-control=cbr",
+			"target-usage=6",
+		}
+
+	case "vaapi":
+		// VA-API for Intel/AMD - matches Wolf's va pipeline
+		encoderArgs = []string{
+			"vah264enc",
+			"aud=false",
+			"b-frames=0",
+			"ref-frames=1",
+			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+			fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+			"key-int-max=1024",
+			"rate-control=cqp",
+			"target-usage=6",
+		}
+
+	case "vaapi-lp":
+		// VA-API Low Power mode for Intel - matches Wolf's va LP pipeline
+		encoderArgs = []string{
+			"vah264lpenc",
+			"aud=false",
+			"b-frames=0",
+			"ref-frames=1",
+			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+			fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+			"key-int-max=1024",
+			"rate-control=cqp",
+			"target-usage=6",
+		}
+
 	default:
-		// Software x264 fallback
+		// Software x264 fallback - matches Wolf's x264 pipeline
 		encoderArgs = []string{
 			"x264enc",
+			"pass=qual",
 			"tune=zerolatency",
-			"speed-preset=ultrafast",
+			"speed-preset=superfast",
+			"b-adapt=false",
+			"bframes=0",
+			"ref=1",
 			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+			"aud=false",
 		}
 	}
 
@@ -185,7 +270,8 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	}
 	args = append(args, encoderArgs...)
 	args = append(args,
-		"!", "video/x-h264,stream-format=byte-stream,alignment=au",
+		"!", "h264parse",
+		"!", "video/x-h264,stream-format=byte-stream",
 		"!", "fdsink", "fd=1",
 	)
 

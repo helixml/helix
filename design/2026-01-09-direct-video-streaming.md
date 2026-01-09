@@ -298,27 +298,44 @@ Browser <video> element
 
 ### 1. Container-Side: GStreamer Pipeline
 
+The encoder is selected at runtime based on available hardware. Priority order:
+1. **NVIDIA NVENC** (`nvh264enc`) - fastest, lowest latency
+2. **Intel QSV** (`qsvh264enc`) - Intel Quick Sync Video
+3. **VA-API** (`vah264enc`) - Intel/AMD hardware
+4. **VA-API Low Power** (`vah264lpenc`) - Intel low-power mode
+5. **x264** (`x264enc`) - software fallback
+
 ```bash
-# Option A: Hardware encoding (NVIDIA)
+# NVIDIA NVENC - fastest, lowest latency
 gst-launch-1.0 pipewiresrc path=<node_id> do-timestamp=true ! \
-  video/x-raw,format=BGRx ! \
-  cudaupload ! cudaconvert ! \
-  nvh264enc preset=low-latency-hq bitrate=8000 ! \
-  h264parse ! \
-  fdsink fd=<pipe_to_go>
+  videoconvert ! videoscale ! video/x-raw,width=1920,height=1080,framerate=60/1 ! \
+  nvh264enc preset=low-latency-hq zerolatency=true gop-size=15 rc-mode=cbr-ld-hq bitrate=8000 aud=false ! \
+  h264parse ! video/x-h264,stream-format=byte-stream ! \
+  fdsink fd=1
 
-# Option B: Software encoding (fallback)
+# Intel QSV (Quick Sync Video)
 gst-launch-1.0 pipewiresrc path=<node_id> do-timestamp=true ! \
-  videoconvert ! \
-  x264enc tune=zerolatency bitrate=8000 speed-preset=ultrafast ! \
-  h264parse ! \
-  fdsink fd=<pipe_to_go>
+  videoconvert ! videoscale ! video/x-raw,width=1920,height=1080,framerate=60/1 ! \
+  qsvh264enc b-frames=0 gop-size=15 idr-interval=1 ref-frames=1 bitrate=8000 rate-control=cbr target-usage=6 ! \
+  h264parse ! video/x-h264,stream-format=byte-stream ! \
+  fdsink fd=1
 
-# Option C: Using appsink for Go integration
-gst-launch-1.0 pipewiresrc path=<node_id> ! \
-  nvh264enc preset=low-latency-hq ! \
-  appsink name=sink emit-signals=true
+# VA-API (Intel/AMD)
+gst-launch-1.0 pipewiresrc path=<node_id> do-timestamp=true ! \
+  videoconvert ! videoscale ! video/x-raw,width=1920,height=1080,framerate=60/1 ! \
+  vah264enc aud=false b-frames=0 ref-frames=1 bitrate=8000 cpb-size=8000 key-int-max=1024 rate-control=cqp target-usage=6 ! \
+  h264parse ! video/x-h264,stream-format=byte-stream ! \
+  fdsink fd=1
+
+# Software x264 (fallback)
+gst-launch-1.0 pipewiresrc path=<node_id> do-timestamp=true ! \
+  videoconvert ! videoscale ! video/x-raw,width=1920,height=1080,framerate=60/1 ! \
+  x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 bitrate=8000 aud=false ! \
+  h264parse ! video/x-h264,stream-format=byte-stream ! \
+  fdsink fd=1
 ```
+
+The encoder detection uses `gst-inspect-1.0` to check element availability at runtime.
 
 ### 2. Container-Side: Go Video Server (video.go)
 
@@ -624,12 +641,13 @@ Pong: [type:1][seq:4][client_time_us:8][server_time_us:8]
 
 ## Implementation Plan
 
-### Phase 1: Combined Protocol (In Progress)
+### Phase 1: Combined Protocol (Complete)
 1. ✅ Create `ws_stream.go` with GStreamer pipeline + WebSocket framing
 2. ✅ Add `/ws/stream` route to screenshot-server
 3. ✅ Add WebSocket proxy in Helix API (`/api/v1/external-agents/{id}/ws/stream`)
-4. 🔄 Merge input handling from ws_input.go into ws_stream.go (combined protocol)
-5. Build and test
+4. ✅ Merge input handling from ws_input.go into ws_stream.go (combined protocol)
+5. ✅ Add multi-GPU support (NVIDIA NVENC, Intel QSV, VA-API, x264 fallback)
+6. 🔄 Testing and debugging
 
 ### Phase 2: Frontend Integration
 1. Frontend WebSocketStream already speaks this protocol - NO CHANGES needed
