@@ -302,6 +302,7 @@ func (s *Server) httpHandler() http.Handler {
 	mux.HandleFunc("/input", s.handleInput)
 	mux.HandleFunc("/ws/input", s.handleWSInput)   // Direct WebSocket input (bypasses Moonlight/Wolf)
 	mux.HandleFunc("/ws/stream", s.handleWSStream) // Direct WebSocket video streaming (bypasses Wolf)
+	mux.HandleFunc("/exec", s.handleExec)          // Execute command in container (for benchmarking)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
