@@ -82,13 +82,19 @@ type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // Helper function to map backend status to frontend phase
 // IMPORTANT: This must be used consistently everywhere to prevent tasks from disappearing
-function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed'; hasSpecs: boolean } {
+function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued'; hasSpecs: boolean } {
   let phase: SpecTaskPhase = 'backlog';
-  let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+  let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued' = 'none';
   let hasSpecs = status !== 'backlog';
 
+  // Queued states - show in backlog but with queued status
+  if (status === 'queued_spec_generation' || status === 'queued_implementation') {
+    phase = 'backlog';
+    planningStatus = 'queued';
+    hasSpecs = false;
+  }
   // Spec generation phase
-  if (status === 'spec_generation') {
+  else if (status === 'spec_generation') {
     phase = 'planning';
     planningStatus = 'active';
   }
@@ -123,7 +129,7 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
   else if (status === 'spec_failed') {
     phase = 'backlog';
     planningStatus = 'failed';
-    hasSpecs = false; // Allow it to show in backlog column
+    hasSpecs = false;
   }
   // Default: backlog (for 'backlog' status and any unknown status)
   // hasSpecs is already set based on status !== 'backlog'
@@ -134,7 +140,7 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
 interface SpecTaskWithExtras extends SpecTask {
   hasSpecs: boolean;
   phase: SpecTaskPhase;
-  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed';
+  planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued';
   gitRepositoryId?: string;
   gitRepositoryUrl?: string;
   multiSessionOverview?: MultiSessionOverview;
