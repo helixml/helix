@@ -211,6 +211,247 @@ Committed changes to Helix branch `feature/sway-ubuntu-25.10`:
 
 **Status:** Testing pending - sandbox rebuilt, need to create test session.
 
+### Attempt 12: Cross-container PipeWire authorization analysis (2026-01-09)
+
+Deep analysis of OBS vs Wolf implementation revealed the root cause: **portal FD authorization**.
+
+**How OBS connects to PipeWire (authorized):**
+```c
+// 1. Create D-Bus session with XDG Portal
+// 2. Get authorized FD via OpenPipeWireRemote()
+g_dbus_proxy_call_with_unix_fd_list(portal_proxy, "OpenPipeWireRemote", ...);
+
+// 3. Connect using the authorized FD
+obs_pw->core = pw_context_connect_fd(context, authorized_fd, NULL, 0);
+
+// 4. Core sync to wait for registry (CRITICAL)
+obs_pw->sync_id = pw_core_sync(obs_pw->core, PW_ID_CORE, seq);
+pw_thread_loop_wait(obs_pw->thread_loop);
+```
+
+**How Wolf connects to PipeWire (unauthorized):**
+```rust
+// 1. Uses Mutter's native D-Bus API (not portal)
+// 2. Gets node ID from PipeWireStreamAdded signal
+// 3. Connects via socket (PIPEWIRE_REMOTE env var)
+let core = context.connect(None)?;
+
+// 4. NO core sync
+// 5. Tries to consume stream from outside container
+```
+
+**Key differences:**
+1. OBS uses XDG Portal's `OpenPipeWireRemote()` - this returns an authorized FD
+2. Wolf uses direct socket connection via `PIPEWIRE_REMOTE` environment variable
+3. The portal FD carries authorization context that allows stream linking
+4. Cross-container socket access doesn't have this authorization
+
+**Evidence:**
+- Linked session format shows linear modifier (0x0) = SHM fallback
+- Standalone session shows NVIDIA modifiers = DMA-BUF works
+- Stream connects but stays in Paused state forever
+- WirePlumber linking doesn't complete for unauthorized streams
+
+**Root cause:** PipeWire's linking mechanism requires either:
+1. Portal-authorized FD (what OBS does)
+2. Same-process/container access (what standalone sessions have)
+
+Wolf's cross-container socket access has neither.
+
+### Proposed Solutions
+
+**Option A: In-container PipeWire capture (Recommended)**
+Move PipeWire stream consumption inside the Ubuntu container:
+
+```
+Ubuntu Container                    Wolf (sandbox)
+├── GNOME ScreenCast (producer)     ├── Receives H.264 video
+│       │                           │       ↑
+│       ↓ (PipeWire link)           │       │
+├── GStreamer pipewiresrc           │   Shared memory
+│       │                           │   or socket
+│       ↓ (encode)                  │       ↑
+├── H.264 encoder ─────────────────────────┘
+```
+
+This bypasses cross-container PipeWire issues entirely.
+
+**Option B: Portal FD passthrough**
+Have screenshot-server call `OpenPipeWireRemote()` and somehow pass the FD to Wolf.
+Challenge: FD passing between containers requires SCM_RIGHTS over Unix socket.
+
+**Option C: PipeWire proxy node**
+Create a PipeWire producer inside container that re-exports ScreenCast as new node.
+Challenge: Complex PipeWire programming, duplicates effort.
+
+### Implementation Plan: Option A (In-container capture via SHM)
+
+Use GStreamer's shared memory sink/source to forward frames from container to Wolf.
+
+**In Ubuntu container (screenshot-server):**
+```bash
+gst-launch-1.0 pipewiresrc path=<node_id> ! \
+  video/x-raw,format=BGRx ! \
+  shmsink socket-path=/wolf-state/video-shm wait-for-connection=true
+```
+
+**In Wolf (sandbox):**
+```
+shmsrc socket-path=/wolf-state/video-shm ! video/x-raw,format=BGRx ! <nvenc pipeline>
+```
+
+The `runner_state_folder` (/wolf-state/agent-xxx) is already shared between containers.
+
+**Changes required:**
+1. screenshot-server: Add background GStreamer process for video forwarding
+2. Wolf: Add shmsrc-based video producer option as alternative to pipewiresrc
+3. API: Report SHM path instead of node_id for GNOME mode
+
+**Pros:**
+- Minimal code changes
+- Uses existing GStreamer knowledge
+- SHM socket path already in shared volume
+
+**Cons:**
+- Extra memory copy (not true zero-copy)
+- Additional latency from GStreamer pipeline
+- Needs process management for gst-launch
+
+**Alternative: Direct DMA-BUF FD forwarding**
+
+For true zero-copy, forward DMA-BUF file descriptors via Unix socket:
+1. Go captures via cgo + GStreamer appsink
+2. Extracts DMA-BUF fd from buffer
+3. Sends fd via SCM_RIGHTS to Wolf's Unix socket
+4. Wolf imports fd directly into CUDA
+
+This is more complex but preserves GPU zero-copy.
+
+### The Actual "Error": Silent Authorization Failure (2026-01-09)
+
+**Important clarification:** There is NO explicit "permission denied" error. The failure is silent:
+
+**Observed symptoms:**
+1. PipeWire stream successfully created with correct node ID
+2. Format negotiation completes (BGRx with linear modifier)
+3. `pw_stream_set_active(true)` returns success
+4. Stream state transitions: Unconnected → Connecting → **Paused** (stops here)
+5. Stream NEVER transitions to **Streaming** state
+6. No frames are ever delivered
+7. After 30 seconds, our timeout fires and logs: "No frames received - stream keepalive failed"
+
+**Why this happens:**
+
+PipeWire streams require proper authorization to link producer→consumer. When OBS runs inside the same session as GNOME:
+
+```
+OBS Process                       GNOME Mutter
+    │                                 │
+    ├── OpenPipeWireRemote() ───────►│
+    │◄──────── authorized FD ────────┤
+    │                                 │
+    ├── pw_context_connect_fd(fd) ──►│ PipeWire daemon
+    │                                 │ "ah, this FD was authorized
+    │◄───── link completes ──────────┤  by portal, allow streaming"
+```
+
+When Wolf runs in a different container:
+
+```
+Wolf (sandbox container)          Ubuntu Container (GNOME)
+    │                                 │
+    │   PIPEWIRE_REMOTE=socket ──────►│
+    │   pw_context_connect(socket) ──►│ PipeWire daemon
+    │                                 │ "socket connection from
+    │◄───── Paused state ────────────┤  external process, no portal
+    │       (link incomplete)         │  authorization, block linking"
+```
+
+The stream enters Paused state and waits forever because:
+1. The consumer (Wolf) connected via socket without portal authorization
+2. PipeWire's security model prevents linking to protected streams
+3. Mutter's ScreenCast stream is protected (created via RemoteDesktop portal)
+
+**Evidence from debug logs:**
+```
+[PIPEWIRE] Stream state changed from Connecting to Paused
+[PIPEWIRE] Format negotiation complete: BGRx, modifier=0x0
+[PIPEWIRE] Called set_active(true) - waiting for Streaming state...
+... (30 seconds of silence) ...
+[PIPEWIRE] ERROR: No frames received after 30s - stream keepalive failed
+```
+
+The lack of any explicit error message makes this difficult to debug. PipeWire doesn't log "authorization failed" - it just silently refuses to complete the link.
+
+### SHM Solution: Performance Analysis (2026-01-09)
+
+**Question: Can we achieve 4K@60fps with CPU memory copies?**
+
+**Frame size calculation:**
+- 4K resolution: 3840 × 2160 = 8,294,400 pixels
+- BGRx format: 4 bytes/pixel
+- Frame size: 3840 × 2160 × 4 = **31.6 MB per frame**
+- At 60fps: 31.6 × 60 = **1,899 MB/s ≈ 1.9 GB/s**
+
+**Memory bandwidth on modern systems:**
+- DDR4-2400: ~19 GB/s (single channel), ~38 GB/s (dual channel)
+- DDR5-4800: ~38 GB/s (single channel), ~76 GB/s (dual channel)
+- PCIe 3.0 x16: ~16 GB/s (GPU↔CPU)
+- PCIe 4.0 x16: ~32 GB/s (GPU↔CPU)
+
+**Data flow with SHM solution:**
+
+```
+Ubuntu Container                           Wolf (sandbox)
+┌─────────────────────────────────────┐   ┌─────────────────────────────────┐
+│                                     │   │                                 │
+│  Mutter ScreenCast                  │   │                                 │
+│       │ (DMA-BUF, GPU memory)       │   │                                 │
+│       ▼                             │   │                                 │
+│  pipewiresrc (inside container)     │   │                                 │
+│       │ negotiates DMA-BUF          │   │                                 │
+│       │ with Mutter directly        │   │                                 │
+│       ▼                             │   │                                 │
+│  videoconvert (if needed)           │   │                                 │
+│       │                             │   │                                 │
+│       ▼ [COPY 1: GPU→CPU]           │   │                                 │
+│  shmsink ──────────────────────────────►│ shmsrc                          │
+│       (Unix socket, CPU memory)     │   │       │                         │
+│                                     │   │       ▼ [COPY 2: CPU→GPU]       │
+│                                     │   │  cudaupload                     │
+│                                     │   │       │                         │
+│                                     │   │       ▼                         │
+│                                     │   │  NVENC (GPU encoding)           │
+│                                     │   │       │                         │
+│                                     │   │       ▼                         │
+│                                     │   │  H.264/HEVC stream to client    │
+└─────────────────────────────────────┘   └─────────────────────────────────┘
+```
+
+**Latency impact:**
+- GPU→CPU download: ~1-2ms for 32MB with PCIe 3.0
+- Unix socket IPC: <1ms (kernel optimized, same-machine)
+- CPU→GPU upload: ~1-2ms
+
+**Total added latency: ~3-5ms** (well under one frame time of 16.67ms)
+
+**Conclusion: YES, 4K@60fps is achievable with this design.**
+
+The bandwidth requirements (1.9 GB/s) are well within modern system capabilities:
+- Memory bandwidth: 10-20x headroom
+- PCIe bandwidth: 8-16x headroom
+
+The latency addition (~4ms) is acceptable for cloud gaming/remote desktop.
+
+**Comparison with true zero-copy (DMA-BUF forwarding):**
+
+If we were to implement DMA-BUF fd forwarding via SCM_RIGHTS:
+- Latency: <1ms (no memory copies)
+- Complexity: Much higher (custom protocol, cgo, fd management)
+- Risk: DMA-BUF fds may not be valid across container boundaries
+
+The SHM solution trades ~4ms latency for simplicity and reliability.
+
 ## Commits
 
 - `e618b39` (wolf) feat(pipewiresrc): add pw_stream_set_active(true) + 30s first-frame timeout
