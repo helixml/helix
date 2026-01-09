@@ -114,6 +114,8 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 	// Filter to only active tasks (PR polling handled by separate 1-minute loop)
 	activeStatuses := map[types.SpecTaskStatus]bool{
 		types.TaskStatusBacklog:              true,
+		types.TaskStatusQueuedSpecGeneration: true,
+		types.TaskStatusQueuedImplementation: true,
 		types.TaskStatusSpecGeneration:       true,
 		types.TaskStatusSpecReview:           true,
 		types.TaskStatusSpecRevision:         true,
@@ -152,6 +154,10 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 	switch task.Status {
 	case types.TaskStatusBacklog:
 		return o.handleBacklog(ctx, task)
+	case types.TaskStatusQueuedSpecGeneration:
+		return o.handleQueuedSpecGeneration(ctx, task)
+	case types.TaskStatusQueuedImplementation:
+		return o.handleQueuedImplementation(ctx, task)
 	case types.TaskStatusSpecGeneration:
 		return o.handleSpecGeneration(ctx, task)
 	case types.TaskStatusSpecReview:
@@ -222,7 +228,32 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 	// Delegate to the canonical StartSpecGeneration implementation
 	// This ensures both explicit start and auto-start use the same code path
 	// Auto-start doesn't have user browser context, so pass empty options
-	o.specTaskService.StartSpecGeneration(ctx, task, types.StartPlanningOptions{})
+	o.specTaskService.StartSpecGeneration(ctx, task)
+
+	return nil
+}
+
+// handleQueuedSpecGeneration handles tasks in queued spec generation
+func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, task *types.SpecTask) error {
+	o.wg.Add(1)
+	go func() {
+		defer o.wg.Done()
+		o.specTaskService.StartSpecGeneration(ctx, task)
+	}()
+
+	return nil
+}
+
+// handleQueuedImplementation handles tasks in queued implementation
+func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, task *types.SpecTask) error {
+	// Check if implementation session is complete
+	// This would integrate with existing SpecDrivenTaskService
+	// For now, we'll assume implementation is ready when all implementation tasks exist
+	o.wg.Add(1)
+	go func() {
+		defer o.wg.Done()
+		o.specTaskService.StartSpecGeneration(ctx, task)
+	}()
 
 	return nil
 }
