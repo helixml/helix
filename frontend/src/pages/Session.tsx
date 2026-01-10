@@ -54,8 +54,6 @@ import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
-import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
-import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -414,7 +412,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
 
   // Check if this is an external agent session and show Zed editor by default
   useEffect(() => {
@@ -1557,7 +1554,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
-                onOpenPairingDialog={() => setPairingDialogOpen(true)}
                 showRDPViewer={showRDPViewer}
                 onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
                 isExternalAgent={isExternalAgent}
@@ -1572,7 +1568,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       Desktop:
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <WolfAppStateIndicator sessionId={sessionID} />
                       <DesktopControls
                         sessionId={sessionID}
                         onStop={handleStopExternalAgent}
@@ -1934,16 +1929,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           </Box>
         </Window>
       )}
-
-      {/* Moonlight Pairing Dialog */}
-      <MoonlightPairingOverlay
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onPairingComplete={() => {
-          setPairingDialogOpen(false)
-          snackbar.success('Moonlight client paired successfully!')
-        }}
-      />
 
       {/* Stop Confirmation Dialog */}
       {showStopConfirm && (

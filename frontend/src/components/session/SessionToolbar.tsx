@@ -33,10 +33,7 @@ import {
 
 // Material-UI icons
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import Computer from '@mui/icons-material/Computer'
-import OpenInNew from '@mui/icons-material/OpenInNew'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -58,14 +55,13 @@ import {
   TOOLBAR_HEIGHT,
 } from '../../config'
 import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
-import { ConnectedTv, Extension } from '@mui/icons-material'
+import { Extension } from '@mui/icons-material'
 import ZedSettingsViewer, { useHasValidMCPTools } from './ZedSettingsViewer'
 
 export const SessionToolbar: FC<{
   session: TypesSession,
   onReload?: () => void,
   onOpenMobileMenu?: () => void,
-  onOpenPairingDialog?: () => void,
   showRDPViewer?: boolean,
   onToggleRDPViewer?: () => void,
   isExternalAgent?: boolean,
@@ -75,7 +71,6 @@ export const SessionToolbar: FC<{
   session,
   onReload,
   onOpenMobileMenu,
-  onOpenPairingDialog,
   showRDPViewer,
   onToggleRDPViewer,
   isExternalAgent,
@@ -141,9 +136,6 @@ export const SessionToolbar: FC<{
   const [sessionName, setSessionName] = useState(session.name)
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [showPin, setShowPin] = useState(false)
-  const [clientMenuAnchor, setClientMenuAnchor] = useState<null | HTMLElement>(null)
-  const [showMoonlightControls, setShowMoonlightControls] = useState(false)
   const [mcpToolsAnchor, setMcpToolsAnchor] = useState<null | HTMLElement>(null)
 
   useEffect(() => {
@@ -382,181 +374,6 @@ export const SessionToolbar: FC<{
                 </Tooltip>
               </Box>
             )}
-
-            {/* Streaming Setup Process - Right aligned */}
-            {(isOwner || account.admin) && isExternalAgent && showMoonlightControls && (
-              <Box sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
-                gap: 0.5,
-                ml: 'auto',
-                mt: -4,
-                '&:hover .warning-notice': {
-                  opacity: 1
-                }
-              }}>
-                {/* 4K@60Hz Requirement Notice - Above both steps */}
-                <Box
-                  className="warning-notice"
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    px: 1,
-                    py: 0.25,
-                    mr: 1,
-                    bgcolor: 'rgba(255, 152, 0, 0.1)',
-                    borderRadius: 0.5,
-                    border: '1px solid',
-                    borderColor: 'warning.main',
-                    opacity: 0.4,
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'warning.main', lineHeight: 1, whiteSpace: 'nowrap' }}>
-                    ⚠️ Moonlight: Use 1080p @ 60Hz (1920x1080 @ 60fps)
-                  </Typography>
-                </Box>
-
-                {/* Steps Container */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {/* Step 1: Download & Pair */}
-                <Box sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 0.25,
-                  px: 1,
-                  py: 0.5,
-                  bgcolor: 'action.hover',
-                  borderRadius: 0.5,
-                  border: '1px solid',
-                  borderColor: 'divider'
-                }}>
-                  <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.7, lineHeight: 1 }}>
-                    1. Download viewer and pair
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<OpenInNew />}
-                      onClick={(e) => setClientMenuAnchor(e.currentTarget)}
-                      sx={{
-                        fontSize: '0.65rem',
-                        py: 0.125,
-                        px: 0.75,
-                        minWidth: 'auto',
-                        border: 'none',
-                        '&:hover': {
-                          border: 'none',
-                          bgcolor: 'action.selected'
-                        }
-                      }}
-                    >
-                      Viewer
-                    </Button>
-                    <Menu
-                      anchorEl={clientMenuAnchor}
-                      open={Boolean(clientMenuAnchor)}
-                      onClose={() => setClientMenuAnchor(null)}
-                      anchorOrigin={{
-                        vertical: 'bottom',
-                        horizontal: 'center',
-                      }}
-                      transformOrigin={{
-                        vertical: 'top',
-                        horizontal: 'center',
-                      }}
-                    >
-                      <MenuItem component="a" href="https://github.com/moonlight-stream/moonlight-qt/releases" target="_blank" onClick={() => setClientMenuAnchor(null)}>
-                        <ListItemText primary="Windows, macOS, Linux" />
-                      </MenuItem>
-                      <MenuItem component="a" href="https://apps.apple.com/us/app/voidlink/id6747717070" target="_blank" onClick={() => setClientMenuAnchor(null)}>
-                        <ListItemText primary="iOS/iPad, Apple TV" />
-                      </MenuItem>
-                      <MenuItem component="a" href="https://play.google.com/store/apps/details?id=com.limelight" target="_blank" onClick={() => setClientMenuAnchor(null)}>
-                        <ListItemText primary="Android" />
-                      </MenuItem>
-                      <MenuItem component="a" href="https://moonlight-stream.org/" target="_blank" onClick={() => setClientMenuAnchor(null)}>
-                        <ListItemText primary="Other" />
-                      </MenuItem>
-                    </Menu>
-                    {onOpenPairingDialog && (
-                      <Button
-                        variant="text"
-                        size="small"
-                        startIcon={<ConnectedTv />}
-                        onClick={onOpenPairingDialog}
-                        sx={{
-                          fontSize: '0.65rem',
-                          py: 0.125,
-                          px: 0.75,
-                          minWidth: 'auto',
-                          '&:hover': {
-                            bgcolor: 'action.selected'
-                          }
-                        }}
-                      >
-                        Pair
-                      </Button>
-                    )}
-                  </Box>
-                </Box>
-
-                {/* Step 2: Join Lobby */}
-                {session?.config?.wolf_lobby_pin && (
-                  <Box sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 0.25,
-                    px: 1.5,
-                    py: 0.5,
-                    mr: 1,
-                    bgcolor: 'rgba(25, 118, 210, 0.08)',
-                    borderRadius: 0.5,
-                    border: '1px solid',
-                    borderColor: 'primary.main'
-                  }}>
-                    <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.65rem', opacity: 0.9, lineHeight: 1 }}>
-                      2. Join Lobby "{session.id?.slice(-4) || ''}" and enter PIN
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                      <Typography
-                        variant="caption"
-                        onClick={() => setShowPin(!showPin)}
-                        sx={{
-                          fontFamily: 'monospace',
-                          letterSpacing: showPin ? 2 : 1,
-                          color: 'primary.light',
-                          fontWeight: 'bold',
-                          fontSize: '0.75rem',
-                          minWidth: '40px',
-                          cursor: 'pointer',
-                          '&:hover': { opacity: 0.8 }
-                        }}
-                      >
-                        {showPin ? session.config.wolf_lobby_pin : '****'}
-                      </Typography>
-                      <Tooltip title={showPin ? "Hide PIN" : "Show PIN"}>
-                        <IconButton
-                          size="small"
-                          onClick={() => setShowPin(!showPin)}
-                          sx={{
-                            p: 0.25,
-                            color: 'primary.light',
-                            '&:hover': { bgcolor: 'primary.main' }
-                          }}
-                        >
-                          {showPin ? <VisibilityOffIcon sx={{ fontSize: '0.8rem' }} /> : <VisibilityIcon sx={{ fontSize: '0.8rem' }} />}
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                )}
-                </Box>
-              </Box>
-            )}
           </Box>
         </Box>
       </Cell>
@@ -564,24 +381,6 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
-              {(isOwner || account.admin) && isExternalAgent && (
-                <Cell>
-                  <Tooltip title={showMoonlightControls ? "Hide Moonlight Setup" : "Show Moonlight Setup"}>
-                    <IconButton
-                      onClick={() => setShowMoonlightControls(!showMoonlightControls)}
-                      size="small"
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                        },
-                      }}
-                    >
-                      <ConnectedTv sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Cell>
-              )}
               {isExternalAgent && hasValidMCPTools && (
                 <Cell>
                   <Tooltip title="MCP Tools">
