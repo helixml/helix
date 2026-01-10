@@ -138,14 +138,11 @@ func (s *Server) Run(ctx context.Context) error {
 		defer s.inputListener.Close()
 		defer os.Remove(s.inputSocketPath)
 
-		// 6. Start video forwarder - captures from PipeWire inside container
-		// and forwards via shared memory for direct WebSocket streaming.
-		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
-		s.videoForwarder = NewVideoForwarder(s.nodeID, shmSocketPath, s.logger)
-		if err := s.videoForwarder.Start(ctx); err != nil {
-			s.logger.Warn("failed to start video forwarder",
-				"err", err)
-		}
+		// 6. Skip video forwarder for GNOME - connect directly to pipewiresrc in VideoStreamer
+		// The shmsink/shmsrc approach causes reconnection issues and doesn't provide benefits
+		// over direct pipewiresrc (which Mutter supports well).
+		// Only Sway uses the video forwarder (with wf-recorder for wlr-screencopy).
+		s.logger.Info("GNOME: using direct pipewiresrc (no video forwarder)")
 
 		// 7. Create dedicated screenshot ScreenCast session (separate from video streaming)
 		// This standalone session gets DmaBuf with NVIDIA modifiers, but it's reserved
@@ -213,9 +210,17 @@ func (s *Server) Run(ctx context.Context) error {
 			}
 		}
 
-		// Note: No video forwarder needed for Sway - we consume directly from PipeWire
-		// via GStreamer pipewiresrc in ws_stream.go. The node ID from the portal session
-		// is all we need.
+		// 5. Start video forwarder - captures screen and forwards via shared memory
+		// for direct WebSocket streaming.
+		// For Sway, we use wf-recorder (wlr-screencopy) instead of pipewiresrc because
+		// pipewiresrc has compatibility issues with xdg-desktop-portal-wlr and hangs
+		// during format negotiation.
+		shmSocketPath := filepath.Join(s.config.XDGRuntimeDir, "helix-video.sock")
+		s.videoForwarder = NewVideoForwarderForSway(shmSocketPath, s.logger)
+		if err := s.videoForwarder.Start(ctx); err != nil {
+			s.logger.Warn("failed to start video forwarder",
+				"err", err)
+		}
 
 		s.running.Store(true)
 		s.logger.Info("Sway portal session ready",

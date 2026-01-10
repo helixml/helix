@@ -7,17 +7,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
-// VideoForwarder captures video from PipeWire and forwards frames via shared memory.
-// This solves the cross-container PipeWire authorization issue by running the capture
-// inside the container where PipeWire is accessible.
+// createFIFO creates a named pipe (FIFO) at the given path
+func createFIFO(path string) error {
+	return syscall.Mkfifo(path, 0644)
+}
+
+// VideoForwarder captures video and forwards frames via shared memory.
+// Supports two capture modes:
+// - GNOME: Uses pipewiresrc to capture from Mutter's ScreenCast PipeWire node
+// - Sway: Uses wf-recorder (wlr-screencopy) since pipewiresrc has issues with xdg-desktop-portal-wlr
 type VideoForwarder struct {
 	nodeID        uint32
 	shmSocketPath string
+	useSway       bool // If true, use wf-recorder instead of pipewiresrc
 	cmd           *exec.Cmd
 	running       bool
+	cancelMonitor context.CancelFunc // Cancels the monitor goroutine
 	mu            sync.Mutex
 	logger        interface {
 		Info(msg string, args ...any)
@@ -27,7 +36,7 @@ type VideoForwarder struct {
 	}
 }
 
-// NewVideoForwarder creates a new video forwarder.
+// NewVideoForwarder creates a new video forwarder for GNOME (uses pipewiresrc).
 func NewVideoForwarder(nodeID uint32, shmSocketPath string, logger interface {
 	Info(msg string, args ...any)
 	Warn(msg string, args ...any)
@@ -37,6 +46,24 @@ func NewVideoForwarder(nodeID uint32, shmSocketPath string, logger interface {
 	return &VideoForwarder{
 		nodeID:        nodeID,
 		shmSocketPath: shmSocketPath,
+		useSway:       false,
+		logger:        logger,
+	}
+}
+
+// NewVideoForwarderForSway creates a video forwarder for Sway (uses wf-recorder).
+// wf-recorder uses wlr-screencopy protocol directly, bypassing the problematic
+// xdg-desktop-portal-wlr + pipewiresrc path that hangs during format negotiation.
+func NewVideoForwarderForSway(shmSocketPath string, logger interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+	Debug(msg string, args ...any)
+}) *VideoForwarder {
+	return &VideoForwarder{
+		nodeID:        0, // Not used for Sway
+		shmSocketPath: shmSocketPath,
+		useSway:       true,
 		logger:        logger,
 	}
 }
@@ -60,44 +87,81 @@ func (v *VideoForwarder) Start(ctx context.Context) error {
 	// Remove existing socket if present
 	os.Remove(v.shmSocketPath)
 
-	// Build GStreamer pipeline:
-	// pipewiresrc path=<node_id> - capture from GNOME ScreenCast
-	// videoconvert - ensure format compatibility
-	// shmsink - output to shared memory socket
-	//
-	// Note: We use raw video (BGRx) for GPU encoding compatibility.
-	// The shmsink creates a Unix socket for shared memory video access.
-	pipelineDef := fmt.Sprintf(
-		"pipewiresrc path=%d do-timestamp=true ! "+
-			"video/x-raw,format=BGRx ! "+
-			"shmsink socket-path=%s wait-for-connection=true sync=false",
-		v.nodeID, v.shmSocketPath,
-	)
+	if v.useSway {
+		// Sway: Use wf-recorder (wlr-screencopy) to output H.264 directly to a FIFO
+		// wf-recorder uses the native wlroots screen capture protocol which is more reliable
+		// than xdg-desktop-portal-wlr + pipewiresrc (which hangs during format negotiation)
+		//
+		// Output format: raw H.264 Annex-B stream (NAL units with start codes)
+		// ws_stream.go reads from this FIFO and RTP-packetizes (no additional encoding needed)
+		//
+		// Note: We use nvenc for GPU-accelerated encoding if available
+		// The -m h264 flag outputs raw H.264 without container (Annex-B format)
+		fifoPath := v.shmSocketPath // Reuse socket path for FIFO
 
-	v.logger.Info("starting video forwarder",
-		"node_id", v.nodeID,
-		"shm_socket", v.shmSocketPath,
-		"pipeline", pipelineDef)
+		// Create FIFO (named pipe) for H.264 stream
+		os.Remove(fifoPath)
+		if err := createFIFO(fifoPath); err != nil {
+			return fmt.Errorf("create FIFO: %w", err)
+		}
 
-	v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q", "-e",
-		"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-		"!", "video/x-raw,format=BGRx",
-		"!", "shmsink", fmt.Sprintf("socket-path=%s", v.shmSocketPath),
-		"wait-for-connection=true", "sync=false",
-	)
+		// wf-recorder command:
+		// -y: overwrite without prompting
+		// -c h264_nvenc: use NVIDIA encoder (falls back to libx264 if unavailable)
+		// -x yuv420p: pixel format for encoding
+		// -m h264: output raw H.264 annex-b format (no container)
+		// --no-damage: capture every frame, not just on damage (for smoother streaming)
+		v.logger.Info("starting video forwarder (Sway/wf-recorder)",
+			"fifo", fifoPath)
 
-	// Inherit environment for PipeWire access
+		v.cmd = exec.CommandContext(ctx, "wf-recorder",
+			"-y",
+			"-c", "h264_nvenc",
+			"-x", "yuv420p",
+			"-m", "h264",
+			"--no-damage",
+			"-f", fifoPath,
+		)
+	} else {
+		// GNOME: Use pipewiresrc to capture from Mutter's ScreenCast PipeWire node
+		// This works reliably because GNOME's ScreenCast creates a proper PipeWire stream
+		pipelineDef := fmt.Sprintf(
+			"pipewiresrc path=%d do-timestamp=true ! "+
+				"video/x-raw,format=BGRx ! "+
+				"shmsink socket-path=%s wait-for-connection=true sync=false",
+			v.nodeID, v.shmSocketPath,
+		)
+
+		v.logger.Info("starting video forwarder (GNOME/pipewiresrc)",
+			"node_id", v.nodeID,
+			"shm_socket", v.shmSocketPath,
+			"pipeline", pipelineDef)
+
+		v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q", "-e",
+			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+			"!", "video/x-raw,format=BGRx",
+			"!", "shmsink", fmt.Sprintf("socket-path=%s", v.shmSocketPath),
+			"wait-for-connection=true", "sync=false",
+		)
+	}
+
+	// Inherit environment for PipeWire/Wayland access
 	v.cmd.Env = os.Environ()
 
 	// Start the process
 	if err := v.cmd.Start(); err != nil {
-		return fmt.Errorf("start gst-launch: %w", err)
+		return fmt.Errorf("start video forwarder: %w", err)
 	}
 
 	v.running = true
 
+	// Create cancelable context for the monitor goroutine
+	// This allows Stop() to cleanly shut down the monitor
+	monitorCtx, cancelMonitor := context.WithCancel(context.Background())
+	v.cancelMonitor = cancelMonitor
+
 	// Monitor the process
-	go v.monitor(ctx)
+	go v.monitor(monitorCtx)
 
 	v.logger.Info("video forwarder started, waiting for socket creation", "pid", v.cmd.Process.Pid)
 
@@ -186,12 +250,33 @@ func (v *VideoForwarder) monitor(ctx context.Context) {
 
 		os.Remove(v.shmSocketPath)
 
-		v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q", "-e",
-			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-			"!", "video/x-raw,format=BGRx",
-			"!", "shmsink", fmt.Sprintf("socket-path=%s", v.shmSocketPath),
-			"wait-for-connection=true", "sync=false",
-		)
+		if v.useSway {
+			// Sway: Recreate FIFO and restart wf-recorder
+			fifoPath := v.shmSocketPath
+			os.Remove(fifoPath)
+			if err := createFIFO(fifoPath); err != nil {
+				v.logger.Error("failed to recreate FIFO", "err", err)
+				v.running = false
+				v.mu.Unlock()
+				return
+			}
+			v.cmd = exec.CommandContext(ctx, "wf-recorder",
+				"-y",
+				"-c", "h264_nvenc",
+				"-x", "yuv420p",
+				"-m", "h264",
+				"--no-damage",
+				"-f", fifoPath,
+			)
+		} else {
+			// GNOME: Use pipewiresrc pipeline
+			v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", "-q", "-e",
+				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+				"!", "video/x-raw,format=BGRx",
+				"!", "shmsink", fmt.Sprintf("socket-path=%s", v.shmSocketPath),
+				"wait-for-connection=true", "sync=false",
+			)
+		}
 		v.cmd.Env = os.Environ()
 
 		if err := v.cmd.Start(); err != nil {
@@ -216,10 +301,17 @@ func (v *VideoForwarder) Stop() {
 
 	v.running = false
 
+	// Cancel the monitor goroutine first to prevent it from restarting
+	if v.cancelMonitor != nil {
+		v.cancelMonitor()
+		v.cancelMonitor = nil
+	}
+
 	if v.cmd != nil && v.cmd.Process != nil {
 		v.logger.Info("stopping video forwarder", "pid", v.cmd.Process.Pid)
 		v.cmd.Process.Kill()
-		v.cmd.Wait()
+		// Don't call Wait() here - the monitor goroutine will reap the process
+		// and exit cleanly since running is now false
 	}
 
 	// Clean up socket
@@ -231,6 +323,18 @@ func (v *VideoForwarder) IsRunning() bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return v.running
+}
+
+// Restart stops and restarts the video forwarder.
+// This is needed when WebSocket clients reconnect because shmsink/shmsrc
+// can get into a bad state after client disconnection.
+// Note: Uses background context so the forwarder isn't tied to any single WebSocket connection.
+func (v *VideoForwarder) Restart(ctx context.Context) error {
+	v.logger.Info("restarting video forwarder for new connection")
+	v.Stop()
+	// Use background context - the forwarder should live beyond individual connections.
+	// We ignore the passed ctx to avoid killing the forwarder when the WebSocket closes.
+	return v.Start(context.Background())
 }
 
 // ShmSocketPath returns the path to the shared memory socket.

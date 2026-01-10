@@ -107,20 +107,21 @@ type StreamConfig struct {
 // VideoStreamer captures video from PipeWire and streams to WebSocket
 // Uses RTP over UDP for reliable frame boundaries (matching Rust implementation).
 type VideoStreamer struct {
-	nodeID        uint32
-	shmSocketPath string    // If set, use shmsrc instead of pipewiresrc
-	videoMode     VideoMode // Video capture mode (shm, native, zerocopy)
-	config        StreamConfig
-	ws            *websocket.Conn
-	logger        *slog.Logger
-	cmd           *exec.Cmd
-	running       atomic.Bool
-	cancel        context.CancelFunc
-	mu            sync.Mutex
+	nodeID             uint32
+	shmSocketPath      string    // If set, use shmsrc instead of pipewiresrc
+	preEncodedH264Path string    // If set, read pre-encoded H.264 from FIFO (Sway/wf-recorder)
+	videoMode          VideoMode // Video capture mode (shm, native, zerocopy)
+	config             StreamConfig
+	ws                 *websocket.Conn
+	logger             *slog.Logger
+	cmd                *exec.Cmd
+	running            atomic.Bool
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
 
 	// RTP over UDP - provides natural packet framing like Rust WebRTC mode
-	rtpPort  int           // UDP port for RTP packets
-	rtpConn  *net.UDPConn  // UDP listener for RTP packets
+	rtpPort   int               // UDP port for RTP packets
+	rtpConn   *net.UDPConn      // UDP listener for RTP packets
 	rtpDepack *H264Depacketizer // RTP H.264 depacketizer
 
 	// Frame tracking
@@ -153,6 +154,20 @@ func NewVideoStreamerWithSHM(shmSocketPath string, config StreamConfig, ws *webs
 		config:        config,
 		ws:            ws,
 		logger:        logger,
+	}
+	v.videoEnabled.Store(true)
+	return v
+}
+
+// NewVideoStreamerWithPreEncodedH264 creates a video streamer that reads pre-encoded H.264
+// from a FIFO. This is used for Sway where wf-recorder outputs encoded video directly.
+// No additional encoding is performed - the H.264 is just parsed and RTP-packetized.
+func NewVideoStreamerWithPreEncodedH264(h264Path string, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
+	v := &VideoStreamer{
+		preEncodedH264Path: h264Path,
+		config:             config,
+		ws:                 ws,
+		logger:             logger,
 	}
 	v.videoEnabled.Store(true)
 	return v
@@ -302,6 +317,20 @@ func checkGstElement(element string) bool {
 func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	var args []string
 
+	// Pre-encoded H.264 path (Sway/wf-recorder) - skip all encoding, just parse and RTP-ize
+	if v.preEncodedH264Path != "" {
+		// Read pre-encoded H.264 annex-b stream from FIFO
+		// wf-recorder has already done the encoding, we just need to parse and RTP-packetize
+		args = []string{
+			"filesrc", fmt.Sprintf("location=%s", v.preEncodedH264Path),
+			"!", "h264parse", "config-interval=-1",
+			"!", "video/x-h264,stream-format=byte-stream,alignment=au",
+			"!", "rtph264pay", "pt=96", "mtu=65000",
+			"!", "udpsink", "host=127.0.0.1", fmt.Sprintf("port=%d", v.rtpPort), "sync=false",
+		}
+		return args
+	}
+
 	// Step 1: Build source section based on video mode
 	// Note: shmSocketPath (for video forwarder) takes precedence over videoMode
 	if v.shmSocketPath != "" {
@@ -340,6 +369,7 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 
 		default: // VideoModeSHM
 			// Standard pipewiresrc path - most compatible
+			// Uses damage-based capture (only sends frames when screen changes)
 			args = []string{
 				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
 				"!", "video/x-raw,format=BGRx",
@@ -674,6 +704,8 @@ func (v *VideoStreamer) Stop() {
 
 	if v.cmd != nil && v.cmd.Process != nil {
 		v.cmd.Process.Kill()
+		// Wait for process to exit to avoid zombie processes
+		v.cmd.Wait()
 	}
 
 	v.logger.Info("video capture stopped",
@@ -749,15 +781,26 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		"bitrate", config.Bitrate,
 	)
 
-	// Create video streamer - prefer SHM source if video forwarder is running
-	// This avoids PipeWire node conflicts (forwarder already claimed the ScreenCast node)
+	// Create video streamer - select source based on compositor type
 	var streamer *VideoStreamer
-	if server != nil && server.videoForwarder != nil && server.videoForwarder.IsRunning() {
-		shmSocketPath := server.videoForwarder.ShmSocketPath()
-		logger.Info("using SHM video source (forwarder running)", "socket", shmSocketPath)
-		streamer = NewVideoStreamerWithSHM(shmSocketPath, config, ws, logger)
+	if server != nil && server.compositorType == "sway" && server.videoForwarder != nil {
+		// For Sway: Use wf-recorder which outputs pre-encoded H.264 to a FIFO
+		// Restart forwarder for each connection to avoid stale FIFO state
+		if err := server.videoForwarder.Restart(r.Context()); err != nil {
+			logger.Error("failed to restart video forwarder", "err", err)
+			// Fall back to direct PipeWire (may not work on Sway, but try anyway)
+			logger.Info("falling back to PipeWire video source", "node_id", nodeID)
+			streamer = NewVideoStreamer(nodeID, config, ws, logger)
+		} else {
+			forwarderPath := server.videoForwarder.ShmSocketPath()
+			logger.Info("using pre-encoded H.264 source (Sway/wf-recorder)", "fifo", forwarderPath)
+			streamer = NewVideoStreamerWithPreEncodedH264(forwarderPath, config, ws, logger)
+		}
 	} else {
-		logger.Info("using PipeWire video source", "node_id", nodeID)
+		// For GNOME: Connect directly to pipewiresrc
+		// The shmsink/shmsrc approach has reliability issues with reconnection,
+		// so we skip the video forwarder and connect directly to PipeWire.
+		logger.Info("using PipeWire video source (direct)", "node_id", nodeID)
 		streamer = NewVideoStreamer(nodeID, config, ws, logger)
 	}
 
