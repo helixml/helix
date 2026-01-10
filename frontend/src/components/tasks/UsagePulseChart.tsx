@@ -37,7 +37,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({ taskId, accentColor }
     return { chartData: data, chartLabels: labels, totalTokens: total }
   }, [usageData])  
 
-  if (!chartData || chartData.length === 0) return null
+  if (!chartData || chartData.length === 0 || totalTokens === 0) return null
 
   const gradientId = `usageGradient-${taskId}`
 
