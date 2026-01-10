@@ -50,7 +50,7 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({ taskId, accentColor }
   const gradientId = `usageGradient-${taskId}`
 
   return (
-    <Tooltip title={`${totalTokens.toLocaleString()} tokens`}>
+    <Tooltip title={`${totalTokens.toLocaleString()} tokens used`}>
       <Box
         sx={{
           width: '100%',
