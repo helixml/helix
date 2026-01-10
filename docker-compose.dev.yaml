@@ -249,6 +249,16 @@ services:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     # ports:
     #   - 7317:7317
+  qdrant:
+    image: qdrant/qdrant:v1.16.1
+    restart: always
+    # ports:
+    #   - 6333:6333
+    #   - 6334:6334
+    volumes:
+      - ${QDRANT_DATA:-helix-qdrant-db}:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
 
   # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
   # Replaces separate wolf and moonlight-web services with a single unified container
@@ -752,6 +762,7 @@ volumes:
   helix-kodit-data:
   helix-filestore:
   helix-typesense-db:
+  helix-qdrant-db:
   helix-socket:
   wolf-socket:
   wolf-docker-storage: # Wolf's isolated dockerd storage (sandboxes + devcontainers)

@@ -202,7 +202,7 @@ controlplane:
 
   # RAG configuration
   rag:
-    # The default RAG provider to use. Valid values: haystack, typesense
+    # The default RAG provider to use. Valid values: haystack, typesense, qdrant
     defaultProvider: "haystack"
     # The helix inference provider that will serve embeddings for haystack.
     # Valid values: vllm, helix (for haystack which uses external GPU-accelerated
@@ -435,6 +435,47 @@ typesense:
     #   matchLabels:
     #     app: typesense
 
+## Qdrant configuration (RAG provider)
+qdrant:
+  # Enable Qdrant for vector-based RAG
+  enabled: false
+  apiKey: "" # Optional API key for Qdrant authentication
+  # Use custom image if needed
+  # image:
+  #   repository: qdrant/qdrant
+  #   tag: "v1.16.1"
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: "" # Use default storage class
+    accessModes:
+      - ReadWriteOnce
+    # Use existing PVC
+    # existingClaim: "my-qdrant-pvc"
+    # PVC selector
+    # selector:
+    #   matchLabels:
+    #     app: qdrant
+
+# Kodit configuration
+# See https://github.com/helixml/kodit/blob/main/charts/kodit/values.yaml
+# and https://github.com/bjw-s-labs/helm-charts/blob/main/charts/library/common/values.yaml for all possible values.
+#
+# Kodit is automatically configured to use Helix as its LLM proxy for code enrichments.
+# By default, it uses the runner token secret "helix-runner-secrets" with key "api-token".
+# If your runner token is in a different secret, override it like this:
+kodit:
+  enabled: true
+  # controllers:
+  #   kodit:
+  #     containers:
+  #       kodit:
+  #         env:
+  #           ENRICHMENT_ENDPOINT_API_KEY:
+  #             valueFrom:
+  #               secretKeyRef:
+  #                 name: "my-custom-secret"    # Your secret name
+  #                 key: "my-api-key"           # Key within the secret
 ## Kodit configuration - Code indexing service
 # Kodit provides code search and analysis capabilities for Helix.
 # It uses its own PostgreSQL + pgvector database (vectorchord) for code embeddings.

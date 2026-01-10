@@ -1,0 +1,25 @@
+{{- if and .Values.qdrant.persistence.enabled (not .Values.qdrant.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-qdrant-pvc  
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  accessModes:
+  {{- range .Values.qdrant.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.persistence.size | quote }}
+  {{- if .Values.qdrant.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.qdrant.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.qdrant.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.qdrant.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.qdrant.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}
+

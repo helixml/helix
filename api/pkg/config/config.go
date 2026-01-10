@@ -261,6 +261,7 @@ const (
 	RAGProviderTypesense  RAGProvider = "typesense"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
 	RAGProviderHaystack   RAGProvider = "haystack"
+	RAGProviderQdrant     RAGProvider = "qdrant"
 )
 
 type RAG struct {
@@ -297,6 +298,18 @@ type RAG struct {
 	Haystack struct {
 		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
 		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
+	}
+
+	Qdrant struct {
+		Host                  string           `envconfig:"RAG_QDRANT_HOST" default:"localhost" description:"The Qdrant server host."`
+		Port                  int              `envconfig:"RAG_QDRANT_PORT" default:"6334" description:"The Qdrant server gRPC port."`
+		APIKey                string           `envconfig:"RAG_QDRANT_API_KEY" description:"The API key for Qdrant authentication."`
+		UseTLS                bool             `envconfig:"RAG_QDRANT_USE_TLS" default:"false" description:"Whether to use TLS for Qdrant connection."`
+		Collection            string           `envconfig:"RAG_QDRANT_COLLECTION" default:"helix-documents" description:"The Qdrant collection name."`
+		Provider              string           `envconfig:"RAG_QDRANT_PROVIDER" default:"openai" description:"The embedding provider for Qdrant (openai, togetherai, vllm, helix)."`
+		EmbeddingsModel       string           `envconfig:"RAG_QDRANT_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
+		EmbeddingsConcurrency int              `envconfig:"RAG_QDRANT_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
+		Dimensions            types.Dimensions `envconfig:"RAG_QDRANT_DIMENSIONS" description:"The dimensions for embeddings, only set for custom models."`
 	}
 
 	Crawler struct {

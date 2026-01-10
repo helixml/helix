@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -101,7 +102,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Size:            k.Size,
 					State:           types.KnowledgeStateError,
 					Message:         err.Error(),
-					EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+					EmbeddingsModel: r.getEmbeddingsModel(),
 					Provider:        string(r.config.RAG.DefaultRagProvider),
 				})
 				return
@@ -198,7 +199,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 			State:           types.KnowledgeStateError,
 			Message:         err.Error(),
 			CrawledSources:  k.CrawledSources,
-			EmbeddingsModel: r.config.RAG.PGVector.EmbeddingsModel,
+			EmbeddingsModel: r.getEmbeddingsModel(),
 			Provider:        string(r.config.RAG.DefaultRagProvider),
 		})
 
@@ -697,4 +698,17 @@ func convertMetadataToStringMap(metadata map[string]interface{}) map[string]stri
 		stringMap[key] = fmt.Sprintf("%v", value)
 	}
 	return stringMap
+}
+
+func (r *Reconciler) getEmbeddingsModel() string {
+	switch r.config.RAG.DefaultRagProvider {
+	case config.RAGProviderQdrant:
+		return r.config.RAG.Qdrant.EmbeddingsModel
+	case config.RAGProviderTypesense:
+		return "ts/all-MiniLM-L12-v2"
+	case config.RAGProviderLlamaindex, config.RAGProviderHaystack:
+		return ""
+	default:
+		return r.config.RAG.PGVector.EmbeddingsModel
+	}
 }

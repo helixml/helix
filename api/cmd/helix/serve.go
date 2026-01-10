@@ -425,6 +425,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	case config.RAGProviderHaystack:
 		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
 		log.Info().Msgf("Using Haystack for RAG")
+	case config.RAGProviderQdrant:
+		ragClient, err = rag.NewQdrant(cfg, providerManager)
+		if err != nil {
+			return fmt.Errorf("failed to create Qdrant RAG client: %v", err)
+		}
+		log.Info().Msgf("Using Qdrant for RAG")
 	default:
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
