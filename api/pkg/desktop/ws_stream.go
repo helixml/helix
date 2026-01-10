@@ -41,9 +41,13 @@ const (
 	VideoModeZeroCopy VideoMode = "zerocopy"
 )
 
-// getVideoMode returns the configured video mode from HELIX_VIDEO_MODE env var
-func getVideoMode() VideoMode {
-	mode := os.Getenv("HELIX_VIDEO_MODE")
+// getVideoMode returns the configured video mode
+// If configOverride is provided (non-empty), it takes precedence over env var
+func getVideoMode(configOverride string) VideoMode {
+	mode := configOverride
+	if mode == "" {
+		mode = os.Getenv("HELIX_VIDEO_MODE")
+	}
 	switch strings.ToLower(mode) {
 	case "native", "dmabuf":
 		return VideoModeNative
@@ -97,6 +101,9 @@ type StreamConfig struct {
 	PlayAudioLocal        bool   `json:"play_audio_local"`
 	VideoSupportedFormats int    `json:"video_supported_formats"`
 	ClientUniqueID        string `json:"client_unique_id,omitempty"`
+	// VideoMode overrides the HELIX_VIDEO_MODE env var for this stream
+	// Valid values: "shm", "native", "zerocopy" (default: from env or "shm")
+	VideoMode string `json:"video_mode,omitempty"`
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket
@@ -124,7 +131,7 @@ type VideoStreamer struct {
 func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
 		nodeID:    nodeID,
-		videoMode: getVideoMode(),
+		videoMode: getVideoMode(config.VideoMode),
 		config:    config,
 		ws:        ws,
 		logger:    logger,
@@ -138,6 +145,7 @@ func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, lo
 func NewVideoStreamerWithSHM(shmSocketPath string, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
 		shmSocketPath: shmSocketPath,
+		videoMode:     getVideoMode(config.VideoMode),
 		config:        config,
 		ws:            ws,
 		logger:        logger,

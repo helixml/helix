@@ -733,6 +733,7 @@ func newStreamCommand() *cobra.Command {
 	var outputFile string
 	var verbose bool
 	var width, height, fps, bitrate int
+	var videoMode string
 
 	cmd := &cobra.Command{
 		Use:   "stream <session-id>",
@@ -749,12 +750,18 @@ Statistics displayed:
   - Resolution and codec
   - Keyframe count
 
+Video modes:
+  - shm:      Shared memory path (default, most compatible, 1-2 CPU copies)
+  - native:   Native GStreamer DMA-BUF (requires GStreamer 1.24+, fewer copies)
+  - zerocopy: pipewirezerocopysrc plugin (true zero-copy, requires plugin)
+
 Examples:
-  helix spectask stream ses_01xxx                           # Run until Ctrl+C (1080p default)
+  helix spectask stream ses_01xxx                             # Run until Ctrl+C (1080p default)
   helix spectask stream ses_01xxx --width 3840 --height 2160  # Stream at 4K resolution
-  helix spectask stream ses_01xxx --duration 30             # Run for 30 seconds
-  helix spectask stream ses_01xxx --output video.h264       # Save raw video to file
-  helix spectask stream ses_01xxx -v                        # Verbose mode (show each frame)
+  helix spectask stream ses_01xxx --duration 30               # Run for 30 seconds
+  helix spectask stream ses_01xxx --output video.h264         # Save raw video to file
+  helix spectask stream ses_01xxx --video-mode zerocopy       # Test zero-copy streaming
+  helix spectask stream ses_01xxx -v                          # Verbose mode (show each frame)
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -813,9 +820,16 @@ Examples:
 				"play_audio_local":        false,
 				"video_supported_formats": 1, // H264 = 0x01
 			}
+			// Add video_mode if specified (overrides container's HELIX_VIDEO_MODE)
+			if videoMode != "" {
+				initMessage["video_mode"] = videoMode
+				fmt.Printf("📤 Sending init message (%dx%d@%dfps, %dkbps, mode=%s)...\n",
+					width, height, fps, bitrate, videoMode)
+			} else {
+				fmt.Printf("📤 Sending init message (%dx%d@%dfps, %dkbps)...\n",
+					width, height, fps, bitrate)
+			}
 			initJSON, _ := json.Marshal(initMessage)
-			fmt.Printf("📤 Sending init message (%dx%d@%dfps, %dkbps)...\n",
-				width, height, fps, bitrate)
 			if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
 				return fmt.Errorf("failed to send init: %w", err)
 			}
@@ -1040,6 +1054,7 @@ Examples:
 	cmd.Flags().IntVar(&height, "height", 1080, "Video stream height in pixels")
 	cmd.Flags().IntVar(&fps, "fps", 60, "Video stream frames per second")
 	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video stream bitrate in kbps")
+	cmd.Flags().StringVar(&videoMode, "video-mode", "", "Video capture mode: shm, native, or zerocopy (default: container env)")
 
 	return cmd
 }

@@ -488,6 +488,8 @@ type ExternalAgentConfig struct {
 	DesktopType string `json:"desktop_type,omitempty"` // "ubuntu" (default) or "sway"
 	ZoomLevel   int    `json:"zoom_level,omitempty"`   // GNOME zoom percentage (100 default, 200 for 4k/5k)
 
+	// Video capture/encoding mode
+	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
 
 // Validate checks if the external agent configuration is valid
@@ -1920,6 +1922,9 @@ type ZedAgent struct {
 	CustomImage    string `json:"custom_image,omitempty"`     // Custom container image (overrides desktop type)
 	GitRepoURL     string `json:"git_repo_url,omitempty"`     // Git repository URL for cloning
 	GitBranch      string `json:"git_branch,omitempty"`       // Git branch to checkout
+
+	// Video capture/encoding mode for streaming
+	VideoMode string `json:"video_mode,omitempty"` // "shm" (default), "native", or "zerocopy"
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset

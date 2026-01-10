@@ -456,3 +456,166 @@ HELIX_VIDEO_MODE=shm       # Default, most compatible
 - `desktop/gst-pipewire-zerocopy/` - New plugin source (copied from Wolf)
 - `Dockerfile.ubuntu-helix` - Added Rust build stage
 - `Dockerfile.sway-helix` - Added Rust build stage
+- `api/pkg/cli/spectask/spectask.go` - Added --video-mode flag to stream command
+
+### Architecture Change: Same-Container Streaming (Hypothesis)
+
+**Previous Architecture (Wolf mode)**:
+```
+Desktop Container             Sandbox Container (Wolf)
+├── GNOME/Mutter              ├── Wolf streaming server
+├── PipeWire                  └── GStreamer pipeline
+│   └── ScreenCast DMA-BUF ──────> (some mechanism) ──> Wolf
+```
+
+**New Architecture (Wolf-free mode)**:
+```
+Desktop Container (all in one)
+├── GNOME/Mutter
+├── PipeWire
+│   └── ScreenCast DMA-BUF
+├── screenshot-server (Go)
+│   └── GStreamer pipeline ──> pipewirezerocopysrc
+│       └── DMA-BUF ──> EGL ──> CUDA ──> nvh264enc ──> WebSocket
+```
+
+**Hypothesis**: Running the GStreamer pipeline inside the same container as the
+compositor might eliminate whatever was preventing zero-copy from working previously.
+
+**However, this hypothesis may be wrong.** Key counter-evidence:
+- Wolf successfully achieves zero-copy with NVIDIA GPUs across container boundaries
+- Wolf uses lobbies/sessions that share FDs between desktop and streaming containers
+- Wolf's gst-wayland-display plugin is battle-tested for exactly this use case
+
+**What we don't fully understand:**
+1. What specifically caused zero-copy to fail in our previous attempts?
+2. Does Wolf do something special to make cross-container DMA-BUF work?
+3. Was the issue actually DMA-BUF security, or something else entirely?
+
+**Possible explanations for previous failures:**
+- Misconfiguration of the GStreamer pipeline elements
+- Missing GPU driver capabilities or permissions
+- PipeWire version incompatibilities
+- EGL/CUDA context initialization order issues
+- Something specific to GNOME 49's ScreenCast implementation
+
+The same-container architecture is simpler and eliminates cross-container complexity,
+but we should not assume it was the cross-container aspect that caused the failure.
+
+---
+
+## Multiple Video Streams from Same Desktop
+
+**Question**: Can multiple clients stream video from the same desktop container?
+
+### How PipeWire ScreenCast Works
+
+1. **Portal session**: Client calls `org.freedesktop.portal.ScreenCast.CreateSession()`
+2. **Source selection**: Client calls `SelectSources()` to pick monitors/windows
+3. **Start capture**: Client calls `Start()` which returns a PipeWire node ID
+4. **Stream consumption**: Client connects to the PipeWire node via `pipewiresrc`
+
+### Option A: Multiple Portal Sessions (Simple but Wasteful)
+
+Each client creates its own ScreenCast session:
+```
+Client 1 → CreateSession → SelectSources → Start → Node 42 → pipewiresrc
+Client 2 → CreateSession → SelectSources → Start → Node 43 → pipewiresrc
+Client 3 → CreateSession → SelectSources → Start → Node 44 → pipewiresrc
+```
+
+**Pros:**
+- Simple - no coordination needed
+- Each client is independent
+- Standard portal usage
+
+**Cons:**
+- Compositor renders frame N times for N clients
+- GPU memory multiplied by N
+- CPU overhead for multiple ScreenCast sessions
+- User sees N "screen sharing" indicators in GNOME
+
+### Option B: Shared PipeWire Node (Efficient)
+
+One ScreenCast session, multiple consumers on the same node:
+```
+Session Owner → CreateSession → Start → Node 42
+                                          ↓
+Client 1 ─────────────────────────> pipewiresrc path=42
+Client 2 ─────────────────────────> pipewiresrc path=42
+Client 3 ─────────────────────────> pipewiresrc path=42
+```
+
+**PipeWire architecture supports this:**
+- PipeWire nodes can have multiple output links
+- Each consumer creates a stream connecting to the source
+- PipeWire handles buffer sharing/copying as needed
+
+**Key questions:**
+1. **Does pipewiresrc support multiple instances on same node?**
+   - Likely yes - PipeWire is designed for this (like JACK audio)
+   - Need to test with `pw-cli` and multiple consumers
+
+2. **DMA-BUF sharing with multiple consumers:**
+   - If source provides DMA-BUF, can multiple consumers import it?
+   - GPU memory is shared, but each consumer needs its own EGL/CUDA mapping
+   - Performance depends on whether copy-on-read is needed
+
+3. **GNOME ScreenCast specifics:**
+   - Does Mutter's ScreenCast implementation support multiple links?
+   - GNOME 49's damage-based ScreenCast sends frames on-damage only
+   - Multiple consumers should receive the same damage notifications
+
+### Option C: Application-Level Fan-Out
+
+One GStreamer pipeline with `tee` element:
+```
+pipewiresrc path=42 → tee → queue → nvh264enc → Client 1 WebSocket
+                        ├── queue → nvh264enc → Client 2 WebSocket
+                        └── queue → nvh264enc → Client 3 WebSocket
+```
+
+**Pros:**
+- Single PipeWire connection
+- Single compositor capture
+- Explicit control over fan-out
+
+**Cons:**
+- Multiple encode operations (CPU/GPU intensive)
+- All clients get same resolution/bitrate
+
+### Option D: Encode Once, Distribute Many (Ideal)
+
+One encode, multiple WebSocket outputs:
+```
+pipewiresrc → nvh264enc → tee → queue → Client 1 WebSocket
+                            ├── queue → Client 2 WebSocket
+                            └── queue → Client 3 WebSocket
+```
+
+**Pros:**
+- Single capture
+- Single encode
+- Minimal GPU usage
+- All clients get identical stream
+
+**Cons:**
+- All clients locked to same resolution/bitrate/codec
+- No per-client adaptation
+- Joining mid-stream requires keyframe
+
+### Recommendation
+
+For Helix's use case (typically one user viewing their own desktop):
+1. **Start with Option A** (multiple portal sessions) - simplest, works today
+2. **If performance matters**, implement Option D (encode once, tee to WebSockets)
+3. **For adaptive bitrate**, consider Option C with per-client encoders
+
+Testing needed:
+```bash
+# Test multiple pipewiresrc on same node
+pw-cli ls Node  # List nodes
+gst-launch-1.0 pipewiresrc path=42 ! fakesink &
+gst-launch-1.0 pipewiresrc path=42 ! fakesink &
+# Do both receive frames?
+```
