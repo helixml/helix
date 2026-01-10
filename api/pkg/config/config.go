@@ -190,7 +190,28 @@ type OIDC struct {
 type Notifications struct {
 	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
 	Email  EmailConfig
-	// TODO: Slack, Discord, etc.
+	// Agent progress notifications (Slack/Teams threads with screenshots)
+	AgentNotifications AgentNotificationsConfig
+}
+
+// AgentNotificationsConfig configures agent status notifications to Slack/Teams
+type AgentNotificationsConfig struct {
+	// Slack configuration for agent progress updates
+	Slack SlackNotificationsConfig
+	// Teams configuration for agent progress updates
+	Teams TeamsNotificationsConfig
+}
+
+type SlackNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_SLACK_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_SLACK_WEBHOOK_URL" description:"Slack incoming webhook URL for agent notifications"`
+	BotToken   string `envconfig:"AGENT_NOTIFICATIONS_SLACK_BOT_TOKEN" description:"Slack bot token for interactive messages (optional)"`
+	Channel    string `envconfig:"AGENT_NOTIFICATIONS_SLACK_CHANNEL" description:"Default Slack channel for agent notifications"`
+}
+
+type TeamsNotificationsConfig struct {
+	Enabled    bool   `envconfig:"AGENT_NOTIFICATIONS_TEAMS_ENABLED" default:"false"`
+	WebhookURL string `envconfig:"AGENT_NOTIFICATIONS_TEAMS_WEBHOOK_URL" description:"Teams incoming webhook URL for agent notifications"`
 }
 
 type EmailConfig struct {
@@ -535,7 +556,7 @@ type TURN struct {
 }
 
 type ExternalAgents struct {
-	// MaxConcurrentLobbies is the maximum number of Wolf lobbies that can be created concurrently.
-	// Each lobby uses GPU resources (VRAM for video encoding).
-	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent Wolf lobbies (GPU streaming sessions)."`
+	// MaxConcurrentSessions is the maximum number of desktop sessions that can be created concurrently.
+	// Each session uses GPU resources (VRAM for video encoding).
+	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent desktop sessions (GPU streaming sessions)."`
 }

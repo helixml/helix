@@ -485,7 +485,7 @@ func TestProgressCalculation(t *testing.T) {
 // TestConfigurationAndEnvironment tests configuration handling
 func TestConfigurationAndEnvironment(t *testing.T) {
 	t.Run("ZedAgentConfiguration", func(t *testing.T) {
-		zedAgent := &types.ZedAgent{
+		zedAgent := &types.DesktopAgent{
 			SessionID:   "session_123",
 			UserID:      "user_456",
 			ProjectPath: "/workspace/test-project",

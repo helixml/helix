@@ -512,29 +512,21 @@ const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
     refetchInterval: 5000,
   })
 
-  // Mutation to stop Wolf lobby
-  const stopLobbyMutation = useMutation({
-    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId, { wolf_instance_id: selectedSandboxId }),
-    onSuccess: () => {
-      snackbar.success('Lobby stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedSandboxId] })
+  // TODO: Add sandbox-specific mutations when Hydra admin API is implemented
+  // For now, stub out the mutations to prevent build errors
+  const stopLobbyMutation = {
+    mutate: (_lobbyId: string) => {
+      snackbar.info('Lobby management not yet implemented for Hydra')
     },
-    onError: (err: any) => {
-      snackbar.error(`Failed to stop lobby: ${err.message || 'Unknown error'}`)
-    },
-  })
+    isPending: false,
+  }
 
-  // Mutation to stop Wolf streaming session
-  const stopSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId, { wolf_instance_id: selectedSandboxId }),
-    onSuccess: () => {
-      snackbar.success('Streaming session stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedSandboxId] })
+  const stopSessionMutation = {
+    mutate: (_sessionId: string) => {
+      snackbar.info('Session management not yet implemented for Hydra')
     },
-    onError: (err: any) => {
-      snackbar.error(`Failed to stop session: ${err.message || 'Unknown error'}`)
-    },
-  })
+    isPending: false,
+  }
 
   const memoryData = data?.memory
   const apps = data?.apps || []

@@ -87,10 +87,6 @@ type Client interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
 
-	// Wolf Pairing
-	GetWolfPendingPairRequests(ctx context.Context) ([]byte, error)
-	CompleteWolfPairing(ctx context.Context, data []byte) ([]byte, error)
-
 	// Users
 	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)
 	GetCurrentUser(ctx context.Context) (*types.User, error)
@@ -242,25 +238,6 @@ func (c *HelixClient) UpdateSystemSettings(ctx context.Context, settings *types.
 		return nil, err
 	}
 	return &response, nil
-}
-
-// Wolf Pairing methods
-func (c *HelixClient) GetWolfPendingPairRequests(ctx context.Context) ([]byte, error) {
-	var response json.RawMessage
-	err := c.makeRequest(ctx, http.MethodGet, "/wolf/pairing/pending", nil, &response)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(response), nil
-}
-
-func (c *HelixClient) CompleteWolfPairing(ctx context.Context, data []byte) ([]byte, error) {
-	var response json.RawMessage
-	err := c.makeRequest(ctx, http.MethodPost, "/wolf/pairing/complete", strings.NewReader(string(data)), &response)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(response), nil
 }
 
 // User methods

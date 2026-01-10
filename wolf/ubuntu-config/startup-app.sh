@@ -35,6 +35,9 @@ echo "=== ENVIRONMENT VARIABLES ==="
 echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-NOT SET}"
 echo "HELIX_SESSION_ID: ${HELIX_SESSION_ID:-NOT SET}"
 echo "HELIX_API_URL: ${HELIX_API_URL:-NOT SET}"
+echo "GAMESCOPE_WIDTH: ${GAMESCOPE_WIDTH:-NOT SET (will default to 1920)}"
+echo "GAMESCOPE_HEIGHT: ${GAMESCOPE_HEIGHT:-NOT SET (will default to 1080)}"
+echo "GAMESCOPE_REFRESH: ${GAMESCOPE_REFRESH:-NOT SET (will default to 60)}"
 
 echo ""
 echo "=== CRITICAL FILE CHECKS ==="
@@ -445,7 +448,7 @@ if [ "$ENABLE_SETTINGS_SYNC" = "true" ]; then
     # Pass environment variables via script wrapper
     cat > /tmp/start-settings-sync-daemon.sh <<EOF
 #!/bin/bash
-exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$HELIX_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
+exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$USER_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
 EOF
     sudo mv /tmp/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
     sudo chmod +x /usr/local/bin/start-settings-sync-daemon.sh
@@ -594,11 +597,241 @@ export WLR_NO_HARDWARE_CURSORS=1
 echo "Cursor environment variables set (WLR_NO_HARDWARE_CURSORS=1)"
 
 # ============================================================================
-# GNOME Session Startup (Zorin-compatible pattern)
+# GNOME Session Startup (Mutter SDK for GNOME 49)
 # ============================================================================
-# Use Zorin's proven GOW scripts which properly initialize Xwayland on :9,
-# D-Bus, and GNOME session with hardware GPU rendering.
-# See: design/2025-12-08-ubuntu-based-on-zorin.md
+# GNOME 49 removed --nested mode. We support two video source modes:
+#
+# 1. "wayland" mode (default, for backward compatibility):
+#    - gnome-shell --devkit spawns mutter-devkit
+#    - mutter-devkit renders to Wolf's Wayland display
+#    - Wolf uses waylanddisplaysrc to capture
+#
+# 2. "pipewire" mode (new, for pure pipewiresrc capture):
+#    - gnome-shell --devkit runs standalone
+#    - Container creates ScreenCast session and reports PipeWire node ID
+#    - Wolf uses pipewiresrc to capture directly from PipeWire
+#
+# See: design/2025-12-29-pipewire-wolf-bridge.md
 
-echo "Launching GNOME via GOW xorg.sh..."
-exec /opt/gow/xorg.sh
+# Determine video source mode from Wolf environment variable
+VIDEO_SOURCE_MODE="${WOLF_VIDEO_SOURCE_MODE:-wayland}"
+echo "Video source mode: $VIDEO_SOURCE_MODE"
+
+# Save Wolf's Wayland display
+export WOLF_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+echo "Wolf Wayland display: $WOLF_WAYLAND_DISPLAY"
+
+# Create a script that runs inside dbus-run-session
+# This ensures all D-Bus dependent services have access to the session bus
+cat > /tmp/gnome-session.sh << GNOME_SESSION_EOF
+#!/bin/bash
+set -e
+
+# Environment variables captured from outer script
+export WOLF_WAYLAND_DISPLAY="$WOLF_WAYLAND_DISPLAY"
+export HELIX_API_BASE_URL="$HELIX_API_BASE_URL"
+export USER_API_TOKEN="$USER_API_TOKEN"
+export WOLF_SESSION_ID="$WOLF_SESSION_ID"
+export XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"
+VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
+
+# Workaround for Mutter frame rate drops (60→40fps)
+# See: https://gitlab.gnome.org/GNOME/mutter/-/issues/3788
+# This switches KMS thread from real-time to user priority, fixing frame scheduling issues
+export MUTTER_DEBUG_KMS_THREAD_TYPE=user
+
+echo "[gnome-session] Starting inside dbus-run-session..."
+echo "[gnome-session] Video source mode: \$VIDEO_SOURCE_MODE"
+
+# Set WAYLAND_DISPLAY based on video source mode
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    # PipeWire mode: Don't inherit Wolf's Wayland display
+    # mutter-devkit will have nowhere to output (which is fine - we use pipewiresrc)
+    unset WAYLAND_DISPLAY
+    echo "[gnome-session] PipeWire mode: WAYLAND_DISPLAY unset (using pipewiresrc)"
+else
+    # Wayland mode: mutter-devkit outputs to Wolf's display
+    export WAYLAND_DISPLAY="\$WOLF_WAYLAND_DISPLAY"
+    echo "[gnome-session] Wayland mode: WAYLAND_DISPLAY=\$WAYLAND_DISPLAY (mutter-devkit outputs here)"
+fi
+
+# Start PipeWire + WirePlumber (needed for both modes)
+echo "[gnome-session] Starting PipeWire + WirePlumber..."
+pipewire &
+sleep 0.5
+wireplumber &
+sleep 0.5
+
+# Display scaling for PipeWire mode (headless gnome-shell with virtual monitor)
+# HELIX_ZOOM_LEVEL is percentage (100, 150, 200) set by wolf_executor
+# Scaling works via org.gnome.desktop.interface scaling-factor GSettings key
+# Reference: mutter src/backends/meta-settings.c meta_settings_get_global_scaling_factor()
+ZOOM_LEVEL="${HELIX_ZOOM_LEVEL:-100}"
+echo "[DEBUG] ZOOM_LEVEL before comparison: [$ZOOM_LEVEL]"
+if [ "$ZOOM_LEVEL" -gt 100 ]; then
+    # Calculate integer scale factor (200% → 2, 150% → 1)
+    # Using expr instead of $(( )) due to shell compatibility issues
+    HELIX_SCALE_FACTOR=$(expr $ZOOM_LEVEL / 100)
+    echo "[DEBUG] HELIX_SCALE_FACTOR after expr: [\$HELIX_SCALE_FACTOR]"
+
+    # Client app scaling (GTK and Qt applications)
+    export GDK_SCALE=\$HELIX_SCALE_FACTOR
+    export GDK_DPI_SCALE=1  # Prevent double-scaling
+    export QT_SCALE_FACTOR=\$HELIX_SCALE_FACTOR
+    echo "[gnome-session] Display scaling: \${HELIX_SCALE_FACTOR}x (from HELIX_ZOOM_LEVEL=$ZOOM_LEVEL)"
+
+    # Set global scaling factor before gnome-shell starts
+    # This tells Mutter to use this scale for ALL monitors (including virtual ones)
+    if [ "\$HELIX_SCALE_FACTOR" -gt 1 ]; then
+        echo "[gnome-session] Setting global scaling factor to \$HELIX_SCALE_FACTOR via GSettings..."
+        gsettings set org.gnome.desktop.interface scaling-factor \$HELIX_SCALE_FACTOR
+    fi
+
+    # Enable fractional scaling feature (needed for UI to show scale options)
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer', 'xwayland-native-scaling']"
+else
+    HELIX_SCALE_FACTOR=""
+    echo "[gnome-session] Display scaling: 1x (default)"
+fi
+
+# Background task to set display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
+# gnome-randr doesn't work with Mutter (it's for wlroots). Use D-Bus API directly.
+# See: https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml
+# Apply display scale via D-Bus ApplyMonitorsConfig after gnome-shell starts
+# This is needed because gsettings scaling-factor may not affect virtual monitor scale
+if [ -n "\$HELIX_SCALE_FACTOR" ]; then
+    (
+        echo "[gnome-session] Waiting for GNOME Shell to start before setting display scale..."
+        for i in \$(seq 1 60); do
+            if pgrep -x gnome-shell > /dev/null 2>&1; then
+                echo "[gnome-session] gnome-shell detected, waiting 3 seconds for display initialization..."
+                sleep 3
+                break
+            fi
+            sleep 1
+        done
+
+        echo "[gnome-session] Setting display scale to \${HELIX_SCALE_FACTOR}x via D-Bus ApplyMonitorsConfig..."
+
+        # Get current state to retrieve serial and monitor info
+        # GetCurrentState returns: (serial, monitors, logical_monitors, properties)
+        # gdbus format: (uint32 123, [...], [...], {...})
+        STATE=\$(gdbus call --session \\
+            --dest org.gnome.Mutter.DisplayConfig \\
+            --object-path /org/gnome/Mutter/DisplayConfig \\
+            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
+
+        # Log first 500 chars of state (full output is very long)
+        echo "[gnome-session] Current state (first 500 chars): \${STATE:0:500}"
+
+        # Extract serial - handle both formats:
+        # Format 1: (uint32 123, ...) - GNOME's gdbus output
+        # Format 2: (123, ...) - plain format
+        # Use grep to find first number after opening paren
+        SERIAL=\$(echo "\$STATE" | grep -oP '\(uint32\s+\K\d+|\(\K\d+' | head -1)
+        if [ -z "\$SERIAL" ]; then
+            echo "[gnome-session] ERROR: Failed to get serial from GetCurrentState"
+            echo "[gnome-session] Raw state for debugging: \$STATE"
+        else
+            echo "[gnome-session] Serial: \$SERIAL"
+
+            # Apply the new scale using ApplyMonitorsConfig
+            # Parameters: serial, method (1=temporary), logical_monitors, properties
+            # logical_monitors: [(x, y, scale, transform, primary, [(connector, mode_id, props)])]
+            # For Meta-0 virtual monitor at ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}
+            #
+            # NOTE: scale must be a double (d) in GVariant notation
+            # Method 1 = temporary (doesn't persist), Method 2 = persistent
+            # Extract the actual mode_id from GetCurrentState (format varies between GNOME versions)
+            # Example: '3840x2160@60.000' or '1920x1080@60.000000'
+            MODE_ID=\$(echo "\$STATE" | grep -oP "'${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@[^']+'" | head -1 | tr -d "'")
+            if [ -z "\$MODE_ID" ]; then
+                # Fallback to .000 format (GNOME 49 style)
+                MODE_ID="${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}.000"
+                echo "[gnome-session] WARNING: Could not extract mode_id from state, using fallback: \$MODE_ID"
+            else
+                echo "[gnome-session] Extracted mode_id from GetCurrentState: \$MODE_ID"
+            fi
+
+            echo "[gnome-session] Calling ApplyMonitorsConfig: serial=\$SERIAL scale=\$HELIX_SCALE_FACTOR mode=\$MODE_ID"
+            RESULT=\$(gdbus call --session \\
+                --dest org.gnome.Mutter.DisplayConfig \\
+                --object-path /org/gnome/Mutter/DisplayConfig \\
+                --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \\
+                \$SERIAL 1 \\
+                "[(int32 0, int32 0, double \$HELIX_SCALE_FACTOR, uint32 0, true, [('Meta-0', '\$MODE_ID', {})])]" \\
+                "{}" 2>&1)
+
+            echo "[gnome-session] ApplyMonitorsConfig result: \$RESULT"
+
+            # Check if it failed and log helpful debug info
+            if echo "\$RESULT" | grep -qi "error"; then
+                echo "[gnome-session] ERROR: ApplyMonitorsConfig failed. Trying alternative approach with monitor query..."
+
+                # Try to list available monitors for debugging
+                echo "[gnome-session] Available monitors in GetCurrentState:"
+                echo "\$STATE" | grep -oP "'Meta-[^']*'" | head -5 || echo "(none found)"
+            fi
+        fi
+
+        echo "[gnome-session] Display scale configured"
+    ) &
+fi
+
+# Start Helix services - they need wayland-0 (Mutter's client socket)
+# Note: wayland-0 is created by gnome-shell, so we start these with a delay
+(
+    echo "[gnome-session] Waiting for Mutter to create wayland-0..."
+    for i in \$(seq 1 30); do
+        if [ -e "\$XDG_RUNTIME_DIR/wayland-0" ]; then
+            echo "[gnome-session] wayland-0 is ready"
+            break
+        fi
+        sleep 0.5
+    done
+
+    # Settings sync daemon
+    if [ -n "\$HELIX_API_BASE_URL" ] && [ -n "\$USER_API_TOKEN" ]; then
+        echo "[gnome-session] Starting settings-sync-daemon..."
+        HELIX_API_TOKEN="\$USER_API_TOKEN" HELIX_API_URL="\$HELIX_API_BASE_URL" HELIX_SESSION_ID="\$HELIX_SESSION_ID" WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/settings-sync-daemon >> /tmp/settings-sync-daemon.log 2>&1 &
+    fi
+
+    # Screenshot server (unified: handles RemoteDesktop+ScreenCast sessions, PipeWire node reporting, input bridge)
+    # For PipeWire mode, this creates the D-Bus sessions and reports node ID to Wolf
+    if [ -x /usr/local/bin/screenshot-server ]; then
+        echo "[gnome-session] Starting screenshot server (includes D-Bus session + input bridge)..."
+        WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=GNOME /usr/local/bin/screenshot-server >> /tmp/screenshot-server.log 2>&1 &
+    fi
+
+    # Launch Zed after GNOME Shell is ready - it needs wayland-0
+    if [ -x /zed-build/zed ]; then
+        echo "[gnome-session] Waiting for GNOME Shell to fully initialize..."
+        sleep 2
+        echo "[gnome-session] Launching Zed (WAYLAND_DISPLAY=wayland-0)..."
+        WAYLAND_DISPLAY=wayland-0 /usr/local/bin/start-zed-helix.sh
+    fi
+) &
+
+# Determine GNOME Shell mode based on video source
+# - PipeWire mode: Use --headless (no display output, capture via pipewiresrc)
+# - Wayland mode: Use --nested (outputs to Wolf's Wayland display for waylanddisplaysrc)
+if [ "\$VIDEO_SOURCE_MODE" = "pipewire" ]; then
+    echo "[gnome-session] Starting GNOME Shell in HEADLESS mode (PipeWire capture)..."
+    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+    # --headless: No display output (we capture via pipewiresrc ScreenCast)
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+    # --virtual-monitor WxH@R: Creates a virtual monitor at specified size and refresh rate
+    gnome-shell --headless --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+else
+    echo "[gnome-session] Starting GNOME Shell in NESTED mode (Wayland capture)..."
+    echo "[gnome-session] Resolution: ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}"
+    # --nested: Outputs to parent Wayland display (Wolf's waylanddisplaysrc captures this)
+    # --unsafe-mode: Allow screenshot-server to use org.gnome.Shell.Screenshot D-Bus API
+    gnome-shell --nested --unsafe-mode --virtual-monitor ${GAMESCOPE_WIDTH:-1920}x${GAMESCOPE_HEIGHT:-1080}@${GAMESCOPE_REFRESH:-60}
+fi
+GNOME_SESSION_EOF
+
+chmod +x /tmp/gnome-session.sh
+
+echo "Starting GNOME session inside dbus-run-session..."
+exec dbus-run-session -- /tmp/gnome-session.sh

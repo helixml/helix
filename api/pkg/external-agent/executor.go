@@ -10,14 +10,14 @@ import (
 // Executor defines the interface for external agent executors
 type Executor interface {
 	// Desktop session methods
-	StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession
 
 	// Multi-session SpecTask methods
-	StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+	StartZedInstance(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error
 	StopZedInstance(ctx context.Context, instanceID string) error
 	GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error)
@@ -25,9 +25,6 @@ type Executor interface {
 
 	// Screenshot support
 	FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error)
-
-	GetWolfClientForSession(wolfInstanceID string) WolfClientInterface
-	FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error)
 
 	// Reconciliation support
 	HasRunningContainer(ctx context.Context, sessionID string) bool
@@ -53,8 +50,7 @@ type ZedInstanceInfo struct {
 	EnvironmentName string   `json:"environment_name,omitempty"` // User-friendly name
 	ConfiguredTools []string `json:"configured_tools,omitempty"` // MCP servers enabled
 	DataSources     []string `json:"data_sources,omitempty"`     // Connected data sources
-	StreamURL       string   `json:"stream_url,omitempty"`       // Wolf streaming URL
-	WolfSessionID   string   `json:"wolf_session_id,omitempty"`  // Wolf's numeric session ID for API calls
+	StreamURL       string   `json:"stream_url,omitempty"`       // Video streaming URL
 
 	// Display configuration for streaming
 	DisplayWidth  int `json:"display_width,omitempty"`  // Streaming resolution width
@@ -62,8 +58,7 @@ type ZedInstanceInfo struct {
 	DisplayFPS    int `json:"display_fps,omitempty"`    // Streaming framerate
 
 	// Container information for direct network access
-	ContainerName string `json:"container_name,omitempty"` // Docker container name (PersonalDev_{wolfAppID})
-	VNCPort       int    `json:"vnc_port,omitempty"`       // VNC port inside container (5901)
+	ContainerName string `json:"container_name,omitempty"` // Docker container name
 }
 
 // ZedInstanceStatus represents the current status of a Zed instance
@@ -96,8 +91,12 @@ type ZedSession struct {
 	StartTime      time.Time `json:"start_time"`
 	LastAccess     time.Time `json:"last_access"`
 	ProjectPath    string    `json:"project_path,omitempty"`
-	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
-	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
-	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
-	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
+	ContainerAppID string `json:"container_app_id,omitempty"` // Deprecated: legacy field
+	DevContainerID string `json:"dev_container_id,omitempty"` // Container ID for the dev container
+	ContainerName  string `json:"container_name,omitempty"`   // Container hostname for DNS lookup
+
+	// Container fields
+	ContainerID string `json:"container_id,omitempty"` // Docker container ID
+	ContainerIP string `json:"container_ip,omitempty"` // Container IP address on bridge network
+	SandboxID   string `json:"sandbox_id,omitempty"`   // Sandbox running this container (for RevDial routing)
 }

@@ -326,6 +326,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
@@ -449,6 +450,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration
@@ -508,7 +510,7 @@ services:
     environment:
       # Software rendering (CPU-only, no GPU)
       - GPU_VENDOR=none
-      - WOLF_RENDER_NODE=SOFTWARE
+      - WOLF_RENDER_NODE=software
       - LIBGL_ALWAYS_SOFTWARE=1
       - MESA_GL_VERSION_OVERRIDE=4.5
       # Helix dev mode (enables bind-mounts for hot reload)
@@ -570,6 +572,7 @@ services:
       - ./wolf/zorin-config:/helix-dev/zorin-config:rw
       - ./wolf/ubuntu-config:/helix-dev/ubuntu-config:rw
       - ./wolf/xfce-config:/helix-dev/xfce-config:rw
+      - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
       # Moonlight Web configuration

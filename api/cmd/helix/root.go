@@ -14,7 +14,6 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/mcp"
 	"github.com/helixml/helix/api/pkg/cli/member"
 	"github.com/helixml/helix/api/pkg/cli/model"
-	"github.com/helixml/helix/api/pkg/cli/moonlight"
 	"github.com/helixml/helix/api/pkg/cli/organization"
 	"github.com/helixml/helix/api/pkg/cli/project"
 	"github.com/helixml/helix/api/pkg/cli/provider"
@@ -51,7 +50,6 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(spectask.New())
 	RootCmd.AddCommand(mcp.New())
 	RootCmd.AddCommand(model.New())
-	RootCmd.AddCommand(moonlight.New())
 	RootCmd.AddCommand(provider.New())
 	RootCmd.AddCommand(organization.New())
 	RootCmd.AddCommand(roles.New())

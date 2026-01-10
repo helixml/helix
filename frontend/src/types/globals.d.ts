@@ -75,7 +75,7 @@ declare global {
 }
 
 // Moonlight API bindings stub types
-declare module './lib/moonlight-web-ts/api_bindings' {
+declare module './lib/helix-stream/api_bindings' {
   export interface App {}
   export interface DeleteHostQuery {}
   export interface DetailedHost {}
@@ -103,52 +103,52 @@ declare module './lib/moonlight-web-ts/api_bindings' {
 }
 
 // Moonlight component stub types
-declare module './lib/moonlight-web-ts/component/host/add_modal' {
+declare module './lib/helix-stream/component/host/add_modal' {
   export const AddHostModal: any;
 }
 
-declare module './lib/moonlight-web-ts/component/host/list' {
+declare module './lib/helix-stream/component/host/list' {
   export const HostList: any;
 }
 
-declare module './lib/moonlight-web-ts/component/index' {
+declare module './lib/helix-stream/component/index' {
   export const ComponentIndex: any;
 }
 
-declare module './lib/moonlight-web-ts/component/context_menu' {
+declare module './lib/helix-stream/component/context_menu' {
   export const ContextMenu: any;
 }
 
-declare module './lib/moonlight-web-ts/component/game/list' {
+declare module './lib/helix-stream/component/game/list' {
   export const GameList: any;
 }
 
-declare module './lib/moonlight-web-ts/component/host/index' {
+declare module './lib/helix-stream/component/host/index' {
   export const HostIndex: any;
 }
 
-declare module './lib/moonlight-web-ts/component/settings_menu' {
+declare module './lib/helix-stream/component/settings_menu' {
   export function getLocalStreamSettings(): any;
   export function setLocalStreamSettings(settings: any): void;
   export const StreamSettingsComponent: any;
 }
 
-declare module './lib/moonlight-web-ts/component/modal/index' {
+declare module './lib/helix-stream/component/modal/index' {
   export function getModalBackground(): any;
   export const Modal: any;
 }
 
-declare module './lib/moonlight-web-ts/component/sidebar/index' {
+declare module './lib/helix-stream/component/sidebar/index' {
   export const Sidebar: any;
 }
 
-declare module './lib/moonlight-web-ts/component/input' {
+declare module './lib/helix-stream/component/input' {
   export const SelectComponent: any;
 }
 
 // Moonlight stream stubs
 declare module './lib/moonlight-stream/api_bindings.js' {
-  export * from './lib/moonlight-web-ts/api_bindings';
+  export * from './lib/helix-stream/api_bindings';
 }
 
 declare module './lib/moonlight-stream/component/error.js' {
@@ -164,11 +164,11 @@ declare module './lib/moonlight-stream/component/modal/form.js' {
 }
 
 declare module './lib/moonlight-stream/component/modal/index.js' {
-  export * from './lib/moonlight-web-ts/component/modal/index';
+  export * from './lib/helix-stream/component/modal/index';
 }
 
 declare module './lib/moonlight-stream/component/settings_menu.js' {
-  export * from './lib/moonlight-web-ts/component/settings_menu';
+  export * from './lib/helix-stream/component/settings_menu';
 }
 
 declare module './lib/moonlight-stream/config_.js' {
@@ -176,7 +176,7 @@ declare module './lib/moonlight-stream/config_.js' {
 }
 
 declare module '../api_bindings.js' {
-  export * from './lib/moonlight-web-ts/api_bindings';
+  export * from './lib/helix-stream/api_bindings';
 }
 
 declare module '../api.js' {

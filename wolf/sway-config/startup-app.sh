@@ -5,7 +5,7 @@ set -e
 
 echo "Starting Helix Desktop (Sway)..."
 
-# NOTE: Telemetry firewall is configured in the sandbox container (Wolf host),
+# NOTE: Telemetry firewall is configured in the sandbox container,
 # not inside agent containers. This provides centralized monitoring across all agents.
 
 # Create symlink to Zed binary if not exists
@@ -14,7 +14,7 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# Workspace setup: Wolf executor mounts workspace at BOTH paths via bind mount:
+# Workspace setup: Container executor mounts workspace at BOTH paths via bind mount:
 # 1. $WORKSPACE_DIR (e.g., /data/workspaces/spec-tasks/{id}) - for Docker wrapper hacks
 # 2. /home/retro/work - so agent tools see a real directory (not a symlink)
 # This eliminates symlink confusion where tools resolve symlinks and get confused.
@@ -29,7 +29,7 @@ if [ ! -d "$WORKSPACE_DIR" ]; then
     exit 1
 fi
 if [ ! -d /home/retro/work ]; then
-    echo "FATAL: /home/retro/work bind mount not present - Wolf executor must mount workspace at both paths"
+    echo "FATAL: /home/retro/work bind mount not present - container executor must mount workspace at both paths"
     exit 1
 fi
 # Ensure correct ownership on both workspace paths (same underlying directory)
@@ -83,6 +83,16 @@ cat > ~/.config/fontconfig/fonts.conf << 'FONTCONFIG_EOF'
 </fontconfig>
 FONTCONFIG_EOF
 echo "✅ Fontconfig set to grayscale antialiasing"
+
+# Configure xdg-desktop-portal-wlr for headless operation (no chooser prompt)
+# This allows screen capture without user interaction
+mkdir -p ~/.config/xdg-desktop-portal-wlr
+cat > ~/.config/xdg-desktop-portal-wlr/config << 'PORTAL_EOF'
+[screencast]
+# Skip the output chooser dialog - use first available output
+chooser_type=none
+PORTAL_EOF
+echo "✅ xdg-desktop-portal-wlr configured for headless screen capture"
 
 # Configure Qwen Code session persistence
 # Qwen stores sessions at $QWEN_DATA_DIR/projects/<project_hash>/chats/
@@ -143,10 +153,15 @@ custom_launcher() {
     export XDG_CURRENT_DESKTOP=sway
     export XDG_SESSION_DESKTOP=sway
     export XDG_SESSION_TYPE=wayland
+    # Run Sway as a headless compositor (no outer display needed)
+    # This creates a virtual display that applications connect to.
+    # xdg-desktop-portal-wlr captures via wlr-screencopy → PipeWire → our GStreamer pipeline
+    export WLR_BACKENDS=headless
+    # Suppress libinput errors about missing physical input devices
+    export WLR_LIBINPUT_NO_DEVICES=1
 
-    # Copy waybar default config and customize it
+    # Create waybar config directory (config files generated inline below)
     mkdir -p $HOME/.config/waybar
-    cp -u /cfg/waybar/* $HOME/.config/waybar/
 
     # Create custom waybar CSS for better workspace visibility
     cat > $HOME/.config/waybar/style.css << 'WAYBAR_CSS'
@@ -383,8 +398,7 @@ EOF
     sed -i 's/set \$mod Mod4/set $mod Mod1/' $HOME/.config/sway/config
     echo "[Sway] Changed modifier key from Super (Mod4) to Alt (Mod1)"
 
-    # Copy our custom Helix configuration (included by GOW base config on line 2)
-    cp /cfg/sway/custom-cfg $HOME/.config/sway/custom-cfg
+    # Note: Custom configuration is added inline below (no separate custom-cfg file)
 
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
@@ -406,7 +420,8 @@ EOF
         SWAY_SCALE="1"
     fi
     echo "# Configure display scaling (HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)" >> $HOME/.config/sway/config
-    echo "output WL-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
+    echo "# HEADLESS-1 is the output name when running with WLR_BACKENDS=headless" >> $HOME/.config/sway/config
+    echo "output HEADLESS-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
     echo "[Sway] Display scale set to $SWAY_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
     echo "" >> $HOME/.config/sway/config
     echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
@@ -458,13 +473,22 @@ EOF
     echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+    echo "# Start PipeWire and XDG portal for screen capture" >> $HOME/.config/sway/config
+    echo "exec pipewire > /tmp/pipewire.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec pipewire-pulse > /tmp/pipewire-pulse.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec /usr/libexec/xdg-desktop-portal-wlr > /tmp/portal-wlr.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1" >> $HOME/.config/sway/config
+    echo "# Start ydotoold for input injection (ydotool daemon)" >> $HOME/.config/sway/config
+    echo "exec ydotoold > /tmp/ydotoold.log 2>&1" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
     # Pass required environment variables to settings-sync-daemon
     echo "exec env HELIX_SESSION_ID=\$HELIX_SESSION_ID HELIX_API_URL=\$HELIX_API_URL HELIX_API_TOKEN=\$HELIX_API_TOKEN /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
 
-    # Add resolution and app launch (like the original launcher)
-    echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config
+    # Configure headless output resolution (using GAMESCOPE_WIDTH/HEIGHT like Ubuntu desktop)
+    echo "# Headless output resolution: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz" >> $HOME/.config/sway/config
+    echo "output HEADLESS-1 resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}Hz position 0,0" >> $HOME/.config/sway/config
     echo "workspace number 1; exec $@" >> $HOME/.config/sway/config
 
     # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop

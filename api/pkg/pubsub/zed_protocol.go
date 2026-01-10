@@ -418,7 +418,7 @@ func validateZedProtocolMessage(msg *ZedProtocolMessage) error {
 // Protocol conversion functions
 
 // ConvertZedAgentToInstanceRequest converts a ZedAgent to instance creation request
-func ConvertZedAgentToInstanceRequest(agent *types.ZedAgent) *ZedInstanceCreateRequest {
+func ConvertZedAgentToInstanceRequest(agent *types.DesktopAgent) *ZedInstanceCreateRequest {
 	req := &ZedInstanceCreateRequest{
 		InstanceID:      agent.InstanceID,
 		SpecTaskID:      agent.SessionID, // SessionID contains SpecTask ID for instances
@@ -445,8 +445,8 @@ func ConvertZedAgentToInstanceRequest(agent *types.ZedAgent) *ZedInstanceCreateR
 }
 
 // ConvertInstanceResponseToZedAgentResponse converts instance response to ZedAgent response
-func ConvertInstanceResponseToZedAgentResponse(resp *ZedInstanceCreateResponse, sessionID string) *types.ZedAgentResponse {
-	return &types.ZedAgentResponse{
+func ConvertInstanceResponseToZedAgentResponse(resp *ZedInstanceCreateResponse, sessionID string) *types.DesktopAgentResponse {
+	return &types.DesktopAgentResponse{
 		SessionID:    sessionID,
 		WebSocketURL: resp.WebSocketURL,
 		AuthToken:    resp.AuthToken,

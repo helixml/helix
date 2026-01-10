@@ -35,10 +35,11 @@ import {
 } from '@mui/icons-material'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
-import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority } from '../../api/api'
+import { TypesSpecTask, TypesCreateTaskRequest, TypesSpecTaskPriority, TypesSession, TypesTitleHistoryEntry } from '../../api/api'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { useUpdateSpecTask, useSpecTask } from '../../services/specTaskService'
+import { useQuery } from '@tanstack/react-query'
 import { getBrowserLocale } from '../../hooks/useBrowserLocale'
 import SpecTaskDetailContent from './SpecTaskDetailContent'
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
@@ -125,8 +126,10 @@ const PanelTab: React.FC<PanelTabProps> = ({
   onRename,
   onDragStart,
 }) => {
+  const api = useApi()
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
+  const [isHovered, setIsHovered] = useState(false)
 
   const { data: refreshedTask } = useSpecTask(tab.id, {
     enabled: true,
@@ -140,10 +143,56 @@ const PanelTab: React.FC<PanelTabProps> = ({
     hasSession
   )
 
+  // Fetch session data with title history when hovering (only if session exists)
+  const { data: sessionData } = useQuery({
+    queryKey: ['session-title-history', displayTask.planning_session_id],
+    queryFn: async () => {
+      if (!displayTask.planning_session_id) return null
+      const response = await api.get<TypesSession>(`/api/v1/sessions/${displayTask.planning_session_id}`)
+      return response
+    },
+    enabled: isHovered && !!displayTask.planning_session_id,
+    staleTime: 30000, // Cache for 30 seconds
+  })
+
+  const titleHistory = sessionData?.config?.title_history || []
+
   const displayTitle = displayTask.user_short_title
     || displayTask.short_title
     || displayTask.name?.substring(0, 20)
     || 'Task'
+
+  // Format title history for tooltip
+  const tooltipContent = useMemo(() => {
+    if (!hasSession) {
+      return displayTask.name || displayTask.description || 'Task details'
+    }
+    if (titleHistory.length === 0) {
+      return displayTask.name || displayTask.description || 'No title history yet'
+    }
+    return (
+      <Box sx={{ p: 0.5 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 0.5, display: 'block' }}>
+          Topic Evolution
+        </Typography>
+        {titleHistory.slice(0, 5).map((entry: TypesTitleHistoryEntry, idx: number) => (
+          <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'baseline', py: 0.25 }}>
+            <Typography variant="caption" color="primary.main" sx={{ fontWeight: 500, minWidth: 35 }}>
+              Turn {entry.turn}
+            </Typography>
+            <Typography variant="caption" color="text.primary" sx={{ flex: 1 }}>
+              {entry.title}
+            </Typography>
+          </Box>
+        ))}
+        {titleHistory.length > 5 && (
+          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', mt: 0.5, display: 'block' }}>
+            +{titleHistory.length - 5} more...
+          </Typography>
+        )}
+      </Box>
+    )
+  }, [hasSession, titleHistory, displayTask.name, displayTask.description])
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -162,33 +211,63 @@ const PanelTab: React.FC<PanelTabProps> = ({
   }
 
   return (
-    <Box
-      draggable
-      onDragStart={(e) => onDragStart(e, tab.id)}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.5,
-        px: 1.5,
-        py: 0.5,
-        minWidth: 100,
-        maxWidth: 180,
-        cursor: 'grab',
-        backgroundColor: isActive ? 'background.paper' : 'transparent',
-        borderBottom: isActive ? '2px solid' : '2px solid transparent',
-        borderBottomColor: isActive ? 'primary.main' : 'transparent',
-        opacity: 1,
-        transition: 'all 0.15s ease',
-        '&:hover': {
-          backgroundColor: isActive ? 'background.paper' : 'action.hover',
+    <Tooltip
+      title={tooltipContent}
+      placement="bottom"
+      enterDelay={500}
+      enterNextDelay={300}
+      arrow
+      slotProps={{
+        tooltip: {
+          sx: {
+            maxWidth: 350,
+            backgroundColor: 'background.paper',
+            color: 'text.primary',
+            border: '1px solid',
+            borderColor: 'divider',
+            boxShadow: 2,
+          },
         },
-        '&:active': {
-          cursor: 'grabbing',
+        arrow: {
+          sx: {
+            color: 'background.paper',
+            '&::before': {
+              border: '1px solid',
+              borderColor: 'divider',
+            },
+          },
         },
       }}
     >
+      <Box
+        draggable
+        onDragStart={(e) => onDragStart(e, tab.id)}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          px: 1.5,
+          py: 0.5,
+          minWidth: 100,
+          maxWidth: 180,
+          cursor: 'grab',
+          backgroundColor: isActive ? 'background.paper' : 'transparent',
+          borderBottom: isActive ? '2px solid' : '2px solid transparent',
+          borderBottomColor: isActive ? 'primary.main' : 'transparent',
+          opacity: 1,
+          transition: 'all 0.15s ease',
+          '&:hover': {
+            backgroundColor: isActive ? 'background.paper' : 'action.hover',
+          },
+          '&:active': {
+            cursor: 'grabbing',
+          },
+        }}
+      >
       {/* Activity indicator */}
       {hasSession && (
         <Box sx={{ display: 'flex', alignItems: 'center', mr: 0.5 }}>
@@ -254,7 +333,8 @@ const PanelTab: React.FC<PanelTabProps> = ({
       >
         <CloseIcon sx={{ fontSize: 12 }} />
       </IconButton>
-    </Box>
+      </Box>
+    </Tooltip>
   )
 }
 

@@ -82,7 +82,7 @@ Get the Wolf render node based on GPU vendor
 {{- if .Values.gpu.renderNode -}}
 {{- .Values.gpu.renderNode -}}
 {{- else if eq (include "helix-sandbox.gpuVendor" .) "none" -}}
-SOFTWARE
+software
 {{- else -}}
 /dev/dri/renderD128
 {{- end -}}

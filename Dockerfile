@@ -5,7 +5,9 @@ WORKDIR /app
 # Install git for development and build environments
 RUN apk add --no-cache git
 COPY go.mod go.sum ./
-RUN go mod download
+# Cache Go modules for offline builds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 ### API Development ###
 #----------------------
@@ -18,7 +20,10 @@ RUN apk add --no-cache curl bash git-daemon
 COPY api /app/api
 WORKDIR /app/api
 # - Run a build to make the intial air build faster
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+# Cache Go modules and build artifacts for offline builds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
 ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
@@ -34,7 +39,10 @@ COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
-RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+# Cache Go modules and build artifacts for offline builds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
@@ -43,7 +51,9 @@ WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
 COPY ./frontend/yarn.lock /app/yarn.lock
-RUN yarn install
+# Cache yarn packages for offline builds
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+    yarn install
 
 
 ### Frontend Development ###

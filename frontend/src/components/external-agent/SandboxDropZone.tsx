@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useRef, FC } from 'react';
+import React, { useState, useCallback, useRef, useEffect, FC } from 'react';
 import { Box, LinearProgress, Typography, Fade, Snackbar, Alert } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckIcon from '@mui/icons-material/Check';
+import ImageIcon from '@mui/icons-material/Image';
 
 interface UploadState {
   progress: number; // 0-100 for progress, -1 for error, 101 for complete
@@ -12,12 +13,15 @@ interface SandboxDropZoneProps {
   sessionId: string;
   children: React.ReactNode;
   disabled?: boolean;
+  // Called with the full path when a file is uploaded (for pasted images, etc.)
+  onFileUploaded?: (filePath: string) => void;
 }
 
 const SandboxDropZone: FC<SandboxDropZoneProps> = ({
   sessionId,
   children,
   disabled = false,
+  onFileUploaded,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploads, setUploads] = useState<Map<string, UploadState>>(new Map());
@@ -55,7 +59,7 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
   }, []);
 
   const uploadFile = useCallback(
-    async (file: File) => {
+    async (file: File, openFileManager: boolean = true) => {
       const uploadId = `${file.name}-${Date.now()}`;
 
       setUploads((prev) => new Map(prev).set(uploadId, { progress: 0, name: file.name }));
@@ -73,17 +77,24 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
           }
         });
 
-        await new Promise<void>((resolve, reject) => {
+        const response = await new Promise<{ path: string; filename: string }>((resolve, reject) => {
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
+              try {
+                const data = JSON.parse(xhr.responseText);
+                resolve(data);
+              } catch {
+                resolve({ path: '', filename: file.name });
+              }
             } else {
               reject(new Error(`Upload failed: ${xhr.statusText}`));
             }
           };
           xhr.onerror = () => reject(new Error('Upload failed'));
 
-          xhr.open('POST', `/api/v1/external-agents/${sessionId}/upload`);
+          // Pass query param to control file manager opening
+          const url = `/api/v1/external-agents/${sessionId}/upload${openFileManager ? '' : '?open_file_manager=false'}`;
+          xhr.open('POST', url);
           xhr.send(formData);
         });
 
@@ -92,6 +103,11 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
 
         // Show success toast
         setSuccessToast({ open: true, filename: file.name });
+
+        // Notify parent with the uploaded file path
+        if (response.path && onFileUploaded) {
+          onFileUploaded(response.path);
+        }
 
         // Remove from uploads after brief delay
         setTimeout(() => {
@@ -114,7 +130,7 @@ const SandboxDropZone: FC<SandboxDropZoneProps> = ({
         }, 3000);
       }
     },
-    [sessionId]
+    [sessionId, onFileUploaded]
   );
 
   const handleDrop = useCallback(

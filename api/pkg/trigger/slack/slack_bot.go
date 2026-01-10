@@ -426,11 +426,24 @@ func (s *SlackBot) getActiveThread(ctx context.Context, channel, threadKey strin
 }
 
 func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sessionID string) (*types.SlackThread, error) {
+	// Check if app uses external agent - if so, enable progress updates
+	isExternalAgent := s.app.Config.Helix.DefaultAgentType == "zed_external"
+	if !isExternalAgent {
+		for _, assistant := range s.app.Config.Helix.Assistants {
+			if assistant.AgentType == types.AgentTypeZedExternal {
+				isExternalAgent = true
+				break
+			}
+		}
+	}
+
 	thread := &types.SlackThread{
-		ThreadKey: threadKey,
-		AppID:     s.app.ID,
-		Channel:   channel,
-		SessionID: sessionID,
+		ThreadKey:           threadKey,
+		AppID:               s.app.ID,
+		Channel:             channel,
+		SessionID:           sessionID,
+		PostProgressUpdates: isExternalAgent, // Auto-enable for external agents
+		IncludeScreenshots:  isExternalAgent, // Include screenshots for external agents
 	}
 
 	return s.store.CreateSlackThread(ctx, thread)

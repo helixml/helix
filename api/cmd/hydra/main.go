@@ -22,7 +22,7 @@ var (
 	logLevel    string
 	apiURL      string
 	runnerToken string
-	wolfID      string
+	sandboxID   string
 )
 
 func main() {
@@ -45,7 +45,7 @@ Running containers are NOT preserved across restarts - only images, volumes, and
 	// RevDial configuration (can also be set via environment variables)
 	rootCmd.Flags().StringVar(&apiURL, "api-url", "", "Helix API URL for RevDial (env: HELIX_API_URL)")
 	rootCmd.Flags().StringVar(&runnerToken, "token", "", "Runner authentication token (env: RUNNER_TOKEN)")
-	rootCmd.Flags().StringVar(&wolfID, "wolf-id", "", "Wolf instance ID (env: WOLF_INSTANCE_ID)")
+	rootCmd.Flags().StringVar(&sandboxID, "sandbox-id", "", "Sandbox instance ID (env: SANDBOX_ID or WOLF_INSTANCE_ID)")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to execute command")
@@ -104,19 +104,19 @@ func run(cmd *cobra.Command, args []string) {
 	if revDialToken == "" {
 		revDialToken = os.Getenv("RUNNER_TOKEN")
 	}
-	revDialWolfID := wolfID
-	if revDialWolfID == "" {
-		revDialWolfID = os.Getenv("WOLF_INSTANCE_ID")
+	revDialSandboxID := sandboxID
+	if revDialSandboxID == "" {
+		revDialSandboxID = os.Getenv("SANDBOX_ID")
 	}
-	if revDialWolfID == "" {
-		revDialWolfID = "local"
+	if revDialSandboxID == "" {
+		revDialSandboxID = "local"
 	}
 
 	var revDialClient *revdial.Client
 	if revDialAPIURL != "" && revDialToken != "" {
 		revDialClient = revdial.NewClient(&revdial.ClientConfig{
 			ServerURL:          revDialAPIURL,
-			RunnerID:           "hydra-" + revDialWolfID,
+			RunnerID:           "hydra-" + revDialSandboxID,
 			RunnerToken:        revDialToken,
 			LocalAddr:          "unix://" + socketPath,
 			ReconnectDelay:     5 * time.Second,
@@ -124,7 +124,7 @@ func run(cmd *cobra.Command, args []string) {
 		})
 		revDialClient.Start(ctx)
 		log.Info().
-			Str("runner_id", "hydra-"+revDialWolfID).
+			Str("runner_id", "hydra-"+revDialSandboxID).
 			Msg("RevDial client started")
 	} else {
 		log.Info().Msg("RevDial not configured (no HELIX_API_URL or RUNNER_TOKEN)")

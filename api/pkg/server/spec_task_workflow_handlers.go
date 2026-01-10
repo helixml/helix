@@ -220,7 +220,7 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 
 	// Stop external agent if exists
 	if specTask.ExternalAgentID != "" {
-		// TODO: Call wolf executor to stop the agent
+		// TODO: Call executor to stop the agent
 		log.Info().Str("external_agent_id", specTask.ExternalAgentID).Msg("Stopping external agent")
 	}
 

@@ -1,14 +1,11 @@
 # ====================================================================
-# Ubuntu 22.04 Build Environment for Zed Editor
+# Ubuntu 25.10 Build Environment for Zed Editor
 # ====================================================================
-# Produces Zed binaries compatible with glibc 2.35+ (Ubuntu 22.04+)
-# This ensures the binary works on both:
-#   - Ubuntu 22.04 (glibc 2.35) - Ubuntu desktop container
-#   - Ubuntu 25.04 (glibc 2.41) - Sway container (forward-compatible)
+# Uses Ubuntu 25.10 to match Sway/KDE and GNOME containers.
 #
-# Usage: ./stack build-zed-ubuntu22 [dev|release]
+# Usage: ./stack build-zed [dev|release]
 # ====================================================================
-FROM ubuntu:22.04
+FROM ubuntu:25.10
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -47,7 +44,7 @@ RUN apt-get update && apt-get install -y \
     # Font rendering
     libfreetype-dev \
     libfontconfig-dev \
-    # Audio
+    # Audio (package renamed in Ubuntu 24.04+)
     libasound2-dev \
     # GTK/GUI
     libatk1.0-dev \

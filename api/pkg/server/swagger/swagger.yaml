@@ -6176,6 +6176,11 @@ definitions:
       text_finetune_enabled:
         description: without any user input, this will default to true
         type: boolean
+      title_history:
+        description: Title history - tracks evolution of session topics (newest first)
+        items:
+          $ref: '#/definitions/types.TitleHistoryEntry'
+        type: array
       uploaded_data_entity_id:
         description: when we do fine tuning or RAG, we need to know which data entity
           we used
@@ -7288,6 +7293,22 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
+  types.TitleHistoryEntry:
+    description: TitleHistoryEntry tracks a session title change. Shown on hover in SpecTask tab view.
+    properties:
+      changed_at:
+        description: When the title was changed
+        type: string
+      interaction_id:
+        description: Interaction ID for navigation - click to jump here
+        type: string
+      title:
+        description: The title that was set
+        type: string
+      turn:
+        description: Turn number that triggered the change (1-indexed)
+        type: integer
+    type: object
   types.TokenType:
     enum:
     - ""

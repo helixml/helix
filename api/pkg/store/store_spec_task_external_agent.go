@@ -177,7 +177,7 @@ func (s *PostgresStore) GetExternalAgentActivityByLobbyID(ctx context.Context, l
 	var activity types.ExternalAgentActivity
 
 	err := s.gdb.WithContext(ctx).
-		Where("wolf_lobby_id = ?", lobbyID).
+		Where("dev_container_id = ?", lobbyID).
 		First(&activity).Error
 
 	if err != nil {

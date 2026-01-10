@@ -139,8 +139,7 @@ func GenerateZedMCPConfig(
 	config.Theme = "One Dark"
 
 	// Configure language_models to route API calls through Helix proxy
-	// CRITICAL: Zed reads api_url from settings.json, NOT from ANTHROPIC_BASE_URL env var!
-	// The env vars set in wolf_executor.go are NOT used by Zed's language model providers.
+	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
 	// We must explicitly set api_url in language_models for each provider.
 	//
 	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:
@@ -181,7 +180,43 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// 3. Pass-through external MCP servers
+	// 3. Add desktop MCP server (screenshot, clipboard, input, window management tools)
+	// This runs locally in the sandbox container on port 9877 (alongside screenshot-server)
+	// Provides take_screenshot, save_screenshot, type_text, mouse_click, get_clipboard, set_clipboard,
+	// list_windows, focus_window, maximize_window, tile_window, move_to_workspace, switch_to_workspace, get_workspaces
+	config.ContextServers["helix-desktop"] = ContextServerConfig{
+		URL: "http://localhost:9877/mcp",
+	}
+
+	// 4. Add session MCP server (session navigation and context tools)
+	// This runs on the Helix API server (needs database access for session data)
+	// Provides current_session, session_toc, session_title_history, search_session,
+	// search_all_sessions, list_sessions, get_turn, get_turns, get_interaction
+	sessionMCPURL := fmt.Sprintf("%s/api/v1/mcp/session?session_id=%s", helixAPIURL, sessionID)
+	config.ContextServers["helix-session"] = ContextServerConfig{
+		URL: sessionMCPURL,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", helixToken),
+		},
+	}
+
+	// 5. Add Chrome DevTools MCP server for browser automation and debugging
+	// Provides 26 tools for browser control: navigation, DOM/CSS inspection, performance tracing,
+	// console access, network analysis, and input automation.
+	// Uses Puppeteer internally to control Chrome via CDP (Chrome DevTools Protocol).
+	// See: https://developer.chrome.com/blog/chrome-devtools-mcp
+	config.ContextServers["chrome-devtools"] = ContextServerConfig{
+		Command: "npx",
+		Args:    []string{"chrome-devtools-mcp@latest"},
+		Env: map[string]string{
+			// Use headless mode in sandbox containers (no visible browser window)
+			"CHROME_DEVTOOLS_MCP_HEADLESS": "true",
+			// Set viewport to match typical desktop resolution
+			"CHROME_DEVTOOLS_MCP_VIEWPORT": "1920x1080",
+		},
+	}
+
+	// 6. Pass-through external MCP servers
 	if assistant != nil {
 		for _, mcp := range assistant.MCPs {
 			serverName := sanitizeName(mcp.Name)
