@@ -20,6 +20,7 @@ export type {
 const QUERY_KEYS = {
   specTasks: ['spec-tasks'] as const,
   specTask: (id: string) => ['spec-tasks', id] as const,
+  specTaskUsage: (id: string) => ['spec-tasks', id, 'usage'] as const,
   taskProgress: (id: string) => ['spec-tasks', id, 'progress'] as const,  
   workSessions: (id: string) => ['spec-tasks', id, 'work-sessions'] as const,
   implementationTasks: (id: string) => ['spec-tasks', id, 'implementation-tasks'] as const,
@@ -72,6 +73,30 @@ export function useZedInstanceStatus(taskId: string) {
     },
     enabled: !!taskId,
     refetchInterval: 10000, // Refresh every 10 seconds
+  });
+}
+
+export function useSpecTaskUsage(taskId: string, options?: { 
+  from?: string; 
+  to?: string; 
+  aggregationLevel?: 'hourly' | 'daily' | '5min';
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.specTaskUsage(taskId),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksUsageDetail(taskId, {
+        from: options?.from,
+        to: options?.to,
+        aggregation_level: options?.aggregationLevel,
+      });
+      return response.data;
+    },
+    enabled: options?.enabled !== false && !!taskId,
+    refetchInterval: options?.refetchInterval,
   });
 }
 
@@ -244,6 +269,7 @@ export function formatTimestamp(timestamp: string | undefined): string {
 const specTaskService = {
   // Query functions
   useSpecTask,
+  useSpecTaskUsage,
   useTaskProgress,  
   useZedInstanceStatus,
   useCloneGroups,

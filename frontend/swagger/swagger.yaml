@@ -15129,6 +15129,55 @@ paths:
       summary: Start planning for a SpecTask
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get spec task usage
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: Aggregation level
+        in: query
+        name: aggregation_level
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get spec task usage
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{taskId}/zed-instance:
     delete:
       consumes:
@@ -15781,6 +15830,10 @@ paths:
       - description: Spec Task ID
         in: query
         name: spec_task_id
+        type: string
+      - description: Aggregation level
+        in: query
+        name: aggregation_level
         type: string
       produces:
       - application/json

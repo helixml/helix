@@ -41,6 +41,7 @@ import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress, useUpdateSpecTask } from '../../services/specTaskService'
 import { TypesSpecTaskStatus } from '../../api/api'
+import UsagePulseChart from './UsagePulseChart'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
@@ -761,6 +762,11 @@ export default function TaskCard({
             )}
           </Box>
         </Box>
+
+        {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
+        {(task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation') && (
+          <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+        )}
 
         {/* Gorgeous checklist progress for active tasks */}
         {progressData?.checklist && progressData.checklist.total_tasks > 0 && (
