@@ -34,6 +34,7 @@ const formatCronSchedule = (schedule: string): string => {
   return generateCronShortSummary(schedule)
 }
 
+// TasksTable contains the recurring agent tasks table (not the spec tasks table)
 const TasksTable: FC<{
   authenticated: boolean,
   data: TypesTriggerConfiguration[],

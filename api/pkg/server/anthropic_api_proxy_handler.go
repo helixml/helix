@@ -49,6 +49,15 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		return
 	}
 
+	fmt.Println("XX PSEC TASK ID", user.SpecTaskID)
+
+	logger := log.With().
+		Str("user_id", user.ID).
+		Str("project_id", user.ProjectID).
+		Str("spec_task_id", user.SpecTaskID).
+		Str("organization_id", orgID).
+		Logger()
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
 		OwnerID:         user.ID,
 		SessionID:       "n/a",
@@ -67,17 +76,20 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 
 	hasEnoughBalance, err := s.Controller.HasEnoughBalance(ctx, getRequestUser(r), orgID, endpoint.BillingEnabled)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to check balance")
+		logger.Error().Err(err).Msg("failed to check balance")
 		http.Error(w, "Failed to check balance: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if !hasEnoughBalance {
+		logger.Error().Msg("insufficient balance")
 		http.Error(w, "Insufficient balance", http.StatusPaymentRequired)
 		return
 	}
 
 	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
+
+	logger.Info().Msg("has enough balance, proxying request")
 
 	s.anthropicProxy.ServeHTTP(w, r)
 }

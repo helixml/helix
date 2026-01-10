@@ -35,6 +35,8 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		DurationMs:        int(call.DurationMs),
 		RequestSizeBytes:  len(call.Request),
 		ResponseSizeBytes: len(call.Response),
+		SpecTaskID:        call.SpecTaskID,
+		ProjectID:         call.ProjectID,
 	}
 
 	_, err := l.store.CreateUsageMetric(ctx, metric)

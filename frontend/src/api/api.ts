@@ -10149,6 +10149,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get spec task usage
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksUsageDetail
+     * @summary Get spec task usage
+     * @request GET:/api/v1/spec-tasks/{taskId}/usage
+     * @secure
+     */
+    v1SpecTasksUsageDetail: (
+      taskId: string,
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** Aggregation level */
+        aggregation_level?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${taskId}/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Manually shutdown a Zed instance and all its threads for a SpecTask
      *
      * @tags zed-integration
@@ -10639,6 +10670,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         project_id?: string;
         /** Spec Task ID */
         spec_task_id?: string;
+        /** Aggregation level */
+        aggregation_level?: string;
       },
       params: RequestParams = {},
     ) =>
