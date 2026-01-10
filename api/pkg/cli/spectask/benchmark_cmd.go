@@ -22,6 +22,7 @@ func newBenchmarkCommand() *cobra.Command {
 	var duration int
 	var width, height, fps, bitrate int
 	var skipVkcube bool
+	var videoMode string
 
 	cmd := &cobra.Command{
 		Use:   "benchmark <session-id>",
@@ -39,11 +40,17 @@ Before running benchmark:
 The FPS reported is the actual frames received by the client, including any
 network, encoding, or capture bottlenecks.
 
+Video modes:
+  - shm:      Shared memory path (default, most compatible, 1-2 CPU copies)
+  - native:   Native GStreamer DMA-BUF (requires GStreamer 1.24+, fewer copies)
+  - zerocopy: pipewirezerocopysrc plugin (true zero-copy, requires plugin)
+
 Examples:
-  helix spectask benchmark ses_01xxx                    # Run 10 second benchmark (default)
-  helix spectask benchmark ses_01xxx --duration 30      # Run 30 second benchmark
-  helix spectask benchmark ses_01xxx --fps 120          # Test 120fps capability
-  helix spectask benchmark ses_01xxx --skip-vkcube      # Skip vkcube check (static screen)
+  helix spectask benchmark ses_01xxx                        # Run 10 second benchmark (default)
+  helix spectask benchmark ses_01xxx --duration 30          # Run 30 second benchmark
+  helix spectask benchmark ses_01xxx --fps 120              # Test 120fps capability
+  helix spectask benchmark ses_01xxx --skip-vkcube          # Skip vkcube check (static screen)
+  helix spectask benchmark ses_01xxx --video-mode zerocopy  # Benchmark zero-copy mode
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -51,7 +58,7 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			return runBenchmark(apiURL, token, sessionID, duration, width, height, fps, bitrate, skipVkcube)
+			return runBenchmark(apiURL, token, sessionID, duration, width, height, fps, bitrate, skipVkcube, videoMode)
 		},
 	}
 
@@ -61,17 +68,21 @@ Examples:
 	cmd.Flags().IntVar(&fps, "fps", 60, "Target frames per second")
 	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video bitrate in kbps")
 	cmd.Flags().BoolVar(&skipVkcube, "skip-vkcube", false, "Skip vkcube check (for static screen testing)")
+	cmd.Flags().StringVar(&videoMode, "video-mode", "", "Video capture mode: shm, native, or zerocopy (default: container env)")
 
 	return cmd
 }
 
-func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps, bitrate int, skipVkcube bool) error {
+func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps, bitrate int, skipVkcube bool, videoMode string) error {
 	fmt.Printf("🚀 Video Streaming Benchmark\n")
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("Session:    %s\n", sessionID)
 	fmt.Printf("Duration:   %d seconds\n", duration)
 	fmt.Printf("Resolution: %dx%d @ %dfps target\n", width, height, fps)
 	fmt.Printf("Bitrate:    %d kbps\n", bitrate)
+	if videoMode != "" {
+		fmt.Printf("Video Mode: %s\n", videoMode)
+	}
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	// Start vkcube for GPU stress test (generates continuous frame updates)
@@ -125,6 +136,9 @@ func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps,
 		"packet_size":             1024,
 		"play_audio_local":        false,
 		"video_supported_formats": 1, // H264
+	}
+	if videoMode != "" {
+		initMessage["video_mode"] = videoMode
 	}
 	initJSON, _ := json.Marshal(initMessage)
 	if err := conn.WriteMessage(websocket.TextMessage, initJSON); err != nil {
