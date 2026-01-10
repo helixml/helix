@@ -69,7 +69,6 @@ import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
 import {
   SpecTask,
-  MultiSessionOverview,
 } from '../../services/specTaskService';
 import {
   useCreateSampleRepository,
@@ -143,7 +142,6 @@ interface SpecTaskWithExtras extends SpecTask {
   planningStatus?: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' | 'queued';
   gitRepositoryId?: string;
   gitRepositoryUrl?: string;
-  multiSessionOverview?: MultiSessionOverview;
   lastActivity?: string;
   activeSessionsCount?: number;
   completedSessionsCount?: number;
