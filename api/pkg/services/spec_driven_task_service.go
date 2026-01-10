@@ -1315,21 +1315,6 @@ func (s *SpecDrivenTaskService) detectAndLinkExistingPR(ctx context.Context, tas
 	return false
 }
 
-func convertPriorityToInt(priority string) int {
-	switch priority {
-	case "critical":
-		return 4
-	case "high":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 2
-	}
-}
-
 type SandboxAPIKeyRequest struct {
 	UserID     string
 	ProjectID  string
