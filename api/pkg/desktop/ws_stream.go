@@ -533,14 +533,15 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 	defer v.Stop()
 
-	reader := bufio.NewReaderSize(stdout, 256*1024) // 256KB buffer
+	reader := bufio.NewReaderSize(stdout, 512*1024) // 512KB buffer for 4K streams
 
 	// H.264 Annex B format: NAL units prefixed with 00 00 00 01 or 00 00 01
 	// We accumulate complete Access Units (SPS+PPS+IDR or just slice) before sending
-	nalBuffer := make([]byte, 0, 256*1024)
+	// At 4K, keyframes can be 100-300KB+ so use larger buffer
+	nalBuffer := make([]byte, 0, 512*1024)
 
 	// Access Unit accumulator - bundles SPS+PPS+IDR together
-	accessUnit := make([]byte, 0, 256*1024)
+	accessUnit := make([]byte, 0, 512*1024)
 	hasParameterSets := false // true if we've accumulated SPS or PPS
 
 	for {
@@ -679,11 +680,14 @@ func findNALUnit(buf []byte) (nalUnit, remaining []byte, found bool) {
 	}
 
 	// No complete NAL unit yet - need more data
-	// But if buffer is getting large, send what we have
-	if len(buf) > 128*1024 {
+	// Let buffer grow as needed - 4K frames can be 100-300KB+
+	// Use 4MB as a safety limit (handles 4K/8K keyframes at high bitrate)
+	// The GStreamer h264parse element guarantees proper NAL boundaries
+	if len(buf) > 4*1024*1024 {
+		// Something is wrong - no start code found in 4MB of data
+		// Log and return partial data to prevent infinite growth
 		return buf[startIdx:], nil, true
 	}
-
 	return nil, buf, false
 }
 

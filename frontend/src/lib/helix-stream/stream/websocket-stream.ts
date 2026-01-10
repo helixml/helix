@@ -651,48 +651,39 @@ export class WebSocketStream {
     const codecString = codecToWebCodecsString(codec)
     console.log(`[WebSocketStream] Initializing video decoder: ${codecString} ${width}x${height}`)
 
-    // For 4K+ resolutions, prefer software decoding - hardware H.264 decoders are often
-    // buggy at high resolutions and fail after ~90 frames on some GPUs
-    const is4KOrHigher = width >= 3840 || height >= 2160
+    // Check if codec is supported - try hardware first, then software fallback
     let useHardwareAcceleration: "prefer-hardware" | "prefer-software" | "no-preference" = "prefer-hardware"
+    try {
+      const hwSupport = await VideoDecoder.isConfigSupported({
+        codec: codecString,
+        codedWidth: width,
+        codedHeight: height,
+        hardwareAcceleration: "prefer-hardware",
+      })
 
-    if (is4KOrHigher && codecString.startsWith("avc1")) {
-      console.log("[WebSocketStream] 4K H.264 detected - using software decoding for stability")
-      useHardwareAcceleration = "prefer-software"
-    } else {
-      // Check if hardware codec is supported
-      try {
-        const hwSupport = await VideoDecoder.isConfigSupported({
+      if (!hwSupport.supported) {
+        // Hardware not supported, try software decoding
+        console.log("[WebSocketStream] Hardware decoding not supported, trying software fallback")
+        const swSupport = await VideoDecoder.isConfigSupported({
           codec: codecString,
           codedWidth: width,
           codedHeight: height,
-          hardwareAcceleration: "prefer-hardware",
+          // No hardwareAcceleration = allow any
         })
 
-        if (!hwSupport.supported) {
-          // Hardware not supported, try software decoding
-          console.log("[WebSocketStream] Hardware decoding not supported, trying software fallback")
-          const swSupport = await VideoDecoder.isConfigSupported({
-            codec: codecString,
-            codedWidth: width,
-            codedHeight: height,
-            // No hardwareAcceleration = allow any
-          })
-
-          if (!swSupport.supported) {
-            console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
-            this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
-            return
-          }
-          useHardwareAcceleration = "no-preference"
-          console.log("[WebSocketStream] Using software video decoding")
-        } else {
-          console.log("[WebSocketStream] Using hardware video decoding")
+        if (!swSupport.supported) {
+          console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
+          this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          return
         }
-      } catch (e) {
-        console.error("[WebSocketStream] Failed to check codec support:", e)
-        // Continue anyway and let configure() fail if truly unsupported
+        useHardwareAcceleration = "no-preference"
+        console.log("[WebSocketStream] Using software video decoding")
+      } else {
+        console.log("[WebSocketStream] Using hardware video decoding")
       }
+    } catch (e) {
+      console.error("[WebSocketStream] Failed to check codec support:", e)
+      // Continue anyway and let configure() fail if truly unsupported
     }
 
     // Store the working acceleration mode for recovery after reset
