@@ -13,7 +13,7 @@ interface UsagePulseChartProps {
 const UsagePulseChart: React.FC<UsagePulseChartProps> = ({ taskId, accentColor }) => {
   const theme = useTheme()
 
-  const { data: usageData } = useSpecTaskUsage(taskId, {
+  const { data: usageData, isLoading } = useSpecTaskUsage(taskId, {
     aggregationLevel: '5min',
     enabled: !!taskId,
     refetchInterval: 60000,
@@ -35,7 +35,15 @@ const UsagePulseChart: React.FC<UsagePulseChartProps> = ({ taskId, accentColor }
     })
     const total = data.reduce((a, b) => a + b, 0)
     return { chartData: data, chartLabels: labels, totalTokens: total }
-  }, [usageData])  
+  }, [usageData])
+
+  if (isLoading) {
+    return (
+      <Box sx={{ width: '100%', height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid', borderColor: accentColor, borderTopColor: 'transparent', animation: 'spin 1s linear infinite', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />
+      </Box>
+    )
+  }
 
   if (!chartData || chartData.length === 0 || totalTokens === 0) return null
 

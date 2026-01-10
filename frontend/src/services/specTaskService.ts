@@ -18,7 +18,8 @@ export type {
 
 // Query keys
 const QUERY_KEYS = {
-  specTasks: ['spec-tasks'] as const,
+  specTasksBase: ['spec-tasks'] as const,
+  specTasks: (projectId?: string, archivedOnly?: boolean) => ['spec-tasks', 'list', { projectId, archivedOnly }] as const,
   specTask: (id: string) => ['spec-tasks', id] as const,
   specTaskUsage: (id: string) => ['spec-tasks', id, 'usage'] as const,
   taskProgress: (id: string) => ['spec-tasks', id, 'progress'] as const,  
@@ -31,6 +32,29 @@ const QUERY_KEYS = {
   cloneGroupProgress: (groupId: string) => ['clone-groups', groupId, 'progress'] as const,
   reposWithoutProjects: (orgId?: string) => ['repositories', 'without-projects', orgId] as const,
 };
+
+// Hook to fetch all spec tasks with react-query
+export function useSpecTasks(options?: {
+  projectId?: string;
+  archivedOnly?: boolean;
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.specTasks(options?.projectId, options?.archivedOnly),
+    queryFn: async () => {
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: options?.projectId || 'default',
+        include_archived: options?.archivedOnly,
+      });
+      return response.data || [];
+    },
+    enabled: options?.enabled !== false,
+    refetchInterval: options?.refetchInterval !== undefined ? options.refetchInterval : 3000,
+  });
+}
 
 // Custom hooks for SpecTask operations
 export function useSpecTask(taskId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
@@ -114,7 +138,7 @@ export function useUpdateSpecTask() {
     },
     onSuccess: (_, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasks });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
     },
   });
 }
@@ -217,7 +241,7 @@ export function useCloneTask() {
       // Invalidate clone groups for the source task
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.cloneGroups(taskId) });
       // Invalidate spec tasks list to show new cloned tasks
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasks });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTasksBase });
     },
   });
 }

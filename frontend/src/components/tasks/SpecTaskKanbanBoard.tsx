@@ -22,8 +22,6 @@ import {
   Divider,
   Badge,
   Tooltip,
-  Menu,
-  MenuItem,
   Select,
   FormControl,
   InputLabel,
@@ -44,7 +42,6 @@ import {
   Code as CodeIcon,
   Timeline as TimelineIcon,
   AccountTree as TreeIcon,
-  Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Close as CloseIcon,
@@ -69,6 +66,7 @@ import ArchiveConfirmDialog from './ArchiveConfirmDialog';
 import TaskCard from './TaskCard';
 import {
   SpecTask,
+  useSpecTasks,
 } from '../../services/specTaskService';
 import {
   useCreateSampleRepository,
@@ -174,7 +172,8 @@ interface SpecTaskKanbanBoardProps {
   };
   focusTaskId?: string; // Task ID to focus "Start Planning" button on (for newly created tasks)
   hasExternalRepo?: boolean; // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
-  // repositories prop removed - repos are now managed at project level
+  showArchived?: boolean; // Show archived tasks instead of active tasks
+  showMetrics?: boolean; // Show metrics in task cards
 }
 
 const DroppableColumn: React.FC<{
@@ -188,8 +187,9 @@ const DroppableColumn: React.FC<{
   focusTaskId?: string;
   archivingTaskId?: string | null;
   hasExternalRepo?: boolean;
+  showMetrics?: boolean;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, focusTaskId, archivingTaskId, hasExternalRepo, showMetrics, theme }): JSX.Element => {
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
@@ -209,6 +209,7 @@ const DroppableColumn: React.FC<{
         focusStartPlanning={task.id === focusTaskId}
         isArchiving={task.id === archivingTaskId}
         hasExternalRepo={hasExternalRepo}
+        showMetrics={showMetrics}
       />
     );
   };
@@ -346,6 +347,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   wipLimits = { planning: 3, review: 2, implementation: 5 },
   focusTaskId,
   hasExternalRepo = false,
+  showArchived: showArchivedProp = false,
+  showMetrics: showMetricsProp,
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -356,20 +359,23 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // State
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
   const [archivingTaskId, setArchivingTaskId] = useState<string | null>(null);
+
+  // Use props for showArchived and showMetrics (controlled from parent)
+  const showArchived = showArchivedProp;
+  const showMetrics = showMetricsProp !== undefined ? showMetricsProp : true;
 
   // Design review viewer state
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [designReviewInitialTab, setDesignReviewInitialTab] = useState<'requirements' | 'technical_design' | 'implementation_plan'>('requirements');
+
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
@@ -503,98 +509,46 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
 
-  // Initial load
+  // Fetch tasks using react-query with automatic polling
+  const { data: specTasksData, isLoading: loading, error: queryError } = useSpecTasks({
+    projectId: projectId || 'default',
+    archivedOnly: showArchived,
+    enabled: !!account.user?.id,
+    refetchInterval: 3000,
+  });
+
+  // Transform tasks data when it changes
   useEffect(() => {
-    if (!account.user?.id) return;
+    if (!specTasksData) return;
 
-    const loadTasks = async () => {
-      try {
-        // Only show loading spinner on initial load
-        // This prevents the board from disappearing during refreshes
-        if (!hasLoadedOnceRef.current) {
-          setLoading(true);
-        }
-        const response = await api.get('/api/v1/spec-tasks', {
-          params: {
-            project_id: projectId || 'default',
-            archived_only: showArchived
-          }
-        });
+    const specTasks: SpecTask[] = Array.isArray(specTasksData) ? specTasksData : [];
 
-        const tasksData = response.data || response;
-        const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+    const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
+      const { phase, planningStatus: mappedStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
+      const planningStatus = (task.status === 'backlog' && task.metadata?.error) ? 'failed' : mappedStatus;
 
-        // Use consistent phase mapping helper
-        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
-          const { phase, planningStatus: mappedStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
+      return {
+        ...task,
+        hasSpecs,
+        phase,
+        planningStatus,
+        activeSessionsCount: 0,
+        completedSessionsCount: 0,
+        onReviewDocs: handleReviewDocs,
+      };
+    });
 
-          // Check for errors in metadata (tasks stay in backlog with error)
-          const planningStatus = (task.status === 'backlog' && task.metadata?.error) ? 'failed' : mappedStatus;
+    setTasks(enhancedTasks);
+    hasLoadedOnceRef.current = true;
+  }, [specTasksData]);
 
-          return {
-            ...task,
-            hasSpecs,
-            phase,
-            planningStatus,
-            activeSessionsCount: 0,
-            completedSessionsCount: 0,
-            onReviewDocs: handleReviewDocs,
-          };
-        });
-
-        setTasks(enhancedTasks);
-        hasLoadedOnceRef.current = true;
-      } catch (err) {
-        console.error('Failed to load tasks:', err);
-        setError('Failed to load tasks');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTasks();
-  }, [account.user?.id, projectId, showArchived, refreshTrigger]);
-
-  // Set up polling for real-time updates
+  // Set error from query
   useEffect(() => {
-    if (!account.user?.id) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await api.get('/api/v1/spec-tasks', {
-          params: {
-            project_id: projectId || 'default',
-            archived_only: showArchived
-          }
-        });
-
-        const tasksData = response.data || response;
-        const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-
-        // Use consistent phase mapping helper
-        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
-          const { phase, planningStatus: mappedStatus, hasSpecs } = mapStatusToPhase(task.status || 'backlog');
-          const planningStatus = (task.status === 'backlog' && task.metadata?.error) ? 'failed' : mappedStatus;
-
-          return {
-            ...task,
-            hasSpecs,
-            phase,
-            planningStatus,
-            activeSessionsCount: 0,
-            completedSessionsCount: 0,
-            onReviewDocs: handleReviewDocs,
-          };
-        });
-
-        setTasks(enhancedTasks);
-      } catch (err) {
-        console.error('Failed to poll tasks:', err);
-      }
-    }, 3000); // Faster polling: 3 seconds instead of 10 for responsive updates
-
-    return () => clearInterval(interval);
-  }, [account.user?.id, projectId, showArchived]);
+    if (queryError) {
+      console.error('Failed to load tasks:', queryError);
+      setError('Failed to load tasks');
+    }
+  }, [queryError]);
 
   // Update sample types when data loads
   useEffect(() => {
@@ -956,16 +910,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             </Tooltip>
           )}
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
-            onClick={() => setShowArchived(!showArchived)}
-          >
-            {showArchived ? 'Active' : 'Archived'}
-          </Button>
-        </Box>
       </Box>
 
       {error && (
@@ -1020,6 +964,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             focusTaskId={focusTaskId}
             archivingTaskId={archivingTaskId}
             hasExternalRepo={hasExternalRepo}
+            showMetrics={showMetrics}
             theme={theme}
           />
         ))}
@@ -1080,7 +1025,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                 native
               >
                 <option value="">Select a project template</option>
-                {sampleTypes.map((type: SampleType, index) => {
+                {sampleTypes.map((type, index) => {
                   const typeId = type.id || `sample-${index}`;
                   
                   return (

@@ -12,6 +12,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Menu,
   CircularProgress,
   IconButton,  
   Checkbox,
@@ -26,9 +27,12 @@ import {
   SmartToy as SmartToyIcon,
   ViewKanban as KanbanIcon,
   History as AuditIcon,
-  Tab as TabIcon,  
+  Tab as TabIcon,
+  Archive as ArchiveIcon,
+  BarChart as MetricsIcon,
+  Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { Plus, X, Play, Settings } from 'lucide-react';
+import { Plus, X, Play, Settings, MoreHorizontal } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -146,6 +150,23 @@ const SpecTasksPage: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Kanban view options state (controlled from topbar)
+  const METRICS_STORAGE_KEY = 'helix-kanban-show-metrics';
+  const [showArchived, setShowArchived] = useState(false);
+  const [showMetrics, setShowMetrics] = useState(() => {
+    const stored = localStorage.getItem(METRICS_STORAGE_KEY);
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [viewMenuAnchorEl, setViewMenuAnchorEl] = useState<null | HTMLElement>(null);
+
+  const handleToggleMetrics = useCallback(() => {
+    setShowMetrics(prev => {
+      const newValue = !prev;
+      localStorage.setItem(METRICS_STORAGE_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
 
   // Chat panel state - persist expanded/collapsed preference
   const [chatPanelOpen, setChatPanelOpen] = useState(() => {
@@ -966,6 +987,43 @@ const SpecTasksPage: FC = () => {
           >
             Settings
           </Button>
+          <IconButton
+            size="small"
+            onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+            sx={{
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              px: 1,
+              flexShrink: 0,
+            }}
+          >
+            <MoreHorizontal size={18} />
+          </IconButton>
+          <Menu
+            anchorEl={viewMenuAnchorEl}
+            open={Boolean(viewMenuAnchorEl)}
+            onClose={() => setViewMenuAnchorEl(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{
+              paper: {
+                sx: {
+                  minWidth: 200,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                },
+              },
+            }}
+          >
+            <MenuItem onClick={() => { setShowArchived(!showArchived); setViewMenuAnchorEl(null); }}>
+              {showArchived ? <ViewIcon sx={{ mr: 1.5, fontSize: 20 }} /> : <ArchiveIcon sx={{ mr: 1.5, fontSize: 20 }} />}
+              {showArchived ? 'Show Active Tasks' : 'Show Archived Tasks'}
+            </MenuItem>
+            <MenuItem onClick={() => { handleToggleMetrics(); setViewMenuAnchorEl(null); }}>
+              <MetricsIcon sx={{ mr: 1.5, fontSize: 20 }} />
+              {showMetrics ? 'Hide Metrics' : 'Show Metrics'}
+            </MenuItem>
+          </Menu>
         </Stack>
       }
     >
@@ -1031,6 +1089,8 @@ const SpecTasksPage: FC = () => {
                 refreshTrigger={refreshTrigger}
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
+                showArchived={showArchived}
+                showMetrics={showMetrics}
               />
             )}
             {viewMode === 'tabs' && (
