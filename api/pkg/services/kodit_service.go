@@ -60,12 +60,12 @@ func NewKoditService(baseURL, apiKey string) *KoditService {
 	}
 
 	if apiKey != "" {
-		basicAuth, err := securityprovider.NewSecurityProviderBasicAuth("my_user", "my_pass")
+		apiKeyAuthProvider, err := securityprovider.NewSecurityProviderApiKey("header", "X-API-Key", apiKey)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to create basic auth security provider")
+			log.Error().Err(err).Msg("Failed to create API key security provider")
 			return &KoditService{enabled: false}
 		}
-		options = append(options, kodit.WithRequestEditorFn(basicAuth.Intercept))
+		options = append(options, kodit.WithRequestEditorFn(apiKeyAuthProvider.Intercept))
 	}
 
 	client, err := kodit.NewClient(baseURL, options...)

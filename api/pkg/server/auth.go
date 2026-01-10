@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -72,11 +73,6 @@ func NewCookieManager(config *config.ServerConfig) *CookieManager {
 		// - HTTPS: use Secure cookies (standard secure behavior)
 		// - HTTP: use non-Secure cookies (Safari strictly rejects Secure cookies over HTTP)
 		secureCookies = strings.HasPrefix(config.WebServer.URL, "https://")
-		if !secureCookies {
-			log.Debug().
-				Str("server_url", config.WebServer.URL).
-				Msg("SERVER_URL is HTTP - using non-secure cookies for browser compatibility")
-		}
 	}
 
 	return &CookieManager{
@@ -622,21 +618,9 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := s.oidcClient.Exchange(ctx, code)
 	if err != nil {
-		// Determine which OIDC provider is configured and log the relevant URL
-		var providerURL string
-		var providerType string
-		if s.Cfg.Auth.OIDC.Enabled {
-			providerURL = s.Cfg.Auth.OIDC.URL
-			providerType = "OIDC"
-		} else if s.Cfg.Auth.Keycloak.KeycloakEnabled {
-			providerURL = fmt.Sprintf("%s/realms/%s", s.Cfg.Auth.Keycloak.KeycloakFrontEndURL, s.Cfg.Auth.Keycloak.Realm)
-			providerType = "Keycloak"
-		}
-
 		log.Error().
 			Err(err).
-			Str("provider_type", providerType).
-			Str("provider_url", providerURL).
+			Str("provider_url", s.Cfg.Auth.OIDC.URL).
 			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
 			Str("auth_code", code).
 			Msg("Failed to exchange token")
@@ -716,69 +700,20 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-	case types.AuthProviderKeycloak:
-		userInfo, err := s.oidcClient.GetUserInfo(ctx, accessToken)
+	default:
+		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
+		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
+		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to get userinfo")
+			log.Error().Err(err).Msg("Failed to validate user token")
 			// If the error contains "401" or "unauthorized", it's likely an expired/invalid token
-			// Return 401 instead of 500 so the frontend can handle it properly
 			errStr := strings.ToLower(err.Error())
 			if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			} else {
-				http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			}
 			return
-		}
-		log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
-
-		user, err = s.Store.GetUser(ctx, &store.GetUserQuery{
-			ID: userInfo.Subject,
-		})
-		if err != nil {
-			if !errors.Is(err, store.ErrNotFound) {
-				log.Debug().Err(err).Msg("Failed to get user")
-				http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-		// Extract the full name from the userinfo
-		fullName := "unknown"
-		if userInfo.Name != "" {
-			fullName = userInfo.Name
-		} else if userInfo.GivenName != "" && userInfo.FamilyName != "" {
-			fullName = fmt.Sprintf("%s %s", userInfo.GivenName, userInfo.FamilyName)
-		}
-
-		if user == nil {
-			user, err = s.Store.CreateUser(ctx, &types.User{
-				ID:        userInfo.Subject,
-				Username:  userInfo.Subject,
-				Email:     userInfo.Email,
-				FullName:  fullName,
-				CreatedAt: time.Now(),
-			})
-			if err != nil {
-				if strings.Contains(err.Error(), "duplicate key") {
-					return
-				}
-				log.Error().Err(err).Msg("Failed to create user")
-				http.Error(w, "Failed to create user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		// If existing has changed, update the user
-		if user.Email != userInfo.Email || user.FullName != fullName || user.Username != userInfo.Email {
-			user.Email = userInfo.Email
-			user.FullName = fullName
-			user.Username = userInfo.Email
-			_, err = s.Store.UpdateUser(ctx, user)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to update user")
-				http.Error(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
 		}
 	}
 
@@ -787,6 +722,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		Email: user.Email,
 		Token: accessToken,
 		Name:  user.FullName,
+		Admin: user.Admin,
 	}
 	writeResponse(w, response, http.StatusOK)
 }
@@ -806,6 +742,11 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 
 	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
+		// If get_url=true query param is set, return the URL as JSON instead of redirecting
+		if r.URL.Query().Get("get_url") == "true" {
+			writeResponse(w, map[string]string{"url": s.Cfg.WebServer.URL}, http.StatusOK)
+			return
+		}
 		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
@@ -821,7 +762,26 @@ func (s *HelixAPIServer) logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty logout URL", http.StatusBadGateway)
 		return
 	}
+
+	// Add post_logout_redirect_uri to redirect back to Helix after OIDC logout
+	// This is part of OIDC RP-Initiated Logout spec and works with most providers
+	// Also add client_id which some providers require
+	redirectURI := url.QueryEscape(s.Cfg.WebServer.URL)
+	clientID := url.QueryEscape(s.Cfg.Auth.OIDC.ClientID)
+	if strings.Contains(logoutURL, "?") {
+		logoutURL = logoutURL + "&post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
+	} else {
+		logoutURL = logoutURL + "?post_logout_redirect_uri=" + redirectURI + "&client_id=" + clientID
+	}
 	log.Debug().Str("logout_url", logoutURL).Msg("Redirecting to logout URL")
+
+	// If get_url=true query param is set, return the URL as JSON instead of redirecting
+	// This is needed because browsers can't follow cross-origin redirects from fetch()
+	if r.URL.Query().Get("get_url") == "true" {
+		writeResponse(w, map[string]string{"url": logoutURL}, http.StatusOK)
+		return
+	}
+
 	http.Redirect(w, r, logoutURL, http.StatusFound)
 
 }
@@ -849,7 +809,13 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+	switch s.Cfg.Auth.Provider {
+	case types.AuthProviderRegular:
+		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+	default:
+		// OIDC-based auth
+		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+	}
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to validate user token")
 		writeResponse(w, types.AuthenticatedResponse{
@@ -915,7 +881,7 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		newAccessToken = token
 		newRefreshToken = token
 	default:
-		// Keycloak and OIDC
+		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		token, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to refresh access_token")

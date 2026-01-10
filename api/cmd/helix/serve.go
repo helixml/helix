@@ -275,20 +275,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
 
-	var authenticator auth.Authenticator
-
-	switch cfg.Auth.Provider {
-	case types.AuthProviderKeycloak:
-		authenticator, err = auth.NewKeycloakAuthenticator(cfg, postgresStore)
-		if err != nil {
-			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
-		}
-	default:
-		// Default authenticator, using regular authentication
-		authenticator, err = auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
-		if err != nil {
-			return fmt.Errorf("failed to create helix authenticator: %v", err)
-		}
+	// HelixAuthenticator handles user management for all auth modes.
+	// For OIDC mode, the actual authentication is handled by oidcClient in the server,
+	// while HelixAuthenticator handles API key lookups and user database operations.
+	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
+	if err != nil {
+		return fmt.Errorf("failed to create helix authenticator: %v", err)
 	}
 
 	janitor := janitor.NewJanitor(cfg.Janitor)
@@ -507,10 +499,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	trigger := trigger.NewTriggerManager(cfg, postgresStore, notifier, appController)
 	// Start integrations
 	go trigger.Start(ctx)
-
-	// Start agent work queue processor
-	workQueueProcessor := controller.NewAgentWorkQueueProcessor(postgresStore, appController)
-	go workQueueProcessor.Start(ctx)
 
 	stripe := stripe.NewStripe(
 		cfg.Stripe,

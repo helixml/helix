@@ -33,6 +33,8 @@ type Project struct {
 	// New spec tasks inherit this agent; can be overridden per-task
 	DefaultHelixAppID string `json:"default_helix_app_id,omitempty" gorm:"type:varchar(255)"`
 
+	ProjectManagerHelixAppID string `json:"project_manager_helix_app_id,omitempty"`
+
 	// Guidelines for AI agents - project-specific style guides, conventions, and instructions
 	// Combined with organization guidelines when constructing prompts
 	Guidelines          string    `json:"guidelines" gorm:"type:text"`
@@ -150,108 +152,19 @@ type ProjectCreateRequest struct {
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name                  *string          `json:"name,omitempty"`
-	Description           *string          `json:"description,omitempty"`
-	GitHubRepoURL         *string          `json:"github_repo_url,omitempty"`
-	DefaultBranch         *string          `json:"default_branch,omitempty"`
-	Technologies          []string         `json:"technologies,omitempty"`
-	Status                *string          `json:"status,omitempty"`
-	DefaultRepoID         *string          `json:"default_repo_id,omitempty"`
-	StartupScript         *string          `json:"startup_script,omitempty"`
-	AutoStartBacklogTasks *bool            `json:"auto_start_backlog_tasks,omitempty"`
-	DefaultHelixAppID     *string          `json:"default_helix_app_id,omitempty"` // Default agent for spec tasks
-	Guidelines            *string          `json:"guidelines,omitempty"`           // Project-specific AI agent guidelines
-	Metadata              *ProjectMetadata `json:"metadata,omitempty"`
-}
-
-// ProjectTaskCreateRequest represents a request to create a new project task
-type ProjectTaskCreateRequest struct {
-	Name               string     `json:"name"`
-	Description        string     `json:"description"`
-	Type               string     `json:"type"`
-	Priority           string     `json:"priority"`
-	Status             string     `json:"status,omitempty"`
-	EstimatedHours     int        `json:"estimated_hours,omitempty"`
-	Labels             []string   `json:"labels,omitempty"`
-	AcceptanceCriteria []string   `json:"acceptance_criteria,omitempty"`
-	TechnicalNotes     string     `json:"technical_notes,omitempty"`
-	FilesToModify      []string   `json:"files_to_modify,omitempty"`
-	DueDate            *time.Time `json:"due_date,omitempty"`
-}
-
-// ProjectTaskUpdateRequest represents a request to update a project task
-type ProjectTaskUpdateRequest struct {
-	Name               *string    `json:"name,omitempty"`
-	Description        *string    `json:"description,omitempty"`
-	Type               *string    `json:"type,omitempty"`
-	Priority           *string    `json:"priority,omitempty"`
-	Status             *string    `json:"status,omitempty"`
-	EstimatedHours     *int       `json:"estimated_hours,omitempty"`
-	ActualHours        *int       `json:"actual_hours,omitempty"`
-	Labels             []string   `json:"labels,omitempty"`
-	AcceptanceCriteria []string   `json:"acceptance_criteria,omitempty"`
-	TechnicalNotes     *string    `json:"technical_notes,omitempty"`
-	FilesToModify      []string   `json:"files_to_modify,omitempty"`
-	DueDate            *time.Time `json:"due_date,omitempty"`
-}
-
-// ProjectDashboard represents a comprehensive project dashboard view
-type ProjectDashboard struct {
-	Project        *Project              `json:"project"`
-	Stats          *ProjectStats         `json:"stats"`
-	RecentTasks    []*ProjectTask        `json:"recent_tasks"`
-	ActiveSessions []*AgentSessionStatus `json:"active_sessions"`
-	RecentActivity []ProjectActivity     `json:"recent_activity"`
-	KanbanColumns  []ProjectKanbanColumn `json:"kanban_columns"`
-}
-
-// ProjectActivity represents activity log entries for a project
-type ProjectActivity struct {
-	ID        string         `json:"id"`
-	ProjectID string         `json:"project_id"`
-	TaskID    string         `json:"task_id,omitempty"`
-	UserID    string         `json:"user_id"`
-	AgentType string         `json:"agent_type,omitempty"`
-	Action    string         `json:"action"` // "task_created", "task_moved", "agent_assigned", "task_completed", etc.
-	Details   string         `json:"details"`
-	Timestamp time.Time      `json:"timestamp"`
-	Metadata  datatypes.JSON `json:"metadata,omitempty"`
-}
-
-// ProjectKanbanColumn represents a column in the project's kanban board
-type ProjectKanbanColumn struct {
-	ID       string         `json:"id"`
-	Title    string         `json:"title"`
-	Color    string         `json:"color"`
-	Position int            `json:"position"`
-	WIPLimit int            `json:"wip_limit,omitempty"`
-	Tasks    []*ProjectTask `json:"tasks"`
-}
-
-// ProjectTemplate represents a project template for quick project creation
-type ProjectTemplate struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	Description   string                `json:"description"`
-	Category      string                `json:"category"`
-	Technologies  []string              `json:"technologies"`
-	TaskTemplates []ProjectTaskTemplate `json:"task_templates"`
-	GitHubRepo    string                `json:"github_repo,omitempty"`
-	ReadmeURL     string                `json:"readme_url,omitempty"`
-	DemoURL       string                `json:"demo_url,omitempty"`
-}
-
-// ProjectTaskTemplate represents a task template within a project template
-type ProjectTaskTemplate struct {
-	Name               string   `json:"name"`
-	Description        string   `json:"description"`
-	Type               string   `json:"type"`
-	Priority           string   `json:"priority"`
-	EstimatedHours     int      `json:"estimated_hours,omitempty"`
-	Labels             []string `json:"labels,omitempty"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
-	TechnicalNotes     string   `json:"technical_notes,omitempty"`
-	FilesToModify      []string `json:"files_to_modify,omitempty"`
+	Name                     *string          `json:"name,omitempty"`
+	Description              *string          `json:"description,omitempty"`
+	GitHubRepoURL            *string          `json:"github_repo_url,omitempty"`
+	DefaultBranch            *string          `json:"default_branch,omitempty"`
+	Technologies             []string         `json:"technologies,omitempty"`
+	Status                   *string          `json:"status,omitempty"`
+	DefaultRepoID            *string          `json:"default_repo_id,omitempty"`
+	StartupScript            *string          `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks    *bool            `json:"auto_start_backlog_tasks,omitempty"`
+	DefaultHelixAppID        *string          `json:"default_helix_app_id,omitempty"`         // Default agent for spec tasks
+	ProjectManagerHelixAppID *string          `json:"project_manager_helix_app_id,omitempty"` // Project manager agent
+	Guidelines               *string          `json:"guidelines,omitempty"`                   // Project-specific AI agent guidelines
+	Metadata                 *ProjectMetadata `json:"metadata,omitempty"`
 }
 
 // SampleProject represents a pre-built sample project that can be instantiated
@@ -303,9 +216,9 @@ type GuidelinesHistory struct {
 	UserID         string    `json:"user_id,omitempty" gorm:"type:varchar(255);index"`         // Set for user-level (personal workspace) guidelines
 	Version        int       `json:"version"`
 	Guidelines     string    `json:"guidelines" gorm:"type:text"`
-	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"`  // User ID
-	UpdatedByName  string    `json:"updated_by_name" gorm:"-"`             // User display name (not persisted, populated at query time)
-	UpdatedByEmail string    `json:"updated_by_email" gorm:"-"`            // User email (not persisted, populated at query time)
+	UpdatedBy      string    `json:"updated_by" gorm:"type:varchar(255)"` // User ID
+	UpdatedByName  string    `json:"updated_by_name" gorm:"-"`            // User display name (not persisted, populated at query time)
+	UpdatedByEmail string    `json:"updated_by_email" gorm:"-"`           // User email (not persisted, populated at query time)
 	UpdatedAt      time.Time `json:"updated_at"`
 	ChangeNote     string    `json:"change_note,omitempty" gorm:"type:text"` // Optional description of what changed
 }

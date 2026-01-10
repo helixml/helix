@@ -337,356 +337,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/agents/fleet": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get agent fleet data including active sessions, work queue, and help requests without dashboard data",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Get agent fleet data",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentFleetSummary"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/help-requests": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List help requests from agents needing human assistance",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "List help requests",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 20,
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Help request status filter",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Urgency level filter",
-                        "name": "urgency",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.HelpRequestsListResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/help-requests/{request_id}/resolve": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Provide resolution for a help request from an agent",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Resolve a help request",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Help request ID",
-                        "name": "request_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Resolution details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.HelpRequest"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/sessions": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List agent sessions with filtering and pagination",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "List agent sessions",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 20,
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Session status filter",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent type filter",
-                        "name": "agent_type",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Show only active sessions",
-                        "name": "active_only",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentSessionsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/stats": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get statistics about the agent work queue",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Get work queue statistics",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkQueueStats"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/work": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List work items in the agent queue with filtering and pagination",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "List agent work items",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 0,
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 20,
-                        "description": "Page size",
-                        "name": "page_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Work item status filter",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Agent type filter",
-                        "name": "agent_type",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Work item source filter",
-                        "name": "source",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItemsResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new work item in the agent queue",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Create a new agent work item",
-                "parameters": [
-                    {
-                        "description": "Work item details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItemCreateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItem"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/agents/work/{work_item_id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get details of a specific work item",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Get an agent work item",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work item ID",
-                        "name": "work_item_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItem"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update details of a specific work item",
-                "tags": [
-                    "agents"
-                ],
-                "summary": "Update an agent work item",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work item ID",
-                        "name": "work_item_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Update details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItemUpdateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentWorkItem"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -2060,28 +1710,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.DashboardData"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/dashboard/agent": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get comprehensive dashboard data including agent sessions, work queue, and help requests",
-                "tags": [
-                    "dashboard"
-                ],
-                "summary": "Get enhanced dashboard data with agent management",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.AgentDashboardSummary"
                         }
                     }
                 }
@@ -9113,8 +8741,20 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Search sessions by name",
                         "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
                         "in": "query"
                     }
                 ],
@@ -11115,70 +10755,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/{taskId}/approve-with-handoff": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Combined endpoint that approves specifications and immediately executes document handoff workflow",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Approve specs and execute document handoff",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Approval and handoff configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.ApprovalWithHandoffRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.CombinedApprovalHandoffResult"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{taskId}/archive": {
             "patch": {
                 "security": [
@@ -11344,595 +10920,20 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/spec-tasks/{taskId}/commit-progress": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Commit a progress update to git with current implementation status",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Commit implementation progress update",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Progress update data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.HandoffResult"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/coordination-log": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the coordination log showing inter-session communication for a SpecTask",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get coordination log for SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "default": 100,
-                        "description": "Limit number of events",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by event type",
-                        "name": "event_type",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.CoordinationLogResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/document-status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get the current status of document handoff and git integration for a SpecTask",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get document handoff status for SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.DocumentHandoffStatus"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/documents/{document}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve the content of a specific spec document (requirements.md, design.md, or tasks.md)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get specific spec document content",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "enum": [
-                            "requirements",
-                            "design",
-                            "tasks",
-                            "metadata"
-                        ],
-                        "type": "string",
-                        "description": "Document name",
-                        "name": "document",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SpecDocumentContentResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/download-documents": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Download the generated spec documents as a zip file or individual files",
-                "produces": [
-                    "application/zip"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Download generated spec documents",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "enum": [
-                            "zip",
-                            "individual"
-                        ],
-                        "type": "string",
-                        "default": "zip",
-                        "description": "Download format",
-                        "name": "format",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/execute-handoff": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Execute the complete document handoff when specs are approved, including git commit and implementation start",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Execute complete document handoff workflow",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Handoff configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/services.DocumentHandoffConfig"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.HandoffResult"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/generate-documents": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Generate Kiro-style spec documents (requirements.md, design.md, tasks.md) and commit to git repository",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Generate and commit spec documents to git",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Document generation configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/services.SpecDocumentConfig"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.SpecDocumentResult"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/implementation-sessions": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create multiple work sessions from an approved SpecTask implementation plan",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Create implementation sessions for a SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Implementation sessions configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskImplementationSessionsCreateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskMultiSessionOverviewResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/implementation-tasks": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get all parsed implementation tasks from a SpecTask's implementation plan",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "List implementation tasks for a SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskImplementationTaskListResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/multi-session-overview": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get comprehensive overview of all work sessions and progress for a SpecTask",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get multi-session overview for a SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskMultiSessionOverviewResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/spec-tasks/{taskId}/progress": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get detailed progress information including phase progress and implementation task status",
+                "description": "Get detailed progress information for a spec-driven task including specification and implementation phases",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "spec-driven-tasks"
                 ],
-                "summary": "Get detailed progress for a SpecTask",
+                "summary": "Get spec-driven task progress",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "SpecTask ID",
+                        "description": "Task ID",
                         "name": "taskId",
                         "in": "path",
                         "required": true
@@ -11942,7 +10943,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.SpecTaskProgressResponse"
+                            "$ref": "#/definitions/server.TaskProgressResponse"
                         }
                     },
                     "404": {
@@ -12051,63 +11052,6 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/spec-tasks/{taskId}/work-sessions": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get all work sessions associated with a specific SpecTask",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "List work sessions for a SpecTask",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SpecTask ID",
-                        "name": "taskId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "enum": [
-                            "planning",
-                            "implementation",
-                            "validation"
-                        ],
-                        "type": "string",
-                        "description": "Filter by phase",
-                        "name": "phase",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionListResponse"
                         }
                     },
                     "404": {
@@ -13773,373 +12717,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/work-sessions/{sessionId}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get comprehensive details about a specific work session including related entities",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get detailed information about a work session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionDetailResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/work-sessions/{sessionId}/history": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve the session history log for a work session from git repository",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Get session history log from git",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "enum": [
-                            "conversation",
-                            "code_change",
-                            "decision",
-                            "coordination"
-                        ],
-                        "type": "string",
-                        "description": "Filter by activity type",
-                        "name": "activity_type",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 50,
-                        "description": "Limit number of entries",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SessionHistoryResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/work-sessions/{sessionId}/record-history": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Record session activity (conversation, code changes, decisions) to git repository",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Record session activity to git",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Session activity record",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/services.SessionHistoryRecord"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/work-sessions/{sessionId}/spawn": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new work session that is spawned from an existing active work session",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Spawn a new work session from an existing one",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Parent Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Spawn configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionSpawnRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionDetailResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/work-sessions/{sessionId}/status": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update the status of a work session and handle state transitions",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Update work session status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Status update",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionUpdateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskWorkSession"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/work-sessions/{sessionId}/zed-thread": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update the status of a Zed thread associated with a work session",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Update Zed thread status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Work Session ID",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Zed thread status update",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskZedThreadUpdateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SpecTaskZedThread"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            },
             "post": {
                 "security": [
                     {
@@ -14190,63 +12768,6 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/zed-threads/create-session": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new Helix work session when a Zed thread is created (reverse flow)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "spec-driven-tasks"
-                ],
-                "summary": "Create Helix session from Zed thread",
-                "parameters": [
-                    {
-                        "description": "Zed thread creation context",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/services.ZedThreadCreationContext"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/services.ZedSessionCreationResult"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -15700,32 +14221,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.ApprovalWithHandoffRequest": {
-            "type": "object",
-            "properties": {
-                "approved": {
-                    "type": "boolean"
-                },
-                "changes": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "comments": {
-                    "type": "string"
-                },
-                "create_pull_request": {
-                    "type": "boolean"
-                },
-                "handoff_config": {
-                    "$ref": "#/definitions/services.DocumentHandoffConfig"
-                },
-                "project_path": {
-                    "type": "string"
-                }
-            }
-        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -15740,67 +14235,6 @@ const docTemplate = `{
                 },
                 "target_dir": {
                     "type": "string"
-                }
-            }
-        },
-        "server.CombinedApprovalHandoffResult": {
-            "type": "object",
-            "properties": {
-                "approval": {
-                    "$ref": "#/definitions/types.SpecApprovalResponse"
-                },
-                "handoff_result": {
-                    "$ref": "#/definitions/services.HandoffResult"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "next_steps": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "spec_task": {
-                    "$ref": "#/definitions/types.SpecTask"
-                },
-                "success": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "server.CoordinationLogResponse": {
-            "type": "object",
-            "properties": {
-                "active_sessions": {
-                    "type": "integer"
-                },
-                "completed_sessions": {
-                    "type": "integer"
-                },
-                "events": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/services.CoordinationEvent"
-                    }
-                },
-                "events_by_type": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "filtered_events": {
-                    "type": "integer"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "total_events": {
-                    "type": "integer"
                 }
             }
         },
@@ -16320,58 +14754,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.SessionHistoryEntry": {
-            "type": "object",
-            "properties": {
-                "activity_type": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "files_affected": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "timestamp": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.SessionHistoryResponse": {
-            "type": "object",
-            "properties": {
-                "activity_type": {
-                    "type": "string"
-                },
-                "entries": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/server.SessionHistoryEntry"
-                    }
-                },
-                "git_branch": {
-                    "type": "string"
-                },
-                "last_commit": {
-                    "type": "string"
-                },
-                "limit": {
-                    "type": "integer"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "total_entries": {
-                    "type": "integer"
-                },
-                "work_session_id": {
-                    "type": "string"
-                }
-            }
-        },
         "server.SessionWolfAppStateResponse": {
             "type": "object",
             "properties": {
@@ -16477,32 +14859,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "runner_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.SpecDocumentContentResponse": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "content_type": {
-                    "type": "string"
-                },
-                "document_name": {
-                    "type": "string"
-                },
-                "filename": {
-                    "type": "string"
-                },
-                "last_modified": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "spec_task_id": {
                     "type": "string"
                 }
             }
@@ -16812,203 +15168,6 @@ const docTemplate = `{
                 }
             }
         },
-        "services.CoordinationEvent": {
-            "type": "object",
-            "properties": {
-                "acknowledged": {
-                    "type": "boolean"
-                },
-                "acknowledged_at": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "event_type": {
-                    "$ref": "#/definitions/services.CoordinationEventType"
-                },
-                "from_session_id": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "response": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "to_session_id": {
-                    "description": "Empty for broadcast",
-                    "type": "string"
-                }
-            }
-        },
-        "services.CoordinationEventType": {
-            "type": "string",
-            "enum": [
-                "handoff",
-                "blocking",
-                "notification",
-                "request",
-                "response",
-                "broadcast",
-                "completion",
-                "spawn"
-            ],
-            "x-enum-varnames": [
-                "CoordinationEventTypeHandoff",
-                "CoordinationEventTypeBlocking",
-                "CoordinationEventTypeNotification",
-                "CoordinationEventTypeRequest",
-                "CoordinationEventTypeResponse",
-                "CoordinationEventTypeBroadcast",
-                "CoordinationEventTypeCompletion",
-                "CoordinationEventTypeSpawn"
-            ]
-        },
-        "services.DocumentHandoffConfig": {
-            "type": "object",
-            "properties": {
-                "auto_merge_approved_specs": {
-                    "type": "boolean"
-                },
-                "commit_frequency_minutes": {
-                    "type": "integer"
-                },
-                "custom_git_hooks": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "enable_git_integration": {
-                    "type": "boolean"
-                },
-                "enable_pull_requests": {
-                    "type": "boolean"
-                },
-                "enable_session_recording": {
-                    "type": "boolean"
-                },
-                "notification_webhooks": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "require_code_review": {
-                    "type": "boolean"
-                },
-                "spec_reviewers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "services.DocumentHandoffStatus": {
-            "type": "object",
-            "properties": {
-                "current_phase": {
-                    "type": "string"
-                },
-                "documents_generated": {
-                    "type": "boolean"
-                },
-                "git_integration_status": {
-                    "type": "string"
-                },
-                "last_commit_hash": {
-                    "type": "string"
-                },
-                "last_commit_time": {
-                    "type": "string"
-                },
-                "session_recording_active": {
-                    "type": "boolean"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.HandoffResult": {
-            "type": "object",
-            "properties": {
-                "branch_name": {
-                    "type": "string"
-                },
-                "estimated_completion": {
-                    "type": "string"
-                },
-                "files_committed": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "git_commit_hash": {
-                    "type": "string"
-                },
-                "handoff_timestamp": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "next_actions": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "notifications_sent": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "phase": {
-                    "description": "\"spec_commit\", \"implementation_start\", \"progress_update\", \"completion\"",
-                    "type": "string"
-                },
-                "pull_request_url": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "work_sessions_created": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "zed_instance_id": {
-                    "type": "string"
-                }
-            }
-        },
         "services.KoditEnrichmentAttributes": {
             "type": "object",
             "properties": {
@@ -17135,135 +15294,6 @@ const docTemplate = `{
                 }
             }
         },
-        "services.SessionHistoryRecord": {
-            "type": "object",
-            "properties": {
-                "activity_type": {
-                    "description": "\"conversation\", \"code_change\", \"decision\", \"coordination\"",
-                    "type": "string"
-                },
-                "code_changes": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "content": {
-                    "type": "string"
-                },
-                "coordination_data": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "files_affected": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "helix_session_id": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "work_session_id": {
-                    "type": "string"
-                },
-                "zed_thread_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.SpecDocumentConfig": {
-            "type": "object",
-            "properties": {
-                "branch_name": {
-                    "type": "string"
-                },
-                "commit_message": {
-                    "type": "string"
-                },
-                "create_pull_request": {
-                    "type": "boolean"
-                },
-                "custom_metadata": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "generate_task_board": {
-                    "type": "boolean"
-                },
-                "include_timestamps": {
-                    "type": "boolean"
-                },
-                "overwrite_existing": {
-                    "type": "boolean"
-                },
-                "project_path": {
-                    "type": "string"
-                },
-                "reviewers_needed": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "spec_task_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.SpecDocumentResult": {
-            "type": "object",
-            "properties": {
-                "branch_name": {
-                    "type": "string"
-                },
-                "commit_hash": {
-                    "type": "string"
-                },
-                "files_created": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "generated_files": {
-                    "description": "filename -\u003e content",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "message": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "pull_request_url": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "services.StartupScriptVersion": {
             "type": "object",
             "properties": {
@@ -17280,96 +15310,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "timestamp": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.ZedSessionCreationResult": {
-            "type": "object",
-            "properties": {
-                "creation_method": {
-                    "description": "\"spawned\", \"planned\", \"ad_hoc\"",
-                    "type": "string"
-                },
-                "helix_session": {
-                    "$ref": "#/definitions/types.Session"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "parent_work_session": {
-                    "$ref": "#/definitions/types.SpecTaskWorkSession"
-                },
-                "spec_task": {
-                    "$ref": "#/definitions/types.SpecTask"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "work_session": {
-                    "$ref": "#/definitions/types.SpecTaskWorkSession"
-                },
-                "zed_thread": {
-                    "$ref": "#/definitions/types.SpecTaskZedThread"
-                }
-            }
-        },
-        "services.ZedThreadCreationContext": {
-            "type": "object",
-            "properties": {
-                "agent_configuration": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "environment_variables": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "estimated_duration_hours": {
-                    "type": "number"
-                },
-                "expected_work_type": {
-                    "type": "string"
-                },
-                "initial_prompt": {
-                    "type": "string"
-                },
-                "parent_zed_thread_id": {
-                    "type": "string"
-                },
-                "project_path": {
-                    "type": "string"
-                },
-                "related_implementation_task": {
-                    "type": "integer"
-                },
-                "spawn_reason": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "thread_description": {
-                    "type": "string"
-                },
-                "thread_name": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                },
-                "zed_instance_id": {
-                    "type": "string"
-                },
-                "zed_thread_id": {
                     "type": "string"
                 }
             }
@@ -17568,251 +15508,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.AgentDashboardSummary": {
-            "type": "object",
-            "properties": {
-                "active_help_requests": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.HelpRequest"
-                    }
-                },
-                "active_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentSessionStatus"
-                    }
-                },
-                "global_allocation_decisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GlobalAllocationDecision"
-                    }
-                },
-                "last_updated": {
-                    "type": "string"
-                },
-                "pending_reviews": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.JobCompletion"
-                    }
-                },
-                "pending_work": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentWorkItem"
-                    }
-                },
-                "queue": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.WorkloadSummary"
-                    }
-                },
-                "recent_completions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.JobCompletion"
-                    }
-                },
-                "runners": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.DashboardRunner"
-                    }
-                },
-                "running_work": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentWorkItem"
-                    }
-                },
-                "scheduling_decisions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SchedulingDecision"
-                    }
-                },
-                "sessions_needing_help": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentSessionStatus"
-                    }
-                },
-                "work_queue_stats": {
-                    "$ref": "#/definitions/types.AgentWorkQueueStats"
-                }
-            }
-        },
-        "types.AgentFleetSummary": {
-            "type": "object",
-            "properties": {
-                "active_help_requests": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.HelpRequest"
-                    }
-                },
-                "active_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentSessionStatus"
-                    }
-                },
-                "external_agent_runners": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.ExternalAgentConnection"
-                    }
-                },
-                "last_updated": {
-                    "type": "string"
-                },
-                "pending_reviews": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.JobCompletion"
-                    }
-                },
-                "pending_work": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentWorkItem"
-                    }
-                },
-                "recent_completions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.JobCompletion"
-                    }
-                },
-                "running_work": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentWorkItem"
-                    }
-                },
-                "sessions_needing_help": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentSessionStatus"
-                    }
-                },
-                "work_queue_stats": {
-                    "$ref": "#/definitions/types.AgentWorkQueueStats"
-                }
-            }
-        },
-        "types.AgentSessionStatus": {
-            "type": "object",
-            "properties": {
-                "agent_type": {
-                    "type": "string"
-                },
-                "app_id": {
-                    "type": "string"
-                },
-                "completed_at": {
-                    "type": "string"
-                },
-                "configuration": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "container_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "current_task": {
-                    "description": "What the agent is currently doing",
-                    "type": "string"
-                },
-                "current_work_item": {
-                    "type": "string"
-                },
-                "health_checked_at": {
-                    "type": "string"
-                },
-                "health_status": {
-                    "description": "\"healthy\", \"unhealthy\", \"unknown\"",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "metrics": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "process_id": {
-                    "type": "integer"
-                },
-                "rdp_port": {
-                    "type": "integer"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "status": {
-                    "description": "\"starting\", \"active\", \"waiting_for_help\", \"paused\", \"completed\", \"pending_review\", \"failed\"",
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                },
-                "workspace_dir": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.AgentSessionsResponse": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentSessionStatus"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.AgentType": {
             "type": "string",
             "enum": [
@@ -17830,329 +15525,6 @@ const docTemplate = `{
                 "AgentTypeHelixAgent",
                 "AgentTypeZedExternal"
             ]
-        },
-        "types.AgentWorkConfig": {
-            "type": "object",
-            "properties": {
-                "environment": {
-                    "description": "Agent environment and setup",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "github": {
-                    "description": "Source integration settings",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.GitHubWorkConfig"
-                        }
-                    ]
-                },
-                "instructions": {
-                    "description": "Custom instructions or context",
-                    "type": "string"
-                },
-                "manual": {
-                    "$ref": "#/definitions/types.ManualWorkConfig"
-                },
-                "skills": {
-                    "description": "Skills to enable for this work type",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "webhook": {
-                    "$ref": "#/definitions/types.WebhookWorkConfig"
-                },
-                "working_dir": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.AgentWorkItem": {
-            "type": "object",
-            "properties": {
-                "agent_type": {
-                    "description": "Required agent type",
-                    "type": "string"
-                },
-                "app_id": {
-                    "type": "string"
-                },
-                "assigned_session_id": {
-                    "type": "string"
-                },
-                "completed_at": {
-                    "type": "string"
-                },
-                "config": {
-                    "description": "Agent configuration",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deadline_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "labels": {
-                    "description": "Labels/tags for filtering",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "last_error": {
-                    "type": "string"
-                },
-                "max_retries": {
-                    "type": "integer"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "priority": {
-                    "description": "Lower = higher priority",
-                    "type": "integer"
-                },
-                "retry_count": {
-                    "type": "integer"
-                },
-                "scheduled_for": {
-                    "description": "When to start this work",
-                    "type": "string"
-                },
-                "source": {
-                    "description": "\"github\", \"manual\", \"webhook\", etc.",
-                    "type": "string"
-                },
-                "source_id": {
-                    "description": "External ID from source system",
-                    "type": "string"
-                },
-                "source_url": {
-                    "description": "URL to source (e.g., GitHub issue URL)",
-                    "type": "string"
-                },
-                "started_at": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"pending\", \"assigned\", \"in_progress\", \"completed\", \"failed\", \"cancelled\"",
-                    "type": "string"
-                },
-                "trigger_config_id": {
-                    "description": "Links to TriggerConfiguration",
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                },
-                "work_data": {
-                    "description": "Work-specific data",
-                    "type": "object",
-                    "additionalProperties": true
-                }
-            }
-        },
-        "types.AgentWorkItemCreateRequest": {
-            "type": "object",
-            "properties": {
-                "agent_type": {
-                    "type": "string"
-                },
-                "config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "deadline_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "max_retries": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "priority": {
-                    "type": "integer"
-                },
-                "scheduled_for": {
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "source_id": {
-                    "type": "string"
-                },
-                "source_url": {
-                    "type": "string"
-                },
-                "work_data": {
-                    "type": "object",
-                    "additionalProperties": true
-                }
-            }
-        },
-        "types.AgentWorkItemUpdateRequest": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "description": {
-                    "type": "string"
-                },
-                "labels": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "name": {
-                    "type": "string"
-                },
-                "priority": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "work_data": {
-                    "type": "object",
-                    "additionalProperties": true
-                }
-            }
-        },
-        "types.AgentWorkItemsResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AgentWorkItem"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.AgentWorkQueueStats": {
-            "type": "object",
-            "properties": {
-                "active_sessions": {
-                    "type": "integer"
-                },
-                "average_wait_time_minutes": {
-                    "type": "number"
-                },
-                "by_agent_type": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "by_priority": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "by_source": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "oldest_pending": {
-                    "type": "string"
-                },
-                "total_completed": {
-                    "type": "integer"
-                },
-                "total_failed": {
-                    "type": "integer"
-                },
-                "total_pending": {
-                    "type": "integer"
-                },
-                "total_running": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.AgentWorkQueueTrigger": {
-            "type": "object",
-            "properties": {
-                "agent_type": {
-                    "description": "\"zed\", \"helix\", etc.",
-                    "type": "string"
-                },
-                "auto_assign": {
-                    "description": "Auto-assign to available agents",
-                    "type": "boolean"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "max_retries": {
-                    "description": "Maximum retry attempts",
-                    "type": "integer"
-                },
-                "priority": {
-                    "description": "Lower numbers = higher priority",
-                    "type": "integer"
-                },
-                "timeout_mins": {
-                    "description": "Timeout in minutes",
-                    "type": "integer"
-                },
-                "work_config": {
-                    "description": "Work item configuration",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AgentWorkConfig"
-                        }
-                    ]
-                }
-            }
         },
         "types.AgentWorkState": {
             "type": "string",
@@ -18655,6 +16027,9 @@ const docTemplate = `{
                     "description": "How much to penalize new tokens based on whether they appear in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - open minded",
                     "type": "number"
                 },
+                "project_manager": {
+                    "$ref": "#/definitions/types.AssistantProjectManager"
+                },
                 "provider": {
                     "type": "string"
                 },
@@ -18815,6 +16190,17 @@ const docTemplate = `{
                     }
                 },
                 "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AssistantProjectManager": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
                     "type": "string"
                 }
             }
@@ -18994,7 +16380,6 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "regular",
-                "keycloak",
                 "oidc"
             ],
             "x-enum-comments": {
@@ -19002,7 +16387,6 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "AuthProviderRegular",
-                "AuthProviderKeycloak",
                 "AuthProviderOIDC"
             ]
         },
@@ -20105,23 +17489,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.ExternalAgentConnection": {
-            "type": "object",
-            "properties": {
-                "connected_at": {
-                    "type": "string"
-                },
-                "last_ping": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
         "types.ExternalRepositoryType": {
             "type": "string",
             "enum": [
@@ -20545,41 +17912,6 @@ const docTemplate = `{
                 },
                 "private_key": {
                     "description": "PEM-encoded private key for JWT signing",
-                    "type": "string"
-                }
-            }
-        },
-        "types.GitHubWorkConfig": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "auto_comment": {
-                    "description": "Comment when starting work",
-                    "type": "boolean"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "issue_types": {
-                    "description": "\"issue\", \"pull_request\"",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "labels": {
-                    "description": "Filter by labels",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "repo_name": {
-                    "type": "string"
-                },
-                "repo_owner": {
                     "type": "string"
                 }
             }
@@ -21102,98 +18434,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.HelpRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "attempted_solutions": {
-                    "description": "What the agent has already tried",
-                    "type": "string"
-                },
-                "context": {
-                    "description": "Brief context about the current task",
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "help_type": {
-                    "description": "\"decision\", \"expertise\", \"clarification\", \"review\", \"guidance\", \"stuck\", \"other\"",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "interaction_id": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "description": "Additional metadata as JSON",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "resolution": {
-                    "description": "The resolution or guidance provided",
-                    "type": "string"
-                },
-                "resolved_at": {
-                    "type": "string"
-                },
-                "resolved_by": {
-                    "description": "UserID of the human who resolved this",
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "specific_need": {
-                    "description": "Specific description of what help is needed",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"pending\", \"in_progress\", \"resolved\", \"cancelled\"",
-                    "type": "string"
-                },
-                "suggested_approaches": {
-                    "description": "Potential approaches the agent suggests",
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "urgency": {
-                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.HelpRequestsListResponse": {
-            "type": "object",
-            "properties": {
-                "help_requests": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.HelpRequest"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.ImageURLDetail": {
             "type": "string",
             "enum": [
@@ -21374,87 +18614,6 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "Images",
-                    "type": "string"
-                }
-            }
-        },
-        "types.JobCompletion": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "completion_status": {
-                    "description": "\"fully_completed\", \"milestone_reached\", etc.",
-                    "type": "string"
-                },
-                "confidence": {
-                    "description": "\"high\", \"medium\", \"low\"",
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deliverables": {
-                    "type": "string"
-                },
-                "files_created": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "interaction_id": {
-                    "type": "string"
-                },
-                "limitations": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "next_steps": {
-                    "type": "string"
-                },
-                "review_needed": {
-                    "type": "boolean"
-                },
-                "review_notes": {
-                    "type": "string"
-                },
-                "review_type": {
-                    "description": "\"approval\", \"feedback\", \"validation\", etc.",
-                    "type": "string"
-                },
-                "reviewed_at": {
-                    "type": "string"
-                },
-                "reviewed_by": {
-                    "type": "string"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "\"pending_review\", \"approved\", \"needs_changes\", \"archived\"",
-                    "type": "string"
-                },
-                "summary": {
-                    "type": "string"
-                },
-                "time_spent": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "user_id": {
-                    "type": "string"
-                },
-                "work_item_id": {
                     "type": "string"
                 }
             }
@@ -21932,20 +19091,6 @@ const docTemplate = `{
                 },
                 "redirect_uri": {
                     "type": "string"
-                }
-            }
-        },
-        "types.ManualWorkConfig": {
-            "type": "object",
-            "properties": {
-                "allow_anonymous": {
-                    "type": "boolean"
-                },
-                "default_priority": {
-                    "type": "integer"
-                },
-                "enabled": {
-                    "type": "boolean"
                 }
             }
         },
@@ -22899,6 +20044,9 @@ const docTemplate = `{
                 "organization_id": {
                     "type": "string"
                 },
+                "project_manager_helix_app_id": {
+                    "type": "string"
+                },
                 "startup_script": {
                     "description": "Transient field - loaded from primary code repo's .helix/startup.sh, never persisted to database",
                     "type": "string"
@@ -23051,6 +20199,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.ProjectMetadata"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "project_manager_helix_app_id": {
+                    "description": "Project manager agent",
                     "type": "string"
                 },
                 "startup_script": {
@@ -24504,6 +21656,9 @@ const docTemplate = `{
                 "parent_session": {
                     "type": "string"
                 },
+                "project_id": {
+                    "type": "string"
+                },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
@@ -24579,6 +21734,10 @@ const docTemplate = `{
                 },
                 "organization_id": {
                     "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "project_id": {
+                    "description": "The project this session belongs to, if any",
                     "type": "string"
                 },
                 "provider": {
@@ -25262,6 +22421,9 @@ const docTemplate = `{
                     "description": "Kiro's actual approach: simple, human-readable artifacts",
                     "type": "string"
                 },
+                "planning_options": {
+                    "$ref": "#/definitions/types.StartPlanningOptions"
+                },
                 "planning_session_id": {
                     "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
@@ -25355,54 +22517,6 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "types.SpecTaskActivityLogEntry": {
-            "type": "object",
-            "properties": {
-                "activity_type": {
-                    "$ref": "#/definitions/types.SpecTaskActivityType"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "work_session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.SpecTaskActivityType": {
-            "type": "string",
-            "enum": [
-                "session_created",
-                "session_completed",
-                "session_spawned",
-                "task_completed",
-                "zed_connected",
-                "zed_disconnected",
-                "phase_transition"
-            ],
-            "x-enum-varnames": [
-                "SpecTaskActivitySessionCreated",
-                "SpecTaskActivitySessionCompleted",
-                "SpecTaskActivitySessionSpawned",
-                "SpecTaskActivityTaskCompleted",
-                "SpecTaskActivityZedConnected",
-                "SpecTaskActivityZedDisconnected",
-                "SpecTaskActivityPhaseTransition"
-            ]
         },
         "types.SpecTaskArchiveRequest": {
             "type": "object",
@@ -25717,164 +22831,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SpecTaskImplementationSessionsCreateRequest": {
-            "type": "object",
-            "required": [
-                "spec_task_id"
-            ],
-            "properties": {
-                "auto_create_sessions": {
-                    "type": "boolean",
-                    "default": true
-                },
-                "project_path": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "workspace_config": {
-                    "type": "object",
-                    "additionalProperties": true
-                }
-            }
-        },
-        "types.SpecTaskImplementationStatus": {
-            "type": "string",
-            "enum": [
-                "pending",
-                "assigned",
-                "in_progress",
-                "completed",
-                "blocked"
-            ],
-            "x-enum-varnames": [
-                "SpecTaskImplementationStatusPending",
-                "SpecTaskImplementationStatusAssigned",
-                "SpecTaskImplementationStatusInProgress",
-                "SpecTaskImplementationStatusCompleted",
-                "SpecTaskImplementationStatusBlocked"
-            ]
-        },
-        "types.SpecTaskImplementationTask": {
-            "type": "object",
-            "properties": {
-                "acceptance_criteria": {
-                    "type": "string"
-                },
-                "assigned_work_session": {
-                    "$ref": "#/definitions/types.SpecTaskWorkSession"
-                },
-                "assigned_work_session_id": {
-                    "type": "string"
-                },
-                "completed_at": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "dependencies": {
-                    "description": "Array of other task indices",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "estimated_effort": {
-                    "description": "'small', 'medium', 'large'",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "index": {
-                    "description": "Order within the plan",
-                    "type": "integer"
-                },
-                "priority": {
-                    "type": "integer"
-                },
-                "spec_task": {
-                    "description": "Relationships",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SpecTask"
-                        }
-                    ]
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "Implementation tracking",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SpecTaskImplementationStatus"
-                        }
-                    ]
-                },
-                "title": {
-                    "description": "Task details",
-                    "type": "string"
-                }
-            }
-        },
-        "types.SpecTaskImplementationTaskListResponse": {
-            "type": "object",
-            "properties": {
-                "implementation_tasks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskImplementationTask"
-                    }
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "types.SpecTaskMultiSessionOverviewResponse": {
-            "type": "object",
-            "properties": {
-                "active_sessions": {
-                    "type": "integer"
-                },
-                "completed_sessions": {
-                    "type": "integer"
-                },
-                "implementation_tasks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskImplementationTask"
-                    }
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "spec_task": {
-                    "$ref": "#/definitions/types.SpecTask"
-                },
-                "work_session_count": {
-                    "type": "integer"
-                },
-                "work_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskWorkSession"
-                    }
-                },
-                "zed_instance_id": {
-                    "type": "string"
-                },
-                "zed_thread_count": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.SpecTaskPhase": {
             "type": "string",
             "enum": [
@@ -25903,55 +22859,12 @@ const docTemplate = `{
                 "SpecTaskPriorityCritical"
             ]
         },
-        "types.SpecTaskProgressResponse": {
-            "type": "object",
-            "properties": {
-                "active_work_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskWorkSession"
-                    }
-                },
-                "checklist": {
-                    "description": "Progress from tasks.md",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.ChecklistProgress"
-                        }
-                    ]
-                },
-                "implementation_progress": {
-                    "description": "Task index -\u003e progress",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number"
-                    }
-                },
-                "overall_progress": {
-                    "description": "0.0 to 1.0",
-                    "type": "number"
-                },
-                "phase_progress": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "number"
-                    }
-                },
-                "recent_activity": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskActivityLogEntry"
-                    }
-                },
-                "spec_task": {
-                    "$ref": "#/definitions/types.SpecTask"
-                }
-            }
-        },
         "types.SpecTaskStatus": {
             "type": "string",
             "enum": [
                 "backlog",
+                "queued_implementation",
+                "queued_spec_generation",
                 "spec_generation",
                 "spec_review",
                 "spec_revision",
@@ -25972,6 +22885,8 @@ const docTemplate = `{
                 "TaskStatusImplementationQueued": "Waiting for Zed agent pickup",
                 "TaskStatusImplementationReview": "Code review (PR created)",
                 "TaskStatusPullRequest": "External repo: PR opened, awaiting merge",
+                "TaskStatusQueuedImplementation": "Transitional state, waiting for the orchestrator to pick it up",
+                "TaskStatusQueuedSpecGeneration": "Transitional state, waiting for the orchestrator to pick it up",
                 "TaskStatusSpecApproved": "Specs approved, ready for implementation",
                 "TaskStatusSpecFailed": "Spec generation failed",
                 "TaskStatusSpecGeneration": "Helix agent generating specs",
@@ -25980,6 +22895,8 @@ const docTemplate = `{
             },
             "x-enum-varnames": [
                 "TaskStatusBacklog",
+                "TaskStatusQueuedImplementation",
+                "TaskStatusQueuedSpecGeneration",
                 "TaskStatusSpecGeneration",
                 "TaskStatusSpecReview",
                 "TaskStatusSpecRevision",
@@ -26093,73 +23010,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SpecTaskWorkSessionDetailResponse": {
-            "type": "object",
-            "properties": {
-                "child_work_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskWorkSession"
-                    }
-                },
-                "helix_session": {
-                    "$ref": "#/definitions/types.Session"
-                },
-                "implementation_task": {
-                    "$ref": "#/definitions/types.SpecTaskImplementationTask"
-                },
-                "spec_task": {
-                    "$ref": "#/definitions/types.SpecTask"
-                },
-                "work_session": {
-                    "$ref": "#/definitions/types.SpecTaskWorkSession"
-                },
-                "zed_thread": {
-                    "$ref": "#/definitions/types.SpecTaskZedThread"
-                }
-            }
-        },
-        "types.SpecTaskWorkSessionListResponse": {
-            "type": "object",
-            "properties": {
-                "total": {
-                    "type": "integer"
-                },
-                "work_sessions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SpecTaskWorkSession"
-                    }
-                }
-            }
-        },
-        "types.SpecTaskWorkSessionSpawnRequest": {
-            "type": "object",
-            "required": [
-                "name",
-                "parent_work_session_id"
-            ],
-            "properties": {
-                "agent_config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "description": {
-                    "type": "string"
-                },
-                "environment_config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string",
-                    "maxLength": 255
-                },
-                "parent_work_session_id": {
-                    "type": "string"
-                }
-            }
-        },
         "types.SpecTaskWorkSessionStatus": {
             "type": "string",
             "enum": [
@@ -26178,37 +23028,6 @@ const docTemplate = `{
                 "SpecTaskWorkSessionStatusCancelled",
                 "SpecTaskWorkSessionStatusBlocked"
             ]
-        },
-        "types.SpecTaskWorkSessionUpdateRequest": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string",
-                    "maxLength": 255
-                },
-                "status": {
-                    "enum": [
-                        "pending",
-                        "active",
-                        "completed",
-                        "failed",
-                        "cancelled",
-                        "blocked"
-                    ],
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SpecTaskWorkSessionStatus"
-                        }
-                    ]
-                }
-            }
         },
         "types.SpecTaskZedStatus": {
             "type": "string",
@@ -26301,26 +23120,16 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SpecTaskZedThreadUpdateRequest": {
+        "types.StartPlanningOptions": {
             "type": "object",
             "properties": {
-                "status": {
-                    "enum": [
-                        "pending",
-                        "active",
-                        "disconnected",
-                        "completed",
-                        "failed"
-                    ],
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SpecTaskZedStatus"
-                        }
-                    ]
+                "keyboard_layout": {
+                    "description": "KeyboardLayout is the XKB keyboard layout code (e.g., \"us\", \"fr\", \"de\")\nUsed to configure the desktop container's keyboard layout from browser detection",
+                    "type": "string"
                 },
-                "thread_config": {
-                    "type": "object",
-                    "additionalProperties": true
+                "timezone": {
+                    "description": "Timezone is the IANA timezone (e.g., \"America/New_York\", \"Europe/Paris\")",
+                    "type": "string"
                 }
             }
         },
@@ -26541,7 +23350,6 @@ const docTemplate = `{
             "enum": [
                 "",
                 "runner",
-                "keycloak",
                 "oidc",
                 "api_key",
                 "socket"
@@ -26549,7 +23357,6 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TokenTypeNone",
                 "TokenTypeRunner",
-                "TokenTypeKeycloak",
                 "TokenTypeOIDC",
                 "TokenTypeAPIKey",
                 "TokenTypeSocket"
@@ -26744,6 +23551,14 @@ const docTemplate = `{
                 "mcp": {
                     "$ref": "#/definitions/types.ToolMCPClientConfig"
                 },
+                "project": {
+                    "description": "Helix project management skill",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ToolProjectManagerConfig"
+                        }
+                    ]
+                },
                 "web_search": {
                     "$ref": "#/definitions/types.ToolWebSearchConfig"
                 },
@@ -26802,6 +23617,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolProjectManagerConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ToolType": {
             "type": "string",
             "enum": [
@@ -26812,7 +23638,8 @@ const docTemplate = `{
                 "email",
                 "web_search",
                 "azure_devops",
-                "mcp"
+                "mcp",
+                "project_manager"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -26822,7 +23649,8 @@ const docTemplate = `{
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
                 "ToolTypeAzureDevOps",
-                "ToolTypeMCP"
+                "ToolTypeMCP",
+                "ToolTypeProjectManager"
             ]
         },
         "types.ToolWebSearchConfig": {
@@ -26870,9 +23698,6 @@ const docTemplate = `{
         "types.Trigger": {
             "type": "object",
             "properties": {
-                "agent_work_queue": {
-                    "$ref": "#/definitions/types.AgentWorkQueueTrigger"
-                },
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOpsTrigger"
                 },
@@ -27036,16 +23861,14 @@ const docTemplate = `{
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UnifiedSearchResponse": {
@@ -27344,6 +24167,9 @@ const docTemplate = `{
         "types.UserResponse": {
             "type": "object",
             "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
                 },
@@ -27464,27 +24290,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "user_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.WebhookWorkConfig": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "json_path": {
-                    "description": "JSONPath to extract work description",
-                    "type": "string"
-                },
-                "secret": {
                     "type": "string"
                 }
             }

@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -49,9 +48,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
-	"crypto/tls"
-	"crypto/x509"
-	"net"
 	_ "net/http/pprof" // enable profiling
 )
 
@@ -101,9 +97,9 @@ type HelixAPIServer struct {
 	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
-	sessionCommentTimeout map[string]*time.Timer // planning_session_id -> timeout timer for current comment
-	sessionCommentMutex   sync.RWMutex           // Mutex for timeout operations
-	requestToCommenterMapping map[string]string // request_id -> commenter user_id (for design review streaming)
+	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
+	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
+	requestToCommenterMapping map[string]string      // request_id -> commenter user_id (for design review streaming)
 	inferenceServer           *openai.InternalHelixServer
 	knowledgeManager          knowledge.Manager
 	skillManager              *api_skill.Manager
@@ -129,7 +125,6 @@ type HelixAPIServer struct {
 	streamingRateLimiter       map[string]time.Time // session_id -> last connection time
 	streamingRateLimiterMutex  sync.RWMutex
 	specTaskOrchestrator       *services.SpecTaskOrchestrator
-	externalAgentPool          *services.ExternalAgentPool
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
@@ -173,33 +168,29 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 
+	// Create OIDC client if using OIDC auth provider
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
 	var oidcClient auth.OIDC
-	if cfg.Auth.OIDC.Enabled {
+	if cfg.Auth.Provider == types.AuthProviderOIDC {
 		if cfg.Auth.OIDC.Audience == "" {
 			return nil, fmt.Errorf("oidc audience is required")
 		}
 		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
-			ProviderURL:  cfg.Auth.OIDC.URL,
-			ClientID:     cfg.Auth.OIDC.ClientID,
-			ClientSecret: cfg.Auth.OIDC.ClientSecret,
-			RedirectURL:  helixRedirectURL,
-			AdminUserIDs: cfg.WebServer.AdminUserIDs,
-			Audience:     cfg.Auth.OIDC.Audience,
-			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
-			Store:        store,
+			ProviderURL:    cfg.Auth.OIDC.URL,
+			ClientID:       cfg.Auth.OIDC.ClientID,
+			ClientSecret:   cfg.Auth.OIDC.ClientSecret,
+			RedirectURL:    helixRedirectURL,
+			AdminUserIDs:   cfg.WebServer.AdminUserIDs,
+			Audience:       cfg.Auth.OIDC.Audience,
+			Scopes:         strings.Split(cfg.Auth.OIDC.Scopes, ","),
+			Store:          store,
+			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
+			TokenURL:       cfg.Auth.OIDC.TokenURL,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
 		}
 		oidcClient = client
-	} else if cfg.Auth.Provider == types.AuthProviderKeycloak {
-		// For keycloak mode, get the OIDC client from the authenticator.
-		// KeycloakAuthenticator creates its own OIDC client during initialization.
-		oidcClient = authenticator.GetOIDCClient()
-		if oidcClient == nil {
-			return nil, fmt.Errorf("keycloak authenticator did not provide OIDC client")
-		}
 	}
 
 	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
@@ -281,10 +272,11 @@ func NewServer(
 		inferenceServer:             inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
+			oidcClient,
 			store,
 			authMiddlewareConfig{
 				adminUserIDs: cfg.WebServer.AdminUserIDs,
-				runnerToken: cfg.WebServer.RunnerToken,
+				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
 		providerManager:   providerManager,
@@ -397,13 +389,11 @@ func NewServer(
 	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
 
 	// Initialize SpecTask Orchestrator components
-	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
 	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
 		store,
 		controller,
 		apiServer.gitRepositoryService,
 		apiServer.specDrivenTaskService,
-		apiServer.externalAgentPool,
 		apiServer.externalAgentExecutor, // Wolf executor for external agent management
 	)
 
@@ -774,17 +764,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// The proxy validates Helix auth and injects moonlight-web credentials
 	// apiServer.moonlightServer.RegisterRoutes(router)
 
-	// Agent dashboard and management routes
-	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
-	authRouter.HandleFunc("/agents/fleet", system.Wrapper(apiServer.getAgentFleet)).Methods("GET")
-	authRouter.HandleFunc("/agents/sessions", system.Wrapper(apiServer.listAgentSessions)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.listAgentWorkItems)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.createAgentWorkItem)).Methods("POST")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.getAgentWorkItem)).Methods("GET")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
-	authRouter.HandleFunc("/agents/help-requests", system.Wrapper(apiServer.listHelpRequests)).Methods("GET")
-	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.Wrapper(apiServer.resolveHelpRequest)).Methods("POST")
-	authRouter.HandleFunc("/agents/stats", system.Wrapper(apiServer.getWorkQueueStats)).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
 	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
@@ -976,10 +955,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
-	// Moonlight Web observability endpoint (authenticated)
-	// TODO: Re-implement for unified sandbox (needs RevDial proxy to sandbox Moonlight Web)
-	// authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
-
 	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
 	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
 	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
@@ -990,8 +965,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
 	apiServer.gitHTTPServer.RegisterRoutes(router)
 
-	// proxy /admin -> keycloak
-	apiServer.registerKeycloakHandler(router)
+	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
+	subRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Error().
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("unknown API path")
+		http.Error(w, "Not Found", http.StatusNotFound)
+	})
 
 	// proxy other routes to frontend (MUST BE LAST - catch-all handler)
 	apiServer.registerDefaultHandler(router)
@@ -1048,36 +1030,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/quick-create", apiServer.quickCreateProject).Methods(http.MethodPost)
 
 	// Workflow automation routes
-	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost) // MOVE
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
-
-	// Multi-session spec-driven task routes
-	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/multi-session-overview", apiServer.getSpecTaskMultiSessionOverview).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/work-sessions", apiServer.listSpecTaskWorkSessions).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-tasks", apiServer.listImplementationTasks).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}", apiServer.getWorkSessionDetail).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/spawn", apiServer.spawnWorkSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/status", apiServer.updateWorkSessionStatus).Methods(http.MethodPut)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.updateZedThreadStatus).Methods(http.MethodPut)
-
-	// Document handoff and git integration routes
-	authRouter.HandleFunc("/spec-tasks/{taskId}/generate-documents", apiServer.generateSpecDocuments).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/execute-handoff", apiServer.executeDocumentHandoff).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-with-handoff", apiServer.approveSpecsWithHandoff).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/commit-progress", apiServer.commitProgressUpdate).Methods(http.MethodPost)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/document-status", apiServer.getDocumentHandoffStatus).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/download-documents", apiServer.downloadSpecDocuments).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/documents/{document}", apiServer.getSpecDocumentContent).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{taskId}/coordination-log", apiServer.getCoordinationLog).Methods(http.MethodGet)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
-	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
 
 	// Design review routes
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}", apiServer.getDesignReview).Methods(http.MethodGet)
-	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit", apiServer.submitDesignReview).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit", apiServer.submitDesignReview).Methods(http.MethodPost) // TODO: move
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
@@ -1184,87 +1143,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 func getID(r *http.Request) string {
 	vars := mux.Vars(r)
 	return vars["id"]
-}
-
-func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	if !apiServer.Cfg.Auth.Keycloak.KeycloakEnabled {
-		log.Info().Msg("Keycloak is disabled, skipping proxy")
-		return
-	}
-	u, err := url.Parse(apiServer.Cfg.Auth.Keycloak.KeycloakURL)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
-		return
-	}
-
-	// Strip path prefix, otherwise we would have to use /auth/auth/realms/helix/protocol/openid-connect/token
-	u.Path = ""
-
-	proxy := httputil.NewSingleHostReverseProxy(u)
-
-	// Create transport with custom CA support
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   300 * time.Second, // Increased from 30 to 300 seconds
-			KeepAlive: 300 * time.Second, // Increased from 30 to 300 seconds
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	// Load system cert pool
-	rootCAs, err := x509.SystemCertPool()
-	if err != nil {
-		rootCAs = x509.NewCertPool()
-	}
-
-	// Check for custom CA cert file
-	if apiServer.Cfg.SSL.SSLCertFile != "" {
-		cert, err := os.ReadFile(apiServer.Cfg.SSL.SSLCertFile)
-		if err != nil {
-			log.Error().Err(err).Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Error reading custom CA cert file")
-		} else if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
-			log.Error().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Failed to append custom CA cert to pool")
-		} else {
-			log.Info().Str("file", apiServer.Cfg.SSL.SSLCertFile).Msg("Added custom CA cert")
-		}
-	}
-
-	// Check for custom CA cert directory
-	if apiServer.Cfg.SSL.SSLCertDir != "" {
-		files, err := os.ReadDir(apiServer.Cfg.SSL.SSLCertDir)
-		if err != nil {
-			log.Error().Err(err).Str("dir", apiServer.Cfg.SSL.SSLCertDir).Msg("Error reading cert directory")
-		} else {
-			for _, file := range files {
-				if !file.IsDir() {
-					certPath := filepath.Join(apiServer.Cfg.SSL.SSLCertDir, file.Name())
-					cert, err := os.ReadFile(certPath)
-					if err != nil {
-						log.Error().Err(err).Str("file", certPath).Msg("Error reading cert file")
-						continue
-					}
-					if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
-						log.Error().Str("file", certPath).Msg("Failed to append cert to pool")
-					} else {
-						log.Info().Str("file", certPath).Msg("Added cert")
-					}
-				}
-			}
-		}
-	}
-
-	transport.TLSClientConfig = &tls.Config{
-		RootCAs: rootCAs,
-	}
-
-	proxy.Transport = transport
-
-	router.PathPrefix("/auth").Handler(proxy)
 }
 
 // Static files router

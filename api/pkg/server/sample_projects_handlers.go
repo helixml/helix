@@ -405,57 +405,6 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 	}
 	_ = createdProject // Use the created project if needed
 
-	// Create sample tasks for the project
-	for i, taskTemplate := range sampleProject.SampleTasks {
-		task := &types.AgentWorkItem{
-			ID:              fmt.Sprintf("task_%s_%d", projectID, i),
-			TriggerConfigID: "", // Will be set when trigger is created
-			Name:            taskTemplate.Title,
-			Description:     taskTemplate.Description,
-			Source:          "sample_project",
-			SourceID:        fmt.Sprintf("%d", i+1),
-			Priority:        getPriorityNumber(taskTemplate.Priority),
-			Status:          taskTemplate.Status,
-			AgentType:       "zed", // Default to Zed for sample projects
-			UserID:          user.ID,
-			AppID:           "", // Will be linked to app if needed
-			OrganizationID:  "", // TODO: Get organization ID from user context
-			MaxRetries:      3,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
-			Metadata:        nil, // Will be set after struct initialization
-		}
-
-		// GORM serializer handles JSON conversion
-		task.Metadata = map[string]interface{}{
-			"project_id":          projectID,
-			"task_type":           taskTemplate.Type,
-			"estimated_hours":     taskTemplate.EstimatedHours,
-			"labels":              taskTemplate.Labels,
-			"acceptance_criteria": taskTemplate.AcceptanceCriteria,
-			"technical_notes":     taskTemplate.TechnicalNotes,
-			"files_to_modify":     taskTemplate.FilesToModify,
-		}
-		task.WorkData = map[string]interface{}{
-			"project_id":          projectID,
-			"github_repo":         forkedRepoURL,
-			"task_type":           taskTemplate.Type,
-			"estimated_hours":     taskTemplate.EstimatedHours,
-			"acceptance_criteria": taskTemplate.AcceptanceCriteria,
-			"technical_notes":     taskTemplate.TechnicalNotes,
-			"files_to_modify":     taskTemplate.FilesToModify,
-		}
-		task.Labels = taskTemplate.Labels
-
-		err := s.Store.CreateAgentWorkItem(ctx, task)
-		if err != nil {
-			log.Warn().Err(err).
-				Str("project_id", projectID).
-				Str("task_title", taskTemplate.Title).
-				Msg("Failed to create sample task")
-		}
-	}
-
 	log.Info().
 		Str("project_id", projectID).
 		Str("user_id", user.ID).

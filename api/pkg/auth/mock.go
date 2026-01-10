@@ -73,20 +73,6 @@ func (mr *MockAuthenticatorMockRecorder) GenerateUserToken(ctx, user any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateUserToken", reflect.TypeOf((*MockAuthenticator)(nil).GenerateUserToken), ctx, user)
 }
 
-// GetOIDCClient mocks base method.
-func (m *MockAuthenticator) GetOIDCClient() OIDC {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOIDCClient")
-	ret0, _ := ret[0].(OIDC)
-	return ret0
-}
-
-// GetOIDCClient indicates an expected call of GetOIDCClient.
-func (mr *MockAuthenticatorMockRecorder) GetOIDCClient() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOIDCClient", reflect.TypeOf((*MockAuthenticator)(nil).GetOIDCClient))
-}
-
 // GetUserByID mocks base method.
 func (m *MockAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.User, error) {
 	m.ctrl.T.Helper()

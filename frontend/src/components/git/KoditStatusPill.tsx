@@ -133,7 +133,7 @@ const KoditStatusPill: FC<KoditStatusPillProps> = ({
     )
   }
 
-  if (status === 'queued') {
+  if (status === 'queued' || status === 'pending') {
     return (
       <Tooltip title={message || 'Repository is queued for indexing'} arrow placement="top">
         <Chip

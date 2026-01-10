@@ -45,8 +45,6 @@ export interface IAccountContext {
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
-  // Token expiry info for debugging
-  tokenExpiryMinutes: number | null,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -80,7 +78,6 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   hasImageModels: false,
   orgNavigate: () => {},
-  tokenExpiryMinutes: null,
 })
 
 export const useAccount = () => {
@@ -293,25 +290,38 @@ export const useAccountContext = (): IAccountContext => {
     snackbar,
   ])
 
-  const onLogout = useCallback(() => {
+  const onLogout = useCallback(async () => {
     setLoggingOut(true)
     try {
-      fetch(`/api/v1/auth/logout`, {
+      // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
+      // which would fail due to CORS when redirecting to Keycloak
+      const response = await fetch(`/api/v1/auth/logout`, {
         method: 'POST',
-      })
-        .then(response => {
-          console.log(response);
-          if (response.redirected) {
-            window.location.href = response.url;
-          }
+        redirect: 'manual',
+      });
+
+      // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
+      // We can't read the Location header, so we make another request to get the redirect URL as JSON
+      if (response.type === 'opaqueredirect') {
+        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true`, {
+          method: 'POST',
         });
+        if (urlResponse.ok) {
+          const data = await urlResponse.json();
+          if (data.url) {
+            window.location.href = data.url;
+          }
+        }
+      } else if (response.redirected) {
+        window.location.href = response.url;
+      }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       snackbar.error(errorMessage)
     }
   }, [
-    api,
+    snackbar,
   ])
 
   const initialize = useCallback(async () => {
@@ -332,41 +342,6 @@ export const useAccountContext = (): IAccountContext => {
         const user = userResponse.data as IKeycloakUser
         api.setToken(user.token)
 
-        // Log token expiry for debugging
-        try {
-          if (user.token) {
-            const tokenParts = user.token.split('.')
-            if (tokenParts.length === 3) {
-              const payload = JSON.parse(atob(tokenParts[1]))
-              const expiry = new Date(payload.exp * 1000)
-              const now = new Date()
-              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
-              console.log('[AUTH] Access token expiry:', {
-                expiresAt: expiry.toISOString(),
-                minutesUntilExpiry: Math.round(minutesUntilExpiry),
-                exp: payload.exp,
-                tokenType: 'access_token'
-              })
-            }
-          }
-          if (user.refresh_token) {
-            const tokenParts = user.refresh_token.split('.')
-            if (tokenParts.length === 3) {
-              const payload = JSON.parse(atob(tokenParts[1]))
-              const expiry = new Date(payload.exp * 1000)
-              const now = new Date()
-              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
-              console.log('[AUTH] Refresh token expiry:', {
-                expiresAt: expiry.toISOString(),
-                minutesUntilExpiry: Math.round(minutesUntilExpiry),
-                exp: payload.exp,
-                tokenType: 'refresh_token'
-              })
-            }
-          }
-        } catch (e) {
-          console.warn('[AUTH] Failed to decode token expiry:', e)
-        }
         const win = (window as any)
         if (win.setUser) {
           win.setUser(user)
@@ -420,27 +395,10 @@ export const useAccountContext = (): IAccountContext => {
         // 15 minute implicit flow token expiry (accessTokenLifespanForImplicitFlow)
         const refreshInterval = setInterval(async () => {
           try {
-            console.log('[AUTH] Token refresh starting...')
             const innerClient = api.getApiClient()
             await innerClient.v1AuthRefreshCreate()
             const userResponse = await innerClient.v1AuthUserList()
             const user = userResponse.data as IKeycloakUser
-
-            // Log new token expiry after refresh
-            try {
-              if (user.token) {
-                const payload = JSON.parse(atob(user.token.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-                console.log('[AUTH] Token refreshed! New access token expires:', expiry.toISOString())
-              }
-              if (user.refresh_token) {
-                const payload = JSON.parse(atob(user.refresh_token.split('.')[1]))
-                const expiry = new Date(payload.exp * 1000)
-                console.log('[AUTH] Token refreshed! New refresh token expires:', expiry.toISOString())
-              }
-            } catch (e) {
-              console.warn('[AUTH] Could not decode refreshed token expiry:', e)
-            }
 
             setUser(Object.assign({}, user, {
               token: user.token,

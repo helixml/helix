@@ -154,7 +154,6 @@ type Tools struct {
 type Auth struct {
 	Provider            types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
 	RegistrationEnabled bool               `envconfig:"AUTH_REGISTRATION_ENABLED" default:"true"`
-	Keycloak            Keycloak
 	OIDC                OIDC
 	Regular             Regular
 }
@@ -165,23 +164,7 @@ type Regular struct {
 	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
 }
 
-// Keycloak is used for authentication. You can find keycloak documentation
-// at https://www.keycloak.org/guides
-type Keycloak struct {
-	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"false"`
-	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8180/auth"`
-	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
-	APIClientID         string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	ClientSecret        string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API
-	AdminRealm          string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
-	Realm               string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username            string `envconfig:"KEYCLOAK_USER" default:"admin"`
-	Password            string `envconfig:"KEYCLOAK_PASSWORD"`
-}
-
 type OIDC struct {
-	Enabled bool `envconfig:"OIDC_ENABLED" default:"false"`
 	// SecureCookies forces the Secure flag on auth cookies when set to true.
 	// When false (default), secure cookies are auto-detected from SERVER_URL protocol.
 	// Set to true to force secure cookies even when SERVER_URL is HTTP (e.g., behind HTTPS proxy).
@@ -191,6 +174,15 @@ type OIDC struct {
 	ClientSecret  string `envconfig:"OIDC_CLIENT_SECRET"`
 	Audience      string `envconfig:"OIDC_AUDIENCE"`
 	Scopes        string `envconfig:"OIDC_SCOPES" default:"openid,profile,email"`
+	// ExpectedIssuer allows using a different issuer than the OIDC_URL.
+	// Useful when the OIDC provider returns a browser-accessible issuer (e.g., localhost:8180)
+	// that differs from the discovery URL.
+	ExpectedIssuer string `envconfig:"OIDC_EXPECTED_ISSUER"`
+	// TokenURL overrides the token endpoint from OIDC discovery.
+	// Useful when the API needs to reach the token endpoint via an internal URL
+	// (e.g., http://keycloak:8080/auth/realms/helix/protocol/openid-connect/token)
+	// while the discovery response contains a browser-accessible URL (localhost:8180).
+	TokenURL string `envconfig:"OIDC_TOKEN_URL"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

@@ -122,7 +122,7 @@ controlplane:
     from: ""
     to: ""
   # Can be regular (inbuilt auth), keycloak (external auth) or oidc (external auth)
-  authProvider: "regular"  
+  authProvider: "regular"
   keycloak:
     enabled: false
     url: ""
@@ -298,7 +298,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.16"
+    tag: "0.5.18"
     pullPolicy: IfNotPresent
 
   # Database authentication (for kodit's vectorchord database)
@@ -308,14 +308,14 @@ kodit:
     database: "kodit"
     # Option: Use existing secret for all auth credentials
     existingSecret: ""
-    usernameKey: ""   # defaults to "username"
-    passwordKey: ""   # defaults to "password"
-    databaseKey: ""   # defaults to "database"
+    usernameKey: "" # defaults to "username"
+    passwordKey: "" # defaults to "password"
+    databaseKey: "" # defaults to "database"
 
   # Enrichment endpoint configuration (Kodit uses Helix as LLM proxy)
   enrichment:
     # Base URL for enrichment API (defaults to Helix controlplane)
-    baseUrl: ""  # Defaults to http://<fullname>:80/v1
+    baseUrl: "" # Defaults to http://<fullname>:80/v1
     model: "openai/kodit-model"
     parallelTasks: "3"
     timeout: "120"
@@ -323,7 +323,7 @@ kodit:
     apiKey: ""
     # Option: Use existing secret for API key (recommended - use runner token secret)
     existingSecret: ""
-    existingSecretKey: ""  # defaults to "api-token"
+    existingSecretKey: "" # defaults to "api-token"
 
   # Persistence for kodit data
   persistence:

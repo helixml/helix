@@ -17,19 +17,15 @@ type Authenticator interface {
 	UpdatePassword(ctx context.Context, userID, newPassword string) error
 	ValidatePassword(ctx context.Context, user *types.User, password string) error
 
-	// In both keycloak case and OIDC this is using OIDC client,
-	// in regular auth - it's validating cookies
+	// ValidateUserToken validates an access token and returns the user.
+	// For OIDC mode, this uses the OIDC client.
+	// For regular auth, this validates cookies/JWT.
 	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
 
 	GenerateUserToken(ctx context.Context, user *types.User) (string, error)
 
 	RequestPasswordReset(ctx context.Context, email string) error
 	PasswordResetComplete(ctx context.Context, token, newPassword string) error
-
-	// GetOIDCClient returns the OIDC client for this authenticator.
-	// For KeycloakAuthenticator, this returns the internal OIDC client.
-	// For HelixAuthenticator, this returns nil (no OIDC support).
-	GetOIDCClient() OIDC
 }
 
 type OIDC interface {

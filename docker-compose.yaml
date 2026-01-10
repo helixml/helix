@@ -9,8 +9,8 @@ services:
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
-      - "3478:3478/udp"  # TURN server for WebRTC (Helix Code)
-      - "3478:3478/tcp"  # TURN server TCP transport (firewall fallback)
+      - "3478:3478/udp" # TURN server for WebRTC (Helix Code)
+      - "3478:3478/tcp" # TURN server TCP transport (firewall fallback)
     restart: always
     env_file:
       - .env
@@ -55,7 +55,7 @@ services:
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
       # Wolf integration for Helix Code (External Agents / PDEs)
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_MODE=${WOLF_MODE:-lobbies}  # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
+      - WOLF_MODE=${WOLF_MODE:-lobbies} # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
       - HELIX_HOST_HOME=${HELIX_HOST_HOME:-}
@@ -70,6 +70,7 @@ services:
       - TURN_REALM=${TURN_REALM:-helix.ai}
       - TURN_USERNAME=${TURN_USERNAME:-helix}
       - TURN_PASSWORD=${TURN_PASSWORD:-}
+      - KODIT_API_KEY=${KODIT_API_KEY:-default-kodit-api-key}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
@@ -176,9 +177,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   kodit:
-    image: registry.helixml.tech/helix/kodit:0.5.16
-    # ports:
-    #   - 8632:8632
+    image: registry.helixml.tech/helix/kodit:0.5.18
+    ports:
+      - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
     restart: always
     depends_on:
@@ -206,15 +207,14 @@ services:
 
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
-      - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
+      - SYNC_PERIODIC_INTERVAL_SECONDS=1800 # 30 minutes
       - SYNC_PERIODIC_RETRY_ATTEMPTS=3
 
       - LOG_LEVEL=INFO # INFO or DEBUG
       - LOG_FORMAT=json
 
       # API Key Configuration
-      - API_KEYS=${KODIT_API_KEYS:-}
-
+      - API_KEYS=${KODIT_API_KEYS:-default-kodit-api-key}
 
     volumes:
       - ${KODIT_DATA:-helix-kodit}:/data
@@ -244,7 +244,7 @@ volumes:
   helix-socket:
   helix-kodit:
   helix-vectorchord-kodit:
-  wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
+  wolf-docker-storage: # Wolf's isolated dockerd storage (sandboxes + devcontainers)
 
 networks:
   default:

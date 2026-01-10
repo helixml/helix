@@ -34,6 +34,8 @@ type ListSessionsQuery struct {
 	Search                 string          `json:"search"`
 	QuestionSetID          string          `json:"question_set_id"`
 	QuestionSetExecutionID string          `json:"question_set_execution_id"`
+	AppID                  string          `json:"app_id"`
+	ProjectID              string          `json:"project_id"`
 }
 
 type ListAPIKeysQuery struct {
@@ -191,7 +193,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
-	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error) // Batch fetch for efficiency
+	GetSessionsByIDs(ctx context.Context, ids []string) ([]*types.Session, error)      // Batch fetch for efficiency
 	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
@@ -510,54 +512,6 @@ type Store interface {
 	GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error)
 	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
 	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
-
-	// Agent session methods
-	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
-	GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error)
-	UpdateAgentSession(ctx context.Context, session *types.AgentSession) error
-	ListAgentSessions(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsListResponse, error)
-
-	// Agent work item methods
-	CreateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
-	GetAgentWorkItem(ctx context.Context, workItemID string) (*types.AgentWorkItem, error)
-	UpdateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
-	ListAgentWorkItems(ctx context.Context, query *ListAgentWorkItemsQuery) (*types.AgentWorkItemsListResponse, error)
-
-	// Help request methods
-	GetHelpRequestByID(ctx context.Context, requestID string) (*types.HelpRequest, error)
-	UpdateHelpRequest(ctx context.Context, request *types.HelpRequest) error
-	ListActiveHelpRequests(ctx context.Context) ([]*types.HelpRequest, error)
-
-	// Agent dashboard helper methods
-	GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentSession, error)
-	GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error)
-	GetPendingReviews(ctx context.Context) ([]*types.JobCompletion, error)
-
-	// Session management methods
-	MarkSessionAsNeedingHelp(ctx context.Context, sessionID string, task string) error
-	MarkSessionAsCompleted(ctx context.Context, sessionID string, completionType string) error
-	CleanupExpiredSessions(ctx context.Context, timeout time.Duration) error
-
-	// Help request methods (additional)
-	CreateHelpRequest(ctx context.Context, request *types.HelpRequest) error
-
-	// Job completion methods
-	CreateJobCompletion(ctx context.Context, completion *types.JobCompletion) error
-
-	// Agent session status methods (additional)
-	GetAgentSessionStatus(ctx context.Context, sessionID string) (*types.AgentSessionStatus, error)
-	CreateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
-	UpdateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
-	ListAgentSessionStatus(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsResponse, error)
-
-	// Agent work queue stats
-	GetAgentWorkQueueStats(ctx context.Context) (*types.AgentWorkQueueStats, error)
-
-	// Additional help request methods
-	ListHelpRequests(ctx context.Context, query *ListHelpRequestsQuery) (*types.HelpRequestsListResponse, error)
-
-	// Additional session management methods
-	MarkSessionAsActive(ctx context.Context, sessionID string, task string) error
 
 	// Agent runner methods
 	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)

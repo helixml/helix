@@ -123,6 +123,17 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		if tool.Config.Zapier.APIKey == "" {
 			return system.NewHTTPError400("API key is required for Zapier tools")
 		}
+	case types.ToolTypeProjectManager:
+		// Check if the project ID is specified whether it exists
+		if tool.Config.ProjectManager == nil {
+			return system.NewHTTPError400("Project Manager config is required for Project Manager tools")
+		}
+
+		if tool.Config.ProjectManager.ProjectID != "" {			
+			// TODO: implement
+		}
+
+		// Check if the project exists
 	case types.ToolTypeAzureDevOps:
 		if tool.Config.AzureDevOps == nil {
 			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")

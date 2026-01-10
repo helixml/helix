@@ -207,6 +207,20 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.ProjectManager.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Project Manager",
+				Description: "Use the project manager to manage Helix projects",
+				ToolType:    types.ToolTypeProjectManager,
+				Config: types.ToolConfig{
+					ProjectManager: &types.ToolProjectManagerConfig{
+						Enabled: assistant.ProjectManager.Enabled,
+						ProjectID: assistant.ProjectManager.ProjectID,
+					},
+				},
+			})
+		}		
+
 		if assistant.Calculator.Enabled {
 			tools = append(tools, &types.Tool{
 				Name:        "Calculator",

@@ -221,8 +221,7 @@ controlplane:
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Admin Panel
-  providers:
-    {}
+  providers: {}
     # Examples - uncomment and configure for your specific setup:
     # vllm:
     #   baseUrl: "http://vllm-service.default.svc.cluster.local:8000/v1"
@@ -257,8 +256,7 @@ controlplane:
     enabled: false
 
   # Additional environment variables for unsupported/custom settings
-  extraEnv:
-    []
+  extraEnv: []
     # Examples:
     # - name: CUSTOM_FEATURE_FLAG
     #   value: "true"
@@ -301,8 +299,7 @@ ingress:
 # choice for the user. This also increases chances charts run on environments with little
 # resources, such as Minikube. If you do want to specify resources, uncomment the following
 # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-resources:
-  {}
+resources: {}
   # requests:
   #   cpu: "1000m"
   #   memory: "2Gi"
@@ -322,8 +319,7 @@ persistence:
   # existingClaim: "helix-data-pvc"
 
 ## Additional volume mounts and volumes
-volumeMounts:
-  []
+volumeMounts: []
   # Examples:
   # - name: temp-storage
   #   mountPath: "/tmp"
@@ -489,7 +485,7 @@ kodit:
   # Kodit application image
   image:
     repository: registry.helixml.tech/helix/kodit
-    tag: "0.5.16"  # Pin to specific version
+    tag: "0.5.18" # Pin to specific version
     # Use custom registry if needed
     # repository: "my-registry.example.com/helix/kodit"
 
