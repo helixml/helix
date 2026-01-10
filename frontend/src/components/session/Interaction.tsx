@@ -228,6 +228,7 @@ export const Interaction: FC<InteractionProps> = ({
                                 mt: 0.5,
                                 gap: 0.5,
                                 opacity: isHovering ? 1 : 0,
+                                pointerEvents: isHovering ? "auto" : "none",
                                 transition: "opacity 0.2s ease-in-out",
                             }}
                         >
