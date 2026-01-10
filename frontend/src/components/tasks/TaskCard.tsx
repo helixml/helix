@@ -644,10 +644,7 @@ export default function TaskCard({
                   setMenuAnchorEl(null)
                   onReviewDocs(task)
                 }}
-              >
-                <ListItemIcon>
-                  <DesignDocsIcon fontSize="small" />
-                </ListItemIcon>
+              >    
                 <ListItemText>Review Spec</ListItemText>
               </MenuItem>
             )}
