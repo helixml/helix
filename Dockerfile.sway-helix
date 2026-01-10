@@ -41,28 +41,44 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
-# Rust build stage for GStreamer zero-copy plugin (optional)
+# Rust build stage for GStreamer zero-copy plugin
 # ====================================================================
-# This plugin enables true zero-copy GPU video streaming:
-# - NVIDIA: DMA-BUF → EGL → CUDA → NVENC (0 CPU copies)
-# - AMD/Intel: DMA-BUF → VA-API (fewer CPU copies)
+# This plugin enables GPU-accelerated video streaming:
+# - NVIDIA: DMA-BUF -> EGL -> CUDA -> NVENC
+# - AMD/Intel: DMA-BUF -> VA-API
 # Enable with HELIX_VIDEO_MODE=zerocopy
-FROM rust:1.83-bookworm AS rust-build-env
+#
+# Using Ubuntu 25.10 because Debian Bookworm has GStreamer 1.22, but we need 1.24+
+FROM ubuntu:25.10 AS rust-build-env
 WORKDIR /build
 
-# Install GStreamer and PipeWire dev packages
+# Install Rust and GStreamer dev packages
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-base \
     libpipewire-0.3-dev \
     libspa-0.2-dev \
     libegl1-mesa-dev \
     libdrm-dev \
     libclang-dev \
     pkg-config \
+    libinput-dev \
+    libxkbcommon-dev \
+    libwayland-dev \
+    libudev-dev \
+    libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy plugin source
+# Install Rust 1.85 via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy plugin source and vendored dependency
+COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
@@ -335,7 +351,7 @@ ENV RADV_DEBUG=hang
 ENV AMD_DEBUG=sync_compile,check_vm
 
 # Video streaming mode (shm=default, native=DMABuf, zerocopy=plugin)
-# See design/2026-01-10-zero-copy-video-streaming.md
+# zerocopy mode uses gst-pipewire-zerocopy plugin with vendored wayland-display-core
 ENV HELIX_VIDEO_MODE=shm
 
 # Passwordless sudo
@@ -436,7 +452,6 @@ COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 COPY --from=grim-build /grim-bin /usr/bin/grim
 
 # GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
-# Install to system GStreamer plugins directory
 COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 

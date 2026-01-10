@@ -62,7 +62,7 @@ func (s *ZedIntegrationService) CreateZedInstanceForSpecTask(
 	}
 
 	// Create initial Zed agent configuration for the instance
-	zedAgent := &types.ZedAgent{
+	zedAgent := &types.DesktopAgent{
 		SessionID:   specTask.ID, // Use SpecTask ID as session ID for instance
 		UserID:      specTask.CreatedBy,
 		Input:       fmt.Sprintf("Initialize workspace for: %s", specTask.Name),
@@ -315,7 +315,7 @@ func (s *ZedIntegrationService) GetZedInstanceStatus(
 
 // Private helper methods
 
-func (s *ZedIntegrationService) launchZedInstance(ctx context.Context, zedAgent *types.ZedAgent) error {
+func (s *ZedIntegrationService) launchZedInstance(ctx context.Context, zedAgent *types.DesktopAgent) error {
 	// Convert ZedAgent to instance creation request
 	instanceReq := pubsub.ConvertZedAgentToInstanceRequest(zedAgent)
 
@@ -609,7 +609,7 @@ func (s *ZedIntegrationService) handleInstanceError(ctx context.Context, event *
 
 // Integration with existing agent session manager
 // LaunchZedAgent launches a Zed agent (used by planning service)
-func (s *ZedIntegrationService) LaunchZedAgent(ctx context.Context, zedAgent *types.ZedAgent) error {
+func (s *ZedIntegrationService) LaunchZedAgent(ctx context.Context, zedAgent *types.DesktopAgent) error {
 	return s.launchZedInstance(ctx, zedAgent)
 }
 

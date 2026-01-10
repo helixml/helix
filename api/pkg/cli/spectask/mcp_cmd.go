@@ -621,9 +621,6 @@ Examples:
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 			fmt.Printf("   ✅ Session ready: %s\n", session.ID)
-			if session.Metadata.WolfLobbyPIN != "" {
-				fmt.Printf("   📺 Wolf PIN: %s\n", session.Metadata.WolfLobbyPIN)
-			}
 
 			// Step 4: Test screenshot
 			fmt.Printf("\n3️⃣  Testing screenshot...\n")
@@ -728,7 +725,7 @@ func newHealthCommand() *cobra.Command {
 				if err := json.NewDecoder(resp.Body).Decode(&response); err == nil {
 					count := 0
 					for _, s := range response.Sessions {
-						if s.Metadata.WolfLobbyID != "" {
+						if s.Metadata.DevContainerID != "" {
 							count++
 							status := "🟢"
 							fmt.Printf("   %s %s (%s)\n", status, s.ID, s.Metadata.ContainerName)

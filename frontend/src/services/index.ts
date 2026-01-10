@@ -36,12 +36,6 @@ export {
   projectGuidelinesHistoryQueryKey,
 } from './projectService';
 
-// Wolf Service
-export {
-  useWolfHealth,
-  WOLF_HEALTH_QUERY_KEY,
-} from './wolfService';
-
 // Guidelines Service
 export {
   useGetOrganizationGuidelinesHistory,

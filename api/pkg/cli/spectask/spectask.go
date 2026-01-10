@@ -65,8 +65,7 @@ Use --agent to specify which Helix agent/app to use (e.g., app_01xxx).
 Example workflow:
   1. Fork a sample project:  helix project fork modern-todo-app --name "My Project"
   2. Start a spec task:      helix spectask start --project prj_xxx --agent app_xxx -n "Add dark mode"
-  3. Connect via browser:    Visit /wolf-ui and enter the lobby PIN shown
-  4. Or use Moonlight:       helix moonlight list-pending && helix moonlight pair <pin>`,
+  3. Connect via browser:    Visit /sessions/<session-id> to access the desktop`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			apiURL := getAPIURL()
@@ -116,18 +115,7 @@ Example workflow:
 
 			// Show connection instructions
 			fmt.Printf("\n📺 Connect to Desktop:\n")
-			if session.Metadata.WolfLobbyPIN != "" {
-				fmt.Printf("   Wolf-UI (browser): Visit %s/wolf-ui\n", apiURL)
-				fmt.Printf("   Lobby PIN: %s\n", session.Metadata.WolfLobbyPIN)
-			} else {
-				fmt.Printf("   Wolf-UI (browser): Visit %s/wolf-ui\n", apiURL)
-				fmt.Printf("   (Lobby PIN will appear after sandbox fully initializes)\n")
-			}
-
-			fmt.Printf("\n   Native Moonlight client:\n")
-			fmt.Printf("   1. First pair your client:  helix moonlight list-pending\n")
-			fmt.Printf("   2. Enter PIN from client:   helix moonlight pair <pin>\n")
-			fmt.Printf("   3. Then connect to the Wolf server\n")
+			fmt.Printf("   Open in browser: %s/sessions/%s\n", apiURL, session.ID)
 
 			fmt.Printf("\n📷 Test screenshot:\n")
 			fmt.Printf("   helix spectask screenshot %s\n", session.ID)
@@ -227,16 +215,13 @@ func newListCommand() *cobra.Command {
 			fmt.Println()
 			count := 0
 			for _, s := range response.Sessions {
-				// Only show sessions with Wolf lobby (external agent sessions)
-				if s.Metadata.WolfLobbyID != "" {
+				// Only show sessions with dev container (external agent sessions)
+				if s.Metadata.DevContainerID != "" {
 					count++
 					fmt.Printf("Session: %s\n", s.ID)
 					fmt.Printf("  Type: %s\n", s.Type)
 					if s.Metadata.ContainerName != "" {
 						fmt.Printf("  Container: %s\n", s.Metadata.ContainerName)
-					}
-					if s.Metadata.WolfLobbyPIN != "" {
-						fmt.Printf("  Lobby PIN: %s (for Wolf-UI browser access)\n", s.Metadata.WolfLobbyPIN)
 					}
 					fmt.Printf("  Screenshot: helix spectask screenshot %s\n", s.ID)
 					fmt.Println()
@@ -342,7 +327,7 @@ func stopAllSessions(apiURL, token string) error {
 
 	stopped := 0
 	for _, s := range response.Sessions {
-		if s.Metadata.WolfLobbyID != "" {
+		if s.Metadata.DevContainerID != "" {
 			if err := stopSession(apiURL, token, s.ID); err != nil {
 				fmt.Printf("Failed to stop %s: %v\n", s.ID, err)
 			} else {
@@ -392,8 +377,7 @@ type SessionMetadata struct {
 	ContainerName   string `json:"container_name"`
 	ContainerID     string `json:"container_id"`
 	ExecutorMode    string `json:"executor_mode"`
-	WolfLobbyID     string `json:"wolf_lobby_id"`
-	WolfLobbyPIN    string `json:"wolf_lobby_pin"`
+	DevContainerID  string `json:"dev_container_id"`
 	ExternalAgentID string `json:"external_agent_id"`
 	SpecTaskID      string `json:"spec_task_id"`
 }
@@ -468,7 +452,7 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	return &task, nil
 }
 
-// waitForTaskSession polls for a session with wolf_lobby_id to be created for the task
+// waitForTaskSession polls for a session with dev_container_id to be created for the task
 func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
@@ -497,16 +481,10 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 		resp.Body.Close()
 
 		// Find session for this task that has a running sandbox
-		// Wolf executor: has wolf_lobby_id
-		// Hydra executor: has container_id (executor_mode == "hydra")
 		for _, s := range response.Sessions {
 			if s.Metadata.SpecTaskID == taskID {
-				// Check for Wolf-based session
-				if s.Metadata.WolfLobbyID != "" {
-					return &s, nil
-				}
-				// Check for Hydra-based session
-				if s.Metadata.ExecutorMode == "hydra" && s.Metadata.ContainerID != "" {
+				// Check for active container
+				if s.Metadata.DevContainerID != "" || s.Metadata.ContainerID != "" {
 					return &s, nil
 				}
 			}
@@ -555,12 +533,8 @@ func newResumeCommand() *cobra.Command {
 			}
 
 			fmt.Printf("✅ Session resumed successfully!\n")
-			if lobbyPIN, ok := result["wolf_lobby_pin"].(string); ok && lobbyPIN != "" {
-				fmt.Printf("   Lobby PIN: %s\n", lobbyPIN)
-				fmt.Printf("   Connect via Wolf-UI: %s/wolf-ui\n", apiURL)
-			}
-			if lobbyID, ok := result["wolf_lobby_id"].(string); ok {
-				fmt.Printf("   Lobby ID: %s\n", lobbyID)
+			if containerID, ok := result["dev_container_id"].(string); ok {
+				fmt.Printf("   Container ID: %s\n", containerID)
 			}
 
 			return nil
@@ -772,7 +746,7 @@ Examples:
 			fmt.Printf("📊 Video Stream for session %s\n", sessionID)
 			fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
-			// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
+			// Build WebSocket URL for direct streaming
 			wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 			wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 			streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))
@@ -1382,11 +1356,12 @@ func charToKeycode(c byte) uint32 {
 	return 0
 }
 
-// getWolfAppID fetches the Wolf placeholder app ID for a session
+// getContainerAppID fetches the placeholder app ID for a session
 // This is required for the AuthenticateAndInit message
-func getWolfAppID(apiURL, token, sessionID string) (int, error) {
-	// Use the wolf/ui-app-id endpoint which returns the placeholder app ID
-	url := fmt.Sprintf("%s/api/v1/wolf/ui-app-id?session_id=%s", apiURL, sessionID)
+// Deprecated: This endpoint is no longer used with direct WebSocket streaming
+func getContainerAppID(apiURL, token, sessionID string) (int, error) {
+	// Legacy endpoint - no longer used with direct streaming
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/app-id", apiURL, sessionID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -1422,8 +1397,8 @@ func getWolfAppID(apiURL, token, sessionID string) (int, error) {
 	return appID, nil
 }
 
-// configurePendingSession pre-configures Wolf with our client_unique_id
-// This allows Wolf to immediately attach us to the lobby when we connect
+// configurePendingSession pre-configures the session with our client_unique_id
+// This allows the streaming server to immediately attach us to the session when we connect
 func configurePendingSession(apiURL, token, sessionID, clientUniqueID string) error {
 	url := fmt.Sprintf("%s/api/v1/external-agents/%s/configure-pending-session", apiURL, sessionID)
 
@@ -1466,9 +1441,9 @@ func newKeyboardTestCommand() *cobra.Command {
 		Long: `Connects to WebSocket stream and sends keyboard events to debug input path.
 
 This command tests the WebSocket keyboard input path:
-  Browser -> Helix API (moonlight_proxy.go) -> moonlight-web (stream.rs) -> streamer (main.rs) -> Wolf
+  Browser -> Helix API -> RevDial -> desktop container -> D-Bus -> GNOME
 
-Uses Windows Virtual Key (VK) codes, same as Moonlight protocol.
+Uses evdev keycodes for input injection.
 
 Examples:
   # Send 'a' key (VK code 0x41 = 65)
@@ -1503,12 +1478,14 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("Key code: 0x%02X (%d), Count: %d, Delay: %dms\n\n", keyCode, keyCode, count, delayMs)
 
-	// Get Wolf app ID
-	appID, err := getWolfAppID(apiURL, token, sessionID)
+	// Get container app ID (legacy - may not be needed for direct streaming)
+	appID, err := getContainerAppID(apiURL, token, sessionID)
 	if err != nil {
-		return fmt.Errorf("failed to get Wolf app ID: %w", err)
+		fmt.Printf("⚠️  Could not get app ID (continuing anyway): %v\n", err)
+		appID = 0
+	} else {
+		fmt.Printf("✅ Got app ID: %d\n", appID)
 	}
-	fmt.Printf("✅ Got Wolf app ID: %d\n", appID)
 
 	// Configure pending session
 	clientUniqueID := fmt.Sprintf("helix-kbd-test-%d", time.Now().UnixNano())
@@ -1517,7 +1494,7 @@ func runKeyboardTest(apiURL, token, sessionID string, keyCode, count, delayMs in
 	}
 	fmt.Printf("✅ Configured pending session: %s\n", clientUniqueID)
 
-	// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
+	// Build WebSocket URL for direct streaming
 	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))
@@ -1671,8 +1648,8 @@ func newScrollTestCommand() *cobra.Command {
 		Short: "Test scroll input over DirectInput WebSocket",
 		Long: `Connects to the DirectInput WebSocket and sends scroll events to debug the scroll path.
 
-This command tests the DirectInput WebSocket path that bypasses Moonlight/Wolf:
-  Browser -> Helix API -> RevDial -> screenshot-server -> D-Bus -> GNOME
+This command tests the DirectInput WebSocket path:
+  Browser -> Helix API -> RevDial -> desktop container -> D-Bus -> GNOME
 
 Uses the same binary protocol as the browser's DirectInputWebSocket class.
 

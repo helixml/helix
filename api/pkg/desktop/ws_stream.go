@@ -1,5 +1,4 @@
 // Package desktop provides WebSocket video streaming using GStreamer and PipeWire.
-// This implements the same binary protocol as Wolf/Moonlight-Web for frontend compatibility.
 package desktop
 
 import (
@@ -227,7 +226,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 }
 
 // selectEncoder chooses the best available encoder
-// Priority order matches Wolf's tested configurations:
+// Priority order:
 // 1. NVIDIA NVENC (nvh264enc) - fastest, lowest latency
 // 2. Intel QSV (qsvh264enc) - Intel Quick Sync Video
 // 3. VA-API (vah264enc) - Intel/AMD VA-API
@@ -270,7 +269,6 @@ func checkGstElement(element string) bool {
 }
 
 // buildPipelineArgs creates GStreamer pipeline arguments as a flat slice
-// Pipeline configurations match Wolf's tested settings from config.v6.toml
 //
 // Video modes (HELIX_VIDEO_MODE env var):
 // - shm: Current default, uses pipewiresrc → system memory → encoder (1-2 CPU copies)
@@ -905,8 +903,7 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 	}
 }
 
-// handleStreamInputMessage processes input messages from the combined stream WebSocket
-// Uses the moonlight-web-stream protocol for compatibility with existing frontend.
+// handleStreamInputMessage processes input messages from the combined stream WebSocket.
 // Note: Ping/Pong (0x40/0x41) are handled in the message loop, not here.
 func (s *Server) handleStreamInputMessage(data []byte) {
 	if len(data) < 1 {
@@ -916,8 +913,8 @@ func (s *Server) handleStreamInputMessage(data []byte) {
 	msgType := data[0]
 	payload := data[1:]
 
-	// Map moonlight-web-stream message types to our handlers
-	// moonlight-web-stream uses 0x10-0x14 for input
+	// Map stream message types to input handlers
+	// Types 0x10-0x14 are reserved for input
 	switch msgType {
 	case StreamMsgKeyboard: // 0x10
 		s.handleWSKeyboard(payload)

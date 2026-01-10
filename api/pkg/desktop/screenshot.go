@@ -55,7 +55,6 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 //
 // GNOME: Uses org.gnome.Shell.Screenshot D-Bus API exclusively.
 // Requires gnome-shell to be started with --unsafe-mode flag to allow D-Bus access.
-// This avoids PipeWire conflicts with Wolf's video pipeline.
 // See design doc: design/2026-01-05-screenshot-video-pipeline-interference.md
 func (s *Server) captureScreenshot(format string, quality int) ([]byte, string, error) {
 	// GNOME: Use D-Bus Screenshot API exclusively (no fallbacks)
@@ -243,7 +242,7 @@ const (
 //
 // Strategy:
 // 1. If we have a dedicated screenshot ScreenCast session (ssNodeID > 0),
-//    use fast PipeWire capture - this doesn't interfere with Wolf's video.
+//    use fast PipeWire capture.
 // 2. Otherwise, fall back to D-Bus Screenshot API (slower, ~400ms, serialized).
 func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, string, error) {
 	// Fast path: Use dedicated screenshot PipeWire node if available
@@ -264,7 +263,6 @@ func (s *Server) captureGNOMEScreenshot(format string, quality int) ([]byte, str
 }
 
 // captureScreenshotPipeWire captures from the dedicated screenshot PipeWire node.
-// This is SEPARATE from Wolf's video node to avoid buffer renegotiation conflicts.
 func (s *Server) captureScreenshotPipeWire(format string, quality int) ([]byte, string, error) {
 	startTime := time.Now()
 	s.logger.Debug("capturing via dedicated PipeWire screenshot node", "node_id", s.ssNodeID)

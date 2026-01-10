@@ -121,10 +121,10 @@ type HealthResponse struct {
 }
 
 // BridgeDesktopRequest is the request to bridge a desktop container to a Hydra network
-// This enables the desktop (on Wolf's dockerd) to access dev containers (on Hydra's dockerd)
+// This enables the desktop (on sandbox dockerd) to access dev containers (on Hydra's dockerd)
 type BridgeDesktopRequest struct {
 	SessionID          string `json:"session_id"`           // Which Hydra dockerd to bridge to
-	DesktopContainerID string `json:"desktop_container_id"` // Container ID on Wolf's dockerd
+	DesktopContainerID string `json:"desktop_container_id"` // Container ID on sandbox dockerd
 }
 
 // BridgeDesktopResponse is the response after bridging a desktop to Hydra network
@@ -186,7 +186,7 @@ type CreateDevContainerRequest struct {
 	// GPU settings
 	GPUVendor string `json:"gpu_vendor"` // "nvidia", "amd", "intel", ""
 
-	// Docker socket to use (from Hydra isolation or Wolf's default dockerd)
+	// Docker socket to use (from Hydra isolation or default sandbox dockerd)
 	// If empty, uses the sandbox's default Docker socket
 	DockerSocket string `json:"docker_socket,omitempty"`
 
@@ -228,4 +228,23 @@ type DevContainer struct {
 // ListDevContainersResponse is the response listing all dev containers
 type ListDevContainersResponse struct {
 	Containers []DevContainerResponse `json:"containers"`
+}
+
+// GPUInfo represents information about a single GPU
+type GPUInfo struct {
+	Index       int    `json:"index"`
+	Name        string `json:"name"`
+	Vendor      string `json:"vendor"` // "nvidia", "amd", "intel"
+	MemoryTotal int64  `json:"memory_total_bytes"`
+	MemoryUsed  int64  `json:"memory_used_bytes"`
+	MemoryFree  int64  `json:"memory_free_bytes"`
+	Utilization int    `json:"utilization_percent"` // GPU core utilization
+	Temperature int    `json:"temperature_celsius"`
+}
+
+// SystemStatsResponse is the response for system stats endpoint
+type SystemStatsResponse struct {
+	GPUs             []GPUInfo `json:"gpus"`
+	ActiveContainers int       `json:"active_containers"`
+	ActiveSessions   int       `json:"active_sessions"`
 }

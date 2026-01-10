@@ -587,21 +587,21 @@ type Store interface {
 	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
 	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 
-	// Wolf instance methods
-	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
-	UpdateWolfHeartbeat(ctx context.Context, id string, req *types.WolfHeartbeatRequest) error
-	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
-	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
-	DeregisterWolfInstance(ctx context.Context, id string) error
-	UpdateWolfStatus(ctx context.Context, id string, status string) error
-	IncrementWolfSandboxCount(ctx context.Context, id string) error
-	DecrementWolfSandboxCount(ctx context.Context, id string) error
-	ResetWolfInstanceOnReconnect(ctx context.Context, id string) error
-	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
+	// Sandbox instance methods
+	RegisterSandbox(ctx context.Context, instance *types.SandboxInstance) error
+	UpdateSandboxHeartbeat(ctx context.Context, id string, req *types.SandboxHeartbeatRequest) error
+	GetSandbox(ctx context.Context, id string) (*types.SandboxInstance, error)
+	ListSandboxes(ctx context.Context) ([]*types.SandboxInstance, error)
+	DeregisterSandbox(ctx context.Context, id string) error
+	UpdateSandboxStatus(ctx context.Context, id string, status string) error
+	IncrementSandboxContainerCount(ctx context.Context, id string) error
+	DecrementSandboxContainerCount(ctx context.Context, id string) error
+	ResetSandboxOnReconnect(ctx context.Context, id string) error
+	GetSandboxesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
 
 	// Disk usage history methods
 	CreateDiskUsageHistory(ctx context.Context, history *types.DiskUsageHistory) error
-	GetDiskUsageHistory(ctx context.Context, wolfInstanceID string, since time.Time) ([]*types.DiskUsageHistory, error)
+	GetDiskUsageHistory(ctx context.Context, sandboxID string, since time.Time) ([]*types.DiskUsageHistory, error)
 	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
 
 	// Prompt history methods (for cross-device sync)

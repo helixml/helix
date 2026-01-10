@@ -23,9 +23,9 @@ Or use the dev token (no keycloak required, but limited functionality):
 HELIX_API_KEY=oh-hallo-insecure-token
 ```
 
-### 3. Wolf Container Running
+### 3. Sandbox Container Running
 
-Wolf must be running to create sandboxes:
+The sandbox container must be running to create desktop sessions:
 ```bash
 docker ps | grep helix-sandbox
 ```
@@ -89,7 +89,7 @@ helix spectask stop --all  # Stop all sessions
 
 ## Video Stream Protocol
 
-**Status:** Working! The `stream` command connects directly to the desktop container via RevDial, bypassing Wolf/Moonlight.
+**Status:** Working! The `stream` command connects directly to the desktop container via RevDial.
 
 The `stream` command uses the WebSocket-only protocol (not WebRTC) for raw video frame access:
 
@@ -124,9 +124,9 @@ Keycloak is not running. Start it with `./stack start` or use the full docker-co
 
 ### "timeout waiting for sandbox to start"
 
-Check Wolf logs:
+Check sandbox logs:
 ```bash
-docker compose logs api | grep -E "wolf|sandbox|lobby"
+docker compose logs api | grep -E "sandbox|session"
 ```
 
 ### "Access denied - you don't have permission"
@@ -136,5 +136,5 @@ The session doesn't exist or you're using the wrong auth token.
 ### Stream shows 0 frames
 
 1. Verify the session is active: `helix spectask list`
-2. Check Wolf has video producer running
-3. Ensure PipeWire mode is working (Ubuntu desktop)
+2. Check the video producer is running in the desktop container
+3. Ensure PipeWire is working (Ubuntu/GNOME desktop)

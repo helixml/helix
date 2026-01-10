@@ -376,7 +376,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				Str("user_id", user.ID).
 				Msg("External agent type specified with no configuration, using defaults")
 
-			// Create empty configuration - wolf_executor handles workspace paths
+			// Create empty configuration - executor handles workspace paths
 			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{}
 		}
 
@@ -391,7 +391,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Register the session in the external agent executor before launching
 		if s.externalAgentExecutor != nil {
 			// Create a ZedAgent struct with session info for registration
-			zedAgent := &types.ZedAgent{
+			zedAgent := &types.DesktopAgent{
 				SessionID:   session.ID,
 				UserID:      user.ID,
 				Input:       "Initialize Zed development environment",
@@ -436,23 +436,21 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				return
 			}
 
-			// Store lobby ID, PIN, and Wolf instance ID in session (Phase 3: Multi-tenancy + Streaming)
-			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" || agentResp.WolfInstanceID != "" {
-				session.Metadata.WolfLobbyID = agentResp.WolfLobbyID
-				session.Metadata.WolfLobbyPIN = agentResp.WolfLobbyPIN
-				// CRITICAL: Store WolfInstanceID on session record - required for wolf-app-state endpoint
+			// Store container ID and sandbox ID in session
+			if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
+				session.Metadata.DevContainerID = agentResp.DevContainerID
+				// CRITICAL: Store SandboxID on session record - required for sandbox state endpoint
 				// Without this, the frontend gets stuck at "Starting Desktop" forever
-				session.WolfInstanceID = agentResp.WolfInstanceID
+				session.SandboxID = agentResp.SandboxID
 				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
 				if err != nil {
-					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby data in session")
+					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
-						Str("lobby_id", agentResp.WolfLobbyID).
-						Str("lobby_pin", agentResp.WolfLobbyPIN).
-						Str("wolf_instance_id", agentResp.WolfInstanceID).
-						Msg("✅ Stored lobby ID, PIN, and Wolf instance ID in session (chat endpoint)")
+						Str("container_id", agentResp.DevContainerID).
+						Str("sandbox_id", agentResp.SandboxID).
+						Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
 				}
 			}
 
@@ -1186,7 +1184,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	start := time.Now()
 
 	// Wait for external agent to be ready (WebSocket connection established)
-	// Extended timeout to allow time for manual Moonlight client connection to kickstart container
+	// Extended timeout to allow time for desktop container to start
 	if err := s.waitForExternalAgentReady(ctx, session.ID, 300*time.Second); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
 
@@ -1592,8 +1590,8 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 }
 
 // getSessionRDPConnection godoc
-// @Summary Get Wolf connection info for a session
-// @Description Get Wolf streaming connection details for accessing a session (replaces RDP)
+// @Summary Get streaming connection info for a session
+// @Description Get streaming connection details for accessing a session
 // @Tags    sessions
 // @Success 200 {object} map[string]interface{}
 // @Param id path string true "Session ID"
@@ -1627,8 +1625,8 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		log.Error().
 			Str("session_id", id).
 			Str("agent_type", session.Metadata.AgentType).
-			Msg("Session is not an external agent session - Wolf access not available")
-		http.Error(rw, "Wolf access not available for this session", http.StatusNotFound)
+			Msg("Session is not an external agent session - streaming not available")
+		http.Error(rw, "Streaming not available for this session", http.StatusNotFound)
 		return
 	}
 
@@ -1651,13 +1649,13 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 	log.Info().
 		Str("session_id", id).
 		Str("status", agentSession.Status).
-		Msg("Found external agent session (Wolf-based)")
+		Msg("Found external agent session")
 
-	// Return Wolf-based connection details with WebSocket info
+	// Return streaming connection details with WebSocket info
 	connectionInfo := types.ExternalAgentConnectionInfo{
 		SessionID:          agentSession.SessionID,
 		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
-		StreamURL:          "moonlight://localhost:47989",
+		StreamURL:          fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, agentSession.SessionID),
 		Status:             agentSession.Status,
 		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
 		WebsocketConnected: s.isExternalAgentConnected(agentSession.SessionID),
@@ -1667,7 +1665,7 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		Str("session_id", agentSession.SessionID).
 		Str("status", agentSession.Status).
 		Bool("websocket_connected", connectionInfo.WebsocketConnected).
-		Msg("Returning Wolf connection info")
+		Msg("Returning streaming connection info")
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(connectionInfo)
@@ -1738,14 +1736,14 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	specTaskID := session.Metadata.SpecTaskID
 
 	// Build the ZedAgent config for resume
-	agent := &types.ZedAgent{
+	agent := &types.DesktopAgent{
 		SessionID:      id,
 		UserID:         user.ID,
 		HelixSessionID: id, // This session already exists
 		Input:          "Resume session",
 		ProjectPath:    "workspace",
 		SpecTaskID:     specTaskID,
-		// WorkDir left empty - wolf_executor will use filestore path for persistence
+		// WorkDir left empty - sandbox uses its own storage
 	}
 
 	// Load project context for both SpecTask AND exploratory sessions
@@ -1838,7 +1836,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("spec_task_id", specTaskID).
 		Msg("Resuming external agent session")
 
-	// Start the external agent (this will create a new Wolf lobby)
+	// Start the external agent (this will create a new sandbox container)
 	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		log.Error().
@@ -1849,13 +1847,10 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Update session metadata with new Wolf lobby info (only if non-empty)
+	// Update session metadata with new container info (only if non-empty)
 	// Don't overwrite existing metadata with empty values from lobby reuse
-	if response.WolfLobbyID != "" {
-		session.Metadata.WolfLobbyID = response.WolfLobbyID
-	}
-	if response.WolfLobbyPIN != "" {
-		session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	if response.DevContainerID != "" {
+		session.Metadata.DevContainerID = response.DevContainerID
 	}
 	// CRITICAL: Clear PausedScreenshotPath when resuming
 	// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
@@ -1871,7 +1866,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	log.Info().
 		Str("session_id", id).
-		Str("wolf_lobby_id", response.WolfLobbyID).
+		Str("dev_container_id", response.DevContainerID).
 		Msg("External agent session resumed successfully")
 
 	// If session has a ZedThreadID, send open_thread command to Zed
@@ -1922,11 +1917,10 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	// Return success response
 	result := types.SessionResumeResponse{
-		SessionID:     id,
-		Status:        "resumed",
-		WolfLobbyID:   response.WolfLobbyID,
-		WolfLobbyPIN:  response.WolfLobbyPIN,
-		ScreenshotURL: response.ScreenshotURL,
+		SessionID:      id,
+		Status:         "resumed",
+		DevContainerID: response.DevContainerID,
+		ScreenshotURL:  response.ScreenshotURL,
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -2064,7 +2058,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError400("session does not have an external Zed agent")
 	}
 
-	// Stop the Zed agent (Wolf container)
+	// Stop the desktop agent container
 	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
 	if err != nil {
 		log.Error().

@@ -21,7 +21,7 @@ type SpecTaskOrchestrator struct {
 	controller            *controller.Controller
 	gitService            *GitRepositoryService
 	specTaskService       *SpecDrivenTaskService
-	wolfExecutor          WolfExecutorInterface // Wolf executor for external agents
+	containerExecutor     ContainerExecutor // Executor for external agent containers
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
@@ -29,9 +29,9 @@ type SpecTaskOrchestrator struct {
 	testMode              bool
 }
 
-// WolfExecutorInterface defines the interface for Wolf executor
-type WolfExecutorInterface interface {
-	StartDesktop(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+// ContainerExecutor defines the interface for container lifecycle management
+type ContainerExecutor interface {
+	StartDesktop(ctx context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error)
 	StopDesktop(ctx context.Context, sessionID string) error
 }
 
@@ -41,14 +41,14 @@ func NewSpecTaskOrchestrator(
 	controller *controller.Controller,
 	gitService *GitRepositoryService,
 	specTaskService *SpecDrivenTaskService,
-	wolfExecutor WolfExecutorInterface, // Wolf executor for external agents
+	containerExecutor ContainerExecutor, // Executor for external agent containers
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
 		store:                 store,
 		controller:            controller,
 		gitService:            gitService,
 		specTaskService:       specTaskService,
-		wolfExecutor:          wolfExecutor,
+		containerExecutor:     containerExecutor,
 		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
 		testMode:              false,

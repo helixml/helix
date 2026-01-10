@@ -25,7 +25,7 @@ func TestSpecTaskExternalAgent_CreateAndGet(t *testing.T) {
 	agent := &types.SpecTaskExternalAgent{
 		ID:              "zed-spectask-test123",
 		SpecTaskID:      "spec_test123",
-		WolfAppID:       "wolf_app_456",
+		ContainerAppID:       "wolf_app_456",
 		WorkspaceDir:    "/workspaces/spectasks/spec_test123/work",
 		HelixSessionIDs: []string{"ses_001", "ses_002"},
 		ZedThreadIDs:    []string{"thread_001", "thread_002"},
@@ -44,7 +44,7 @@ func TestSpecTaskExternalAgent_CreateAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, agent.ID, retrieved.ID)
 	assert.Equal(t, agent.SpecTaskID, retrieved.SpecTaskID)
-	assert.Equal(t, agent.WolfAppID, retrieved.WolfAppID)
+	assert.Equal(t, agent.ContainerAppID, retrieved.ContainerAppID)
 	assert.Equal(t, agent.Status, retrieved.Status)
 	assert.Equal(t, 2, len(retrieved.HelixSessionIDs))
 	assert.Contains(t, retrieved.HelixSessionIDs, "ses_001")
@@ -69,7 +69,7 @@ func TestSpecTaskExternalAgent_Update(t *testing.T) {
 	agent := &types.SpecTaskExternalAgent{
 		ID:              "zed-spectask-update-test",
 		SpecTaskID:      "spec_update_test",
-		WolfAppID:       "wolf_app_789",
+		ContainerAppID:       "wolf_app_789",
 		WorkspaceDir:    "/workspaces/spectasks/spec_update_test/work",
 		HelixSessionIDs: []string{"ses_001"},
 		ZedThreadIDs:    []string{},
@@ -111,7 +111,7 @@ func TestSpecTaskExternalAgent_List(t *testing.T) {
 	agent1 := &types.SpecTaskExternalAgent{
 		ID:           "zed-spectask-list1",
 		SpecTaskID:   "spec_list1",
-		WolfAppID:    "wolf_1",
+		ContainerAppID:    "wolf_1",
 		WorkspaceDir: "/workspaces/spectasks/spec_list1/work",
 		Status:       "running",
 		Created:      time.Now(),
@@ -122,7 +122,7 @@ func TestSpecTaskExternalAgent_List(t *testing.T) {
 	agent2 := &types.SpecTaskExternalAgent{
 		ID:           "zed-spectask-list2",
 		SpecTaskID:   "spec_list2",
-		WolfAppID:    "wolf_2",
+		ContainerAppID:    "wolf_2",
 		WorkspaceDir: "/workspaces/spectasks/spec_list2/work",
 		Status:       "running",
 		Created:      time.Now(),
@@ -133,7 +133,7 @@ func TestSpecTaskExternalAgent_List(t *testing.T) {
 	agent3 := &types.SpecTaskExternalAgent{
 		ID:           "zed-spectask-list3",
 		SpecTaskID:   "spec_list3",
-		WolfAppID:    "wolf_3",
+		ContainerAppID:    "wolf_3",
 		WorkspaceDir: "/workspaces/spectasks/spec_list3/work",
 		Status:       "running",
 		Created:      time.Now(),
@@ -171,7 +171,7 @@ func TestExternalAgentActivity_UpsertAndGet(t *testing.T) {
 		SpecTaskID:      "spec_activity1",
 		LastInteraction: time.Now(),
 		AgentType:       "spectask",
-		WolfAppID:       "wolf_activity_1",
+		ContainerAppID:       "wolf_activity_1",
 		WorkspaceDir:    "/workspaces/spectasks/spec_activity1/work",
 		UserID:          "user_789",
 	}
@@ -215,7 +215,7 @@ func TestExternalAgentActivity_GetIdleAgents(t *testing.T) {
 		SpecTaskID:      "spec_recent",
 		LastInteraction: time.Now(),
 		AgentType:       "spectask",
-		WolfAppID:       "wolf_recent",
+		ContainerAppID:       "wolf_recent",
 		WorkspaceDir:    "/workspaces/spectasks/spec_recent/work",
 		UserID:          "user_recent",
 	}
@@ -227,7 +227,7 @@ func TestExternalAgentActivity_GetIdleAgents(t *testing.T) {
 		SpecTaskID:      "spec_old",
 		LastInteraction: time.Now().Add(-35 * time.Minute),
 		AgentType:       "spectask",
-		WolfAppID:       "wolf_old",
+		ContainerAppID:       "wolf_old",
 		WorkspaceDir:    "/workspaces/spectasks/spec_old/work",
 		UserID:          "user_old",
 	}
@@ -238,9 +238,9 @@ func TestExternalAgentActivity_GetIdleAgents(t *testing.T) {
 	require.True(t, ok, "store must be *PostgresStore for this test")
 
 	err := pgStore.GetDB().WithContext(ctx).Exec(`
-		INSERT INTO external_agent_activity (external_agent_id, spec_task_id, last_interaction, agent_type, wolf_app_id, workspace_dir, user_id)
+		INSERT INTO external_agent_activity (external_agent_id, spec_task_id, last_interaction, agent_type, container_app_id, workspace_dir, user_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, oldActivity.ExternalAgentID, oldActivity.SpecTaskID, oldActivity.LastInteraction, oldActivity.AgentType, oldActivity.WolfAppID, oldActivity.WorkspaceDir, oldActivity.UserID).Error
+	`, oldActivity.ExternalAgentID, oldActivity.SpecTaskID, oldActivity.LastInteraction, oldActivity.AgentType, oldActivity.ContainerAppID, oldActivity.WorkspaceDir, oldActivity.UserID).Error
 	require.NoError(t, err)
 
 	// Get idle agents (>30min)
@@ -279,7 +279,7 @@ func TestExternalAgentActivity_Delete(t *testing.T) {
 		SpecTaskID:      "spec_delete_test",
 		LastInteraction: time.Now(),
 		AgentType:       "spectask",
-		WolfAppID:       "wolf_delete",
+		ContainerAppID:       "wolf_delete",
 		WorkspaceDir:    "/workspaces/spectasks/spec_delete_test/work",
 		UserID:          "user_delete",
 	}

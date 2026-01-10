@@ -24,7 +24,7 @@ import (
 // addUserAPITokenToAgent adds the user's API token to agent environment for git operations
 // This ensures RBAC is enforced - agent can only access repos the user can access
 // IMPORTANT: Only uses personal API keys (not app-scoped keys) to ensure full access
-func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
 	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
 		UserID:     userID,
 		ProjectID:  agent.ProjectPath,
@@ -68,7 +68,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	var agent types.ZedAgent
+	var agent types.DesktopAgent
 	err := json.NewDecoder(req.Body).Decode(&agent)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
@@ -81,11 +81,10 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	}
 
 	// CRITICAL: Set UserID from authenticated user for git commit email lookup
-	// wolf_executor uses agent.UserID to look up user email for git config
+	// executor uses agent.UserID to look up user email for git config
 	agent.UserID = user.ID
 
-	// WorkDir will be set by wolf_executor to use filestore path
-	// Don't override it here - let executor handle workspace management
+	// WorkDir is handled by the executor - don't override here
 
 	// Validate required fields
 	if agent.Input == "" {
@@ -213,7 +212,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	// Set the Helix session ID on the agent so Wolf knows which session this serves
+	// Set the Helix session ID on the agent so container knows which session this serves
 	agent.HelixSessionID = createdSession.ID
 
 	// Add user's API token for git operations
@@ -233,41 +232,35 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Str("status", response.Status).
-		Str("lobby_id", response.WolfLobbyID).
+		Str("lobby_id", response.DevContainerID).
 		Msg("External agent started successfully")
 
-	// Store the lobby ID, PIN, and Wolf instance ID in the Helix session (Phase 3: Multi-tenancy)
-	if response.WolfLobbyID != "" {
-		createdSession.Metadata.WolfLobbyID = response.WolfLobbyID
+	// Store the container ID and sandbox ID in the Helix session
+	if response.DevContainerID != "" {
+		createdSession.Metadata.DevContainerID = response.DevContainerID
 	}
-	if response.WolfLobbyPIN != "" {
-		createdSession.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
-	}
-	// CRITICAL: Store WolfInstanceID on session record - required for Moonlight streaming proxy
-	// Without this, the moonlight proxy falls back to "moonlight-dev" which doesn't exist
-	if response.WolfInstanceID != "" {
-		createdSession.WolfInstanceID = response.WolfInstanceID
+	// CRITICAL: Store SandboxID on session record - required for streaming proxy
+	if response.SandboxID != "" {
+		createdSession.SandboxID = response.SandboxID
 	}
 
-	// Update session with Wolf lobby info and instance ID
-	if response.WolfLobbyID != "" || response.WolfLobbyPIN != "" || response.WolfInstanceID != "" {
+	// Update session with container info
+	if response.DevContainerID != "" || response.SandboxID != "" {
 		_, err = apiServer.Controller.Options.Store.UpdateSession(req.Context(), *createdSession)
 		if err != nil {
-			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store Wolf lobby info in session")
-			// Continue anyway - lobby info just won't be in database
+			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store container info in session")
+			// Continue anyway - container info just won't be in database
 		} else {
 			log.Info().
 				Str("helix_session_id", createdSession.ID).
-				Str("lobby_id", response.WolfLobbyID).
-				Str("lobby_pin", response.WolfLobbyPIN).
-				Str("wolf_instance_id", response.WolfInstanceID).
-				Msg("✅ Stored Wolf lobby ID, PIN, and instance ID in Helix session")
+				Str("container_id", response.DevContainerID).
+				Str("sandbox_id", response.SandboxID).
+				Msg("✅ Stored container ID and sandbox ID in Helix session")
 		}
 	}
 
-	// Note: Immediate lobby attachment happens via Wolf's pending_session_configs
-	// Pre-configured by ConfigurePendingSession API call after lobby creation
-	// Session auto-attaches to lobby interpipe when Moonlight client connects
+	// Note: Container attachment happens via pending session config
+	// Pre-configured by ConfigurePendingSession API call after container creation
 
 	// Add WebSocket connection info to response
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
@@ -309,7 +302,7 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 		return
 	}
 
-	response := types.ZedAgentResponse{
+	response := types.DesktopAgentResponse{
 		SessionID: session.SessionID,
 		Status:    "running",
 	}
@@ -328,15 +321,15 @@ func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req
 
 	if apiServer.externalAgentExecutor == nil {
 		res.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(res).Encode([]types.ZedAgentResponse{})
+		json.NewEncoder(res).Encode([]types.DesktopAgentResponse{})
 		return
 	}
 
 	sessions := apiServer.externalAgentExecutor.ListSessions()
-	responses := make([]types.ZedAgentResponse, len(sessions))
+	responses := make([]types.DesktopAgentResponse, len(sessions))
 
 	for i, session := range sessions {
-		responses[i] = types.ZedAgentResponse{
+		responses[i] = types.DesktopAgentResponse{
 			SessionID: session.SessionID,
 			Status:    session.Status,
 		}
@@ -435,13 +428,13 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 	log.Info().
 		Str("session_id", sessionID).
 		Str("status", session.Status).
-		Msg("Found external agent session (RDP replaced with Wolf)")
+		Msg("Found external agent session")
 
-	// Return Wolf-based connection details with WebSocket info
+	// Return streaming connection details with WebSocket info
 	connectionInfo := types.ExternalAgentConnectionInfo{
 		SessionID:          session.SessionID,
 		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:          "moonlight://localhost:47989",
+		StreamURL:          fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
 		Status:             session.Status,
 		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
 		WebsocketConnected: apiServer.isExternalAgentConnected(session.SessionID),
@@ -451,7 +444,7 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		Str("session_id", session.SessionID).
 		Str("status", session.Status).
 		Bool("websocket_connected", connectionInfo.WebsocketConnected).
-		Msg("Returning Wolf connection info")
+		Msg("Returning streaming connection info")
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(connectionInfo)
@@ -495,12 +488,12 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 	// In a full implementation, you might want to support updating other session properties
 	session, _ = apiServer.externalAgentExecutor.GetSession(sessionID)
 
-	response := types.ZedAgentResponse{
+	response := types.DesktopAgentResponse{
 		SessionID:     session.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		StreamURL:     "moonlight://localhost:47989",
+		StreamURL:     fmt.Sprintf("wss://%s/api/v1/external-agents/%s/ws/stream", req.Host, session.SessionID),
 		Status:        session.Status,
-		WolfAppID:     session.WolfAppID,
+		ContainerAppID:     session.ContainerAppID,
 		ContainerName: session.ContainerName,
 	}
 
@@ -543,65 +536,11 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 		Uptime:       session.LastAccess.Sub(session.StartTime).Seconds(),
 		WorkspaceDir: session.ProjectPath,
 		DisplayNum:   1,
-		RDPPort:      8080,
 		Status:       "running",
 	}
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(stats)
-}
-
-// getExternalAgentLogs handles GET /api/v1/external-agents/{sessionID}/logs
-func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Get optional query parameters
-	lines := 100 // default
-	if linesStr := req.URL.Query().Get("lines"); linesStr != "" {
-		if parsedLines, err := strconv.Atoi(linesStr); err == nil && parsedLines > 0 {
-			lines = parsedLines
-		}
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusNotFound)
-		return
-	}
-
-	_, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
-		return
-	}
-
-	// For now, return a placeholder response
-	// In a full implementation, you would read actual logs from the Zed process
-	logs := types.ExternalAgentLogs{
-		SessionID: sessionID,
-		Lines:     lines,
-		Logs: []string{
-			"[INFO] Zed editor started",
-			"[INFO] X server initialized",
-			"[INFO] XRDP server listening on port 3389",
-			"[DEBUG] Session active and responding",
-		},
-		Timestamp: time.Now(),
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(logs)
 }
 
 // isExternalAgentConnected checks if external agent is connected via WebSocket
@@ -718,7 +657,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	}
 
 	// Try RevDial connection to sandbox first (registered as "sandbox-{session_id}")
-	// RevDial is the primary communication mechanism - Wolf API lookup is only for debugging
+	// RevDial is the primary communication mechanism for sandbox access
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
@@ -1031,9 +970,9 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1142,9 +1081,9 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1263,9 +1202,9 @@ func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1381,9 +1320,9 @@ func (apiServer *HelixAPIServer) uploadFileToSandbox(res http.ResponseWriter, re
 		return
 	}
 
-	// Get container name using Wolf executor
+	// Get container name using executor
 	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		http.Error(res, "Executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1482,20 +1421,16 @@ type ConfigurePendingSessionRequest struct {
 }
 
 // configurePendingSession handles POST /api/v1/external-agents/{sessionID}/configure-pending-session
-// @Summary Configure pending session for immediate lobby attachment
-// @Description Pre-configures Wolf to attach a client to a lobby when it connects with the given client_unique_id.
-// The frontend calls this BEFORE connecting to moonlight-web with the same client_unique_id.
+// @Summary Configure pending session (deprecated - no-op)
+// @Description This endpoint was used for session configuration but is now a no-op.
+// Kept for API compatibility.
 // @Tags ExternalAgents
 // @Accept json
 // @Produce json
 // @Param sessionID path string true "External agent session ID"
 // @Param request body ConfigurePendingSessionRequest true "Configuration request"
 // @Success 200 {object} map[string]string "success response"
-// @Failure 400 {string} string "Bad request"
 // @Failure 401 {string} string "Unauthorized"
-// @Failure 403 {string} string "Forbidden"
-// @Failure 404 {string} string "Session not found"
-// @Failure 503 {string} string "Wolf executor not available"
 // @Router /api/v1/external-agents/{sessionID}/configure-pending-session [post]
 // @Security ApiKeyAuth
 func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter, req *http.Request) {
@@ -1508,45 +1443,15 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Get the Helix session to verify ownership
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
-		http.Error(res, "Session not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership
-	if session.Owner != user.ID {
-		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
-		http.Error(res, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Parse request body
+	// Parse request body (for compatibility)
 	var configReq ConfigurePendingSessionRequest
 	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
-	if configReq.ClientUniqueID == "" {
-		http.Error(res, "client_unique_id is required", http.StatusBadRequest)
-		return
-	}
-
-	// Configure pending session via executor
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	if err := apiServer.externalAgentExecutor.ConfigurePendingSession(req.Context(), sessionID, configReq.ClientUniqueID); err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to configure pending session")
-		http.Error(res, fmt.Sprintf("failed to configure pending session: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
+	// No-op: Session configuration is no longer needed
+	// Just return success for API compatibility
 	response := map[string]string{
 		"status":           "configured",
 		"session_id":       sessionID,
@@ -1558,10 +1463,10 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 }
 
 // proxyInputWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/input
-// This provides direct input from browser to screenshot-server, bypassing Moonlight/Wolf.
+// This provides direct input from browser to screenshot-server.
 // @Summary Direct WebSocket input for PipeWire/GNOME sessions
 // @Description Provides a WebSocket connection for sending input events directly to the screenshot-server
-// in the sandbox. This bypasses Moonlight/Wolf for input, providing better control over scroll behavior.
+// in the sandbox. This provides direct control over input events.
 // Only available for PipeWire/GNOME desktop sessions.
 // @Tags ExternalAgents
 // @Param sessionID path string true "Session ID"
@@ -1598,7 +1503,7 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	}
 
 	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
-	// For Sway sessions, return an error - they should use Moonlight input
+	// For Sway sessions, return an error - Sway has different input handling
 	var desktopType string
 	if session.Metadata.ExternalAgentConfig != nil {
 		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
@@ -1721,10 +1626,10 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 }
 
 // proxyStreamWebSocket handles WebSocket /api/v1/external-agents/{sessionID}/ws/stream
-// This provides direct video streaming from screenshot-server to browser, bypassing Wolf/Moonlight.
+// This provides direct video streaming from screenshot-server to browser.
 // @Summary Direct WebSocket video streaming for PipeWire/GNOME sessions
 // @Description Provides a WebSocket connection for receiving H.264 video frames directly from the
-// screenshot-server in the sandbox. This bypasses Wolf/Moonlight-Web for video streaming.
+// screenshot-server in the sandbox.
 // Only available for PipeWire/GNOME desktop sessions.
 // @Tags ExternalAgents
 // @Param sessionID path string true "Session ID"
@@ -1761,7 +1666,7 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	}
 
 	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
-	// For Sway sessions, return an error - they should use Moonlight streaming
+	// For Sway sessions, return an error - Sway has different streaming handling
 	var desktopType string
 	if session.Metadata.ExternalAgentConfig != nil {
 		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()

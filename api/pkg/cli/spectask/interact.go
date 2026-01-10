@@ -144,9 +144,6 @@ func printSessionInfo(session *types.Session) {
 	fmt.Printf("   Type:       %s\n", session.Type)
 	fmt.Printf("   Mode:       %s\n", session.Mode)
 
-	if session.Metadata.WolfLobbyPIN != "" {
-		fmt.Printf("   Wolf PIN:   %s (for browser access)\n", session.Metadata.WolfLobbyPIN)
-	}
 	if session.Metadata.ExternalAgentID != "" {
 		fmt.Printf("   Agent:      %s\n", session.Metadata.ExternalAgentID)
 	}
@@ -557,7 +554,7 @@ func runLiveMode(apiURL, token, sessionID string) error {
 	// Connect to WebSocket for video stats
 	fmt.Printf("📡 Connecting to video stream...\n")
 
-	appID, err := getWolfAppID(apiURL, token, sessionID)
+	appID, err := getContainerAppID(apiURL, token, sessionID)
 	if err != nil {
 		fmt.Printf("⚠️  Video stream not available: %v\n", err)
 		fmt.Printf("   (Session may still be starting or doesn't have external agent)\n\n")
@@ -570,7 +567,7 @@ func runLiveMode(apiURL, token, sessionID string) error {
 		return fmt.Errorf("failed to configure session: %w", err)
 	}
 
-	// Build WebSocket URL - direct mode (bypass Wolf/Moonlight)
+	// Build WebSocket URL for direct streaming
 	wsURL := strings.Replace(apiURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 	streamURL := fmt.Sprintf("%s/api/v1/external-agents/%s/ws/stream", wsURL, url.QueryEscape(sessionID))

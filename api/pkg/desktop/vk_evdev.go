@@ -1,8 +1,7 @@
 package desktop
 
 // VK → evdev keycode mapping
-// Based on wolf/third_party/inputtino/src/uinput/include/inputtino/keyboard.hpp
-// VK codes are Windows Virtual Key codes used by Moonlight frontend
+// VK codes are Windows Virtual Key codes used by the streaming frontend
 // evdev codes are Linux input event codes
 
 // vkToEvdev maps Windows VK codes to Linux evdev key codes

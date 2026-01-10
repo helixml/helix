@@ -139,8 +139,7 @@ func GenerateZedMCPConfig(
 	config.Theme = "One Dark"
 
 	// Configure language_models to route API calls through Helix proxy
-	// CRITICAL: Zed reads api_url from settings.json, NOT from ANTHROPIC_BASE_URL env var!
-	// The env vars set in wolf_executor.go are NOT used by Zed's language model providers.
+	// CRITICAL: Zed reads api_url from settings.json, NOT from environment variables!
 	// We must explicitly set api_url in language_models for each provider.
 	//
 	// IMPORTANT: Anthropic and OpenAI have different URL conventions in Zed:

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// VideoForwarder captures video from PipeWire and forwards frames to Wolf via shared memory.
+// VideoForwarder captures video from PipeWire and forwards frames via shared memory.
 // This solves the cross-container PipeWire authorization issue by running the capture
 // inside the container where PipeWire is accessible.
 type VideoForwarder struct {
@@ -65,8 +65,8 @@ func (v *VideoForwarder) Start(ctx context.Context) error {
 	// videoconvert - ensure format compatibility
 	// shmsink - output to shared memory socket
 	//
-	// Note: We use raw video (BGRx) because Wolf's NVENC pipeline expects raw input.
-	// The shmsink creates a Unix socket that Wolf's shmsrc can connect to.
+	// Note: We use raw video (BGRx) for GPU encoding compatibility.
+	// The shmsink creates a Unix socket for shared memory video access.
 	pipelineDef := fmt.Sprintf(
 		"pipewiresrc path=%d do-timestamp=true ! "+
 			"video/x-raw,format=BGRx ! "+
@@ -102,7 +102,7 @@ func (v *VideoForwarder) Start(ctx context.Context) error {
 	v.logger.Info("video forwarder started, waiting for socket creation", "pid", v.cmd.Process.Pid)
 
 	// Wait for the socket to be created before returning.
-	// Wolf's shmsrc will fail if it tries to connect before the socket exists.
+	// Consumers will fail if they try to connect before the socket exists.
 	if err := v.waitForSocket(ctx, 10*time.Second); err != nil {
 		v.logger.Error("socket creation timeout, stopping forwarder", "err", err)
 		v.running = false

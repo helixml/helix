@@ -393,18 +393,17 @@ type SessionMetadata struct {
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
 	DesiredState            string               `json:"desired_state,omitempty"`             // "running" = should be running, "stopped" = can terminate
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
-	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	DevContainerID string `json:"dev_container_id,omitempty"` // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
 	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
 	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
-	// Hydra executor fields (Wolf-free mode)
+	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
 	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on helix_default network
-	ExecutorMode  string `json:"executor_mode,omitempty"`  // "wolf" or "hydra"
+	ExecutorMode  string `json:"executor_mode,omitempty"`  // Executor mode (deprecated - always "hydra")
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
 	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
@@ -727,8 +726,8 @@ type Session struct {
 
 	Trigger string `json:"trigger"`
 
-	// WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any)
-	WolfInstanceID string `json:"wolf_instance_id" gorm:"type:varchar(255);index"`
+	// SandboxID tracks which sandbox instance is running this session's dev container (if any)
+	SandboxID string `json:"sandbox_id" gorm:"type:varchar(255);index"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -1017,8 +1016,6 @@ type ServerConfigForFrontend struct {
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
-	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
-	StreamingBitrateMbps                   int                  `json:"streaming_bitrate_mbps"`       // Requested video streaming bitrate in Mbps (default: 40)
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1042,7 +1039,7 @@ type SessionSummary struct {
 	QuestionSetID          string `json:"question_set_id"`
 	QuestionSetExecutionID string `json:"question_set_execution_id"`
 
-	// Metadata includes Wolf lobby information for external agent sessions
+	// Metadata includes container information for external agent sessions
 	Metadata SessionMetadata `json:"metadata,omitempty"`
 }
 
@@ -1871,9 +1868,9 @@ type KeyPair struct {
 
 // for an app, run which script with what input?
 
-// ZedAgent represents a Zed editor instance configuration
-type ZedAgent struct {
-	// Session ID for tracking the Zed instance (agent/Wolf session ID)
+// DesktopAgent represents a Zed editor instance configuration
+type DesktopAgent struct {
+	// Session ID for tracking the desktop agent instance
 	SessionID string `json:"session_id"`
 	// Helix session ID - the actual Helix session this agent serves (if created by Helix)
 	HelixSessionID string `json:"helix_session_id,omitempty"`
@@ -1916,7 +1913,7 @@ type ZedAgent struct {
 	// Only works when HYDRA_PRIVILEGED_MODE_ENABLED=true on the sandbox
 	UseHostDocker bool `json:"use_host_docker,omitempty"`
 
-	// Hydra executor settings (Wolf-free mode)
+	// Hydra executor settings
 	SandboxID      string `json:"sandbox_id,omitempty"`       // Target sandbox for container (default: "default")
 	UseHydraDocker bool   `json:"use_hydra_docker,omitempty"` // Use Hydra's isolated dockerd for dev containers
 	CustomImage    string `json:"custom_image,omitempty"`     // Custom container image (overrides desktop type)
@@ -1929,7 +1926,7 @@ type ZedAgent struct {
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
-func (z *ZedAgent) GetEffectiveResolution() (width, height, refreshRate int) {
+func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int) {
 	// If Resolution preset is set, use it
 	switch z.Resolution {
 	case "5k":
@@ -1958,22 +1955,20 @@ func (z *ZedAgent) GetEffectiveResolution() (width, height, refreshRate int) {
 	return width, height, refreshRate
 }
 
-// ZedAgentResponse represents the response from a Zed agent execution
-type ZedAgentResponse struct {
+// DesktopAgentResponse represents the response from a Zed agent execution
+type DesktopAgentResponse struct {
 	// Session ID of the Zed instance
 	SessionID string `json:"session_id"`
 	// Screenshot URL for viewing the desktop (read-only)
 	ScreenshotURL string `json:"screenshot_url"`
-	// Stream URL for Moonlight client (interactive)
+	// Stream URL for WebSocket video streaming (interactive)
 	StreamURL string `json:"stream_url"`
-	// Wolf app ID for the container (deprecated - use WolfLobbyID)
-	WolfAppID string `json:"wolf_app_id,omitempty"`
-	// Wolf lobby ID for the container (NEW - auto-start approach)
-	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
-	// Wolf lobby PIN for access control (NEW - Phase 3: Multi-tenancy)
-	WolfLobbyPIN string `json:"wolf_lobby_pin,omitempty"`
-	// Wolf instance ID running this sandbox (for multi-Wolf deployment)
-	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
+	// Container app ID (deprecated)
+	ContainerAppID string `json:"container_app_id,omitempty"`
+	// Dev container ID
+	DevContainerID string `json:"dev_container_id,omitempty"`
+	// Sandbox ID running this container
+	SandboxID string `json:"sandbox_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
 	// Container IP address on helix_default network (Hydra executor only)
@@ -1990,20 +1985,20 @@ type ZedAgentResponse struct {
 	Status string `json:"status"`
 }
 
-// ZedAgentRequest represents a request to execute a Zed agent
-type ZedAgentRequest struct {
-	Agent ZedAgent `json:"agent"`
+// DesktopAgentRequest represents a request to execute a Zed agent
+type DesktopAgentRequest struct {
+	Agent DesktopAgent `json:"agent"`
 }
 
 // ZedTaskMessage represents a task message sent via NATS to external agent runners
 type ZedTaskMessage struct {
 	Type      string   `json:"type"`       // "zed_task"
-	Agent     ZedAgent `json:"agent"`      // Agent configuration including RDP password
+	Agent     DesktopAgent `json:"agent"`      // Agent configuration including RDP password
 	AuthToken string   `json:"auth_token"` // Authentication token for WebSocket
 }
 
-// ZedAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
-type ZedAgentRDPData struct {
+// DesktopAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
+type DesktopAgentRDPData struct {
 	SessionID string `json:"session_id"`
 	Type      string `json:"type"` // "rdp_data", "rdp_control", etc.
 	Data      []byte `json:"data"` // Raw RDP protocol data
@@ -2063,17 +2058,17 @@ type DataEntity struct {
 
 type ScriptRunType string
 
-// ZedAgentRunsQuery represents a query for Zed agent runs
-type ZedAgentRunsQuery struct {
+// DesktopAgentRunsQuery represents a query for Zed agent runs
+type DesktopAgentRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
 	SessionID string
 	Status    string
 }
 
-// ZedAgentRunnerRequest represents a request to run a Zed agent
-type ZedAgentRunnerRequest struct {
-	Agent *ZedAgent `json:"agent"`
+// DesktopAgentRunnerRequest represents a request to run a Zed agent
+type DesktopAgentRunnerRequest struct {
+	Agent *DesktopAgent `json:"agent"`
 }
 
 // WebSocket sync message types for external agent communication
@@ -2130,35 +2125,15 @@ type ExternalAgentStats struct {
 	Uptime       float64   `json:"uptime"`
 	WorkspaceDir string    `json:"workspace_dir"`
 	DisplayNum   int       `json:"display_num"`
-	RDPPort      int       `json:"rdp_port"`
 	Status       string    `json:"status"`
-}
-
-// ExternalAgentLogs is the response from GET /api/v1/external-agents/{sessionID}/logs
-type ExternalAgentLogs struct {
-	SessionID string    `json:"session_id"`
-	Lines     int       `json:"lines"`
-	Logs      []string  `json:"logs"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
-// ExternalAgentKeepaliveStatus is the response from GET /api/v1/external-agents/{sessionID}/keepalive-status
-type ExternalAgentKeepaliveStatus struct {
-	SessionID               string     `json:"session_id"`
-	LobbyID                 string     `json:"lobby_id"`
-	KeepaliveStatus         string     `json:"keepalive_status"`
-	KeepaliveStartTime      *time.Time `json:"keepalive_start_time"`
-	KeepaliveLastCheck      *time.Time `json:"keepalive_last_check"`
-	ConnectionUptimeSeconds int64      `json:"connection_uptime_seconds"`
 }
 
 // SessionResumeResponse is the response from POST /api/v1/sessions/{id}/resume
 type SessionResumeResponse struct {
-	SessionID     string `json:"session_id"`
-	Status        string `json:"status"`
-	WolfLobbyID   string `json:"wolf_lobby_id"`
-	WolfLobbyPIN  string `json:"wolf_lobby_pin"`
-	ScreenshotURL string `json:"screenshot_url"`
+	SessionID      string `json:"session_id"`
+	Status         string `json:"status"`
+	DevContainerID string `json:"dev_container_id,omitempty"`
+	ScreenshotURL  string `json:"screenshot_url"`
 }
 
 // SpecTaskStopResponse is the response from POST /api/v1/spec-tasks/{id}/stop
@@ -2174,7 +2149,7 @@ type SpecTaskStopResponse struct {
 type SpecTaskStartResponse struct {
 	Message         string `json:"message"`
 	ExternalAgentID string `json:"external_agent_id"`
-	WolfAppID       string `json:"wolf_app_id"`
+	ContainerAppID       string `json:"container_app_id"`
 	WorkspaceDir    string `json:"workspace_dir"`
 	ScreenshotURL   string `json:"screenshot_url,omitempty"`
 	StreamURL       string `json:"stream_url,omitempty"`
@@ -2187,7 +2162,7 @@ type SpecTaskStatusResponse struct {
 	Message         string     `json:"message,omitempty"`
 	ExternalAgentID string     `json:"external_agent_id,omitempty"`
 	Status          string     `json:"status,omitempty"`
-	WolfAppID       string     `json:"wolf_app_id,omitempty"`
+	ContainerAppID       string     `json:"container_app_id,omitempty"`
 	WorkspaceDir    string     `json:"workspace_dir,omitempty"`
 	HelixSessionIDs []string   `json:"helix_session_ids,omitempty"`
 	ZedThreadIDs    []string   `json:"zed_thread_ids,omitempty"`
@@ -2225,7 +2200,7 @@ type RunnerEventRequestType int
 
 func (r RunnerEventRequestType) String() string {
 	switch r {
-	case RunnerEventRequestZedAgent:
+	case RunnerEventRequestDesktopAgent:
 		return "zed_agent"
 	case RunnerEventRequestRDPData:
 		return "rdp_data"
@@ -2235,7 +2210,7 @@ func (r RunnerEventRequestType) String() string {
 }
 
 const (
-	RunnerEventRequestZedAgent RunnerEventRequestType = iota
+	RunnerEventRequestDesktopAgent RunnerEventRequestType = iota
 	RunnerEventRequestRDPData
 )
 
@@ -2897,13 +2872,10 @@ type Notification struct {
 
 // StreamingTokenResponse contains token for accessing streaming session
 type StreamingTokenResponse struct {
-	StreamToken     string    `json:"stream_token"`
-	WolfLobbyID     string    `json:"wolf_lobby_id"`
-	WolfLobbyPIN    string    `json:"wolf_lobby_pin"`
-	MoonlightHostID int       `json:"moonlight_host_id"`
-	MoonlightAppID  int       `json:"moonlight_app_id"`
-	AccessLevel     string    `json:"access_level"`
-	ExpiresAt       time.Time `json:"expires_at"`
+	StreamToken    string    `json:"stream_token"`
+	DevContainerID string    `json:"dev_container_id,omitempty"`
+	AccessLevel    string    `json:"access_level"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
 // Memory provides agent user memories
@@ -2937,3 +2909,94 @@ type ForkSimpleProjectResponse struct {
 	TasksCreated  int    `json:"tasks_created"`
 	Message       string `json:"message"`
 }
+
+// =============================================================================
+// Sandbox Instance Types (multi-sandbox deployment support)
+// =============================================================================
+
+// SandboxInstance represents a sandbox (GPU node) running desktop containers.
+// Each sandbox has Docker-in-Docker, Hydra for isolation, and RevDial for API access.
+type SandboxInstance struct {
+	ID        string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	Created   time.Time `json:"created" gorm:"autoCreateTime"`
+	Updated   time.Time `json:"updated" gorm:"autoUpdateTime"`
+	IPAddress string    `json:"ip_address" gorm:"type:varchar(45)"`  // IP address of the sandbox
+	Hostname  string    `json:"hostname" gorm:"type:varchar(255)"`   // Hostname for DNS resolution
+	Status    string    `json:"status" gorm:"type:varchar(50)"`      // "online", "offline", "degraded"
+	LastSeen  time.Time `json:"last_seen" gorm:"index"`              // Last heartbeat time
+
+	// Desktop image versions available on this sandbox
+	// Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
+	DesktopVersions datatypes.JSON `json:"desktop_versions,omitempty" gorm:"type:jsonb"`
+
+	// GPU configuration
+	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
+	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
+
+	// Sandbox capacity
+	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
+	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
+	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+}
+
+// TableName returns the table name for GORM
+func (SandboxInstance) TableName() string {
+	return "sandbox_instances"
+}
+
+// SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
+type SandboxHeartbeatRequest struct {
+	// Desktop image versions (content-addressable Docker image hashes)
+	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+	// Value: image hash (e.g., "a1b2c3d4e5f6...")
+	DesktopVersions map[string]string `json:"desktop_versions,omitempty"`
+
+	// Disk usage metrics for monitored mount points
+	DiskUsage []DiskUsageMetric `json:"disk_usage,omitempty"`
+
+	// Container disk usage (per-container storage)
+	ContainerUsage []ContainerDiskUsage `json:"container_usage,omitempty"`
+
+	// GPU configuration
+	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
+	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
+
+	// Privileged mode (host Docker access for development)
+	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+}
+
+// DiskUsageMetric represents disk usage for a single mount point
+type DiskUsageMetric struct {
+	MountPoint  string  `json:"mount_point"`
+	TotalBytes  uint64  `json:"total_bytes"`
+	UsedBytes   uint64  `json:"used_bytes"`
+	AvailBytes  uint64  `json:"avail_bytes"`
+	UsedPercent float64 `json:"used_percent"`
+	AlertLevel  string  `json:"alert_level"` // "ok", "warning", "critical"
+}
+
+// ContainerDiskUsage represents disk usage for a single container
+type ContainerDiskUsage struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	SizeBytes     uint64 `json:"size_bytes"`
+	RwSizeBytes   uint64 `json:"rw_size_bytes"` // Writable layer size
+}
+
+// DiskUsageHistory stores historical disk usage for trend analysis and alerting
+type DiskUsageHistory struct {
+	ID         string    `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	SandboxID  string    `json:"sandbox_id" gorm:"type:varchar(255);index"`
+	MountPoint string    `json:"mount_point" gorm:"type:varchar(255)"`
+	TotalBytes uint64    `json:"total_bytes"`
+	UsedBytes  uint64    `json:"used_bytes"`
+	AvailBytes uint64    `json:"avail_bytes"`
+	AlertLevel string    `json:"alert_level" gorm:"type:varchar(20)"`
+	Recorded   time.Time `json:"recorded" gorm:"autoCreateTime;index"`
+}
+
+// TableName returns the table name for GORM
+func (DiskUsageHistory) TableName() string {
+	return "disk_usage_history"
+}
+

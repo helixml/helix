@@ -17,8 +17,8 @@ gstreamer-allocators = "0.23"
 pipewire = "0.8"
 libspa = "0.8"
 
-# Reuse CUDA/EGL allocator from gst-wayland-display (battle-tested)
-waylanddisplaycore = { git = "https://github.com/games-on-whales/gst-wayland-display", package = "wayland-display-core", features = ["cuda"] }
+# Reuse CUDA/EGL allocator (vendored from games-on-whales/gst-wayland-display)
+waylanddisplaycore = { path = "../wayland-display-core", package = "wayland-display-core", features = ["cuda"] }
 
 # smithay for Dmabuf type - MUST match waylanddisplaycore's version exactly
 smithay = { git = "https://github.com/games-on-whales/smithay", rev = "a166cf4c94b5aedc332a65aa1dd753e8148829c3", default-features = false, features = ["backend_drm", "backend_egl"] }

@@ -1,18 +1,9 @@
 # ====================================================================
-# Helix Sandbox - Unified Container
-# Architecture: Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
-# Based on: ~/pm/wolf/docker/wolf.Dockerfile (uses GOW base-app + cont-init.d)
+# Helix Sandbox - Container Host
+# Architecture: Docker-in-Docker + Hydra (multi-container isolation)
+# Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
+# Init system based on GOW (games-on-whales) cont-init.d pattern
 # ====================================================================
-
-# Use same base as Wolf (GOW gstreamer base-app with init system)
-ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
-
-# CACHE FIX: These ARGs are passed by build-sandbox script with current image IDs
-# When wolf:helix-fixed or moonlight-web is rebuilt, the image ID changes,
-# causing these ARG values to change, which busts the BuildKit cache for
-# the FROM stages that reference those images.
-ARG WOLF_IMAGE_ID
-ARG MOONLIGHT_IMAGE_ID
 
 # ====================================================================
 # Stage 1: Build Go binaries (revdial-client, hydra, sandbox-heartbeat)
@@ -36,88 +27,63 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
 
-# Alias for backward compatibility
-FROM go-builder AS revdial-builder
+# ====================================================================
+# Stage 2: Final sandbox image (based on GOW base pattern)
+# ====================================================================
+FROM ubuntu:25.04 AS sandbox
+
+# Configure default user and set env (from GOW base)
+ENV \
+    PUID=0 \
+    PGID=0 \
+    UMASK=000 \
+    UNAME="root" \
+    HOME="/root" \
+    TZ="Europe/London" \
+    DEBIAN_FRONTEND=noninteractive \
+    NEEDRESTART_SUSPEND=1
+
+ARG TARGETARCH TARGETVARIANT
 
 # ====================================================================
-# Stage 2: Build Moonlight Web
+# Install base packages (from GOW base)
 # ====================================================================
-FROM rust:latest AS moonlight-web-builder
+ARG GOSU_VERSION=1.14
 
-# Use release mode for production (or debug for faster builds)
-ARG BUILD_MODE=release
+RUN <<_INSTALL_BASE_PACKAGES
+set -e
+echo "**** Update apt database ****"
+apt-get update
 
-# Install Rust nightly (required by moonlight-web-stream)
-RUN rustup default nightly
+echo "**** Install certificates ****"
+apt-get install -y --reinstall --no-install-recommends \
+    ca-certificates
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    procps \
+echo "**** Install base packages ****"
+apt-get install -y --no-install-recommends \
+    fuse \
+    libnss3 \
+    wget \
     curl \
-    cmake \
-    libssl-dev \
-    pkg-config \
-    clang \
-    libclang-dev \
-    nodejs \
-    npm \
-    && rm -rf /var/lib/apt/lists/*
+    jq
 
-# Use system OpenSSL (prevents slow perl-based OpenSSL compilation)
-ENV OPENSSL_NO_VENDOR=1
-ENV OPENSSL_DIR=/usr
-ENV OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-ENV OPENSSL_INCLUDE_DIR=/usr/include
+echo "**** Install gosu ****"
+TARGETARCH=${TARGETARCH:-amd64}
+wget --progress=dot:giga \
+    -O /usr/bin/gosu \
+    "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${TARGETARCH}${TARGETVARIANT}"
+chmod +x /usr/bin/gosu
 
-WORKDIR /build
+echo "**** Verify gosu works ****"
+gosu nobody true && echo "Working!"
 
-# NOTE: In production, copy Moonlight Web source here
-# For now, we'll copy from upstream image in final stage
-# COPY moonlight-web-stream/ .
-# RUN --mount=type=cache,target=/usr/local/cargo/registry \
-#     --mount=type=cache,target=/build/target \
-#     cargo build --release && \
-#     cp /build/target/release/web-server /tmp/web-server && \
-#     cp /build/target/release/streamer /tmp/streamer
+echo "**** Section cleanup ****"
+rm -rf /var/lib/apt/lists/*
+_INSTALL_BASE_PACKAGES
 
 # ====================================================================
-# Stage 3: Get Wolf binary (use local image)
+# Install debug tools
 # ====================================================================
-FROM wolf:helix-fixed AS wolf-upstream
-# Using local Wolf image built from ~/pm/wolf
-
-# ====================================================================
-# Stage 4: Get Moonlight Web binaries (use local image)
-# ====================================================================
-FROM helix-moonlight-web:helix-fixed AS moonlight-web-upstream
-# Using local Moonlight Web image
-
-# ====================================================================
-# Stage 5: Final unified sandbox image
-# ====================================================================
-FROM $BASE_IMAGE AS sandbox
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# ====================================================================
-# Install all runtime dependencies (Wolf + Moonlight Web + Docker)
-# ====================================================================
-
-# Wolf runtime dependencies (from wolf.Dockerfile lines 99-110)
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    libicu76 \
-    libevdev2 \
-    libudev1 \
-    libcurl4 \
-    libdrm2 \
-    libpci3 \
-    libunwind8 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Debug tools for deadlock investigation (from wolf.Dockerfile lines 113-122)
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     gdb \
@@ -129,38 +95,26 @@ RUN apt-get update -y && \
     binutils \
     && rm -rf /var/lib/apt/lists/*
 
-# ROCm SMI for AMD GPU monitoring (used by Wolf's GPU stats endpoint)
-# Install from ROCm 7.1 repo to match host driver version
-# - rocm-smi: CLI tool for GPU monitoring (provides /opt/rocm/bin/rocm-smi)
-# - amd-smi: Modern AMD SMI CLI (alternative to rocm-smi)
+# ====================================================================
+# Install ROCm SMI for AMD GPU monitoring (optional)
+# ====================================================================
+# Note: ROCm may not be available for all Ubuntu versions. This is optional
+# and the build will continue even if ROCm installation fails.
 RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    wget gnupg \
-    && mkdir -p /etc/apt/keyrings \
-    && wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 noble main" > /etc/apt/sources.list.d/rocm.list \
-    && apt-get update -y \
-    && apt-get install -y --no-install-recommends rocm-smi amd-smi \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /opt/rocm/bin/rocm-smi /usr/local/bin/rocm-smi \
-    && ln -sf /opt/rocm/bin/amd-smi /usr/local/bin/amd-smi 2>/dev/null || true
+    apt-get install -y --no-install-recommends wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    (wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor > /etc/apt/keyrings/rocm.gpg || true) && \
+    UBUNTU_CODENAME=$(lsb_release -cs) && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.1 ${UBUNTU_CODENAME} main" > /etc/apt/sources.list.d/rocm.list && \
+    (apt-get update -y && apt-get install -y --no-install-recommends rocm-smi amd-smi 2>/dev/null && \
+     ln -sf /opt/rocm/bin/rocm-smi /usr/local/bin/rocm-smi && \
+     ln -sf /opt/rocm/bin/amd-smi /usr/local/bin/amd-smi 2>/dev/null || \
+     echo "ROCm not available for ${UBUNTU_CODENAME}, skipping AMD GPU monitoring") && \
+    rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/rocm.list 2>/dev/null || true
 
-# gst-plugin-wayland runtime dependencies (from wolf.Dockerfile lines 147-151)
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    libwayland-server0 libinput10 libxkbcommon0 libgbm1 \
-    libglvnd0 libgl1 libglx0 libegl1 libgles2 xwayland hwdata \
-    && rm -rf /var/lib/apt/lists/*
-
-# PipeWire runtime dependencies for gst-pipewire-zerocopy
-# Used for GNOME 49+ ScreenCast capture
-# Install full pipewire package to get client.conf (required for PipeWire context creation)
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    pipewire \
-    && rm -rf /var/lib/apt/lists/*
-
-# Docker + NVIDIA Container Toolkit (from wolf.Dockerfile lines 154-182)
+# ====================================================================
+# Install Docker + NVIDIA Container Toolkit
+# ====================================================================
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -181,7 +135,7 @@ RUN apt-get update -y && \
     iptables \
     && rm -rf /var/lib/apt/lists/*
 
-# NVIDIA Container Toolkit (from wolf.Dockerfile lines 174-182)
+# NVIDIA Container Toolkit
 RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
     && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
@@ -197,179 +151,87 @@ RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearm
 # This maximizes cache hits - changes to scripts/binaries below won't
 # invalidate these large layers, making pushes much faster
 # ====================================================================
-# IMPORTANT: Each desktop in its own COPY = separate Docker layer
-# This enables parallel push/pull of large tarballs (~3GB each)
 RUN mkdir -p /opt/images
 COPY sandbox-images/helix-sway.tar sandbox-images/helix-sway.version /opt/images/
 COPY sandbox-images/helix-ubuntu.tar sandbox-images/helix-ubuntu.version /opt/images/
 
 # ====================================================================
-# Copy Wolf binaries and setup
+# Copy GOW-style overlay (init system)
 # ====================================================================
+COPY sandbox/overlay/ /
 
-WORKDIR /wolf
-ENV WOLF_CFG_FOLDER=/etc/wolf/cfg
-
-# Copy Wolf binaries from upstream (or from wolf-builder if building from source)
-COPY --from=wolf-upstream /wolf/wolf /wolf/wolf
-COPY --from=wolf-upstream /wolf/fake-udev /wolf/fake-udev
-
-# Copy Wolf's GStreamer plugins (custom compositor)
-ENV GST_PLUGIN_PATH=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
-COPY --from=wolf-upstream $GST_PLUGIN_PATH /usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
-COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib/
-
-# Copy Wolf's init scripts and config template
-# Note: /etc/wolf/cfg is created for prod (in dev it's bind-mounted from ./wolf)
-# Config template is from helix (single source of truth), not wolf-upstream
-RUN mkdir -p /opt/wolf-defaults /etc/wolf/cfg
-COPY wolf/config.toml.template /opt/wolf-defaults/config.toml.template
-COPY --from=wolf-upstream /opt/wolf-defaults/pulse-lowmem.conf /opt/wolf-defaults/pulse-lowmem.conf
-COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
-RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
-
-# Start dockerd script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
-COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
-RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh
+# Make scripts executable
+RUN chmod +x /entrypoint.sh \
+    && chmod +x /opt/gow/ensure-groups \
+    && chmod +x /opt/gow/bash-lib/utils.sh \
+    && chmod +x /etc/cont-init.d/*.sh
 
 # ====================================================================
-# Copy Moonlight Web binaries and setup
+# Copy Go binaries
 # ====================================================================
-
-WORKDIR /opt/moonlight-web
-
-# Copy Moonlight Web binaries from upstream
-COPY --from=moonlight-web-upstream /app/web-server /opt/moonlight-web/moonlight-web
-COPY --from=moonlight-web-upstream /app/streamer /opt/moonlight-web/streamer
-COPY --from=moonlight-web-upstream /app/dist /opt/moonlight-web/dist
-COPY --from=moonlight-web-upstream /app/static /opt/moonlight-web/static
-
-# Copy Moonlight Web templates (init script is inline below)
-RUN mkdir -p /opt/moonlight-web/templates /opt/moonlight-web/server
-COPY --from=moonlight-web-upstream /app/templates/ /opt/moonlight-web/templates/
-
-# Create symlinks for Moonlight Web init script compatibility
-# The upstream init script expects binaries in /app/, but we have them in /opt/moonlight-web/
-RUN mkdir -p /app && \
-    ln -s /opt/moonlight-web/moonlight-web /app/web-server && \
-    ln -s /opt/moonlight-web/streamer /app/streamer && \
-    ln -s /opt/moonlight-web/dist /app/dist && \
-    ln -s /opt/moonlight-web/static /app/static && \
-    ln -s /opt/moonlight-web/templates /app/templates && \
-    ln -s /opt/moonlight-web/server /app/server
-
-# ====================================================================
-# Copy revdial-client and hydra binaries
-# ====================================================================
-
 COPY --from=go-builder /revdial-client /usr/local/bin/revdial-client
 COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
 RUN chmod +x /usr/local/bin/revdial-client /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
 
 # ====================================================================
-# Create cont-init.d scripts for Moonlight Web and RevDial
-# (Following Wolf's pattern: /etc/cont-init.d/*.sh runs before main process)
+# Copy Helix sandbox init scripts (run after GOW base scripts)
 # ====================================================================
 
-# 06: Initialize Moonlight Web config (startup moved to startup-app.sh to run AFTER Wolf)
-COPY sandbox/06-init-moonlight-config.sh /etc/cont-init.d/06-init-moonlight-config.sh
-RUN chmod +x /etc/cont-init.d/06-init-moonlight-config.sh
+# Start dockerd script
+COPY sandbox/04-start-dockerd.sh /etc/cont-init.d/40-start-dockerd.sh
+RUN chmod +x /etc/cont-init.d/40-start-dockerd.sh
 
-# 06b: Auto-pair Moonlight Web with Wolf (runs AFTER both are started)
-COPY sandbox/auto-pair.sh /opt/moonlight-web/auto-pair.sh
-RUN chmod +x /opt/moonlight-web/auto-pair.sh
+# Start RevDial client (optional, only if HELIX_API_URL is set)
+COPY sandbox/07-start-revdial-clients.sh /etc/cont-init.d/50-start-revdial-clients.sh
+RUN chmod +x /etc/cont-init.d/50-start-revdial-clients.sh
 
-# 07: Start Wolf RevDial client (optional, only if HELIX_API_URL is set)
-# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-COPY sandbox/07-start-revdial-clients.sh /etc/cont-init.d/07-start-revdial-clients.sh
-RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
+# Start sandbox heartbeat daemon
+COPY sandbox/08-start-wolf-heartbeat.sh /etc/cont-init.d/55-start-sandbox-heartbeat.sh
+RUN chmod +x /etc/cont-init.d/55-start-sandbox-heartbeat.sh
 
-# 08: Start Wolf instance heartbeat daemon (Go binary with disk space monitoring)
-# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-COPY sandbox/08-start-wolf-heartbeat.sh /etc/cont-init.d/08-start-wolf-heartbeat.sh
-RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
+# Setup telemetry firewall for nested agent containers
+COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/60-setup-telemetry-firewall.sh
+RUN chmod +x /etc/cont-init.d/60-setup-telemetry-firewall.sh
 
-# 09: Setup telemetry firewall for nested agent containers
-# Fixed: Create /wolf/sway-config directory before writing update script
-COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-telemetry-firewall.sh
-RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
-
-# 10: Start Hydra multi-Docker isolation daemon (optional, only if HYDRA_ENABLED is set)
-# NOTE: This script is SOURCED by entrypoint.sh, so use "return" not "exit"!
-COPY sandbox/10-start-hydra.sh /etc/cont-init.d/10-start-hydra.sh
-RUN chmod +x /etc/cont-init.d/10-start-hydra.sh
+# Start Hydra multi-Docker isolation daemon
+COPY sandbox/10-start-hydra.sh /etc/cont-init.d/70-start-hydra.sh
+RUN chmod +x /etc/cont-init.d/70-start-hydra.sh
 
 # ====================================================================
-# Main startup script (starts Wolf in foreground)
-# (Replaces /opt/gow/startup-app.sh - Wolf is the main process)
+# Main startup script
 # ====================================================================
-
 COPY sandbox/startup-app.sh /opt/gow/startup-app.sh
 RUN chmod +x /opt/gow/startup-app.sh
 
 # ====================================================================
-# Wolf environment variables (from wolf.Dockerfile lines 207-225)
+# Environment variables
 # ====================================================================
 
-ENV GST_GL_API=gles2 \
-    GST_GL_PLATFORM=egl \
-    GST_GL_WINDOW=surfaceless \
-    WOLF_USE_ZERO_COPY=TRUE \
-    WOLF_LOG_LEVEL=INFO \
-    WOLF_CFG_FILE=$WOLF_CFG_FOLDER/config.toml \
-    WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem \
-    WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem \
-    WOLF_PULSE_IMAGE=ghcr.io/games-on-whales/pulseaudio:master \
-    WOLF_RENDER_NODE=/dev/dri/renderD128 \
-    # WOLF_STOP_CONTAINER_ON_EXIT is set dynamically in startup-app.sh based on HELIX_KEEP_DEAD_CONTAINERS
-    WOLF_DOCKER_SOCKET=/var/run/docker.sock \
-    RUST_BACKTRACE=full \
-    RUST_LOG=WARN \
-    HOST_APPS_STATE_FOLDER=/etc/wolf \
-    GST_DEBUG=2 \
-    PUID=0 \
-    PGID=0 \
-    UNAME="root"
-
-# Helix sandbox environment variables
 ENV HELIX_API_URL="" \
-    WOLF_INSTANCE_ID="" \
+    SANDBOX_INSTANCE_ID="" \
     RUNNER_TOKEN="" \
     GPU_TYPE="nvidia" \
     MAX_SANDBOXES="10" \
     HELIX_DEV_MODE="false" \
     ZED_IMAGE="helix-sway:latest" \
-    TURN_PUBLIC_IP="" \
-    TURN_PASSWORD="" \
-    HELIX_HOSTNAME="" \
-    MOONLIGHT_CREDENTIALS="helix" \
     HYDRA_ENABLED="true" \
     HYDRA_PRIVILEGED_MODE_ENABLED="false" \
     HELIX_KEEP_DEAD_CONTAINERS="false"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
-VOLUME /run/user/wolf/
-ENV XDG_RUNTIME_DIR=/run/user/wolf
-
-# ====================================================================
-# Expose ports (Wolf + Moonlight Web)
-# ====================================================================
-
-# Moonlight protocol (Wolf)
-EXPOSE 47984/tcp 47989/tcp 48010/tcp 47415/udp 47999/udp 48100/udp 48200/udp
-# Moonlight Web UI + WebRTC
-EXPOSE 8080/tcp 40000-40100/udp
+VOLUME /run/user/sandbox/
+ENV XDG_RUNTIME_DIR=/run/user/sandbox
 
 # ====================================================================
 # Labels
 # ====================================================================
 
 LABEL org.opencontainers.image.source="https://github.com/helixml/helix"
-LABEL org.opencontainers.image.description="Helix Sandbox: Wolf + Moonlight Web + RevDial + DinD"
+LABEL org.opencontainers.image.description="Helix Sandbox: Docker-in-Docker container host for desktop agents"
 
 # ====================================================================
-# Entrypoint (from GOW base-app, runs cont-init.d scripts then startup-app.sh)
+# Entrypoint (GOW-style, runs cont-init.d scripts then startup-app.sh)
 # ====================================================================
 
 ENTRYPOINT ["/entrypoint.sh"]

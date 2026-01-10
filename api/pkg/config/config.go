@@ -556,7 +556,7 @@ type TURN struct {
 }
 
 type ExternalAgents struct {
-	// MaxConcurrentLobbies is the maximum number of Wolf lobbies that can be created concurrently.
-	// Each lobby uses GPU resources (VRAM for video encoding).
-	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent Wolf lobbies (GPU streaming sessions)."`
+	// MaxConcurrentSessions is the maximum number of desktop sessions that can be created concurrently.
+	// Each session uses GPU resources (VRAM for video encoding).
+	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent desktop sessions (GPU streaming sessions)."`
 }

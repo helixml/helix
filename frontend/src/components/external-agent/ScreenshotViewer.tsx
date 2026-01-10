@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Typography, Alert, IconButton, Button, Paper, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { Refresh, OpenInNew, Fullscreen, FullscreenExit, Videocam, CameraAlt } from '@mui/icons-material';
-import MoonlightStreamViewer from './MoonlightStreamViewer';
+import DesktopStreamViewer from './DesktopStreamViewer';
 
 interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
-  wolfLobbyId?: string; // For Moonlight streaming mode
+  sandboxId?: string; // For Moonlight streaming mode
   onError?: (error: string) => void;
   width?: number;
   height?: number;
@@ -21,7 +21,7 @@ interface ScreenshotViewerProps {
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   sessionId,
   isRunner = false,
-  wolfLobbyId,
+  sandboxId,
   onError,
   width = 3840,
   height = 2160,
@@ -202,7 +202,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   }, []);
 
   // If in streaming mode, render MoonlightWebPlayer instead
-  if (streamingMode === 'stream' && enableStreaming && wolfLobbyId) {
+  if (streamingMode === 'stream' && enableStreaming && sandboxId) {
     return (
       <Box
         ref={containerRef}
@@ -216,7 +216,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           flexDirection: 'column',
         }}
       >
-        {/* Mode Toggle - high z-index to stay above MoonlightStreamViewer's connection overlay */}
+        {/* Mode Toggle - high z-index to stay above DesktopStreamViewer's connection overlay */}
         <Box
           sx={{
             position: 'absolute',
@@ -245,9 +245,9 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           </ToggleButtonGroup>
         </Box>
 
-        <MoonlightStreamViewer
+        <DesktopStreamViewer
           sessionId={sessionId}
-          wolfLobbyId={wolfLobbyId}
+          sandboxId={sandboxId}
           onError={onError}
           width={width}
           height={height}

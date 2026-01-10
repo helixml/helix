@@ -320,7 +320,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 	log.Info().
 		Str("spec_task_id", specTaskID).
 		Str("external_agent_id", externalAgent.ID).
-		Str("wolf_app_id", externalAgent.WolfAppID).
+		Str("container_app_id", externalAgent.ContainerAppID).
 		Msg("Manually stopping SpecTask external agent")
 
 	// Stop Wolf app
@@ -402,7 +402,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
 			Message:         "External agent is already running",
 			ExternalAgentID: externalAgent.ID,
-			WolfAppID:       externalAgent.WolfAppID,
+			ContainerAppID:       externalAgent.ContainerAppID,
 			WorkspaceDir:    externalAgent.WorkspaceDir,
 		})
 		return
@@ -497,7 +497,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	}
 
 	// Resurrect agent with SAME workspace
-	agentReq := &types.ZedAgent{
+	agentReq := &types.DesktopAgent{
 		SessionID:           externalAgent.ID,
 		HelixSessionID:      task.PlanningSessionID, // CRITICAL: Use planning session for settings-sync-daemon to fetch correct CodeAgentConfig
 		UserID:              task.CreatedBy,
@@ -530,7 +530,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	}
 
 	// Update external agent status
-	externalAgent.WolfAppID = agentResp.WolfAppID
+	externalAgent.ContainerAppID = agentResp.ContainerAppID
 	externalAgent.Status = "running"
 	externalAgent.LastActivity = time.Now()
 	err = apiServer.Store.UpdateSpecTaskExternalAgent(req.Context(), externalAgent)
@@ -544,7 +544,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		SpecTaskID:      task.ID,
 		LastInteraction: time.Now(),
 		AgentType:       "spectask",
-		WolfAppID:       externalAgent.WolfAppID,
+		ContainerAppID:       externalAgent.ContainerAppID,
 		WorkspaceDir:    externalAgent.WorkspaceDir,
 		UserID:          task.CreatedBy,
 	})
@@ -565,7 +565,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
 		Message:         "External agent started successfully",
 		ExternalAgentID: externalAgent.ID,
-		WolfAppID:       agentResp.WolfAppID,
+		ContainerAppID:       agentResp.ContainerAppID,
 		WorkspaceDir:    externalAgent.WorkspaceDir,
 		ScreenshotURL:   agentResp.ScreenshotURL,
 		StreamURL:       agentResp.StreamURL,
@@ -634,7 +634,7 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 		Exists:          true,
 		ExternalAgentID: externalAgent.ID,
 		Status:          externalAgent.Status,
-		WolfAppID:       externalAgent.WolfAppID,
+		ContainerAppID:       externalAgent.ContainerAppID,
 		WorkspaceDir:    externalAgent.WorkspaceDir,
 		HelixSessionIDs: externalAgent.HelixSessionIDs,
 		ZedThreadIDs:    externalAgent.ZedThreadIDs,
@@ -653,7 +653,7 @@ type SpecTaskExternalAgentStatusResponse struct {
 	Exists           bool     `json:"exists"`
 	ExternalAgentID  string   `json:"external_agent_id,omitempty"`
 	Status           string   `json:"status,omitempty"`
-	WolfAppID        string   `json:"wolf_app_id,omitempty"`
+	ContainerAppID        string   `json:"container_app_id,omitempty"`
 	WorkspaceDir     string   `json:"workspace_dir,omitempty"`
 	HelixSessionIDs  []string `json:"helix_session_ids,omitempty"`
 	SessionCount     int      `json:"session_count,omitempty"`

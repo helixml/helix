@@ -80,7 +80,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Use SANDBOX_API_URL for sandbox containers
 	// This is the URL that Zed inside the sandbox uses to call the Helix API
 	// If not explicitly set, use the external-facing URL (SERVER_URL) so that
-	// remote Wolf sandboxes can reach the API. Only use http://api:8080 in
+	// remote sandboxes can reach the API. Only use http://api:8080 in
 	// development where sandboxes run in the same Docker network.
 	sandboxAPIURL := apiServer.Cfg.WebServer.SandboxAPIURL
 	if sandboxAPIURL == "" {

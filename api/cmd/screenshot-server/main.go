@@ -17,26 +17,15 @@ func main() {
 		Level: slog.LevelDebug,
 	}))
 
-	// Detect Wolf-free mode (Hydra executor with direct WebSocket streaming)
-	// WOLF_VIDEO_SOURCE_MODE=pipewire signals we're using PipeWire capture without Wolf
-	// WOLF_FREE_MODE=true explicitly enables Wolf-free mode
-	wolfFreeMode := os.Getenv("WOLF_FREE_MODE") == "true" ||
-		(os.Getenv("WOLF_VIDEO_SOURCE_MODE") == "pipewire" && os.Getenv("WOLF_SOCKET_PATH") == "")
-
 	cfg := desktop.Config{
-		HTTPPort:       os.Getenv("SCREENSHOT_PORT"),
-		WolfSocketPath: os.Getenv("WOLF_SOCKET_PATH"),
-		XDGRuntimeDir:  os.Getenv("XDG_RUNTIME_DIR"),
-		SessionID:      os.Getenv("HELIX_SESSION_ID"),
-		WolfFreeMode:   wolfFreeMode,
+		HTTPPort:      os.Getenv("SCREENSHOT_PORT"),
+		XDGRuntimeDir: os.Getenv("XDG_RUNTIME_DIR"),
+		SessionID:     os.Getenv("HELIX_SESSION_ID"),
 	}
 
 	// Apply defaults
 	if cfg.HTTPPort == "" {
 		cfg.HTTPPort = "9876"
-	}
-	if cfg.WolfSocketPath == "" {
-		cfg.WolfSocketPath = "/var/run/wolf/lobby.sock"
 	}
 	if cfg.XDGRuntimeDir == "" {
 		cfg.XDGRuntimeDir = "/tmp/sockets"

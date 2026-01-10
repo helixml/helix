@@ -44,7 +44,7 @@ var wsUpgrader = websocket.Upgrader{
 }
 
 // handleWSInput handles the direct WebSocket input connection.
-// This bypasses Moonlight/Wolf for input, going directly from browser to GNOME D-Bus.
+// This sends input directly from browser to GNOME D-Bus.
 func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -102,7 +102,6 @@ func (s *Server) handleWSInput(w http.ResponseWriter, r *http.Request) {
 // handleWSKeyboard handles keyboard input messages.
 // Format: [subType:1][isDown:1][modifiers:1][keycode:2 BE]
 // The keycode is a Linux evdev keycode sent directly by the frontend.
-// This eliminates the VK→evdev conversion that was previously needed for Moonlight compatibility.
 func (s *Server) handleWSKeyboard(data []byte) {
 	if len(data) < 5 {
 		return
@@ -185,8 +184,8 @@ func (s *Server) handleWSMouseButton(data []byte) {
 
 // handleMouseButtonClick handles a mouse button press/release
 func (s *Server) handleMouseButtonClick(button int, isDown bool) {
-	// Convert Moonlight button codes to evdev button codes
-	// Moonlight: 1=left, 2=middle, 3=right
+	// Convert button codes to evdev button codes
+	// Input: 1=left, 2=middle, 3=right
 	// Evdev: 272=BTN_LEFT, 273=BTN_RIGHT, 274=BTN_MIDDLE
 	var evdevButton int32
 	switch button {

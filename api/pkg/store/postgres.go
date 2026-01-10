@@ -168,7 +168,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Memory{},
 		&types.QuestionSet{},
 		&types.QuestionSetExecution{},
-		&types.WolfInstance{},
+		&types.SandboxInstance{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
 		&types.PromptHistoryEntry{},

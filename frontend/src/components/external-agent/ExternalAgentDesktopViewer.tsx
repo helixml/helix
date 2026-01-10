@@ -4,7 +4,7 @@ import PlayArrow from '@mui/icons-material/PlayArrow';
 import ChatIcon from '@mui/icons-material/Chat';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-import MoonlightStreamViewer from './MoonlightStreamViewer';
+import DesktopStreamViewer from './DesktopStreamViewer';
 import ScreenshotViewer from './ScreenshotViewer';
 import SandboxDropZone from './SandboxDropZone';
 import EmbeddedSessionView from '../session/EmbeddedSessionView';
@@ -15,22 +15,23 @@ import { useStreaming } from '../../contexts/streaming';
 import { SESSION_TYPE_TEXT } from '../../types';
 import { Api } from '../../api/api';
 
-// Hook to track Wolf app state for external agent sessions
-const useWolfAppState = (sessionId: string) => {
+// Hook to track sandbox container state for external agent sessions
+const useSandboxState = (sessionId: string) => {
   const api = useApi();
-  const [wolfState, setWolfState] = React.useState<string>('loading');
+  const [sandboxState, setSandboxState] = React.useState<string>('loading');
 
   React.useEffect(() => {
     const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
+        // TODO: Replace with sandbox-specific state API when Wolf is removed
         const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
         if (response.data) {
           const newState = response.data.state || 'absent';
-          setWolfState(newState);
+          setSandboxState(newState);
         }
       } catch (err) {
-        console.error('Failed to fetch Wolf state:', err);
+        console.error('Failed to fetch sandbox state:', err);
       }
     };
 
@@ -40,20 +41,20 @@ const useWolfAppState = (sessionId: string) => {
     return () => {
       clearInterval(interval);
     };
-  }, [sessionId]); // Removed 'api' - getApiClient() is stable
+  }, [sessionId]);
 
-  // Backend now returns 'starting' state for recently-created lobbies
-  const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isStarting = wolfState === 'starting';
+  // Backend now returns 'starting' state for recently-created containers
+  const isRunning = sandboxState === 'running' || sandboxState === 'resumable';
+  const isStarting = sandboxState === 'starting';
   // Show "paused" only if container was previously running but is now absent
-  const isPaused = wolfState === 'absent';
+  const isPaused = sandboxState === 'absent';
 
-  return { wolfState, isRunning, isPaused, isStarting };
+  return { sandboxState, isRunning, isPaused, isStarting };
 };
 
 interface ExternalAgentDesktopViewerProps {
   sessionId: string;
-  wolfLobbyId?: string;
+  sandboxId?: string;
   height?: number; // Optional - required for screenshot mode, ignored for stream mode (uses flex)
   mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
   onClientIdCalculated?: (clientId: string) => void;
@@ -71,7 +72,7 @@ interface ExternalAgentDesktopViewerProps {
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   sessionId,
-  wolfLobbyId,
+  sandboxId,
   height,
   mode = 'stream', // Default to stream for floating window
   onClientIdCalculated,
@@ -87,7 +88,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const api = useApi();
   const snackbar = useSnackbar();
   const streaming = useStreaming();
-  const { isRunning, isPaused, isStarting } = useWolfAppState(sessionId);
+  const { isRunning, isPaused, isStarting } = useSandboxState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
@@ -410,7 +411,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     );
   }
 
-  // Once running (or has ever been running) - ALWAYS keep MoonlightStreamViewer mounted
+  // Once running (or has ever been running) - ALWAYS keep DesktopStreamViewer mounted
   // Show overlays for state changes instead of unmounting (prevents fullscreen exit)
   const showReconnectingOverlay = !isRunning && hasEverBeenRunning;
 
@@ -425,9 +426,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
           overflow: 'hidden',
           position: 'relative',
         }}>
-          <MoonlightStreamViewer
+          <DesktopStreamViewer
             sessionId={sessionId}
-            wolfLobbyId={wolfLobbyId}
+            sandboxId={sandboxId}
             width={displayWidth}
             height={displayHeight}
             fps={displayFps}
@@ -435,8 +436,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
               console.error('Stream viewer error:', error);
             }}
             onClientIdCalculated={onClientIdCalculated}
-            // Suppress MoonlightStreamViewer's overlay when we're showing our own reconnecting overlay
-            // This prevents double spinners when Wolf container state changes
+            // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
+            // This prevents double spinners when container state changes
             suppressOverlay={showReconnectingOverlay}
           />
 

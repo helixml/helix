@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// InputEvent represents an input event from Wolf.
+// InputEvent represents an input event from the streaming frontend.
 type InputEvent struct {
 	Type    string  `json:"type"`
 	X       float64 `json:"x,omitempty"`
@@ -40,7 +40,7 @@ func (s *Server) createInputSocket() error {
 		return err
 	}
 
-	// Make socket world-accessible for Wolf
+	// Make socket world-accessible
 	if err := os.Chmod(s.inputSocketPath, 0777); err != nil {
 		s.logger.Warn("failed to chmod socket", "err", err)
 	}
@@ -84,7 +84,7 @@ func (s *Server) runInputBridge(ctx context.Context) {
 // handleInputClient handles a single input client connection.
 func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	s.logger.Info("input client connected from Wolf socket")
+	s.logger.Info("input client connected")
 
 	reader := bufio.NewReader(conn)
 
@@ -125,7 +125,7 @@ func (s *Server) handleInputClient(ctx context.Context, conn net.Conn) {
 
 		eventCount++
 		if eventCount <= 5 || eventCount%100 == 0 {
-			s.logger.Info("received input event from Wolf", "type", event.Type, "count", eventCount)
+			s.logger.Info("received input event", "type", event.Type, "count", eventCount)
 		}
 
 		s.injectInput(&event)

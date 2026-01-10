@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,7 +28,7 @@ const (
 // Server is the Hydra HTTP server
 type Server struct {
 	manager             *Manager
-	devContainerManager *DevContainerManager // Dev container management (Wolf replacement)
+	devContainerManager *DevContainerManager // Dev container management (desktop container lifecycle)
 	socketPath          string
 	listener            net.Listener
 	server              *http.Server
@@ -66,7 +68,7 @@ func NewServer(manager *Manager, socketPath string) *Server {
 	dnsServer := NewDNSServer(manager, upstreamDNS)
 	manager.SetDNSServer(dnsServer)
 
-	// Create dev container manager for Wolf replacement functionality
+	// Create dev container manager for desktop container lifecycle functionality
 	devContainerManager := NewDevContainerManager(manager)
 
 	return &Server{
@@ -193,11 +195,14 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Bridge desktop container to Hydra network (for desktop-to-dev-container communication)
 	api.HandleFunc("/bridge-desktop", s.handleBridgeDesktop).Methods("POST")
 
-	// Dev container management (Wolf replacement - container lifecycle)
+	// Dev container management (desktop container lifecycle - container lifecycle)
 	api.HandleFunc("/dev-containers", s.handleCreateDevContainer).Methods("POST")
 	api.HandleFunc("/dev-containers", s.handleListDevContainers).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleGetDevContainer).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
+
+	// System stats (GPU info, active sessions)
+	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 }
 
 // handleHealth returns server health status
@@ -379,7 +384,7 @@ func (s *Server) handlePrivilegedModeStatus(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleBridgeDesktop bridges a desktop container (on Wolf's dockerd) to a Hydra network
+// handleBridgeDesktop bridges a desktop container (on sandbox dockerd) to a Hydra network
 // This enables the desktop to access dev containers started via docker compose
 func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 	var req BridgeDesktopRequest
@@ -415,7 +420,7 @@ func (s *Server) handleBridgeDesktop(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleCreateDevContainer creates a new dev container (Wolf replacement)
+// handleCreateDevContainer creates a new dev container (desktop container lifecycle)
 func (s *Server) handleCreateDevContainer(w http.ResponseWriter, r *http.Request) {
 	var req CreateDevContainerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -500,6 +505,153 @@ func (s *Server) handleDeleteDevContainer(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleSystemStats returns GPU stats and session counts
+func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
+	gpus := getGPUInfo()
+	containers := s.devContainerManager.ListDevContainers()
+
+	resp := &SystemStatsResponse{
+		GPUs:             gpus,
+		ActiveContainers: len(containers.Containers),
+		ActiveSessions:   len(containers.Containers),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// getGPUInfo detects and queries GPU information
+func getGPUInfo() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Try NVIDIA first (nvidia-smi)
+	gpus = append(gpus, getNvidiaGPUs()...)
+
+	// Try AMD (rocm-smi) if no NVIDIA GPUs found
+	if len(gpus) == 0 {
+		gpus = append(gpus, getAMDGPUs()...)
+	}
+
+	return gpus
+}
+
+// getNvidiaGPUs queries NVIDIA GPUs using nvidia-smi
+func getNvidiaGPUs() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Check if nvidia-smi exists
+	if _, err := os.Stat("/usr/bin/nvidia-smi"); err != nil {
+		return gpus
+	}
+
+	// Query GPU info in CSV format
+	// nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits
+	cmd := fmt.Sprintf("nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null")
+
+	// Execute via /bin/sh
+	out, err := execCommand("sh", "-c", cmd)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to query NVIDIA GPUs")
+		return gpus
+	}
+
+	// Parse output (one line per GPU)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, ", ")
+		if len(fields) < 7 {
+			continue
+		}
+
+		var index, memTotal, memUsed, memFree, util, temp int64
+		fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
+		fmt.Sscanf(strings.TrimSpace(fields[2]), "%d", &memTotal)
+		fmt.Sscanf(strings.TrimSpace(fields[3]), "%d", &memUsed)
+		fmt.Sscanf(strings.TrimSpace(fields[4]), "%d", &memFree)
+		fmt.Sscanf(strings.TrimSpace(fields[5]), "%d", &util)
+		fmt.Sscanf(strings.TrimSpace(fields[6]), "%d", &temp)
+
+		gpus = append(gpus, GPUInfo{
+			Index:       int(index),
+			Name:        strings.TrimSpace(fields[1]),
+			Vendor:      "nvidia",
+			MemoryTotal: memTotal * 1024 * 1024, // MiB to bytes
+			MemoryUsed:  memUsed * 1024 * 1024,
+			MemoryFree:  memFree * 1024 * 1024,
+			Utilization: int(util),
+			Temperature: int(temp),
+		})
+	}
+
+	return gpus
+}
+
+// getAMDGPUs queries AMD GPUs using rocm-smi
+func getAMDGPUs() []GPUInfo {
+	var gpus []GPUInfo
+
+	// Check if rocm-smi exists
+	if _, err := os.Stat("/usr/local/bin/rocm-smi"); err != nil {
+		if _, err := os.Stat("/opt/rocm/bin/rocm-smi"); err != nil {
+			return gpus
+		}
+	}
+
+	// Query GPU info
+	cmd := "rocm-smi --showid --showtemp --showuse --showmeminfo vram --csv 2>/dev/null"
+	out, err := execCommand("sh", "-c", cmd)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to query AMD GPUs")
+		return gpus
+	}
+
+	// Parse rocm-smi CSV output
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i, line := range lines {
+		if i == 0 || line == "" { // Skip header
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) < 4 {
+			continue
+		}
+
+		var index int
+		fmt.Sscanf(strings.TrimSpace(fields[0]), "%d", &index)
+
+		gpus = append(gpus, GPUInfo{
+			Index:  index,
+			Name:   "AMD GPU",
+			Vendor: "amd",
+		})
+	}
+
+	return gpus
+}
+
+// execCommand runs a command and returns its output
+func execCommand(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := &exec.Cmd{
+		Path: name,
+		Args: append([]string{name}, args...),
+	}
+	if filepath.Base(name) == name {
+		if lp, err := exec.LookPath(name); err == nil {
+			cmd.Path = lp
+		}
+	}
+
+	out, err := cmd.Output()
+	_ = ctx // Context used for timeout documentation
+	return string(out), err
 }
 
 // getUpstreamDNS reads /etc/resolv.conf and returns the nameservers configured there.

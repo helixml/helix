@@ -19,9 +19,9 @@ import (
 )
 
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
-// This replaces Wolf's container launching functionality
+// This manages container launching functionality
 type DevContainerManager struct {
-	// Docker client for the sandbox's dockerd (Wolf's docker or isolated Hydra dockerd)
+	// Docker client for the sandbox's dockerd (sandbox Docker or isolated Hydra dockerd)
 	docker *client.Client
 
 	// Parent Hydra manager for network and Docker instance access
