@@ -214,10 +214,29 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
 	metrics := []*types.AggregatedUsageMetric{}
 
+	aggregationLevel := q.AggregationLevel
+	if aggregationLevel == "" {
+		aggregationLevel = AggregationLevelDaily
+	}
+
+	var dateExpr string
+	var groupBy string
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		dateExpr = "date_trunc('hour', created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM created) / 5) as date"
+		groupBy = "date_trunc('hour', created) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM created) / 5)"
+	case AggregationLevelHourly:
+		dateExpr = "date_trunc('hour', created) as date"
+		groupBy = "date_trunc('hour', created)"
+	default:
+		dateExpr = "date"
+		groupBy = "date"
+	}
+
 	query := s.gdb.WithContext(ctx).
 		Model(&types.UsageMetric{}).
 		Select(`
-			date,
+			` + dateExpr + `,
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(prompt_cost) as prompt_cost,
@@ -243,17 +262,24 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		query = query.Where("organization_id = ?", q.OrganizationID)
 	}
 
-	query = query.Where("date >= ? AND date <= ?", q.From, q.To)
+	query = query.Where("created >= ? AND created <= ?", q.From, q.To)
 
-	err := query.Group("date").
+	err := query.Group(groupBy).
 		Order("date ASC").
 		Find(&metrics).Error
 	if err != nil {
 		return nil, err
 	}
 
-	// Fill in missing dates
-	completeMetrics := fillInMissingDates(metrics, q.From, q.To)
+	var completeMetrics []*types.AggregatedUsageMetric
+	switch aggregationLevel {
+	case AggregationLevel5Min:
+		completeMetrics = fillInMissing5Minutes(metrics, q.From, q.To)
+	case AggregationLevelHourly:
+		completeMetrics = fillInMissingHours(metrics, q.From, q.To)
+	default:
+		completeMetrics = fillInMissingDates(metrics, q.From, q.To)
+	}
 
 	return completeMetrics, nil
 }
@@ -375,7 +401,6 @@ type metricDate struct {
 func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
 	var completeMetrics []*types.AggregatedUsageMetric
 
-	existingDates := make(map[metricDate]bool)
 	metricsMap := make(map[metricDate]*types.AggregatedUsageMetric)
 	for _, metric := range metrics {
 		date := metricDate{
@@ -383,11 +408,9 @@ func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, 
 			Month: int(metric.Date.Month()),
 			Day:   metric.Date.Day(),
 		}
-		existingDates[date] = true
 		metricsMap[date] = metric
 	}
 
-	// Start from 'from' date and move forward to 'to' date
 	currentDate := from
 	for !currentDate.After(to) {
 		date := currentDate.Truncate(24 * time.Hour)
@@ -405,6 +428,97 @@ func fillInMissingDates(metrics []*types.AggregatedUsageMetric, from time.Time, 
 			})
 		}
 		currentDate = currentDate.AddDate(0, 0, 1)
+	}
+
+	return completeMetrics
+}
+
+type metricHour struct {
+	Year  int
+	Month int
+	Day   int
+	Hour  int
+}
+
+func fillInMissingHours(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	var completeMetrics []*types.AggregatedUsageMetric
+
+	metricsMap := make(map[metricHour]*types.AggregatedUsageMetric)
+	for _, metric := range metrics {
+		hour := metricHour{
+			Year:  metric.Date.Year(),
+			Month: int(metric.Date.Month()),
+			Day:   metric.Date.Day(),
+			Hour:  metric.Date.Hour(),
+		}
+		metricsMap[hour] = metric
+	}
+
+	currentHour := from.Truncate(time.Hour)
+	endHour := to.Truncate(time.Hour)
+	for !currentHour.After(endHour) {
+		mHour := metricHour{
+			Year:  currentHour.Year(),
+			Month: int(currentHour.Month()),
+			Day:   currentHour.Day(),
+			Hour:  currentHour.Hour(),
+		}
+
+		if metric, exists := metricsMap[mHour]; exists {
+			completeMetrics = append(completeMetrics, metric)
+		} else {
+			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
+				Date: currentHour,
+			})
+		}
+		currentHour = currentHour.Add(time.Hour)
+	}
+
+	return completeMetrics
+}
+
+type metric5Min struct {
+	Year   int
+	Month  int
+	Day    int
+	Hour   int
+	Minute int
+}
+
+func fillInMissing5Minutes(metrics []*types.AggregatedUsageMetric, from time.Time, to time.Time) []*types.AggregatedUsageMetric {
+	var completeMetrics []*types.AggregatedUsageMetric
+
+	metricsMap := make(map[metric5Min]*types.AggregatedUsageMetric)
+	for _, metric := range metrics {
+		m5 := metric5Min{
+			Year:   metric.Date.Year(),
+			Month:  int(metric.Date.Month()),
+			Day:    metric.Date.Day(),
+			Hour:   metric.Date.Hour(),
+			Minute: (metric.Date.Minute() / 5) * 5,
+		}
+		metricsMap[m5] = metric
+	}
+
+	current := from.Truncate(5 * time.Minute)
+	end := to.Truncate(5 * time.Minute)
+	for !current.After(end) {
+		m5 := metric5Min{
+			Year:   current.Year(),
+			Month:  int(current.Month()),
+			Day:    current.Day(),
+			Hour:   current.Hour(),
+			Minute: current.Minute(),
+		}
+
+		if metric, exists := metricsMap[m5]; exists {
+			completeMetrics = append(completeMetrics, metric)
+		} else {
+			completeMetrics = append(completeMetrics, &types.AggregatedUsageMetric{
+				Date: current,
+			})
+		}
+		current = current.Add(5 * time.Minute)
 	}
 
 	return completeMetrics

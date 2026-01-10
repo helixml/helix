@@ -130,13 +130,22 @@ type SearchUsersQuery struct {
 	Offset         int    `json:"offset"`          // Offset for pagination
 }
 
+type AggregationLevel string
+
+const (
+	AggregationLevelDaily  AggregationLevel = "daily"
+	AggregationLevelHourly AggregationLevel = "hourly"
+	AggregationLevel5Min   AggregationLevel = "5min"
+)
+
 type GetAggregatedUsageMetricsQuery struct {
-	UserID         string
-	OrganizationID string
-	ProjectID      string
-	SpecTaskID     string
-	From           time.Time
-	To             time.Time
+	AggregationLevel AggregationLevel
+	UserID           string
+	OrganizationID   string
+	ProjectID        string
+	SpecTaskID       string
+	From             time.Time
+	To               time.Time
 }
 
 var _ Store = &PostgresStore{}
