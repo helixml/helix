@@ -990,13 +990,6 @@ const SpecTasksPage: FC = () => {
           <IconButton
             size="small"
             onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-            sx={{
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
-              px: 1,
-              flexShrink: 0,
-            }}
           >
             <MoreHorizontal size={18} />
           </IconButton>
