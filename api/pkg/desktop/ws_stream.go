@@ -2,13 +2,12 @@
 package desktop
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -106,6 +105,7 @@ type StreamConfig struct {
 }
 
 // VideoStreamer captures video from PipeWire and streams to WebSocket
+// Uses RTP over UDP for reliable frame boundaries (matching Rust implementation).
 type VideoStreamer struct {
 	nodeID        uint32
 	shmSocketPath string    // If set, use shmsrc instead of pipewiresrc
@@ -117,6 +117,11 @@ type VideoStreamer struct {
 	running       atomic.Bool
 	cancel        context.CancelFunc
 	mu            sync.Mutex
+
+	// RTP over UDP - provides natural packet framing like Rust WebRTC mode
+	rtpPort  int           // UDP port for RTP packets
+	rtpConn  *net.UDPConn  // UDP listener for RTP packets
+	rtpDepack *H264Depacketizer // RTP H.264 depacketizer
 
 	// Frame tracking
 	frameCount uint64
@@ -160,6 +165,7 @@ func (v *VideoStreamer) SetVideoEnabled(enabled bool) {
 }
 
 // Start begins capturing and streaming video
+// Uses RTP over UDP for reliable frame boundaries (matching Rust implementation).
 func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -171,10 +177,23 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	ctx, v.cancel = context.WithCancel(ctx)
 	v.startTime = time.Now()
 
+	// Create UDP listener for RTP packets
+	// Use port 0 to let OS assign an available port
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("resolve UDP address: %w", err)
+	}
+	v.rtpConn, err = net.ListenUDP("udp", addr)
+	if err != nil {
+		return fmt.Errorf("create UDP listener: %w", err)
+	}
+	v.rtpPort = v.rtpConn.LocalAddr().(*net.UDPAddr).Port
+	v.rtpDepack = NewH264Depacketizer()
+
 	// Determine encoder based on available hardware
 	encoder := v.selectEncoder()
 
-	// Build GStreamer pipeline args
+	// Build GStreamer pipeline args (now outputs RTP to UDP)
 	pipelineArgs := v.buildPipelineArgs(encoder)
 
 	// Log with appropriate source info
@@ -189,18 +208,19 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
 		"bitrate", v.config.Bitrate,
+		"rtp_port", v.rtpPort,
 		"pipeline", strings.Join(pipelineArgs, " "),
 	)
 
 	// Start gst-launch with pipeline args
 	args := append([]string{"-q"}, pipelineArgs...)
 	v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", args...)
-	stdout, err := v.cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("create stdout pipe: %w", err)
-	}
+
+	// Capture stderr for debugging
+	v.cmd.Stderr = os.Stderr
 
 	if err := v.cmd.Start(); err != nil {
+		v.rtpConn.Close()
 		return fmt.Errorf("start gst-launch: %w", err)
 	}
 
@@ -216,8 +236,8 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		v.logger.Error("failed to send ConnectionComplete", "err", err)
 	}
 
-	// Read H.264 NAL units and send to WebSocket
-	go v.readAndSend(ctx, stdout)
+	// Read RTP packets from UDP and send complete Access Units to WebSocket
+	go v.readRTPAndSend(ctx)
 
 	// Handle ping/pong
 	go v.heartbeat(ctx)
@@ -481,13 +501,15 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 		)
 	}
 
-	// Step 3: Add h264parse and output
+	// Step 3: Add h264parse and RTP output
 	// h264parse with config-interval=-1 inserts SPS/PPS before every keyframe
-	// This is required for WebCodecs which needs parameter sets for decoding
+	// rtph264pay creates RTP packets with marker bits for frame boundaries
+	// udpsink sends to our local UDP listener for clean packet framing
 	args = append(args,
 		"!", "h264parse", "config-interval=-1",
-		"!", "video/x-h264,stream-format=byte-stream",
-		"!", "fdsink", "fd=1",
+		"!", "video/x-h264,stream-format=byte-stream,alignment=au",
+		"!", "rtph264pay", "pt=96", "mtu=65000", // Large MTU to minimize fragmentation
+		"!", "udpsink", "host=127.0.0.1", fmt.Sprintf("port=%d", v.rtpPort), "sync=false",
 	)
 
 	return args
@@ -529,20 +551,14 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 	return v.ws.WriteJSON(msg)
 }
 
-// readAndSend reads H.264 data and sends to WebSocket
-func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
+// readRTPAndSend reads RTP packets from UDP and sends complete Access Units to WebSocket.
+// This approach matches the Rust implementation where RTP marker bits indicate frame boundaries.
+// Much more reliable than manual NAL parsing of raw byte streams.
+func (v *VideoStreamer) readRTPAndSend(ctx context.Context) {
 	defer v.Stop()
 
-	reader := bufio.NewReaderSize(stdout, 512*1024) // 512KB buffer for 4K streams
-
-	// H.264 Annex B format: NAL units prefixed with 00 00 00 01 or 00 00 01
-	// We accumulate complete Access Units (SPS+PPS+IDR or just slice) before sending
-	// At 4K, keyframes can be 100-300KB+ so use larger buffer
-	nalBuffer := make([]byte, 0, 512*1024)
-
-	// Access Unit accumulator - bundles SPS+PPS+IDR together
-	accessUnit := make([]byte, 0, 512*1024)
-	hasParameterSets := false // true if we've accumulated SPS or PPS
+	// Large buffer for RTP packets - 65KB covers most cases
+	buf := make([]byte, 65536)
 
 	for {
 		select {
@@ -551,144 +567,37 @@ func (v *VideoStreamer) readAndSend(ctx context.Context, stdout io.Reader) {
 		default:
 		}
 
-		// Read data
-		buf := make([]byte, 32*1024)
-		n, err := reader.Read(buf)
+		// Set read deadline to allow checking context cancellation
+		v.rtpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+
+		n, _, err := v.rtpConn.ReadFromUDP(buf)
 		if err != nil {
-			if err != io.EOF {
-				v.logger.Error("read error", "err", err)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue // Timeout - check context and try again
 			}
+			v.logger.Error("UDP read error", "err", err)
 			return
 		}
 
-		// Accumulate data
-		nalBuffer = append(nalBuffer, buf[:n]...)
+		if n == 0 {
+			continue
+		}
 
-		// Find and process NAL units
-		for {
-			nalUnit, remaining, found := findNALUnit(nalBuffer)
-			if !found {
-				break
-			}
-			nalBuffer = remaining
+		// Process RTP packet through depacketizer
+		accessUnit, isKeyframe, complete, err := v.rtpDepack.ProcessPacket(buf[:n])
+		if err != nil {
+			v.logger.Warn("RTP depacketization error", "err", err)
+			continue
+		}
 
-			if len(nalUnit) == 0 {
-				continue
-			}
-
-			// Get NAL type
-			nalType := getNALType(nalUnit)
-
-			switch nalType {
-			case 7, 8: // SPS or PPS - accumulate, don't send yet
-				accessUnit = append(accessUnit, nalUnit...)
-				hasParameterSets = true
-
-			case 5: // IDR slice - send with accumulated SPS/PPS as keyframe
-				accessUnit = append(accessUnit, nalUnit...)
-				if err := v.sendVideoFrame(accessUnit, true); err != nil {
-					v.logger.Error("send keyframe error", "err", err)
-					return
-				}
-				accessUnit = accessUnit[:0] // Reset accumulator
-				hasParameterSets = false
-
-			case 1, 2, 3, 4: // Non-IDR slice - send immediately as delta frame
-				// If we have accumulated SPS/PPS without IDR, send them first (shouldn't happen normally)
-				if hasParameterSets {
-					if err := v.sendVideoFrame(accessUnit, true); err != nil {
-						v.logger.Error("send params error", "err", err)
-						return
-					}
-					accessUnit = accessUnit[:0]
-					hasParameterSets = false
-				}
-				if err := v.sendVideoFrame(nalUnit, false); err != nil {
-					v.logger.Error("send frame error", "err", err)
-					return
-				}
-
-			case 9: // Access Unit Delimiter - discard (WebCodecs doesn't need them)
-				// AUD NAL units are used for stream synchronization but WebCodecs
-				// expects keyframes to start with SPS, not AUD
-				continue
-
-			case 6: // SEI - can be useful, accumulate with access unit
-				accessUnit = append(accessUnit, nalUnit...)
-
-			default:
-				// Other NAL types - discard unknown types to avoid confusing decoder
-				v.logger.Debug("discarding unknown NAL type", "type", nalType)
+		// When we have a complete Access Unit, send it
+		if complete && len(accessUnit) > 0 {
+			if err := v.sendVideoFrame(accessUnit, isKeyframe); err != nil {
+				v.logger.Error("send frame error", "err", err)
+				return
 			}
 		}
 	}
-}
-
-// getNALType extracts the NAL unit type from a NAL unit with start code
-func getNALType(nalUnit []byte) byte {
-	if len(nalUnit) < 4 {
-		return 0
-	}
-	// Find the byte after start code
-	if len(nalUnit) > 2 && nalUnit[2] == 1 {
-		// 3-byte start code: 00 00 01
-		return nalUnit[3] & 0x1f
-	} else if len(nalUnit) > 3 && nalUnit[3] == 1 {
-		// 4-byte start code: 00 00 00 01
-		return nalUnit[4] & 0x1f
-	}
-	return 0
-}
-
-// findNALUnit finds the next NAL unit in the buffer
-// Returns the NAL unit data, remaining buffer, and whether a unit was found
-func findNALUnit(buf []byte) (nalUnit, remaining []byte, found bool) {
-	if len(buf) < 4 {
-		return nil, buf, false
-	}
-
-	// Find start code (00 00 00 01 or 00 00 01)
-	startIdx := -1
-	startLen := 0
-	for i := 0; i < len(buf)-3; i++ {
-		if buf[i] == 0 && buf[i+1] == 0 {
-			if buf[i+2] == 1 {
-				startIdx = i
-				startLen = 3
-				break
-			} else if i < len(buf)-3 && buf[i+2] == 0 && buf[i+3] == 1 {
-				startIdx = i
-				startLen = 4
-				break
-			}
-		}
-	}
-
-	if startIdx == -1 {
-		return nil, buf, false
-	}
-
-	// Find next start code
-	dataStart := startIdx + startLen
-	for i := dataStart; i < len(buf)-3; i++ {
-		if buf[i] == 0 && buf[i+1] == 0 {
-			if buf[i+2] == 1 || (i < len(buf)-3 && buf[i+2] == 0 && buf[i+3] == 1) {
-				// Found next start code - return this NAL unit
-				return buf[startIdx:i], buf[i:], true
-			}
-		}
-	}
-
-	// No complete NAL unit yet - need more data
-	// Let buffer grow as needed - 4K frames can be 100-300KB+
-	// Use 4MB as a safety limit (handles 4K/8K keyframes at high bitrate)
-	// The GStreamer h264parse element guarantees proper NAL boundaries
-	if len(buf) > 4*1024*1024 {
-		// Something is wrong - no start code found in 4MB of data
-		// Log and return partial data to prevent infinite growth
-		return buf[startIdx:], nil, true
-	}
-	return nil, buf, false
 }
 
 // sendVideoFrame sends a video frame to the WebSocket
@@ -755,6 +664,12 @@ func (v *VideoStreamer) Stop() {
 
 	if v.cancel != nil {
 		v.cancel()
+	}
+
+	// Close UDP listener for RTP
+	if v.rtpConn != nil {
+		v.rtpConn.Close()
+		v.rtpConn = nil
 	}
 
 	if v.cmd != nil && v.cmd.Process != nil {
