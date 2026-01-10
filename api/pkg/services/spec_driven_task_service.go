@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -298,6 +299,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
 	task.Status = types.TaskStatusSpecGeneration
+	task.PlanningStartedAt = ptr.To(time.Now())
 	task.UpdatedAt = time.Now()
 
 	err := s.store.UpdateSpecTask(ctx, task)

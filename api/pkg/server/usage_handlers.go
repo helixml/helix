@@ -147,11 +147,19 @@ func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
 		}
 	} else {
-		// Default to spec task creation time
-		if specTask.StartedAt != nil {
+
+		switch {
+		case specTask.PlanningStartedAt != nil:
+			from = *specTask.PlanningStartedAt
+		case specTask.StartedAt != nil:
 			from = *specTask.StartedAt
-		} else {
+		default:
 			from = specTask.CreatedAt
+		}
+
+		minFrom := time.Now().Add(-30 * time.Minute)
+		if from.After(minFrom) {
+			from = minFrom
 		}
 	}
 
