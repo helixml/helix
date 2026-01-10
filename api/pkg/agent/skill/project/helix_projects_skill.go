@@ -21,7 +21,7 @@ You can perform the following operations on spec tasks:
 
 Tasks follow a spec-driven development workflow with these statuses:
 
-### Phase 1: Specification Generation
+### Phase 1: Specification Generation (optional, can be skipped)
 - **backlog** - Initial state, task waiting for spec generation
 - **spec_generation** - AI is generating specifications (requirements, design, implementation plan)
 - **spec_review** - Human reviewing the generated specifications

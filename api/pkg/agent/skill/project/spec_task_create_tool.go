@@ -41,6 +41,10 @@ var createSpecTaskParameters = jsonschema.Definition{
 			Type:        jsonschema.String,
 			Description: "The original user request or prompt that led to this task",
 		},
+		"skip_planning": {
+			Type:        jsonschema.Boolean,
+			Description: "Skip planning and go straight to implementation. Useful when the task is clear and well defined.",
+		},
 	},
 	Required: []string{"name", "description"},
 }
@@ -139,6 +143,11 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		taskType = t
 	}
 
+	skipPlanning := false
+	if sp, ok := args["skip_planning"].(bool); ok {
+		skipPlanning = sp
+	}
+
 	priority := types.SpecTaskPriorityMedium
 	if p, ok := args["priority"].(string); ok && p != "" {
 		priority = types.SpecTaskPriority(p)
@@ -158,6 +167,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		Priority:       priority,
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: originalPrompt,
+		JustDoItMode:   skipPlanning,
 		CreatedBy:      meta.UserID,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
