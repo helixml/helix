@@ -762,6 +762,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/upload", apiServer.uploadFileToSandbox).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/input", apiServer.sendInputToSandbox).Methods("POST")
+	authRouter.HandleFunc("/external-agents/{sessionID}/exec", apiServer.execInSandbox).Methods("POST") // Execute safe commands in sandbox (vkcube, glxgears)
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/input", apiServer.proxyInputWebSocket).Methods("GET")   // Direct WebSocket input (bypasses Moonlight/Wolf)
 	authRouter.HandleFunc("/external-agents/{sessionID}/ws/stream", apiServer.proxyStreamWebSocket).Methods("GET") // Direct WebSocket video streaming (bypasses Wolf)
 	authRouter.HandleFunc("/external-agents/{sessionID}/configure-pending-session", apiServer.configurePendingSession).Methods("POST")

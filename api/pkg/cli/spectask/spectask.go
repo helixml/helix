@@ -42,6 +42,7 @@ func New() *cobra.Command {
 	cmd.AddCommand(newHealthCommand())
 	cmd.AddCommand(newKeyboardTestCommand())
 	cmd.AddCommand(newScrollTestCommand())
+	cmd.AddCommand(newBenchmarkCommand())
 
 	return cmd
 }
@@ -389,6 +390,8 @@ type Session struct {
 
 type SessionMetadata struct {
 	ContainerName   string `json:"container_name"`
+	ContainerID     string `json:"container_id"`
+	ExecutorMode    string `json:"executor_mode"`
 	WolfLobbyID     string `json:"wolf_lobby_id"`
 	WolfLobbyPIN    string `json:"wolf_lobby_pin"`
 	ExternalAgentID string `json:"external_agent_id"`
@@ -493,10 +496,19 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 		}
 		resp.Body.Close()
 
-		// Find session for this task with wolf_lobby_id (means sandbox is running)
+		// Find session for this task that has a running sandbox
+		// Wolf executor: has wolf_lobby_id
+		// Hydra executor: has container_id (executor_mode == "hydra")
 		for _, s := range response.Sessions {
-			if s.Metadata.SpecTaskID == taskID && s.Metadata.WolfLobbyID != "" {
-				return &s, nil
+			if s.Metadata.SpecTaskID == taskID {
+				// Check for Wolf-based session
+				if s.Metadata.WolfLobbyID != "" {
+					return &s, nil
+				}
+				// Check for Hydra-based session
+				if s.Metadata.ExecutorMode == "hydra" && s.Metadata.ContainerID != "" {
+					return &s, nil
+				}
 			}
 		}
 

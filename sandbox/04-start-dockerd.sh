@@ -77,12 +77,20 @@ iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"
 
 # Create helix_default network
-if ! docker network inspect helix_default >/dev/null 2>&1; then
+# Use 'docker network ls' to verify network exists (more reliable than inspect after restart)
+if ! docker network ls --format '{{.Name}}' | grep -q '^helix_default$'; then
     echo "Creating helix_default network (subnet 172.20.0.0/16)..."
     docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1
     echo "✅ helix_default network created"
 else
     echo "helix_default network already exists"
+fi
+
+# Verify network was actually created
+if ! docker network ls --format '{{.Name}}' | grep -q '^helix_default$'; then
+    echo "❌ ERROR: helix_default network not found after creation attempt!"
+    echo "Attempting forced creation..."
+    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1 2>/dev/null || true
 fi
 
 # Function to load a desktop image into sandbox's dockerd
@@ -266,3 +274,33 @@ else
 fi
 
 echo "✅ Desktop image cleanup complete"
+
+# ================================================================================
+# Clean up dangling images and build cache
+# This removes:
+# - Dangling images (untagged <none> images from failed builds)
+# - Build cache (accumulated from docker build operations)
+# - Unused networks (orphaned from stopped containers)
+# NOTE: We do NOT prune volumes - those contain user data
+# ================================================================================
+echo ""
+echo "🧹 Pruning dangling images and build cache..."
+
+# Remove dangling images first (faster, targeted cleanup)
+DANGLING_COUNT=$(docker images -f "dangling=true" -q 2>/dev/null | wc -l)
+if [ "$DANGLING_COUNT" -gt 0 ]; then
+    echo "   Removing $DANGLING_COUNT dangling image(s)..."
+    docker image prune -f >/dev/null 2>&1 || true
+fi
+
+# Run system prune to clean build cache and unused networks
+# This does NOT remove volumes (no --volumes flag)
+PRUNE_OUTPUT=$(docker system prune -f 2>&1) || true
+if echo "$PRUNE_OUTPUT" | grep -q "reclaimed"; then
+    RECLAIMED=$(echo "$PRUNE_OUTPUT" | grep "reclaimed" | tail -1)
+    echo "   $RECLAIMED"
+else
+    echo "   No additional space to reclaim"
+fi
+
+echo "✅ Docker cleanup complete"

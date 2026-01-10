@@ -314,7 +314,12 @@ func (s *Server) monitorSession(ctx context.Context) {
 			s.logger.Info("session monitor shutting down")
 			return
 
-		case sig := <-signalChan:
+		case sig, ok := <-signalChan:
+			// Channel closed or nil signal
+			if !ok || sig == nil {
+				s.logger.Debug("signal channel closed or nil signal received")
+				continue
+			}
 			// Check for session closed signals
 			if sig.Name == screenCastSessionIface+".Closed" {
 				s.logger.Warn("ScreenCast session closed unexpectedly!",

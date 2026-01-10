@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -19,6 +20,41 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// VideoMode controls the video capture pipeline mode
+// Set via HELIX_VIDEO_MODE environment variable
+type VideoMode string
+
+const (
+	// VideoModeSHM uses shared memory (current default, 2 CPU copies)
+	// Pipeline: pipewiresrc → shmsink → shmsrc → cudaupload → nvh264enc
+	VideoModeSHM VideoMode = "shm"
+
+	// VideoModeNative uses native GStreamer DMA-BUF → CUDA (if supported)
+	// Pipeline: pipewiresrc → video/x-raw(memory:DMABuf) → cudaupload → nvh264enc
+	// Requires GStreamer 1.24+ with DMA-BUF CUDA support
+	VideoModeNative VideoMode = "native"
+
+	// VideoModeZeroCopy uses pipewirezerocopysrc plugin (true zero-copy)
+	// Pipeline: pipewirezerocopysrc → video/x-raw(memory:CUDAMemory) → nvh264enc
+	// Requires gst-plugin-pipewire-zerocopy to be installed
+	VideoModeZeroCopy VideoMode = "zerocopy"
+)
+
+// getVideoMode returns the configured video mode from HELIX_VIDEO_MODE env var
+func getVideoMode() VideoMode {
+	mode := os.Getenv("HELIX_VIDEO_MODE")
+	switch strings.ToLower(mode) {
+	case "native", "dmabuf":
+		return VideoModeNative
+	case "zerocopy", "zero-copy", "plugin":
+		return VideoModeZeroCopy
+	case "shm", "":
+		return VideoModeSHM
+	default:
+		return VideoModeSHM
+	}
+}
 
 // Binary message types for streaming protocol (matching frontend websocket-stream.ts)
 const (
@@ -66,7 +102,8 @@ type StreamConfig struct {
 // VideoStreamer captures video from PipeWire and streams to WebSocket
 type VideoStreamer struct {
 	nodeID        uint32
-	shmSocketPath string // If set, use shmsrc instead of pipewiresrc
+	shmSocketPath string    // If set, use shmsrc instead of pipewiresrc
+	videoMode     VideoMode // Video capture mode (shm, native, zerocopy)
 	config        StreamConfig
 	ws            *websocket.Conn
 	logger        *slog.Logger
@@ -86,10 +123,11 @@ type VideoStreamer struct {
 // NewVideoStreamer creates a new video streamer
 func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
-		nodeID: nodeID,
-		config: config,
-		ws:     ws,
-		logger: logger,
+		nodeID:    nodeID,
+		videoMode: getVideoMode(),
+		config:    config,
+		ws:        ws,
+		logger:    logger,
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -139,6 +177,7 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	}
 	v.logger.Info("starting video capture",
 		"source", sourceInfo,
+		"video_mode", string(v.videoMode),
 		"encoder", encoder,
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
@@ -225,61 +264,102 @@ func checkGstElement(element string) bool {
 // buildPipelineArgs creates GStreamer pipeline arguments as a flat slice
 // Pipeline configurations match Wolf's tested settings from config.v6.toml
 //
+// Video modes (HELIX_VIDEO_MODE env var):
+// - shm: Current default, uses pipewiresrc → system memory → encoder (1-2 CPU copies)
+// - native: Uses pipewiresrc with DMA-BUF → encoder (GStreamer 1.24+, fewer copies)
+// - zerocopy: Uses pipewirezerocopysrc plugin → CUDA/DMABuf memory (0 CPU copies, requires plugin)
+//
 // GPU optimization notes:
-// - NVIDIA: Uses cudaupload to get frames into CUDA memory, nvh264enc does
-//   BGRx→NV12 colorspace conversion internally on NVENC hardware (zero-copy)
-// - AMD/Intel VA-API: Uses CPU-based videoconvert since vapostproc isn't widely
-//   available; vah264enc handles GPU upload. Not true zero-copy but still HW-accelerated.
-// - Software: Uses CPU-based videoconvert + x264enc (slowest fallback)
+// - NVIDIA: cudaupload gets frames into CUDA memory, nvh264enc does colorspace on GPU
+// - AMD/Intel VA-API: vah264enc handles GPU upload internally
+// - Software: CPU-based videoconvert + x264enc (slowest fallback)
 func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	var args []string
 
-	// Step 1: Build source section (shmsrc or pipewiresrc)
+	// Step 1: Build source section based on video mode
+	// Note: shmSocketPath (for video forwarder) takes precedence over videoMode
 	if v.shmSocketPath != "" {
 		// Use shmsrc to read from video forwarder's shared memory socket
 		// This avoids PipeWire node conflicts when the forwarder is running
-		// IMPORTANT: shmsrc needs FULL caps (width, height, framerate) specified immediately
-		// because shmsink doesn't embed caps metadata in the shared memory buffers
 		args = []string{
 			"shmsrc", fmt.Sprintf("socket-path=%s", v.shmSocketPath), "is-live=true", "do-timestamp=true",
 			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
 				v.config.Width, v.config.Height),
 		}
 	} else {
-		// Use pipewiresrc to capture directly from PipeWire (legacy mode)
-		args = []string{
-			"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-			"!", "video/x-raw,format=BGRx",
+		// Choose source based on video mode
+		switch v.videoMode {
+		case VideoModeZeroCopy:
+			// pipewirezerocopysrc: True zero-copy via EGL→CUDA interop
+			// Outputs video/x-raw(memory:CUDAMemory) for NVIDIA or DMABuf for AMD/Intel
+			// Requires gst-plugin-pipewire-zerocopy to be installed
+			args = []string{
+				"pipewirezerocopysrc",
+				fmt.Sprintf("pipewire-node-id=%d", v.nodeID),
+				"output-mode=auto", // auto-detect CUDA or DMABuf
+				"keepalive-time=100", // GNOME 49+ damage-based ScreenCast support
+			}
+			// For NVIDIA, output is already in CUDA memory - no cudaupload needed
+			// For AMD/Intel, output is DMABuf which VA-API can accept directly
+
+		case VideoModeNative:
+			// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
+			// Works on GStreamer 1.24+ with proper driver support
+			// Falls back gracefully to system memory if DMA-BUF unavailable
+			args = []string{
+				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+				// Let pipewiresrc negotiate best format - prefer DMA-BUF if available
+				"!", "video/x-raw",
+			}
+
+		default: // VideoModeSHM
+			// Standard pipewiresrc path - most compatible
+			args = []string{
+				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+				"!", "video/x-raw,format=BGRx",
+			}
 		}
 	}
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path
+	// Note: zerocopy mode already provides GPU memory (CUDA or DMABuf)
 	switch encoder {
 	case "nvenc":
-		// NVIDIA zero-copy pipeline:
-		// 1. videorate + videoscale: CPU-side scaling to target resolution/framerate
-		// 2. cudaupload: Upload system memory to CUDA memory (one CPU→GPU copy)
-		// 3. nvh264enc: NVENC encoding directly from CUDA memory
-		//
-		// nvh264enc handles BGRx→NV12 colorspace conversion internally on GPU.
-		// This is faster than videoconvert (CPU) + nvh264enc because:
-		// - Only one CPU→GPU copy (via cudaupload)
-		// - Colorspace conversion happens on NVENC hardware
-		args = append(args,
-			"!", "videorate",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
-			"!", "cudaupload",
-			"!", "nvh264enc",
-			"preset=low-latency-hq",
-			"zerolatency=true",
-			"gop-size=15",
-			"rc-mode=cbr-ld-hq",
-			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-			"aud=false",
-		)
+		// NVIDIA NVENC encoding
+		// For zerocopy mode: frames already in CUDA memory, skip cudaupload
+		// For other modes: use cudaupload to get frames into CUDA memory
+		if v.videoMode == VideoModeZeroCopy && v.shmSocketPath == "" {
+			// pipewirezerocopysrc outputs CUDA memory directly
+			args = append(args,
+				"!", "cudaconvertscale", // GPU-side scaling + format conversion
+				"!", fmt.Sprintf("video/x-raw(memory:CUDAMemory),width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "nvh264enc",
+				"preset=low-latency-hq",
+				"zerolatency=true",
+				"gop-size=15",
+				"rc-mode=cbr-ld-hq",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				"aud=false",
+			)
+		} else {
+			// Standard path: system memory → cudaupload → nvh264enc
+			args = append(args,
+				"!", "videorate",
+				"!", "videoscale",
+				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "cudaupload",
+				"!", "nvh264enc",
+				"preset=low-latency-hq",
+				"zerolatency=true",
+				"gop-size=15",
+				"rc-mode=cbr-ld-hq",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				"aud=false",
+			)
+		}
 
 	case "qsv":
 		// Intel Quick Sync Video
@@ -301,47 +381,79 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 		)
 
 	case "vaapi":
-		// AMD/Intel VA-API pipeline:
-		// Uses CPU-based videoconvert for colorspace conversion (vapostproc not widely available)
-		// vah264enc handles the upload to GPU memory internally
-		//
-		// This is slightly less optimal than true zero-copy (vapostproc → vah264enc)
-		// but works on systems where vapostproc isn't available
-		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
-			"!", "vah264enc",
-			"aud=false",
-			"b-frames=0",
-			"ref-frames=1",
-			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-			fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-			"key-int-max=1024",
-			"rate-control=cqp",
-			"target-usage=6",
-		)
+		// AMD/Intel VA-API pipeline
+		// For zerocopy/native modes: source may provide DMABuf which VA-API can use directly
+		// For shm mode: uses CPU-based videoconvert (vapostproc not widely available)
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+			// Try to use vapostproc for GPU-side processing (available on newer systems)
+			// Falls back gracefully if vapostproc not available
+			args = append(args,
+				"!", "vapostproc",
+				"!", fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "vah264enc",
+				"aud=false",
+				"b-frames=0",
+				"ref-frames=1",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+				"key-int-max=1024",
+				"rate-control=cqp",
+				"target-usage=6",
+			)
+		} else {
+			// Standard path: CPU videoconvert
+			args = append(args,
+				"!", "videoconvert",
+				"!", "videoscale",
+				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "vah264enc",
+				"aud=false",
+				"b-frames=0",
+				"ref-frames=1",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+				"key-int-max=1024",
+				"rate-control=cqp",
+				"target-usage=6",
+			)
+		}
 
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific)
-		// Same as vaapi but uses the low-power encoder variant
-		// Uses CPU-based videoconvert (vapostproc not widely available)
-		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
-				v.config.Width, v.config.Height, v.config.FPS),
-			"!", "vah264lpenc",
-			"aud=false",
-			"b-frames=0",
-			"ref-frames=1",
-			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-			fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-			"key-int-max=1024",
-			"rate-control=cqp",
-			"target-usage=6",
-		)
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+			args = append(args,
+				"!", "vapostproc",
+				"!", fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "vah264lpenc",
+				"aud=false",
+				"b-frames=0",
+				"ref-frames=1",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+				"key-int-max=1024",
+				"rate-control=cqp",
+				"target-usage=6",
+			)
+		} else {
+			args = append(args,
+				"!", "videoconvert",
+				"!", "videoscale",
+				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+					v.config.Width, v.config.Height, v.config.FPS),
+				"!", "vah264lpenc",
+				"aud=false",
+				"b-frames=0",
+				"ref-frames=1",
+				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
+				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
+				"key-int-max=1024",
+				"rate-control=cqp",
+				"target-usage=6",
+			)
+		}
 
 	default:
 		// Software x264 fallback - CPU-based conversion

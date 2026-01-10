@@ -783,6 +783,112 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 
 }
 
+// @Summary Execute command in sandbox
+// @Description Executes a command inside the sandbox container for benchmarking and debugging.
+// @Description Only specific safe commands are allowed (vkcube, glxgears, pkill).
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Param body body object true "Command to execute" Example({"command": ["vkcube"], "background": true})
+// @Success 200 {object} object "Execution result"
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/exec [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) execInSandbox(res http.ResponseWriter, req *http.Request) {
+	log.Info().Str("path", req.URL.Path).Str("method", req.Method).Msg("🔧 execInSandbox handler called")
+	user := getRequestUser(req)
+	if user == nil {
+		log.Info().Msg("🔧 execInSandbox: no user found")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	log.Info().Str("user_id", user.ID).Msg("🔧 execInSandbox: user authenticated")
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+	log.Info().Str("session_id", sessionID).Msg("🔧 execInSandbox: extracted sessionID")
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("🔧 execInSandbox: Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+	log.Info().Str("session_id", session.ID).Str("owner", session.Owner).Msg("🔧 execInSandbox: session found")
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("🔧 execInSandbox: User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+	log.Info().Msg("🔧 execInSandbox: ownership verified")
+
+	// Read request body
+	log.Info().Msg("🔧 execInSandbox: reading request body")
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: failed to read body")
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	log.Info().Int("body_len", len(bodyBytes)).Msg("🔧 execInSandbox: body read successfully")
+
+	// Connect to sandbox via RevDial
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	log.Info().Str("runner_id", runnerID).Msg("🔧 execInSandbox: connecting via RevDial")
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("🔧 execInSandbox: Failed to connect to sandbox via RevDial for exec")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+	log.Info().Msg("🔧 execInSandbox: RevDial connected")
+
+	// Send POST request to /exec over RevDial tunnel
+	log.Info().Msg("🔧 execInSandbox: creating HTTP request")
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/exec", bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to create exec request")
+		http.Error(res, "Failed to create exec request", http.StatusInternalServerError)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Write request to RevDial connection
+	log.Info().Msg("🔧 execInSandbox: writing request to RevDial")
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to write exec request to RevDial connection")
+		http.Error(res, "Failed to send exec request", http.StatusInternalServerError)
+		return
+	}
+	log.Info().Msg("🔧 execInSandbox: request written, reading response")
+
+	// Read response from RevDial connection
+	execResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("🔧 execInSandbox: Failed to read exec response from RevDial")
+		http.Error(res, "Failed to read exec response", http.StatusInternalServerError)
+		return
+	}
+	defer execResp.Body.Close()
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: got response from sandbox")
+
+	// Forward response to client
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(execResp.StatusCode)
+	log.Info().Int("status_code", execResp.StatusCode).Msg("🔧 execInSandbox: forwarding response to client")
+	io.Copy(res, execResp.Body)
+}
+
 // @Summary Bandwidth probe for adaptive bitrate
 // @Description Returns random uncompressible data for measuring available bandwidth.
 // @Description This endpoint starts sending bytes immediately, unlike screenshot which
@@ -1132,6 +1238,7 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 // @Router /api/v1/external-agents/{sessionID}/input [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) sendInputToSandbox(res http.ResponseWriter, req *http.Request) {
+	log.Info().Str("path", req.URL.Path).Str("method", req.Method).Msg("🔧 sendInputToSandbox handler called")
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)

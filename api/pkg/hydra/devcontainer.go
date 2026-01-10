@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -212,11 +213,17 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
-	// Use host network mode so dev containers share sandbox's network namespace.
-	// This allows them to resolve DNS names like "api:8080" that the sandbox can access.
-	// The sandbox is on helix_default network, so dev containers will also have access.
+	// Use the network from the request if specified, otherwise default to helix_default.
+	// Previously we used host network mode which caused port conflicts when running
+	// multiple desktop containers (they all shared ports 9876/9877).
+	// With helix_default network, each container gets its own IP and can use the same ports.
+	networkMode := container.NetworkMode(req.Network)
+	if networkMode == "" {
+		networkMode = "helix_default"
+	}
+
 	hostConfig := &container.HostConfig{
-		NetworkMode: "host",
+		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  false,
 		CapAdd:      []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"},
@@ -228,6 +235,12 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 			},
 		},
 	}
+
+	// Add ExtraHosts so the container can resolve "api" hostname.
+	// The container is on helix_default network but needs to reach the API
+	// on the helix_* Docker network. We resolve "api" from the sandbox's
+	// perspective and add it as an extra host entry.
+	hostConfig.ExtraHosts = dm.buildExtraHosts()
 
 	// Build mounts
 	hostConfig.Mounts = dm.buildMounts(req)
@@ -249,6 +262,29 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 	}
 
 	return mounts
+}
+
+// buildExtraHosts resolves hostnames that the container needs to reach
+// and returns them as Docker ExtraHosts entries (format: "hostname:ip").
+// This is needed because containers on helix_default network can't resolve
+// the "api" hostname which lives on the helix_* Docker Compose network.
+func (dm *DevContainerManager) buildExtraHosts() []string {
+	var extraHosts []string
+
+	// Resolve "api" hostname from the sandbox's perspective
+	// The sandbox is connected to the helix network and can resolve "api"
+	ips, err := net.LookupHost("api")
+	if err == nil && len(ips) > 0 {
+		apiIP := ips[0]
+		extraHosts = append(extraHosts, "api:"+apiIP)
+		log.Debug().Str("api_ip", apiIP).Msg("Added API host entry for dev container")
+	} else {
+		// Fallback: try common Docker network gateway patterns
+		// In Docker Compose, the API is typically on 172.19.0.x
+		log.Warn().Err(err).Msg("Could not resolve 'api' hostname, container may not connect to API")
+	}
+
+	return extraHosts
 }
 
 // configureGPU adds GPU-specific Docker configuration

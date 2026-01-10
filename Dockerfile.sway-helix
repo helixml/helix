@@ -41,6 +41,38 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
+# Rust build stage for GStreamer zero-copy plugin (optional)
+# ====================================================================
+# This plugin enables true zero-copy GPU video streaming:
+# - NVIDIA: DMA-BUF → EGL → CUDA → NVENC (0 CPU copies)
+# - AMD/Intel: DMA-BUF → VA-API (fewer CPU copies)
+# Enable with HELIX_VIDEO_MODE=zerocopy
+FROM rust:1.83-bookworm AS rust-build-env
+WORKDIR /build
+
+# Install GStreamer and PipeWire dev packages
+RUN apt-get update && apt-get install -y \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libegl1-mesa-dev \
+    libdrm-dev \
+    libclang-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy plugin source
+COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
+
+# Build the plugin (creates libgstpipewirezerocopy.so)
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target \
+    cd gst-pipewire-zerocopy && \
+    cargo build --release && \
+    cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
+
+# ====================================================================
 # Patched wlroots build stage (Debian package rebuild)
 # ====================================================================
 # Rebuild libwlroots12 with our keyboard layout fix patch.
@@ -302,6 +334,10 @@ RUN chmod 755 /etc/cont-init.d/99-startdbus.sh
 ENV RADV_DEBUG=hang
 ENV AMD_DEBUG=sync_compile,check_vm
 
+# Video streaming mode (shm=default, native=DMABuf, zerocopy=plugin)
+# See design/2026-01-10-zero-copy-video-streaming.md
+ENV HELIX_VIDEO_MODE=shm
+
 # Passwordless sudo
 RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
@@ -337,6 +373,7 @@ RUN apt-get update && apt-get install -y \
     imagemagick \
     kitty \
     scrot xclip \
+    vulkan-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ghostty terminal
@@ -397,6 +434,11 @@ COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 COPY --from=grim-build /grim-bin /usr/bin/grim
+
+# GStreamer zero-copy plugin (for HELIX_VIDEO_MODE=zerocopy)
+# Install to system GStreamer plugins directory
+COPY --from=rust-build-env /libgstpipewirezerocopy.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
+RUN chmod 644 /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpipewirezerocopy.so
 
 # Zed binary
 RUN mkdir -p /zed-build
