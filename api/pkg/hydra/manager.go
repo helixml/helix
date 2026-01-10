@@ -466,7 +466,7 @@ func (m *Manager) startDockerd(ctx context.Context, req *CreateDockerInstanceReq
 	// Uses 10.200.X.0/24 where X is the bridgeIndex (1-254)
 	// This avoids conflicts with:
 	// - docker0: 172.17.0.0/16
-	// - helix_default: 172.19.0.0/16 or 172.20.0.0/16
+	// - bridge: Docker's default bridge network
 	//
 	// We create a custom bridge (hydra1, hydra2, etc) and configure dockerd to use it.
 	// This allows multiple dockerd instances to run in the same network namespace

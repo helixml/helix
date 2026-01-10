@@ -97,6 +97,6 @@ type ZedSession struct {
 
 	// Container fields
 	ContainerID string `json:"container_id,omitempty"` // Docker container ID
-	ContainerIP string `json:"container_ip,omitempty"` // Container IP address on helix_default network
+	ContainerIP string `json:"container_ip,omitempty"` // Container IP address on bridge network
 	SandboxID   string `json:"sandbox_id,omitempty"`   // Sandbox running this container (for RevDial routing)
 }

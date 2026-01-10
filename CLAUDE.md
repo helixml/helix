@@ -131,7 +131,15 @@ LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE
 
 ## Verification
 
-After frontend changes:
+### Frontend Pre-commit Check (matches Drone CI)
+**ALWAYS run before committing frontend changes:**
+```bash
+cd frontend && yarn test && yarn build && cd ..
+```
+This runs the same checks as Drone CI. Fix any errors before committing.
+
+### Quick Checks
+After frontend changes (dev mode):
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 50 frontend | grep -i error
 # Then ask user to verify page loads

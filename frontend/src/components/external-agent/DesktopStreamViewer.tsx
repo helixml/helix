@@ -24,10 +24,10 @@ import {
   axisLabelStyle,
 } from '../wolf/chartStyles';
 // getApi import removed - we create API object directly instead of using cached singleton
-import { Stream } from '../../lib/moonlight-web-ts/stream/index';
-import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/moonlight-web-ts/stream/websocket-stream';
-import { defaultStreamSettings, StreamingMode } from '../../lib/moonlight-web-ts/component/settings_menu';
-import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
+import { Stream } from '../../lib/helix-stream/stream/index';
+import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/helix-stream/stream/websocket-stream';
+import { defaultStreamSettings, StreamingMode } from '../../lib/helix-stream/component/settings_menu';
+import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { TypesClipboardData } from '../../api/api';
@@ -333,7 +333,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // but this ensures we never have two streams active at once even if connect() is
     // called directly or there's a race condition
     if (streamRef.current) {
-      console.log('[MoonlightStreamViewer] Closing existing stream before creating new one');
+      console.log('[DesktopStreamViewer] Closing existing stream before creating new one');
       try {
         if (streamRef.current instanceof WebSocketStream) {
           streamRef.current.close();
@@ -347,28 +347,28 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
         }
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing existing stream:', err);
+        console.warn('[DesktopStreamViewer] Error closing existing stream:', err);
       }
       streamRef.current = null;
     }
 
     // Also clean up any SSE resources from previous connection
     if (sseEventSourceRef.current) {
-      console.log('[MoonlightStreamViewer] Closing existing SSE EventSource before new connection');
+      console.log('[DesktopStreamViewer] Closing existing SSE EventSource before new connection');
       try {
         sseEventSourceRef.current.close();
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing SSE EventSource:', err);
+        console.warn('[DesktopStreamViewer] Error closing SSE EventSource:', err);
       }
       sseEventSourceRef.current = null;
     }
     if (sseVideoDecoderRef.current) {
-      console.log('[MoonlightStreamViewer] Closing existing SSE decoder before new connection');
+      console.log('[DesktopStreamViewer] Closing existing SSE decoder before new connection');
       if (sseVideoDecoderRef.current.state !== 'closed') {
         try {
           sseVideoDecoderRef.current.close();
         } catch (err) {
-          console.warn('[MoonlightStreamViewer] Error closing SSE decoder:', err);
+          console.warn('[DesktopStreamViewer] Error closing SSE decoder:', err);
         }
       }
       sseVideoDecoderRef.current = null;
@@ -406,50 +406,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const configResponse = await apiClient.v1ConfigList();
       const moonlightWebMode = configResponse.data.moonlight_web_mode || 'single';
 
-      console.log(`MoonlightStreamViewer: Using moonlight-web mode: ${moonlightWebMode}`);
+      console.log(`[DesktopStreamViewer] Using stream mode: ${moonlightWebMode}`);
 
       // Determine app ID based on mode
+      // Note: For WebSocket mode (default), app ID is not used - we connect directly to the container
+      // Wolf app IDs were only needed for WebRTC/Moonlight modes which are now removed
       let actualAppId = appId;
-
-      if (sandboxId) {
-        // Lobbies mode: Fetch Wolf UI app ID dynamically from Wolf
-        // Pass session_id to identify which Wolf instance to query
-        try {
-          const response = await fetch(`/api/v1/wolf/ui-app-id?session_id=${encodeURIComponent(sessionId)}`, {
-            headers: {
-              'Authorization': `Bearer ${account.user?.token || ''}`,
-            },
-          });
-          if (response.ok) {
-            const data = await response.json();
-            actualAppId = parseInt(data.placeholder_app_id, 10);
-            console.log(`MoonlightStreamViewer: Using placeholder app ID ${actualAppId} for lobbies mode, lobby ${sandboxId}`);
-          } else {
-            const errorText = await response.text();
-            console.warn(`MoonlightStreamViewer: Failed to fetch Wolf UI app ID: ${errorText}`);
-            actualAppId = 0;
-          }
-        } catch (err) {
-          console.warn('Failed to fetch Wolf UI app ID, using default 0:', err);
-          actualAppId = 0;
-        }
-      } else if (sessionId) {
-        // Apps mode: Fetch the specific Wolf app ID for this session
-        try {
-          const wolfStateResponse = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
-          if (wolfStateResponse.data?.wolf_app_id) {
-            actualAppId = parseInt(wolfStateResponse.data.wolf_app_id, 10);
-            console.log(`MoonlightStreamViewer: Using Wolf app ID ${actualAppId} for session ${sessionId}`);
-          }
-        } catch (err) {
-          console.warn('Failed to fetch Wolf app ID, using default:', err);
-        }
-      }
 
       // Get Helix JWT from account context (HttpOnly cookie not readable by JS)
       const helixToken = account.user?.token || '';
 
-      console.log('[MoonlightStreamViewer] Auth check:', {
+      console.log('[DesktopStreamViewer] Auth check:', {
         hasAccount: !!account,
         hasUser: !!account.user,
         hasToken: !!helixToken,
@@ -457,22 +424,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       });
 
       if (!helixToken) {
-        console.error('[MoonlightStreamViewer] No token available:', { account, user: account.user });
+        console.error('[DesktopStreamViewer] No token available:', { account, user: account.user });
         throw new Error('Not authenticated - please log in');
       }
 
-      console.log('[MoonlightStreamViewer] Using Helix token for streaming auth');
+      console.log('[DesktopStreamViewer] Using Helix token for streaming auth');
 
       // Create API instance directly (don't use getApi() - it caches globally)
       // Pointing to moonlight-web via Helix proxy at /moonlight
       // Proxy validates Helix auth via HttpOnly cookie (sent automatically by browser)
       // and injects moonlight-web credentials
-      console.log('[MoonlightStreamViewer] Creating fresh moonlight API instance');
+      console.log('[DesktopStreamViewer] Creating fresh moonlight API instance');
       const api = {
         host_url: `/moonlight`,
         credentials: helixToken,  // For HTTP fetch requests (Authorization header)
       };
-      console.log('[MoonlightStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
+      console.log('[DesktopStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
       // Get streaming bitrate: user-selected > backend config > default
       let streamingBitrateMbps = 10; // Default: 10 Mbps (conservative for low-bandwidth)
@@ -480,17 +447,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       if (userBitrate !== null) {
         // User explicitly selected a bitrate - use it
         streamingBitrateMbps = userBitrate;
-        console.log(`[MoonlightStreamViewer] Using user-selected bitrate: ${streamingBitrateMbps} Mbps`);
+        console.log(`[DesktopStreamViewer] Using user-selected bitrate: ${streamingBitrateMbps} Mbps`);
       } else {
         // Try to get from backend config
         try {
           const configResponse = await apiClient.v1ConfigList();
           if (configResponse.data.streaming_bitrate_mbps) {
             streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
-            console.log(`[MoonlightStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`);
+            console.log(`[DesktopStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`);
           }
         } catch (err) {
-          console.warn('[MoonlightStreamViewer] Failed to fetch streaming bitrate config, using default:', err);
+          console.warn('[DesktopStreamViewer] Failed to fetch streaming bitrate config, using default:', err);
         }
       }
 
@@ -514,16 +481,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       let supportedFormats;
       if (streamingMode === 'websocket') {
         // WebSocket mode uses WebCodecs for decoding - detect actual hardware decoder support
-        console.log('[MoonlightStreamViewer] Detecting WebCodecs supported codecs...');
+        console.log('[DesktopStreamViewer] Detecting WebCodecs supported codecs...');
         supportedFormats = await getWebCodecsSupportedVideoFormats();
-        console.log('[MoonlightStreamViewer] WebCodecs supported formats:', supportedFormats);
+        console.log('[DesktopStreamViewer] WebCodecs supported formats:', supportedFormats);
       } else {
         // WebRTC mode - use standard video format detection
         supportedFormats = getStandardVideoFormats();
       }
 
       // Create Stream instance with mode-aware parameters
-      console.log('[MoonlightStreamViewer] Creating Stream instance', {
+      console.log('[DesktopStreamViewer] Creating Stream instance', {
         mode: moonlightWebMode,
         streamingMode,
         hostId,
@@ -540,16 +507,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // - 'low': Screenshot polling (hot-switched via useEffect)
       if (streamingMode === 'websocket') {
         // WebSocket mode: direct streaming (bypasses Wolf/Moonlight)
-        console.log('[MoonlightStreamViewer] Using direct WebSocket streaming, qualityMode:', qualityMode);
+        console.log('[DesktopStreamViewer] Using direct WebSocket streaming, qualityMode:', qualityMode);
 
         const streamSettings = { ...settings };
 
         if (qualityMode === 'low') {
-          console.log('[MoonlightStreamViewer] Low mode: WebSocket for input + screenshot overlay');
+          console.log('[DesktopStreamViewer] Low mode: WebSocket for input + screenshot overlay');
         } else if (qualityMode === 'sse') {
-          console.log('[MoonlightStreamViewer] SSE mode: WebSocket for input, SSE for video (hot-switched after connect)');
+          console.log('[DesktopStreamViewer] SSE mode: WebSocket for input, SSE for video (hot-switched after connect)');
         } else {
-          console.log('[MoonlightStreamViewer] High mode: WebSocket for video and input');
+          console.log('[DesktopStreamViewer] High mode: WebSocket for video and input');
         }
 
         stream = new WebSocketStream(
@@ -583,17 +550,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Generate a random unique client ID for Wolf session matching
         const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
-        console.log('[MoonlightStreamViewer] Generated clientUniqueId for WebRTC multi:', clientUniqueId);
+        console.log('[DesktopStreamViewer] Generated clientUniqueId for WebRTC multi:', clientUniqueId);
 
         // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
         // This ensures Wolf is ready to attach us to the lobby immediately when we connect
         if (sessionId) {
-          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session for WebRTC multi...');
+          console.log('[DesktopStreamViewer] Pre-configuring Wolf pending session for WebRTC multi...');
           setStatus('Configuring session...');
           const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
             client_unique_id: clientUniqueId,
           });
-          console.log('[MoonlightStreamViewer] Wolf pre-configured for WebRTC multi:', configResponse.data);
+          console.log('[DesktopStreamViewer] Wolf pre-configured for WebRTC multi:', configResponse.data);
         }
 
         stream = new Stream(
@@ -614,17 +581,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // This ID is passed to BOTH the Helix API (to pre-configure Wolf) AND moonlight-web
         // This enables immediate lobby attachment without auto-join polling
         const clientUniqueId = `helix-agent-${crypto.randomUUID()}`;
-        console.log('[MoonlightStreamViewer] Generated clientUniqueId for WebRTC:', clientUniqueId);
+        console.log('[DesktopStreamViewer] Generated clientUniqueId for WebRTC:', clientUniqueId);
 
         // CRITICAL: Pre-configure Wolf with this client ID BEFORE connecting to moonlight-web
         // This ensures Wolf is ready to attach us to the lobby immediately when we connect
         if (sessionId) {
-          console.log('[MoonlightStreamViewer] Pre-configuring Wolf pending session for WebRTC...');
+          console.log('[DesktopStreamViewer] Pre-configuring Wolf pending session for WebRTC...');
           setStatus('Configuring session...');
           const configResponse = await apiClient.v1ExternalAgentsConfigurePendingSessionCreate(sessionId, {
             client_unique_id: clientUniqueId,
           });
-          console.log('[MoonlightStreamViewer] Wolf pre-configured for WebRTC:', configResponse.data);
+          console.log('[DesktopStreamViewer] Wolf pre-configured for WebRTC:', configResponse.data);
         }
 
         // Notify parent component of calculated client ID
@@ -677,7 +644,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             clearTimeout(videoStartTimeoutRef.current);
           }
           videoStartTimeoutRef.current = setTimeout(() => {
-            console.error('[MoonlightStreamViewer] Video start timeout - Wolf pipeline may have failed');
+            console.error('[DesktopStreamViewer] Video start timeout - Wolf pipeline may have failed');
             setError('Video stream failed to start. The streaming server may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
             setIsConnecting(false);
             setIsConnected(false);
@@ -697,7 +664,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             // This prevents the server from sending video frames we can't render
             // AND ensures setVideoEnabled(true) works when switching to 'high' mode later
             if (stream instanceof WebSocketStream) {
-              console.log('[MoonlightStreamViewer] Starting in low mode - disabling WS video');
+              console.log('[DesktopStreamViewer] Starting in low mode - disabling WS video');
               stream.setVideoEnabled(false);
             }
           } else {
@@ -708,7 +675,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         } else if (data.type === 'videoStarted') {
           // First keyframe received and being decoded - video is now visible
           // Only relevant for WebSocket video mode ('high')
-          console.log('[MoonlightStreamViewer] Video started - hiding connecting overlay');
+          console.log('[DesktopStreamViewer] Video started - hiding connecting overlay');
           // Clear video start timeout - video arrived successfully
           if (videoStartTimeoutRef.current) {
             clearTimeout(videoStartTimeoutRef.current);
@@ -725,7 +692,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Ignore errors during explicit close (e.g., bitrate change, mode switch)
           // These are expected and should not show error UI
           if (isExplicitlyClosingRef.current) {
-            console.log('[MoonlightStreamViewer] Ignoring error during explicit close:', data.message);
+            console.log('[DesktopStreamViewer] Ignoring error during explicit close:', data.message);
             return;
           }
 
@@ -741,7 +708,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             const nextAttempt = retryAttemptRef.current;
             const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
 
-            console.warn(`[MoonlightStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
+            console.warn(`[DesktopStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
 
             setRetryAttemptDisplay(nextAttempt);
             setRetryCountdown(retryDelaySeconds);
@@ -759,7 +726,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
             // Retry after delay
             setTimeout(() => {
-              console.log(`[MoonlightStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`);
+              console.log(`[DesktopStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`);
               setRetryCountdown(null);
               reconnectRef.current(1000, 'Reconnecting...');
             }, retryDelaySeconds * 1000);
@@ -782,24 +749,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setStatus(data.stage);
         } else if (data.type === 'disconnected') {
           // WebSocket disconnected
-          console.log('[MoonlightStreamViewer] Stream disconnected');
+          console.log('[DesktopStreamViewer] Stream disconnected');
           setIsConnected(false);
           onConnectionChange?.(false);
 
           // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
           // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
           if (isExplicitlyClosingRef.current) {
-            console.log('[MoonlightStreamViewer] Explicit close - showing Disconnected overlay');
+            console.log('[DesktopStreamViewer] Explicit close - showing Disconnected overlay');
             setIsConnecting(false);
             setStatus('Disconnected');
           } else {
-            console.log('[MoonlightStreamViewer] Unexpected disconnect - will auto-reconnect');
+            console.log('[DesktopStreamViewer] Unexpected disconnect - will auto-reconnect');
             setIsConnecting(true);
             setStatus('Reconnecting...');
           }
         } else if (data.type === 'reconnecting') {
           // Show reconnection attempt in status
-          console.log(`[MoonlightStreamViewer] Reconnecting attempt ${data.attempt}`);
+          console.log(`[DesktopStreamViewer] Reconnecting attempt ${data.attempt}`);
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
         }
@@ -830,7 +797,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const nextAttempt = retryAttemptRef.current;
         const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
 
-        console.warn(`[MoonlightStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
+        console.warn(`[DesktopStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
 
         setRetryAttemptDisplay(nextAttempt);
         setRetryCountdown(retryDelaySeconds);
@@ -848,7 +815,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
         // Retry after delay
         setTimeout(() => {
-          console.log(`[MoonlightStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`);
+          console.log(`[DesktopStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`);
           setRetryCountdown(null);
           setStatus('Reconnecting...');
           setIsConnecting(true);
@@ -870,7 +837,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Disconnect
   // preserveState: if true, don't reset status/isConnecting (used during planned reconnects)
   const disconnect = useCallback((preserveState = false) => {
-    console.log('[MoonlightStreamViewer] disconnect() called, cleaning up stream resources, preserveState:', preserveState);
+    console.log('[DesktopStreamViewer] disconnect() called, cleaning up stream resources, preserveState:', preserveState);
 
     // Mark as explicitly closing to prevent 'disconnected' event from showing "Reconnecting..." UI
     isExplicitlyClosingRef.current = true;
@@ -880,7 +847,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Cancel any pending reconnect timeout
     if (pendingReconnectTimeoutRef.current) {
-      console.log('[MoonlightStreamViewer] Cancelling pending reconnect timeout in disconnect');
+      console.log('[DesktopStreamViewer] Cancelling pending reconnect timeout in disconnect');
       clearTimeout(pendingReconnectTimeoutRef.current);
       pendingReconnectTimeoutRef.current = null;
     }
@@ -893,33 +860,33 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Close SSE EventSource if it exists (from hot-switch or initial SSE mode)
     if (sseEventSourceRef.current) {
-      console.log('[MoonlightStreamViewer] Closing SSE EventSource...');
+      console.log('[DesktopStreamViewer] Closing SSE EventSource...');
       try {
         sseEventSourceRef.current.close();
         sseEventSourceRef.current = null;
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing SSE EventSource:', err);
+        console.warn('[DesktopStreamViewer] Error closing SSE EventSource:', err);
       }
     }
     if (sseVideoDecoderRef.current) {
-      console.log('[MoonlightStreamViewer] Closing SSE VideoDecoder...');
+      console.log('[DesktopStreamViewer] Closing SSE VideoDecoder...');
       if (sseVideoDecoderRef.current.state !== 'closed') {
         try {
           sseVideoDecoderRef.current.close();
         } catch (err) {
-          console.warn('[MoonlightStreamViewer] Error closing SSE VideoDecoder:', err);
+          console.warn('[DesktopStreamViewer] Error closing SSE VideoDecoder:', err);
         }
       }
       sseVideoDecoderRef.current = null;
     }
     // Also check for legacy SSE EventSource stored on stream object
     if (streamRef.current && (streamRef.current as any)._sseEventSource) {
-      console.log('[MoonlightStreamViewer] Closing legacy SSE EventSource...');
+      console.log('[DesktopStreamViewer] Closing legacy SSE EventSource...');
       try {
         (streamRef.current as any)._sseEventSource.close();
         (streamRef.current as any)._sseEventSource = null;
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error closing legacy SSE EventSource:', err);
+        console.warn('[DesktopStreamViewer] Error closing legacy SSE EventSource:', err);
       }
     }
 
@@ -928,21 +895,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       try {
         if (streamRef.current instanceof WebSocketStream) {
           // WebSocketStream (has close() method)
-          console.log('[MoonlightStreamViewer] Closing WebSocketStream...');
+          console.log('[DesktopStreamViewer] Closing WebSocketStream...');
           streamRef.current.close();
         } else {
           // WebRTC Stream - close WebSocket and RTCPeerConnection
-          console.log('[MoonlightStreamViewer] Closing WebSocket and RTCPeerConnection...');
+          console.log('[DesktopStreamViewer] Closing WebSocket and RTCPeerConnection...');
 
           // Close WebSocket connection if it exists
           if ((streamRef.current as any).ws) {
-            console.log('[MoonlightStreamViewer] Closing WebSocket, readyState:', (streamRef.current as any).ws.readyState);
+            console.log('[DesktopStreamViewer] Closing WebSocket, readyState:', (streamRef.current as any).ws.readyState);
             (streamRef.current as any).ws.close();
           }
 
           // Close RTCPeerConnection if it exists
           if ((streamRef.current as any).peer) {
-            console.log('[MoonlightStreamViewer] Closing RTCPeerConnection');
+            console.log('[DesktopStreamViewer] Closing RTCPeerConnection');
             (streamRef.current as any).peer.close();
           }
 
@@ -950,18 +917,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           const mediaStream = (streamRef.current as Stream).getMediaStream();
           if (mediaStream) {
             const tracks = mediaStream.getTracks();
-            console.log('[MoonlightStreamViewer] Stopping', tracks.length, 'media tracks');
+            console.log('[DesktopStreamViewer] Stopping', tracks.length, 'media tracks');
             tracks.forEach((track: MediaStreamTrack) => track.stop());
           }
         }
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Error during stream cleanup:', err);
+        console.warn('[DesktopStreamViewer] Error during stream cleanup:', err);
       }
 
       streamRef.current = null;
-      console.log('[MoonlightStreamViewer] Stream reference cleared');
+      console.log('[DesktopStreamViewer] Stream reference cleared');
     } else {
-      console.log('[MoonlightStreamViewer] No active stream to disconnect');
+      console.log('[DesktopStreamViewer] No active stream to disconnect');
     }
 
     if (videoRef.current) {
@@ -985,7 +952,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     currentScreenshotVideoIdRef.current = null;
     currentWebRtcStreamIdRef.current = null;
 
-    console.log('[MoonlightStreamViewer] disconnect() completed');
+    console.log('[DesktopStreamViewer] disconnect() completed');
   }, [clearAllConnections]);
 
   // Ref to connect function for use in setTimeout (avoids stale closure issues)
@@ -998,7 +965,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // CRITICAL: Cancel any pending reconnect to prevent duplicate streams
     // This happens when user rapidly changes bitrate or mode
     if (pendingReconnectTimeoutRef.current) {
-      console.log('[MoonlightStreamViewer] Cancelling pending reconnect');
+      console.log('[DesktopStreamViewer] Cancelling pending reconnect');
       clearTimeout(pendingReconnectTimeoutRef.current);
       pendingReconnectTimeoutRef.current = null;
     }
@@ -1059,14 +1026,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     const prevMode = previousStreamingModeRef.current;
     const newMode = streamingMode;
-    console.log('[MoonlightStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
+    console.log('[DesktopStreamViewer] Streaming mode changed from', prevMode, 'to', newMode);
     previousStreamingModeRef.current = newMode;
 
     // CRITICAL: Reset qualityMode to 'high' when switching streaming modes
     // This prevents state bleeding (e.g., screenshot polling continuing in WebRTC mode)
     // qualityMode only applies to websocket streaming, so reset it to default when changing protocols
     if (qualityMode !== 'high') {
-      console.log('[MoonlightStreamViewer] Resetting qualityMode to high for streaming mode switch');
+      console.log('[DesktopStreamViewer] Resetting qualityMode to high for streaming mode switch');
       setQualityMode('high');
       previousQualityModeRef.current = 'high';
       setIsOnFallback(false);
@@ -1075,7 +1042,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // CRITICAL: Explicitly clean up SSE resources before reconnecting
     // The disconnect() call inside reconnect may race with qualityMode effects
     if (sseEventSourceRef.current) {
-      console.log('[MoonlightStreamViewer] Closing SSE EventSource for streaming mode switch');
+      console.log('[DesktopStreamViewer] Closing SSE EventSource for streaming mode switch');
       sseEventSourceRef.current.close();
       sseEventSourceRef.current = null;
     }
@@ -1084,7 +1051,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         try {
           sseVideoDecoderRef.current.close();
         } catch (err) {
-          console.warn('[MoonlightStreamViewer] Error closing SSE decoder:', err);
+          console.warn('[DesktopStreamViewer] Error closing SSE decoder:', err);
         }
       }
       sseVideoDecoderRef.current = null;
@@ -1098,7 +1065,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     hasInitializedSseRef.current = false;
 
     // Switching between websocket and webrtc requires full reconnect (different protocols)
-    console.log('[MoonlightStreamViewer] Full reconnect needed for mode switch');
+    console.log('[DesktopStreamViewer] Full reconnect needed for mode switch');
     const modeLabel = newMode === 'webrtc' ? 'WebRTC' : 'WebSocket';
     // Use reconnectRef to get the latest reconnect function (avoids stale closure)
     reconnectRef.current(1000, `Switching to ${modeLabel}...`);
@@ -1118,7 +1085,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     const prevMode = previousQualityModeRef.current;
     const newMode = qualityMode;
-    console.log('[MoonlightStreamViewer] Quality mode changed from', prevMode, 'to', newMode);
+    console.log('[DesktopStreamViewer] Quality mode changed from', prevMode, 'to', newMode);
     previousQualityModeRef.current = newMode;
 
     // Update fallback state immediately for UI feedback
@@ -1126,7 +1093,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Only hot-switch if connected with WebSocket stream
     if (!isConnected || !streamRef.current || !(streamRef.current instanceof WebSocketStream)) {
-      console.log('[MoonlightStreamViewer] Not connected or not WebSocket stream, skipping hot-switch');
+      console.log('[DesktopStreamViewer] Not connected or not WebSocket stream, skipping hot-switch');
       return;
     }
 
@@ -1135,7 +1102,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Step 1: Teardown previous mode's video source
     if (prevMode === 'sse') {
       // Close SSE connection
-      console.log('[MoonlightStreamViewer] Closing SSE for quality mode switch');
+      console.log('[DesktopStreamViewer] Closing SSE for quality mode switch');
       if (sseEventSourceRef.current) {
         sseEventSourceRef.current.close();
         sseEventSourceRef.current = null;
@@ -1158,7 +1125,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
     } else if (prevMode === 'high') {
       // Disable WS video (will be re-enabled if switching back to 'high')
-      console.log('[MoonlightStreamViewer] Disabling WS video for quality mode switch');
+      console.log('[DesktopStreamViewer] Disabling WS video for quality mode switch');
       wsStream.setVideoEnabled(false);
       // Unregister WebSocket video connection
       if (currentWebSocketVideoIdRef.current) {
@@ -1172,7 +1139,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Step 2: Setup new mode's video source
     if (newMode === 'high') {
       // Enable WS video
-      console.log('[MoonlightStreamViewer] Enabling WS video for high mode');
+      console.log('[DesktopStreamViewer] Enabling WS video for high mode');
       // Show loading overlay while waiting for first video frame
       // The videoStarted event will hide it (handler already exists for initial connection)
       setIsConnecting(true);
@@ -1185,7 +1152,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // CRITICAL: Disable WS video before opening SSE to prevent duplicate video streams
       // This is redundant if coming from 'high' (already disabled above) but ensures
       // WS video is definitely off regardless of previous mode
-      console.log('[MoonlightStreamViewer] Disabling WS video before SSE setup');
+      console.log('[DesktopStreamViewer] Disabling WS video before SSE setup');
       // Show loading overlay while waiting for first SSE video frame
       setIsConnecting(true);
       setStatus('Switching to SSE stream...');
@@ -1194,12 +1161,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Defensive cleanup: close any stale SSE resources before opening new ones
       // This handles edge cases like rapid mode cycling or race conditions
       if (sseEventSourceRef.current) {
-        console.log('[MoonlightStreamViewer] Closing stale SSE EventSource before reopening');
+        console.log('[DesktopStreamViewer] Closing stale SSE EventSource before reopening');
         sseEventSourceRef.current.close();
         sseEventSourceRef.current = null;
       }
       if (sseVideoDecoderRef.current) {
-        console.log('[MoonlightStreamViewer] Closing stale SSE decoder before reopening');
+        console.log('[DesktopStreamViewer] Closing stale SSE decoder before reopening');
         if (sseVideoDecoderRef.current.state !== 'closed') {
           try {
             sseVideoDecoderRef.current.close();
@@ -1213,7 +1180,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // Open SSE connection for video
       // TODO: SSE mode still uses moonlight path - will need to be updated or removed
       const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
-      console.log('[MoonlightStreamViewer] Opening SSE for video:', sseUrl);
+      console.log('[DesktopStreamViewer] Opening SSE for video:', sseUrl);
 
       const eventSource = new EventSource(sseUrl, { withCredentials: true });
       sseEventSourceRef.current = eventSource;
@@ -1424,7 +1391,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     } else if (newMode === 'low') {
       // CRITICAL: Disable WS video for screenshot mode to prevent video streaming
       // This is redundant with the video control effect but ensures WS video is definitely off
-      console.log('[MoonlightStreamViewer] Disabling WS video for screenshot mode');
+      console.log('[DesktopStreamViewer] Disabling WS video for screenshot mode');
       // Show loading overlay while waiting for first screenshot
       // This prevents a black screen gap between video disappearing and screenshot appearing
       setIsConnecting(true);
@@ -1455,12 +1422,12 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Check if SSE was already set up by hot-switch (prevents duplicate EventSource)
     // This can happen when user switches to SSE mode after connecting in another mode
     if (sseEventSourceRef.current) {
-      console.log('[MoonlightStreamViewer] SSE already initialized by hot-switch, skipping duplicate setup');
+      console.log('[DesktopStreamViewer] SSE already initialized by hot-switch, skipping duplicate setup');
       hasInitializedSseRef.current = true;
       return;
     }
 
-    console.log('[MoonlightStreamViewer] Initial connection with SSE mode - setting up SSE video');
+    console.log('[DesktopStreamViewer] Initial connection with SSE mode - setting up SSE video');
     hasInitializedSseRef.current = true;
 
     const wsStream = streamRef.current as WebSocketStream;
@@ -1471,7 +1438,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Open SSE connection for video
     // TODO: SSE mode still uses moonlight path - will need to be updated or removed
     const sseUrl = `/moonlight/api/sse/video?session_id=${encodeURIComponent(sessionId || '')}`;
-    console.log('[MoonlightStreamViewer] Opening SSE for initial video:', sseUrl);
+    console.log('[DesktopStreamViewer] Opening SSE for initial video:', sseUrl);
 
     const eventSource = new EventSource(sseUrl, { withCredentials: true });
     sseEventSourceRef.current = eventSource;
@@ -1712,7 +1679,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     if (hasConnectedRef.current && !hasEverConnectedRef.current) {
       // Only log once per bitrate change, not on every re-render
       if (previousUserBitrateRef.current !== userBitrate) {
-        console.log('[MoonlightStreamViewer] Skipping bitrate-change reconnect (initial connection in progress)');
+        console.log('[DesktopStreamViewer] Skipping bitrate-change reconnect (initial connection in progress)');
       }
       previousUserBitrateRef.current = userBitrate;
       return;
@@ -1720,7 +1687,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Reconnect if bitrate actually changed (including from null to a value)
     if (previousUserBitrateRef.current !== userBitrate) {
       const prevBitrate = previousUserBitrateRef.current;
-      console.log('[MoonlightStreamViewer] Bitrate changed from', prevBitrate, 'to', userBitrate);
+      console.log('[DesktopStreamViewer] Bitrate changed from', prevBitrate, 'to', userBitrate);
 
       // Build informative status so user knows WHY we're reconnecting
       const reason = userBitrate !== null
@@ -1737,8 +1704,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Detect lobby changes and reconnect (for test script restart scenarios)
   useEffect(() => {
     if (sandboxId && previousLobbyIdRef.current && previousLobbyIdRef.current !== sandboxId) {
-      console.log('[MoonlightStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', sandboxId);
-      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby');
+      console.log('[DesktopStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', sandboxId);
+      console.log('[DesktopStreamViewer] Disconnecting old stream and reconnecting to new lobby');
       // Use reconnectRef to get the latest reconnect function (avoids stale closure)
       reconnectRef.current(1000, 'Reconnecting to new lobby...');
     }
@@ -1824,15 +1791,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Wait for component to become visible before connecting
     // This prevents wasting bandwidth on hidden tabs/components
     if (!isVisible) {
-      console.log('[MoonlightStreamViewer] Waiting for component to become visible before connecting...');
+      console.log('[DesktopStreamViewer] Waiting for component to become visible before connecting...');
       return;
     }
 
-    // If sandboxId prop is expected but not yet loaded, wait for it
-    // We detect this by checking if sessionId is provided (external agent mode)
-    // In this mode, sandboxId should be provided by the parent once session data loads
-    if (sessionId && !sandboxId) {
-      console.log('[MoonlightStreamViewer] Waiting for sandboxId to load before connecting...');
+    // For WebSocket mode (default), we only need sessionId - don't wait for sandboxId
+    // sandboxId was only needed for Wolf/Moonlight WebRTC modes which are now removed
+    // The WebSocketStream connects directly via /api/v1/external-agents/{sessionId}/ws/stream
+    if (sessionId && streamingMode !== 'websocket' && !sandboxId) {
+      console.log('[DesktopStreamViewer] Waiting for sandboxId to load before connecting...');
       return;
     }
 
@@ -1842,21 +1809,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Show connecting overlay so user sees the probe status
       setIsConnecting(true);
-      console.log('[MoonlightStreamViewer] Probing bandwidth before initial connection...');
+      console.log('[DesktopStreamViewer] Probing bandwidth before initial connection...');
       setStatus('Measuring bandwidth...');
 
       const throughput = await runInitialBandwidthProbe();
 
       if (throughput > 0) {
         const optimalBitrate = calculateOptimalBitrate(throughput);
-        console.log(`[MoonlightStreamViewer] Initial probe: ${throughput.toFixed(1)} Mbps → starting at ${optimalBitrate} Mbps`);
+        console.log(`[DesktopStreamViewer] Initial probe: ${throughput.toFixed(1)} Mbps → starting at ${optimalBitrate} Mbps`);
         setUserBitrate(optimalBitrate);
         setRequestedBitrate(optimalBitrate);
       } else {
-        console.log('[MoonlightStreamViewer] Initial probe failed, using default 10 Mbps');
+        console.log('[DesktopStreamViewer] Initial probe failed, using default 10 Mbps');
       }
 
-      console.log('[MoonlightStreamViewer] Auto-connecting with sandboxId:', sandboxId);
+      console.log('[DesktopStreamViewer] Auto-connecting with sandboxId:', sandboxId);
       connect();
     };
 
@@ -1866,9 +1833,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // Cleanup on unmount
   useEffect(() => {
-    console.log('[MoonlightStreamViewer] Component mounted, setting up cleanup handler');
+    console.log('[DesktopStreamViewer] Component mounted, setting up cleanup handler');
     return () => {
-      console.log('[MoonlightStreamViewer] Component unmounting, calling disconnect()');
+      console.log('[DesktopStreamViewer] Component unmounting, calling disconnect()');
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1915,10 +1882,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Only control WS video for 'high' and 'low' modes
     // SSE mode handles its own video enable/disable in the SSE setup effects
     if (qualityMode === 'low') {
-      console.log('[MoonlightStreamViewer] Screenshot mode - disabling WS video');
+      console.log('[DesktopStreamViewer] Screenshot mode - disabling WS video');
       stream.setVideoEnabled(false);
     } else if (qualityMode === 'high') {
-      console.log('[MoonlightStreamViewer] High quality mode - enabling WS video');
+      console.log('[DesktopStreamViewer] High quality mode - enabling WS video');
       stream.setVideoEnabled(true);
     }
     // SSE mode: do nothing here - SSE setup/hot-switch handles video state
@@ -1939,7 +1906,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       return;
     }
 
-    console.log('[MoonlightStreamViewer] Starting screenshot polling (low mode)');
+    console.log('[DesktopStreamViewer] Starting screenshot polling (low mode)');
 
     // Register screenshot polling connection
     if (currentScreenshotVideoIdRef.current) {
@@ -1965,7 +1932,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         const response = await fetch(endpoint);
 
         if (!response.ok) {
-          console.warn('[MoonlightStreamViewer] Screenshot fetch failed:', response.status);
+          console.warn('[DesktopStreamViewer] Screenshot fetch failed:', response.status);
           // Schedule next fetch after a short delay on error
           if (isPolling) setTimeout(fetchScreenshot, 200);
           return;
@@ -2045,7 +2012,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         };
         img.src = newUrl;
       } catch (err) {
-        console.warn('[MoonlightStreamViewer] Screenshot fetch error:', err);
+        console.warn('[DesktopStreamViewer] Screenshot fetch error:', err);
         // Schedule next fetch after a short delay on error
         if (isPolling) setTimeout(fetchScreenshot, 200);
       }
@@ -2361,7 +2328,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && !isVisible) {
-          console.log('[MoonlightStreamViewer] Component became visible - will trigger connection');
+          console.log('[DesktopStreamViewer] Component became visible - will trigger connection');
           setIsVisible(true);
         }
         // Note: we don't set isVisible=false when hidden - once connected, stay connected
@@ -2843,7 +2810,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     event.preventDefault();
     const handler = getInputHandler();
     const rect = getStreamRect();
-    console.log(`[MoonlightStreamViewer] handleMouseDown: handler=${!!handler}, rect=${rect.width}x${rect.height}`);
+    console.log(`[DesktopStreamViewer] handleMouseDown: handler=${!!handler}, rect=${rect.width}x${rect.height}`);
     handler?.onMouseDown(event.nativeEvent, rect);
   }, [getStreamRect, getInputHandler]);
 
@@ -2894,7 +2861,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const input = getInputHandler();
     if (!input) return;
 
-    console.log('[MoonlightStreamViewer] Resetting stuck input state (modifiers + mouse buttons)');
+    console.log('[DesktopStreamViewer] Resetting stuck input state (modifiers + mouse buttons)');
 
     // Send key-up events for all modifier keys to clear stuck state
     const modifierKeys = [
@@ -2929,7 +2896,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       input.onMouseUp(fakeMouseEvent);
     }
 
-    console.log('[MoonlightStreamViewer] Input state reset complete');
+    console.log('[DesktopStreamViewer] Input state reset complete');
   }, []);
 
   // Attach native keyboard event listeners when connected
@@ -2951,7 +2918,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       // Only process if container is focused
       if (document.activeElement !== container) {
-        console.log('[MoonlightStreamViewer] KeyDown ignored - container not focused. Active element:', document.activeElement?.tagName);
+        console.log('[DesktopStreamViewer] KeyDown ignored - container not focused. Active element:', document.activeElement?.tagName);
         return;
       }
 
@@ -2969,7 +2936,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       if (event.code === 'Escape') {
         const now = Date.now();
         if (now - lastEscapeTime < 500) { // 500ms window for double-press
-          console.log('[MoonlightStreamViewer] Double-Escape detected - resetting input state');
+          console.log('[DesktopStreamViewer] Double-Escape detected - resetting input state');
           resetInputState();
           event.preventDefault();
           event.stopPropagation();
@@ -3166,7 +3133,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return; // Don't fall through to default handler
       }
 
-      console.log('[MoonlightStreamViewer] KeyDown captured:', event.key, event.code);
+      console.log('[DesktopStreamViewer] KeyDown captured:', event.key, event.code);
       getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
@@ -3177,7 +3144,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     const handleKeyUp = (event: KeyboardEvent) => {
       // Only process if container is focused
       if (document.activeElement !== container) {
-        console.log('[MoonlightStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        console.log('[DesktopStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
         return;
       }
 
@@ -3209,7 +3176,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
-      console.log('[MoonlightStreamViewer] KeyUp captured:', event.key, event.code);
+      console.log('[DesktopStreamViewer] KeyUp captured:', event.key, event.code);
       getInput()?.onKeyUp(event);
       // Prevent browser default behavior to ensure all keys are passed through
       event.preventDefault();
@@ -3218,7 +3185,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
     const handleWindowFocus = () => {
-      console.log('[MoonlightStreamViewer] Window regained focus - resetting input state to prevent desync');
+      console.log('[DesktopStreamViewer] Window regained focus - resetting input state to prevent desync');
       resetInputState();
     };
 
@@ -3606,7 +3573,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         onCanPlay={() => {
           // WebRTC mode: hide overlay when video is ready to play
           if (streamingMode === 'webrtc') {
-            console.log('[MoonlightStreamViewer] WebRTC video can play - hiding overlay');
+            console.log('[DesktopStreamViewer] WebRTC video can play - hiding overlay');
             // Clear video start timeout - video arrived successfully
             if (videoStartTimeoutRef.current) {
               clearTimeout(videoStartTimeoutRef.current);

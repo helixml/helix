@@ -213,13 +213,13 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 
 // buildHostConfig builds the host configuration for the container
 func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *container.HostConfig {
-	// Use the network from the request if specified, otherwise default to helix_default.
+	// Use the network from the request if specified, otherwise default to bridge.
 	// Previously we used host network mode which caused port conflicts when running
 	// multiple desktop containers (they all shared ports 9876/9877).
-	// With helix_default network, each container gets its own IP and can use the same ports.
+	// With bridge network, each container gets its own IP and can use the same ports.
 	networkMode := container.NetworkMode(req.Network)
 	if networkMode == "" {
-		networkMode = "helix_default"
+		networkMode = "bridge"
 	}
 
 	hostConfig := &container.HostConfig{
@@ -237,7 +237,7 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) *
 	}
 
 	// Add ExtraHosts so the container can resolve "api" hostname.
-	// The container is on helix_default network but needs to reach the API
+	// The container is on bridge network but needs to reach the API
 	// on the helix_* Docker network. We resolve "api" from the sandbox's
 	// perspective and add it as an extra host entry.
 	hostConfig.ExtraHosts = dm.buildExtraHosts()
@@ -266,7 +266,7 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) []mou
 
 // buildExtraHosts resolves hostnames that the container needs to reach
 // and returns them as Docker ExtraHosts entries (format: "hostname:ip").
-// This is needed because containers on helix_default network can't resolve
+// This is needed because containers on bridge network can't resolve
 // the "api" hostname which lives on the helix_* Docker Compose network.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string

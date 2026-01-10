@@ -175,7 +175,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerType: hydra.DevContainerType(containerType),
 		GPUVendor:     h.gpuVendor,
 		UserID:        agent.UserID,
-		Network:       "helix_default",
+		Network:       "bridge",
 	}
 
 	// If Hydra Docker isolation is enabled, create isolated dockerd first

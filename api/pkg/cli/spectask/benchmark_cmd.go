@@ -23,6 +23,7 @@ func newBenchmarkCommand() *cobra.Command {
 	var width, height, fps, bitrate int
 	var skipVkcube bool
 	var videoMode string
+	var outputFile string
 
 	cmd := &cobra.Command{
 		Use:   "benchmark <session-id>",
@@ -58,7 +59,7 @@ Examples:
 			apiURL := getAPIURL()
 			token := getToken()
 
-			return runBenchmark(apiURL, token, sessionID, duration, width, height, fps, bitrate, skipVkcube, videoMode)
+			return runBenchmark(apiURL, token, sessionID, duration, width, height, fps, bitrate, skipVkcube, videoMode, outputFile)
 		},
 	}
 
@@ -69,11 +70,12 @@ Examples:
 	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video bitrate in kbps")
 	cmd.Flags().BoolVar(&skipVkcube, "skip-vkcube", false, "Skip vkcube check (for static screen testing)")
 	cmd.Flags().StringVar(&videoMode, "video-mode", "", "Video capture mode: shm, native, or zerocopy (default: container env)")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write raw H.264 video frames to file")
 
 	return cmd
 }
 
-func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps, bitrate int, skipVkcube bool, videoMode string) error {
+func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps, bitrate int, skipVkcube bool, videoMode, outputFile string) error {
 	fmt.Printf("🚀 Video Streaming Benchmark\n")
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	fmt.Printf("Session:    %s\n", sessionID)
@@ -83,7 +85,21 @@ func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps,
 	if videoMode != "" {
 		fmt.Printf("Video Mode: %s\n", videoMode)
 	}
+	if outputFile != "" {
+		fmt.Printf("Output:     %s\n", outputFile)
+	}
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+	// Open output file if specified
+	var outFile *os.File
+	if outputFile != "" {
+		var err error
+		outFile, err = os.Create(outputFile)
+		if err != nil {
+			return fmt.Errorf("failed to create output file: %w", err)
+		}
+		defer outFile.Close()
+	}
 
 	// Start vkcube for GPU stress test (generates continuous frame updates)
 	if !skipVkcube {
@@ -201,6 +217,11 @@ func runBenchmark(apiURL, token, sessionID string, duration, width, height, fps,
 						if frameSize > stats.maxFrameSize {
 							stats.maxFrameSize = frameSize
 						}
+
+						// Write raw H.264 frame data to file (skip 15-byte header)
+						if outFile != nil && frameSize > 0 {
+							outFile.Write(data[15:])
+						}
 					}
 				} else if wsMsgType == WsMsgStreamInit && len(data) >= 7 {
 					stats.codec = data[1]
@@ -262,6 +283,15 @@ cleanup:
 
 	// Print final results
 	printBenchmarkResults(stats, duration, fps)
+
+	// Report output file
+	if outFile != nil {
+		fileInfo, err := outFile.Stat()
+		if err == nil {
+			fmt.Printf("\n📹 Video saved to: %s (%s)\n", outputFile, formatBytes(fileInfo.Size()))
+			fmt.Printf("   Play with: ffplay -f h264 %s\n", outputFile)
+		}
+	}
 
 	return nil
 }

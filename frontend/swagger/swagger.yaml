@@ -761,38 +761,12 @@ definitions:
     type: object
   server.AgentSandboxesDebugResponse:
     properties:
-      apps:
-        description: Apps mode
-        items:
-          $ref: '#/definitions/server.WolfAppInfo'
-        type: array
-      gpu_stats:
-        allOf:
-        - $ref: '#/definitions/server.GPUStats'
-        description: GPU encoder stats from Wolf (via nvidia-smi or rocm-smi)
-      gstreamer_pipelines:
-        allOf:
-        - $ref: '#/definitions/server.GStreamerPipelineStats'
-        description: Actual pipeline count from Wolf
-      lobbies:
-        description: Lobbies mode
-        items:
-          $ref: '#/definitions/server.WolfLobbyInfo'
-        type: array
-      memory:
-        $ref: '#/definitions/server.WolfSystemMemory'
-      moonlight_clients:
-        description: moonlight-web client connections
-        items:
-          $ref: '#/definitions/server.MoonlightClientInfo'
-        type: array
-      sessions:
-        items:
-          $ref: '#/definitions/server.WolfSessionInfo'
-        type: array
-      wolf_mode:
-        description: Current Wolf mode ("apps" or "lobbies")
+      message:
         type: string
+      sandboxes:
+        items:
+          $ref: '#/definitions/server.SandboxInstanceInfo'
+        type: array
     type: object
   server.AppCreateResponse:
     properties:
@@ -910,49 +884,6 @@ definitions:
       project_id:
         type: string
     type: object
-  server.GPUStats:
-    properties:
-      available:
-        description: false if nvidia-smi failed
-        type: boolean
-      encoder_average_fps:
-        type: number
-      encoder_average_latency_us:
-        type: integer
-      encoder_session_count:
-        type: integer
-      encoder_utilization_percent:
-        type: integer
-      error:
-        type: string
-      gpu_name:
-        type: string
-      gpu_utilization_percent:
-        type: integer
-      memory_total_mb:
-        type: integer
-      memory_used_mb:
-        type: integer
-      memory_utilization_percent:
-        type: integer
-      query_duration_ms:
-        description: How long nvidia-smi took in Wolf
-        type: integer
-      temperature_celsius:
-        type: integer
-    type: object
-  server.GStreamerPipelineStats:
-    properties:
-      consumer_pipelines:
-        description: Video + audio consumers (2 per session)
-        type: integer
-      producer_pipelines:
-        description: Video + audio producers (2 per lobby)
-        type: integer
-      total_pipelines:
-        description: Sum of producers + consumers
-        type: integer
-    type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
       organization_id:
@@ -1035,20 +966,6 @@ definitions:
       original_provider:
         type: string
       reason:
-        type: string
-    type: object
-  server.MoonlightClientInfo:
-    properties:
-      client_unique_id:
-        description: Unique Moonlight client ID (null for browser clients)
-        type: string
-      has_websocket:
-        description: Is a WebRTC client currently connected?
-        type: boolean
-      mode:
-        description: '"create", "keepalive", "join"'
-        type: string
-      session_id:
         type: string
     type: object
   server.PhaseProgress:
@@ -1201,6 +1118,27 @@ definitions:
           $ref: '#/definitions/server.SampleType'
         type: array
     type: object
+  server.SandboxInstanceInfo:
+    properties:
+      container_id:
+        type: string
+      id:
+        type: string
+      session_id:
+        type: string
+      status:
+        type: string
+    type: object
+  server.SessionSandboxStateResponse:
+    properties:
+      container_id:
+        type: string
+      session_id:
+        type: string
+      state:
+        description: '"absent", "running", "starting"'
+        type: string
+    type: object
   server.SessionTOCEntry:
     properties:
       created:
@@ -1237,22 +1175,6 @@ definitions:
         type: string
       total_turns:
         type: integer
-    type: object
-  server.SessionWolfAppStateResponse:
-    properties:
-      client_unique_id:
-        description: Unique Moonlight client ID for this agent
-        type: string
-      has_websocket:
-        description: Is a browser client currently connected?
-        type: boolean
-      session_id:
-        type: string
-      state:
-        description: '"absent", "running", "resumable"'
-        type: string
-      wolf_app_id:
-        type: string
     type: object
   server.SharePointSiteResolveRequest:
     properties:
@@ -1312,6 +1234,8 @@ definitions:
     type: object
   server.SpecTaskExternalAgentStatusResponse:
     properties:
+      container_app_id:
+        type: string
       exists:
         type: boolean
       external_agent_id:
@@ -1330,8 +1254,6 @@ definitions:
         type: boolean
       will_terminate_in:
         type: integer
-      wolf_app_id:
-        type: string
       workspace_dir:
         type: string
     type: object
@@ -1374,140 +1296,6 @@ definitions:
         type: string
       technical_design:
         type: string
-    type: object
-  server.WolfAppInfo:
-    properties:
-      id:
-        type: string
-      title:
-        type: string
-    type: object
-  server.WolfAppMemory:
-    properties:
-      app_id:
-        type: string
-      app_name:
-        type: string
-      client_count:
-        type: integer
-      memory_bytes:
-        type: integer
-      resolution:
-        type: string
-    type: object
-  server.WolfClientConnection:
-    properties:
-      app_id:
-        description: 'apps mode: connected app'
-        type: string
-      client_ip:
-        type: string
-      lobby_id:
-        description: 'lobbies mode: connected lobby'
-        type: string
-      memory_bytes:
-        type: integer
-      resolution:
-        type: string
-      session_id:
-        description: Wolf returns this as string (Moonlight protocol requirement)
-        type: string
-    type: object
-  server.WolfLobbyInfo:
-    properties:
-      id:
-        type: string
-      multi_user:
-        type: boolean
-      name:
-        type: string
-      pin:
-        items:
-          type: integer
-        type: array
-      started_by_profile_id:
-        type: string
-      stop_when_everyone_leaves:
-        type: boolean
-    type: object
-  server.WolfLobbyMemory:
-    properties:
-      client_count:
-        type: integer
-      lobby_id:
-        type: string
-      lobby_name:
-        type: string
-      memory_bytes:
-        type: integer
-      resolution:
-        type: string
-    type: object
-  server.WolfSessionInfo:
-    properties:
-      app_id:
-        description: Wolf UI app ID in lobbies mode
-        type: string
-      client_ip:
-        type: string
-      client_unique_id:
-        description: Helix client ID (helix-agent-{session_id}-{instance_id})
-        type: string
-      display_mode:
-        properties:
-          av1_supported:
-            type: boolean
-          height:
-            type: integer
-          hevc_supported:
-            type: boolean
-          refresh_rate:
-            type: integer
-          width:
-            type: integer
-        type: object
-      idle_seconds:
-        description: Seconds since last ENET packet (for timeout monitoring)
-        type: integer
-      lobby_id:
-        description: Which lobby this session is connected to (lobbies mode)
-        type: string
-      session_id:
-        description: Exposed as session_id for frontend (Wolf's client_id)
-        type: string
-    type: object
-  server.WolfSystemMemory:
-    properties:
-      apps:
-        description: Apps mode
-        items:
-          $ref: '#/definitions/server.WolfAppMemory'
-        type: array
-      clients:
-        items:
-          $ref: '#/definitions/server.WolfClientConnection'
-        type: array
-      gpu_stats:
-        allOf:
-        - $ref: '#/definitions/server.GPUStats'
-        description: From Wolf's GPU monitoring query (nvidia-smi or rocm-smi)
-      gstreamer_buffer_bytes:
-        type: integer
-      gstreamer_pipelines:
-        allOf:
-        - $ref: '#/definitions/server.GStreamerPipelineStats'
-        description: From Wolf's state
-      lobbies:
-        description: Lobbies mode
-        items:
-          $ref: '#/definitions/server.WolfLobbyMemory'
-        type: array
-      process_rss_bytes:
-        type: integer
-      success:
-        type: boolean
-      total_memory_bytes:
-        type: integer
     type: object
   services.KoditEnrichmentAttributes:
     properties:
@@ -2756,23 +2544,13 @@ definitions:
   types.ContainerDiskUsage:
     properties:
       container_id:
-        description: Docker container ID
         type: string
       container_name:
-        description: Container name (e.g., "wolf-app-abc123")
         type: string
       rw_size_bytes:
-        description: Size of read-write layer only
+        description: Writable layer size
         type: integer
       size_bytes:
-        description: Total size of container's writable layer
-        type: integer
-    type: object
-  types.ContainerDiskUsageSummary:
-    properties:
-      container_name:
-        type: string
-      latest_size_mb:
         type: integer
     type: object
   types.ContextMenuAction:
@@ -3018,37 +2796,24 @@ definitions:
       server_name:
         type: string
     type: object
-  types.DiskUsageDataPoint:
+  types.DiskUsageHistory:
     properties:
       alert_level:
         type: string
-      avail_mb:
+      avail_bytes:
         type: integer
+      id:
+        type: string
       mount_point:
         type: string
-      timestamp:
+      recorded:
         type: string
-      total_mb:
+      sandbox_id:
+        type: string
+      total_bytes:
         type: integer
-      used_mb:
+      used_bytes:
         type: integer
-      used_percent:
-        type: number
-    type: object
-  types.DiskUsageHistoryResponse:
-    properties:
-      containers:
-        items:
-          $ref: '#/definitions/types.ContainerDiskUsageSummary'
-        type: array
-      history:
-        items:
-          $ref: '#/definitions/types.DiskUsageDataPoint'
-        type: array
-      wolf_instance_id:
-        type: string
-      wolf_name:
-        type: string
     type: object
   types.DiskUsageMetric:
     properties:
@@ -3056,19 +2821,14 @@ definitions:
         description: '"ok", "warning", "critical"'
         type: string
       avail_bytes:
-        description: available disk space
         type: integer
       mount_point:
-        description: e.g., "/var"
         type: string
       total_bytes:
-        description: total disk space
         type: integer
       used_bytes:
-        description: used disk space
         type: integer
       used_percent:
-        description: percentage used (0-100)
         type: number
     type: object
   types.DynamicModelInfo:
@@ -3127,6 +2887,9 @@ definitions:
       resolution:
         description: Display resolution - either use Resolution preset or explicit
           dimensions
+        type: string
+      video_mode:
+        description: Video capture/encoding mode
         type: string
       zoom_level:
         description: GNOME zoom percentage (100 default, 200 for 4k/5k)
@@ -5678,6 +5441,78 @@ definitions:
         description: File size in bytes
         type: integer
     type: object
+  types.SandboxHeartbeatRequest:
+    properties:
+      container_usage:
+        description: Container disk usage (per-container storage)
+        items:
+          $ref: '#/definitions/types.ContainerDiskUsage'
+        type: array
+      desktop_versions:
+        additionalProperties:
+          type: string
+        description: |-
+          Desktop image versions (content-addressable Docker image hashes)
+          Key: desktop name (e.g., "sway", "zorin", "ubuntu")
+          Value: image hash (e.g., "a1b2c3d4e5f6...")
+        type: object
+      disk_usage:
+        description: Disk usage metrics for monitored mount points
+        items:
+          $ref: '#/definitions/types.DiskUsageMetric'
+        type: array
+      gpu_vendor:
+        description: GPU configuration
+        type: string
+      privileged_mode_enabled:
+        description: Privileged mode (host Docker access for development)
+        type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE
+        type: string
+    type: object
+  types.SandboxInstance:
+    properties:
+      active_sandboxes:
+        description: Sandbox capacity
+        type: integer
+      created:
+        type: string
+      desktop_versions:
+        description: |-
+          Desktop image versions available on this sandbox
+          Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
+        items:
+          type: integer
+        type: array
+      gpu_vendor:
+        description: GPU configuration
+        type: string
+      hostname:
+        description: Hostname for DNS resolution
+        type: string
+      id:
+        type: string
+      ip_address:
+        description: IP address of the sandbox
+        type: string
+      last_seen:
+        description: Last heartbeat time
+        type: string
+      max_sandboxes:
+        description: Maximum allowed containers
+        type: integer
+      privileged_mode:
+        type: boolean
+      render_node:
+        description: /dev/dri/renderD128 or SOFTWARE
+        type: string
+      status:
+        description: '"online", "offline", "degraded"'
+        type: string
+      updated:
+        type: string
+    type: object
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -5816,9 +5651,6 @@ definitions:
         type: string
       license:
         $ref: '#/definitions/types.FrontendLicenseInfo'
-      moonlight_web_mode:
-        description: '"single" or "multi" - determines streaming architecture'
-        type: string
       organizations_create_enabled_for_non_admins:
         type: boolean
       providers_management_enabled:
@@ -5838,9 +5670,6 @@ definitions:
         type: string
       sentry_dsn_frontend:
         type: string
-      streaming_bitrate_mbps:
-        description: 'Requested video streaming bitrate in Mbps (default: 40)'
-        type: integer
       stripe_enabled:
         description: Stripe top-ups enabled
         type: boolean
@@ -6023,6 +5852,10 @@ definitions:
       question_set_id:
         description: The question set this session belongs to, if any
         type: string
+      sandbox_id:
+        description: SandboxID tracks which sandbox instance is running this session's
+          dev container (if any)
+        type: string
       trigger:
         type: string
       type:
@@ -6030,10 +5863,6 @@ definitions:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
       updated:
-        type: string
-      wolf_instance_id:
-        description: WolfInstanceID tracks which Wolf instance is running this session's
-          sandbox (if any)
         type: string
     type: object
   types.SessionChatRequest:
@@ -6144,13 +5973,16 @@ definitions:
         description: Docker container ID
         type: string
       container_ip:
-        description: Container IP on helix_default network
+        description: Container IP on bridge network
         type: string
       container_name:
-        description: Hydra executor fields (Wolf-free mode)
+        description: Container fields (Hydra executor)
         type: string
       desired_state:
         description: '"running" = should be running, "stopped" = can terminate'
+        type: string
+      dev_container_id:
+        description: Dev container ID for streaming
         type: string
       document_group_id:
         type: string
@@ -6180,7 +6012,7 @@ definitions:
       eval_user_score:
         type: string
       executor_mode:
-        description: '"wolf" or "hydra"'
+        description: Executor mode (deprecated - always "hydra")
         type: string
       external_agent_config:
         allOf:
@@ -6262,12 +6094,6 @@ definitions:
         description: when we do fine tuning or RAG, we need to know which data entity
           we used
         type: string
-      wolf_lobby_id:
-        description: Wolf lobby ID for streaming
-        type: string
-      wolf_lobby_pin:
-        description: 'PIN for Wolf lobby access (Phase 3: Multi-tenancy)'
-        type: string
       work_session_id:
         description: ID of associated WorkSession
         type: string
@@ -6329,7 +6155,7 @@ definitions:
       metadata:
         allOf:
         - $ref: '#/definitions/types.SessionMetadata'
-        description: Metadata includes Wolf lobby information for external agent sessions
+        description: Metadata includes container information for external agent sessions
       model_name:
         description: InteractionID string      `json:"interaction_id"`
         type: string
@@ -7945,92 +7771,6 @@ definitions:
       user_agent:
         type: string
     type: object
-  types.WolfHeartbeatRequest:
-    properties:
-      container_usage:
-        description: per-container disk usage breakdown
-        items:
-          $ref: '#/definitions/types.ContainerDiskUsage'
-        type: array
-      desktop_versions:
-        additionalProperties:
-          type: string
-        description: |-
-          Desktop image versions (content-addressable Docker image hashes)
-          Key: desktop name (e.g., "sway", "zorin", "ubuntu")
-          Value: image hash (e.g., "a1b2c3d4e5f6...")
-        type: object
-      disk_usage:
-        description: disk usage metrics for monitored partitions
-        items:
-          $ref: '#/definitions/types.DiskUsageMetric'
-        type: array
-      gpu_vendor:
-        description: nvidia, amd, intel, none (from sandbox env)
-        type: string
-      privileged_mode_enabled:
-        description: true if HYDRA_PRIVILEGED_MODE_ENABLED=true
-        type: boolean
-      render_node:
-        description: /dev/dri/renderD128 or SOFTWARE (from sandbox env)
-        type: string
-    type: object
-  types.WolfInstanceRequest:
-    properties:
-      address:
-        type: string
-      gpu_type:
-        type: string
-      max_sandboxes:
-        type: integer
-      name:
-        type: string
-    type: object
-  types.WolfInstanceResponse:
-    properties:
-      address:
-        type: string
-      connected_sandboxes:
-        type: integer
-      created_at:
-        type: string
-      desktop_versions:
-        additionalProperties:
-          type: string
-        description: map of desktop name -> image hash
-        type: object
-      disk_alert_level:
-        type: string
-      disk_usage:
-        items:
-          $ref: '#/definitions/types.DiskUsageMetric'
-        type: array
-      gpu_type:
-        type: string
-      gpu_vendor:
-        description: nvidia, amd, intel, none (from sandbox heartbeat)
-        type: string
-      id:
-        type: string
-      last_heartbeat:
-        type: string
-      max_sandboxes:
-        type: integer
-      name:
-        type: string
-      privileged_mode_enabled:
-        type: boolean
-      render_node:
-        description: /dev/dri/renderD128 or SOFTWARE
-        type: string
-      status:
-        type: string
-      sway_version:
-        description: legacy, use DesktopVersions
-        type: string
-      updated_at:
-        type: string
-    type: object
   types.WorkloadSummary:
     properties:
       created:
@@ -8110,137 +7850,6 @@ definitions:
       zed_instance_id:
         type: string
     type: object
-  wolf.KeyboardLayerState:
-    properties:
-      modifier_state:
-        $ref: '#/definitions/wolf.KeyboardModifierState'
-      pressed_key_names:
-        description: Human-readable names
-        items:
-          type: string
-        type: array
-      pressed_keys:
-        description: Key codes (VK for wolf/inputtino, KEY_* for evdev)
-        items:
-          type: integer
-        type: array
-    type: object
-  wolf.KeyboardModifierState:
-    properties:
-      alt:
-        type: boolean
-      ctrl:
-        type: boolean
-      meta:
-        type: boolean
-      shift:
-        type: boolean
-    type: object
-  wolf.KeyboardResetResponse:
-    properties:
-      message:
-        type: string
-      released_keys:
-        items:
-          type: string
-        type: array
-      success:
-        type: boolean
-    type: object
-  wolf.KeyboardStateResponse:
-    properties:
-      sessions:
-        items:
-          $ref: '#/definitions/wolf.SessionKeyboardState'
-        type: array
-      success:
-        type: boolean
-    type: object
-  wolf.SessionKeyboardState:
-    properties:
-      device_name:
-        type: string
-      device_node:
-        description: e.g., /dev/input/event15
-        type: string
-      evdev_state:
-        allOf:
-        - $ref: '#/definitions/wolf.KeyboardLayerState'
-        description: Kernel's evdev state
-      has_mismatch:
-        description: Mismatch detection
-        type: boolean
-      inputtino_state:
-        allOf:
-        - $ref: '#/definitions/wolf.KeyboardLayerState'
-        description: Inputtino's internal cur_press_keys
-      mismatch_description:
-        type: string
-      modifier_state:
-        $ref: '#/definitions/wolf.KeyboardModifierState'
-      pressed_key_names:
-        items:
-          type: string
-        type: array
-      pressed_keys:
-        description: Legacy fields for backwards compatibility
-        items:
-          type: integer
-        type: array
-      session_id:
-        type: string
-      timestamp_ms:
-        type: integer
-      wolf_state:
-        allOf:
-        - $ref: '#/definitions/wolf.KeyboardLayerState'
-        description: 'Three layers of keyboard state for debugging:'
-    type: object
-  wolf.SystemHealthResponse:
-    properties:
-      can_create_new_pipelines:
-        description: Tests if GStreamer type lock is available
-        type: boolean
-      overall_status:
-        type: string
-      process_uptime_seconds:
-        type: integer
-      stuck_thread_count:
-        type: integer
-      success:
-        type: boolean
-      threads:
-        items:
-          $ref: '#/definitions/wolf.ThreadHealthInfo'
-        type: array
-      total_thread_count:
-        type: integer
-    type: object
-  wolf.ThreadHealthInfo:
-    properties:
-      current_request_path:
-        type: string
-      details:
-        type: string
-      has_active_request:
-        type: boolean
-      heartbeat_count:
-        type: integer
-      is_stuck:
-        type: boolean
-      name:
-        type: string
-      request_duration_seconds:
-        type: integer
-      seconds_alive:
-        type: integer
-      seconds_since_heartbeat:
-        type: integer
-      stack_trace:
-        type: string
-      tid:
-        type: integer
-    type: object
 host: app.helix.ml
 info:
   contact:
@@ -8258,13 +7867,11 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieves combined debug data from Wolf (memory, lobbies, sessions)
-        for the Agent Sandboxes dashboard
+      description: Retrieves debug data for agent sandboxes (Hydra-based)
       parameters:
-      - description: Wolf instance ID to query
+      - description: Sandbox instance ID to query
         in: query
-        name: wolf_instance_id
-        required: true
+        name: sandbox_id
         type: string
       produces:
       - application/json
@@ -8283,14 +7890,14 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - ApiKeyAuth: []
-      summary: Get Wolf debugging data
+      summary: Get sandbox debugging data
       tags:
       - Admin
   /api/v1/admin/agent-sandboxes/events:
     get:
       consumes:
       - application/json
-      description: Proxies Server-Sent Events from Wolf for real-time monitoring
+      description: Streams Server-Sent Events for real-time sandbox monitoring
       produces:
       - text/event-stream
       responses:
@@ -8302,13 +7909,13 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
+        "501":
+          description: Not Implemented
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
       - ApiKeyAuth: []
-      summary: Get Wolf real-time events (SSE)
+      summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
   /api/v1/admin/users/{id}:
@@ -8388,74 +7995,6 @@ paths:
       summary: Reset a user's password (Admin only)
       tags:
       - users
-  /api/v1/admin/wolf/lobbies/{lobbyId}:
-    delete:
-      description: Stop a Wolf lobby (terminates container and releases GPU resources)
-      parameters:
-      - description: Lobby ID
-        in: path
-        name: lobbyId
-        required: true
-        type: string
-      - description: Wolf instance ID to operate on
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Stop Wolf lobby
-      tags:
-      - Admin
-  /api/v1/admin/wolf/sessions/{sessionId}:
-    delete:
-      description: Stop a Wolf-UI streaming session (releases GPU memory)
-      parameters:
-      - description: Session ID (client_id from Wolf)
-        in: path
-        name: sessionId
-        required: true
-        type: string
-      - description: Wolf instance ID to operate on
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Stop Wolf streaming session
-      tags:
-      - Admin
   /api/v1/api_keys:
     delete:
       description: Delete an API key
@@ -9429,8 +8968,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Pre-configures Wolf to attach a client to a lobby when it connects
-        with the given client_unique_id.
+      description: This endpoint was used for session configuration but is now a no-op.
       parameters:
       - description: External agent session ID
         in: path
@@ -9452,29 +8990,52 @@ paths:
             additionalProperties:
               type: string
             type: object
-        "400":
-          description: Bad request
-          schema:
-            type: string
         "401":
           description: Unauthorized
           schema:
             type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Configure pending session (deprecated - no-op)
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/exec:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Executes a command inside the sandbox container for benchmarking and debugging.
+        Only specific safe commands are allowed (vkcube, glxgears, pkill).
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Command to execute
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Execution result
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
         "403":
           description: Forbidden
           schema:
-            type: string
-        "404":
-          description: Session not found
-          schema:
-            type: string
-        "503":
-          description: Wolf executor not available
-          schema:
-            type: string
+            $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Configure pending session for immediate lobby attachment
+      - BearerAuth: []
+      summary: Execute command in sandbox
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/input:
@@ -11469,27 +11030,6 @@ paths:
       summary: Update an existing dynamic model info
       tags:
       - model-info
-  /api/v1/moonlight/status:
-    get:
-      description: Returns active streaming sessions, client certificates, and WebSocket
-        connection state from moonlight-web
-      parameters:
-      - description: Wolf instance ID to query
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - ApiKeyAuth: []
-      summary: Get moonlight-web internal state
-      tags:
-      - Moonlight
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.
@@ -12241,7 +11781,7 @@ paths:
       - Projects
   /api/v1/projects/{id}/exploratory-session:
     delete:
-      description: Stop the running exploratory session for a project (stops Wolf
+      description: Stop the running exploratory session for a project (stops sandbox
         container, keeps session record)
       parameters:
       - description: Project ID
@@ -13533,6 +13073,116 @@ paths:
       summary: Create sample repository
       tags:
       - samples
+  /api/v1/sandboxes:
+    get:
+      description: Get all registered sandboxes
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SandboxInstance'
+            type: array
+      summary: List sandbox instances
+      tags:
+      - sandbox
+  /api/v1/sandboxes/{id}:
+    delete:
+      description: Remove a sandbox from the registry
+      parameters:
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Deregister a sandbox instance
+      tags:
+      - sandbox
+  /api/v1/sandboxes/{id}/disk-history:
+    get:
+      description: Get disk usage history for trending and alerts
+      parameters:
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Since timestamp (RFC3339)
+        in: query
+        name: since
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.DiskUsageHistory'
+            type: array
+      summary: Get disk usage history
+      tags:
+      - sandbox
+  /api/v1/sandboxes/{id}/heartbeat:
+    post:
+      consumes:
+      - application/json
+      description: Update sandbox status and metrics
+      parameters:
+      - description: Sandbox ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Heartbeat data
+        in: body
+        name: heartbeat
+        required: true
+        schema:
+          $ref: '#/definitions/types.SandboxHeartbeatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update sandbox heartbeat
+      tags:
+      - sandbox
+  /api/v1/sandboxes/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new sandbox or update an existing one
+      parameters:
+      - description: Sandbox instance
+        in: body
+        name: sandbox
+        required: true
+        schema:
+          $ref: '#/definitions/types.SandboxInstance'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SandboxInstance'
+      summary: Register a sandbox instance
+      tags:
+      - sandbox
   /api/v1/scheduler/heartbeats:
     get:
       description: Get the health status of all scheduler goroutines
@@ -14128,8 +13778,7 @@ paths:
       - interactions
   /api/v1/sessions/{id}/rdp-connection:
     get:
-      description: Get Wolf streaming connection details for accessing a session (replaces
-        RDP)
+      description: Get streaming connection details for accessing a session
       parameters:
       - description: Session ID
         in: path
@@ -14144,7 +13793,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Get Wolf connection info for a session
+      summary: Get streaming connection info for a session
       tags:
       - sessions
   /api/v1/sessions/{id}/resume:
@@ -14168,6 +13817,46 @@ paths:
       summary: Resume a paused external agent session
       tags:
       - sessions
+  /api/v1/sessions/{id}/sandbox-state:
+    get:
+      consumes:
+      - application/json
+      description: Returns the current sandbox state for an external agent session
+        (absent/running/starting)
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SessionSandboxStateResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get sandbox state for a session
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/search:
     get:
       consumes:
@@ -14340,46 +14029,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get interaction by turn number
-      tags:
-      - Sessions
-  /api/v1/sessions/{id}/wolf-app-state:
-    get:
-      consumes:
-      - application/json
-      description: Returns the current Wolf app state for an external agent session
-        (absent/running/resumable)
-      parameters:
-      - description: Session ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.SessionWolfAppStateResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get Wolf app state for a session
       tags:
       - Sessions
   /api/v1/sessions/{id}/zed-config:
@@ -16211,262 +15860,6 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
-  /api/v1/wolf-instances:
-    get:
-      description: Get all registered Wolf streaming instances
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.WolfInstanceResponse'
-            type: array
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: List all Wolf instances
-      tags:
-      - wolf
-  /api/v1/wolf-instances/{id}:
-    delete:
-      description: Remove a Wolf instance from the registry
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "404":
-          description: Wolf instance not found
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Deregister a Wolf instance
-      tags:
-      - wolf
-  /api/v1/wolf-instances/{id}/disk-history:
-    get:
-      description: Get time-series disk usage data for visualization (last 7 days)
-      parameters:
-      - description: Wolf instance ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Hours of history to return (default 24, max 168)
-        in: query
-        name: hours
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.DiskUsageHistoryResponse'
-        "404":
-          description: Wolf instance not found
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Get disk usage history for a Wolf instance
-      tags:
-      - wolf
-  /api/v1/wolf-instances/{id}/heartbeat:
-    post:
-      consumes:
-      - application/json
-      description: Update the last heartbeat timestamp and optional metadata for a
-        Wolf instance
-      parameters:
-      - description: Wolf instance ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Heartbeat metadata
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/types.WolfHeartbeatRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: string
-        "404":
-          description: Wolf instance not found
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Send heartbeat for a Wolf instance
-      tags:
-      - wolf
-  /api/v1/wolf-instances/register:
-    post:
-      consumes:
-      - application/json
-      description: Register a new Wolf streaming instance with the control plane
-      parameters:
-      - description: Wolf instance registration
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.WolfInstanceRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.WolfInstanceResponse'
-        "400":
-          description: Invalid request body
-          schema:
-            type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
-      security:
-      - BearerAuth: []
-      summary: Register a new Wolf instance
-      tags:
-      - wolf
-  /api/v1/wolf/health:
-    get:
-      description: Get Wolf system health status including thread heartbeat monitoring
-        and deadlock detection
-      parameters:
-      - description: Wolf instance ID to query
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/wolf.SystemHealthResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "503":
-          description: Wolf not available
-          schema:
-            type: string
-      security:
-      - ApiKeyAuth: []
-      summary: Get Wolf system health
-      tags:
-      - Wolf
-  /api/v1/wolf/keyboard-state:
-    get:
-      description: Get current keyboard state for all streaming sessions, useful for
-        debugging stuck keys
-      parameters:
-      - description: Wolf instance ID to query
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/wolf.KeyboardStateResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "503":
-          description: Wolf not available
-          schema:
-            type: string
-      security:
-      - ApiKeyAuth: []
-      summary: Get Wolf keyboard state
-      tags:
-      - Wolf
-  /api/v1/wolf/keyboard-state/reset:
-    post:
-      description: Reset keyboard state for a session, releasing all stuck keys
-      parameters:
-      - description: Wolf instance ID to query
-        in: query
-        name: wolf_instance_id
-        required: true
-        type: string
-      - description: Session ID to reset keyboard for
-        in: query
-        name: session_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/wolf.KeyboardResetResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "503":
-          description: Wolf not available
-          schema:
-            type: string
-      security:
-      - ApiKeyAuth: []
-      summary: Reset Wolf keyboard state
-      tags:
-      - Wolf
-  /api/v1/wolf/ui-app-id:
-    get:
-      description: Get the Wolf UI app ID for lobbies mode streaming
-      parameters:
-      - description: Session ID to look up Wolf instance
-        in: query
-        name: session_id
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      summary: Get Wolf UI app ID
-      tags:
-      - Wolf
   /api/v1/work-sessions/{sessionId}/zed-thread:
     post:
       consumes:

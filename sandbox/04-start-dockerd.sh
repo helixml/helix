@@ -55,7 +55,7 @@ echo "Configured Wolf's dockerd with nvidia runtime support"
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
 
-# Wait for dockerd to be ready
+# Wait for dockerd to be ready (initial startup)
 TIMEOUT=30
 ELAPSED=0
 until docker info >/dev/null 2>&1; do
@@ -75,23 +75,6 @@ docker info 2>&1 | head -5
 # Enable forwarding for nested containers
 iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"
-
-# Create helix_default network
-# Use 'docker network ls' to verify network exists (more reliable than inspect after restart)
-if ! docker network ls --format '{{.Name}}' | grep -q '^helix_default$'; then
-    echo "Creating helix_default network (subnet 172.20.0.0/16)..."
-    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1
-    echo "✅ helix_default network created"
-else
-    echo "helix_default network already exists"
-fi
-
-# Verify network was actually created
-if ! docker network ls --format '{{.Name}}' | grep -q '^helix_default$'; then
-    echo "❌ ERROR: helix_default network not found after creation attempt!"
-    echo "Attempting forced creation..."
-    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1 2>/dev/null || true
-fi
 
 # Function to load a desktop image into sandbox's dockerd
 # Usage: load_desktop_image <name> <required>

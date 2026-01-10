@@ -450,8 +450,8 @@ I'll give you feedback and we can iterate on any changes needed.`
       snackbar.info('Starting new agent session...')
       await api.getApiClient().v1SessionsResumeCreate(activeSessionId)
 
-      // Step 3: Invalidate session query to refetch wolf_lobby_id
-      // This triggers MoonlightStreamViewer to detect the lobby change and reconnect
+      // Step 3: Invalidate session query to refetch container status
+      // This triggers DesktopStreamViewer to detect the state change and reconnect
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(activeSessionId) })
 
       snackbar.success('Session restarted successfully')

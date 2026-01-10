@@ -24,11 +24,25 @@ const useSandboxState = (sessionId: string) => {
     const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
-        // TODO: Replace with sandbox-specific state API when Wolf is removed
-        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
+        // Get session details and check external agent status from metadata
+        const response = await apiClient.v1SessionsDetail(sessionId);
         if (response.data) {
-          const newState = response.data.state || 'absent';
-          setSandboxState(newState);
+          // Check external agent status from session metadata
+          const status = response.data.config?.external_agent_status || '';
+          const desiredState = response.data.config?.desired_state || '';
+          const hasContainer = !!response.data.config?.container_name;
+
+          // Map session metadata to sandbox state
+          if (status === 'running' || (hasContainer && desiredState === 'running')) {
+            setSandboxState('running');
+          } else if (status === 'starting') {
+            setSandboxState('starting');
+          } else if (desiredState === 'stopped' || !hasContainer) {
+            setSandboxState('absent');
+          } else {
+            // Default to running if we have a container
+            setSandboxState(hasContainer ? 'running' : 'absent');
+          }
         }
       } catch (err) {
         console.error('Failed to fetch sandbox state:', err);

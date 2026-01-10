@@ -193,7 +193,7 @@ type CreateDevContainerRequest struct {
 	// User ID for SSH key mounting and ownership
 	UserID string `json:"user_id,omitempty"`
 
-	// Network to attach to (defaults to helix_default)
+	// Network to attach to (defaults to bridge)
 	Network string `json:"network,omitempty"`
 }
 

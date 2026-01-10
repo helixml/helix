@@ -402,7 +402,7 @@ type SessionMetadata struct {
 	// Container fields (Hydra executor)
 	ContainerName string `json:"container_name,omitempty"` // Docker container name
 	ContainerID   string `json:"container_id,omitempty"`   // Docker container ID
-	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on helix_default network
+	ContainerIP   string `json:"container_ip,omitempty"`   // Container IP on bridge network
 	ExecutorMode  string `json:"executor_mode,omitempty"`  // Executor mode (deprecated - always "hydra")
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
@@ -1971,7 +1971,7 @@ type DesktopAgentResponse struct {
 	SandboxID string `json:"sandbox_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
-	// Container IP address on helix_default network (Hydra executor only)
+	// Container IP address on bridge network (Hydra executor only)
 	ContainerIP string `json:"container_ip,omitempty"`
 	// helix-sway image version (commit hash) running in this sandbox
 	SwayVersion string `json:"sway_version,omitempty"`
