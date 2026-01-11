@@ -165,33 +165,3 @@ func (t *GetSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args map
 	return result.ToString(), nil
 }
 
-// UpdateSpecTaskTool - updates an existing spec task
-
-var updateSpecTaskParameters = jsonschema.Definition{
-	Type: jsonschema.Object,
-	Properties: map[string]jsonschema.Definition{
-		"task_id": {
-			Type:        jsonschema.String,
-			Description: "The ID of the task to update",
-		},
-		"name": {
-			Type:        jsonschema.String,
-			Description: "New name for the task (optional)",
-		},
-		"description": {
-			Type:        jsonschema.String,
-			Description: "New description for the task (optional)",
-		},
-		"status": {
-			Type:        jsonschema.String,
-			Description: "New status: backlog, spec_generation, spec_review, spec_revision, spec_approved, implementation_queued, implementation, implementation_review, pull_request, done",
-			Enum:        []string{"backlog", "spec_generation", "spec_review", "spec_revision", "spec_approved", "implementation_queued", "implementation", "implementation_review", "pull_request", "done"},
-		},
-		"priority": {
-			Type:        jsonschema.String,
-			Description: "New priority: low, medium, high, critical (optional)",
-			Enum:        []string{"low", "medium", "high", "critical"},
-		},
-	},
-	Required: []string{"task_id"},
-}

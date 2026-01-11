@@ -4,19 +4,35 @@ import Tooltip from '@mui/material/Tooltip'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 
-const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ text, alwaysVisible }) => {
+const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ text }) => {
   const [copied, setCopied] = useState(false)
-  const handleCopy = async () => {
-    try {
-      // If 'text' contains citation data, it will have <excerpts> tags. We need to
-      // only copy the text up to the first <excerpts> tag.
-      const textToCopy = sanitizeTextForCopy(text)
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    
+    const textToCopy = sanitizeTextForCopy(text)
 
-      await navigator.clipboard.writeText(textToCopy)
+    // Fallback method for older browsers or when navigator.clipboard is not available/permission denied
+    const fallbackCopy = () => {
+      const textArea = document.createElement('textarea')
+      textArea.value = textToCopy
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-9999px'
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      // Optionally handle error
+    }
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }).catch(fallbackCopy)
+    } else {
+      fallbackCopy()
     }
   }
   return (

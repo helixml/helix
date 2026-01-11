@@ -1340,6 +1340,11 @@ func (s *SpecDrivenTaskService) GetOrCreateSandboxAPIKey(ctx context.Context, re
 		return existing.Key, nil
 	}
 
+	_, err = s.store.GetProject(ctx, req.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get project '%s': %w", req.ProjectID, err)
+	}
+
 	newKey, err := system.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate API key: %w", err)

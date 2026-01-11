@@ -967,18 +967,19 @@ const SpecTasksPage: FC = () => {
               </Button>
             </>
           )}
-          {projectManagerAppId && (
-            <Tooltip title="Chat with Project Manager agent">
+          <Tooltip title={projectManagerAppId ? "Chat with Project Manager agent" : "Configure Project Manager agent in project settings to enable chat"}>
+            <span>
               <Button
                 variant="outlined"
                 startIcon={<Plus size={18} />}
                 onClick={handleOpenChatPanel}
+                disabled={!projectManagerAppId}
                 sx={{ flexShrink: 0 }}
               >
                 New Chat
               </Button>
-            </Tooltip>
-          )}
+            </span>
+          </Tooltip>
           <Button
             variant="outlined"
             startIcon={<Settings size={18} />}
