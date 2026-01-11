@@ -7,7 +7,7 @@
 //! - We respond to context queries from downstream elements
 //! - Fallback: if no context pushed, acquire via new_from_gstreamer()
 
-use crate::pipewire_stream::{FrameData, PipeWireStream, RecvError};
+use crate::pipewire_stream::{DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
 use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
@@ -86,6 +86,119 @@ fn create_egl_display(node_path: &str) -> Result<EGLDisplay, String> {
     unsafe { EGLDisplay::new(device).map_err(|e| format!("EGLDisplay: {:?}", e)) }
 }
 
+/// Query DMA-BUF modifiers from EGL display for RGBA/BGRA formats.
+/// Returns modifiers that the GPU supports for zero-copy DMA-BUF sharing.
+fn query_dmabuf_modifiers(display: &EGLDisplay) -> DmaBufCapabilities {
+    use smithay::backend::allocator::Fourcc;
+
+    // DRM_FORMAT_MOD_INVALID (0x00ffffffffffffff) = "implicit modifier"
+    // This tells PipeWire: "I accept ANY modifier the producer wants to use"
+    // This is critical for GNOME ScreenCast because GNOME may use different
+    // modifiers for output (ScreenCast) vs what EGL reports for render formats.
+    const DRM_FORMAT_MOD_INVALID: u64 = (1u64 << 56) - 1;
+
+    // Query render formats from EGL to check if DMA-BUF is available at all
+    let render_formats = display.dmabuf_render_formats();
+
+    // Detect GPU vendor from modifier vendor ID
+    // Vendor IDs: 0x01 = Intel, 0x02 = AMD, 0x03 = NVIDIA
+    let mut has_nvidia = false;
+    let mut has_amd = false;
+    let mut has_intel = false;
+    for f in render_formats.iter() {
+        let mod_val: u64 = f.modifier.into();
+        let vendor_id = mod_val >> 56;
+        match vendor_id {
+            0x01 => has_intel = true,
+            0x02 => has_amd = true,
+            0x03 => has_nvidia = true,
+            _ => {}
+        }
+    }
+    let has_nvidia_modifiers = has_nvidia; // Backward compat
+
+    // Query render format modifiers from EGL for the formats GNOME uses (BGRA/BGRx)
+    let target_formats = [
+        Fourcc::Argb8888, Fourcc::Abgr8888, Fourcc::Xrgb8888, Fourcc::Xbgr8888,
+        Fourcc::Bgra8888, Fourcc::Rgba8888, Fourcc::Bgrx8888, Fourcc::Rgbx8888,
+    ];
+
+    let egl_modifiers: Vec<u64> = render_formats.iter()
+        .filter(|f| target_formats.contains(&f.code))
+        .map(|f| f.modifier.into())
+        .collect();
+
+    eprintln!("[PIPEWIRESRC_DEBUG] EGL reports {} render format modifiers, nvidia={} amd={} intel={}",
+        egl_modifiers.len(), has_nvidia, has_amd, has_intel);
+    for (i, m) in egl_modifiers.iter().enumerate().take(5) {
+        eprintln!("[PIPEWIRESRC_DEBUG]   egl_modifier[{}] = 0x{:x}", i, m);
+    }
+    if egl_modifiers.len() > 5 {
+        eprintln!("[PIPEWIRESRC_DEBUG]   ... and {} more", egl_modifiers.len() - 5);
+    }
+
+    // CRITICAL FIX: Offer NVIDIA ScreenCast modifiers (0xe08xxx family)
+    //
+    // Problem: EGL reports 0x606xxx modifiers, but GNOME ScreenCast uses 0xe08xxx.
+    // When we offer DRM_FORMAT_MOD_INVALID, GNOME picks LINEAR (0x0) which fails
+    // DmaBuf allocation with "error alloc buffers: Invalid argument".
+    //
+    // Solution: Hardcode the NVIDIA ScreenCast modifiers that GNOME actually uses.
+    // These were observed from pw-dump of GNOME ScreenCast nodes:
+    //   - 0x300000000e08010, 0x300000000e08011, 0x300000000e08012, 0x300000000e08013
+    //   - 0x300000000e08014, 0x300000000e08015, 0x300000000e08016
+    // These are NVIDIA block-linear / tiled formats for ScreenCast output.
+    //
+    // Format: 0x03 (NVIDIA vendor) | modifier_value
+    // The 0xe08xxx values represent specific NVIDIA tiled memory layouts.
+    let nvidia_screencast_modifiers: Vec<u64> = vec![
+        0x300000000e08010, // NVIDIA_BLOCK_LINEAR_2D(0, 0, 0, 0x10, 0)
+        0x300000000e08011,
+        0x300000000e08012,
+        0x300000000e08013,
+        0x300000000e08014,
+        0x300000000e08015,
+        0x300000000e08016,
+        // Also include LINEAR (0x0) as last resort - some headless configs might need it
+        // But put GPU-tiled first so GNOME prefers those
+    ];
+
+    // Select modifiers based on detected GPU vendor:
+    // - NVIDIA: Use hardcoded 0xe08xxx ScreenCast modifiers (EGL reports different family)
+    // - AMD/Intel: Use EGL modifiers directly (they typically match ScreenCast output)
+    // - Unknown: Use DRM_FORMAT_MOD_INVALID as universal fallback
+    let modifiers: Vec<u64> = if has_nvidia {
+        eprintln!("[PIPEWIRESRC_DEBUG] NVIDIA GPU detected - using hardcoded ScreenCast modifiers");
+        nvidia_screencast_modifiers
+    } else if has_amd || has_intel {
+        // AMD and Intel EGL modifiers typically match what ScreenCast uses
+        // Use EGL modifiers directly, with INVALID as fallback
+        eprintln!("[PIPEWIRESRC_DEBUG] AMD/Intel GPU detected - using EGL modifiers");
+        let mut mods = egl_modifiers.clone();
+        if !mods.contains(&DRM_FORMAT_MOD_INVALID) {
+            mods.push(DRM_FORMAT_MOD_INVALID);
+        }
+        mods
+    } else {
+        eprintln!("[PIPEWIRESRC_DEBUG] Unknown GPU - using DRM_FORMAT_MOD_INVALID");
+        vec![DRM_FORMAT_MOD_INVALID]
+    };
+
+    let vendor_name = if has_nvidia { "NVIDIA" } else if has_amd { "AMD" } else if has_intel { "Intel" } else { "Unknown" };
+    eprintln!("[PIPEWIRESRC_DEBUG] Offering {} modifiers for {} GPU", modifiers.len(), vendor_name);
+    for (i, m) in modifiers.iter().enumerate().take(5) {
+        eprintln!("[PIPEWIRESRC_DEBUG]   offer[{}] = 0x{:x}", i, m);
+    }
+    if modifiers.len() > 5 {
+        eprintln!("[PIPEWIRESRC_DEBUG]   ... and {} more", modifiers.len() - 5);
+    }
+
+    DmaBufCapabilities {
+        modifiers,
+        dmabuf_available: has_nvidia_modifiers || !egl_modifiers.is_empty(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputMode { #[default] Auto, Cuda, DmaBuf, System }
 
@@ -103,6 +216,10 @@ impl OutputMode {
 #[derive(Debug)]
 pub struct Settings {
     pipewire_node_id: Option<u32>,
+    /// PipeWire FD from XDG Desktop Portal's OpenPipeWireRemote.
+    /// This FD grants access to ScreenCast nodes that aren't visible to the default daemon.
+    /// Without it, connecting to ScreenCast nodes returns "target not found".
+    pipewire_fd: Option<i32>,
     render_node: Option<String>,
     output_mode: OutputMode,
     cuda_device_id: i32,
@@ -123,6 +240,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             pipewire_node_id: None,
+            pipewire_fd: None,
             render_node: Some("/dev/dri/renderD128".into()),
             output_mode: OutputMode::Auto,
             cuda_device_id: -1,
@@ -183,6 +301,14 @@ impl ObjectImpl for PipeWireZeroCopySrc {
     fn properties() -> &'static [glib::ParamSpec] {
         static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| vec![
             glib::ParamSpecUInt::builder("pipewire-node-id").nick("PipeWire Node ID").blurb("PipeWire node ID from ScreenCast portal").construct().build(),
+            glib::ParamSpecInt::builder("pipewire-fd")
+                .nick("PipeWire FD")
+                .blurb("PipeWire file descriptor from portal's OpenPipeWireRemote (required for ScreenCast access)")
+                .minimum(-1)
+                .maximum(65535)
+                .default_value(-1)
+                .construct()
+                .build(),
             glib::ParamSpecString::builder("render-node").nick("DRM Render Node").blurb("DRM render node").default_value(Some("/dev/dri/renderD128")).construct().build(),
             glib::ParamSpecString::builder("output-mode").nick("Output Mode").blurb("auto, cuda, dmabuf, or system").default_value(Some("auto")).construct().build(),
             glib::ParamSpecInt::builder("cuda-device-id").nick("CUDA Device ID").blurb("CUDA device ID (-1 for auto)").minimum(-1).maximum(16).default_value(-1).construct().build(),
@@ -209,6 +335,10 @@ impl ObjectImpl for PipeWireZeroCopySrc {
         let mut s = self.settings.lock();
         match pspec.name() {
             "pipewire-node-id" => s.pipewire_node_id = Some(value.get().unwrap()),
+            "pipewire-fd" => {
+                let fd: i32 = value.get().unwrap();
+                s.pipewire_fd = if fd >= 0 { Some(fd) } else { None };
+            }
             "render-node" => s.render_node = value.get().unwrap(),
             "output-mode" => s.output_mode = value.get::<Option<String>>().unwrap().as_deref().map(OutputMode::from_str).unwrap_or_default(),
             "cuda-device-id" => s.cuda_device_id = value.get().unwrap(),
@@ -222,6 +352,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
         let s = self.settings.lock();
         match pspec.name() {
             "pipewire-node-id" => s.pipewire_node_id.unwrap_or(0).to_value(),
+            "pipewire-fd" => s.pipewire_fd.unwrap_or(-1).to_value(),
             "render-node" => s.render_node.clone().unwrap_or_else(|| "/dev/dri/renderD128".into()).to_value(),
             "output-mode" => match s.output_mode { OutputMode::Auto => "auto", OutputMode::Cuda => "cuda", OutputMode::DmaBuf => "dmabuf", OutputMode::System => "system" }.to_value(),
             "cuda-device-id" => s.cuda_device_id.to_value(),
@@ -319,17 +450,20 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         if state_guard.is_some() { return Ok(()); }
 
         // Extract settings - but don't hold the lock while doing CUDA setup
-        let (node_id, render_node, output_mode, device_id) = {
+        let (node_id, pipewire_fd, render_node, output_mode, device_id) = {
             let settings = self.settings.lock();
             let node_id = settings.pipewire_node_id.ok_or_else(|| gst::error_msg!(gst::LibraryError::Settings, ("pipewire-node-id must be set")))?;
-            (node_id, settings.render_node.clone(), settings.output_mode, settings.cuda_device_id)
+            (node_id, settings.pipewire_fd, settings.render_node.clone(), settings.output_mode, settings.cuda_device_id)
         };
 
-        eprintln!("[PIPEWIRESRC_DEBUG] start() called: node_id={}, render_node={:?}, output_mode={:?}", node_id, render_node, output_mode);
+        eprintln!("[PIPEWIRESRC_DEBUG] start() called: node_id={}, pipewire_fd={:?}, render_node={:?}, output_mode={:?}", node_id, pipewire_fd, render_node, output_mode);
         gst::info!(CAT, imp = self, "Starting for node {}", node_id);
 
         let mut state = State::default();
         let elem = self.obj().upcast_ref::<gst::Element>().to_owned();
+
+        // Will be set if we successfully create an EGL display
+        let mut dmabuf_caps: Option<DmaBufCapabilities> = None;
 
         // Try CUDA mode using Wolf's context sharing pattern
         if output_mode == OutputMode::Auto || output_mode == OutputMode::Cuda {
@@ -393,6 +527,10 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         match create_egl_display(node_path) {
                             Ok(display) => {
                                 eprintln!("[PIPEWIRESRC_DEBUG] EGL display created, creating buffer pool...");
+                                // Query GPU-supported DMA-BUF modifiers BEFORE wrapping in Arc
+                                // This enables proper PipeWire format negotiation with DMA-BUF
+                                dmabuf_caps = Some(query_dmabuf_modifiers(&display));
+
                                 let cuda_ctx = cuda_context.lock().unwrap();
                                 match CUDABufferPool::new(&cuda_ctx) {
                                     Ok(pool) => {
@@ -432,7 +570,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        let stream = PipeWireStream::connect(node_id).map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
+        let stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps).map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
         state.stream = Some(stream);
         *state_guard = Some(state);
         Ok(())
@@ -526,6 +664,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         }
         self.parent_set_caps(caps)
     }
+
 }
 
 impl PushSrcImpl for PipeWireZeroCopySrc {
@@ -631,9 +770,13 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
+        // Timing instrumentation
+        use std::time::Instant;
+        let frame_start = Instant::now();
+
         let (buffer, actual_format, width, height) = match frame {
             FrameData::DmaBuf(dmabuf) if state.actual_output_mode == OutputMode::Cuda => {
-                eprintln!("[PIPEWIRESRC_DEBUG] Processing DmaBuf in CUDA mode");
+                let t0 = Instant::now();
                 // Use waylanddisplaycore's battle-tested CUDA conversion with shared context
                 let cuda_context_arc = cuda_context.as_ref().ok_or_else(|| {
                     eprintln!("[PIPEWIRESRC_DEBUG] ERROR: cuda_context is None!");
@@ -647,21 +790,19 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
 
                 let w = dmabuf.width() as u32;
                 let h = dmabuf.height() as u32;
+                let lock_time = t0.elapsed();
 
-                // Debug logging for CUDA conversion
-                let drm_fmt = dmabuf.format();
-                eprintln!("[PIPEWIRESRC_DEBUG] CUDA path: dmabuf {}x{} fourcc={:?} modifier=0x{:x}",
-                    w, h, drm_fmt.code, u64::from(drm_fmt.modifier));
-
+                // EGL import timing
+                let t1 = Instant::now();
                 let egl_image = EGLImage::from(&dmabuf, &raw_display)
                     .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] EGLImage error: {}", e); gst::FlowError::Error })?;
+                let egl_time = t1.elapsed();
 
-                eprintln!("[PIPEWIRESRC_DEBUG] EGLImage created successfully");
-
+                // CUDA import timing
+                let t2 = Instant::now();
                 let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
                     .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] CUDAImage error: {}", e); gst::FlowError::Error })?;
-
-                eprintln!("[PIPEWIRESRC_DEBUG] CUDAImage created successfully");
+                let cuda_time = t2.elapsed();
 
                 // Derive VideoFormat from DMA-BUF's fourcc (matches waylanddisplaycore pattern)
                 let drm_format = dmabuf.format();
@@ -675,10 +816,18 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 let modifier: u64 = drm_format.modifier.into();
                 let dma_video_info = VideoInfoDmaDrm::new(base_info, fourcc, modifier);
 
+                // Buffer creation timing
+                let t3 = Instant::now();
                 let buf = cuda_image.to_gst_buffer(dma_video_info, &cuda_ctx, state.buffer_pool.as_ref())
                     .map_err(|e| { eprintln!("[PIPEWIRESRC_DEBUG] to_gst_buffer error: {}", e); gst::FlowError::Error })?;
+                let buf_time = t3.elapsed();
 
-                eprintln!("[PIPEWIRESRC_DEBUG] CUDA buffer created successfully!");
+                let total = frame_start.elapsed();
+                // Log timing every 60 frames (1 second at 60fps)
+                if state.frame_count % 60 == 0 {
+                    eprintln!("[PIPEWIRESRC_TIMING] frame={} lock={:?} egl={:?} cuda={:?} buf={:?} total={:?}",
+                        state.frame_count, lock_time, egl_time, cuda_time, buf_time, total);
+                }
 
                 // Get the actual format from the buffer's VideoMeta (set by to_gst_buffer)
                 // This is the format that gst_video_info_dma_drm_to_video_info() produced
