@@ -392,24 +392,13 @@ EOF
     mkdir -p $HOME/.config/sway/
     cp /cfg/sway/config $HOME/.config/sway/config
 
-    # CRITICAL: Replace modifier key BEFORE bindings are processed
-    # GOW base config has "set $mod Mod4" at the top - we must change it in-place
-    # Super/Cmd key is captured by macOS/browsers, Alt passes through reliably
-    sed -i 's/set \$mod Mod4/set $mod Mod1/' $HOME/.config/sway/config
-    echo "[Sway] Changed modifier key from Super (Mod4) to Alt (Mod1)"
-
-    # Note: Custom configuration is added inline below (no separate custom-cfg file)
-
-    # Add our custom Helix configuration
+    # Define modifier key (Alt instead of Super - Super/Cmd is captured by macOS/browsers)
+    # This MUST come before any bindsym commands
     echo "" >> $HOME/.config/sway/config
-    echo "# Helix Desktop custom configuration" >> $HOME/.config/sway/config
+    echo "# Use Alt as modifier key (Super/Cmd doesn't work reliably in browser streaming)" >> $HOME/.config/sway/config
+    echo "set \$mod Mod1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Disable Xwayland - force native Wayland (fixes Zed input issues)" >> $HOME/.config/sway/config
-    echo "xwayland disable" >> $HOME/.config/sway/config
-    echo "" >> $HOME/.config/sway/config
-    echo "# Set Helix wallpaper" >> $HOME/.config/sway/config
-    echo "output * bg /usr/share/backgrounds/helix-logo.png fill" >> $HOME/.config/sway/config
-    echo "" >> $HOME/.config/sway/config
+    echo "[Sway] Set modifier key to Alt (Mod1)"
 
     # Calculate display scale from HELIX_ZOOM_LEVEL (default: 100%)
     # Unlike GNOME's X11 stack, Sway/Wayland properly handles fractional scaling
@@ -424,13 +413,8 @@ EOF
     echo "output HEADLESS-1 scale $SWAY_SCALE" >> $HOME/.config/sway/config
     echo "[Sway] Display scale set to $SWAY_SCALE (from HELIX_ZOOM_LEVEL=${ZOOM_LEVEL}%)"
     echo "" >> $HOME/.config/sway/config
-    echo "# Keyboard configuration: multiple layouts, Caps Lock as Ctrl" >> $HOME/.config/sway/config
-    echo "# Use the flag buttons in waybar to switch layouts (Alt+Shift toggle disabled - causes issues with Moonlight)" >> $HOME/.config/sway/config
-    echo "input type:keyboard {" >> $HOME/.config/sway/config
-    echo "    xkb_layout \"us,gb,fr\"" >> $HOME/.config/sway/config
-    echo "    xkb_options \"caps:ctrl_nocaps\"" >> $HOME/.config/sway/config
-    echo "}" >> $HOME/.config/sway/config
-    echo "" >> $HOME/.config/sway/config
+
+    # Key bindings (now that $mod is defined)
     echo "# Workaround for Moonlight keyboard modifier state desync bug" >> $HOME/.config/sway/config
     echo "# Press Super+Escape to reset all modifier keys if they get stuck" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Escape exec swaymsg 'input type:keyboard xkb_switch_layout 0'" >> $HOME/.config/sway/config
