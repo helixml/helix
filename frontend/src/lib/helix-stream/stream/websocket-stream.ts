@@ -1589,11 +1589,12 @@ export class WebSocketStream {
   }
 
   sendMouseWheelHighRes(deltaX: number, deltaY: number) {
-    // Format: subType(1) + deltaX(2) + deltaY(2)
+    // Format: subType(1) + deltaX(4 float32) + deltaY(4 float32)
+    // Uses float32 to preserve precision for small trackpad movements
     this.inputBuffer[0] = 3 // sub-type for high-res wheel
-    this.inputView.setInt16(1, Math.round(deltaX), false)
-    this.inputView.setInt16(3, Math.round(deltaY), false)
-    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 5))
+    this.inputView.setFloat32(1, deltaX, true) // little-endian
+    this.inputView.setFloat32(5, deltaY, true) // little-endian
+    this.sendInputMessage(WsMessageType.MouseClick, this.inputBuffer.subarray(0, 9))
   }
 
   sendMouseWheel(deltaX: number, deltaY: number) {

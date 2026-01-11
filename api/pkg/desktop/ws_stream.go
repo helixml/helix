@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +53,18 @@ func getVideoMode(configOverride string) VideoMode {
 		// Default to zerocopy (custom pipewirezerocopysrc plugin)
 		return VideoModeZeroCopy
 	}
+}
+
+// getGOPSize returns the configured GOP (Group of Pictures) size.
+// Set via HELIX_GOP_SIZE environment variable. Default is 120 frames (2 seconds at 60fps).
+// Larger GOP = better compression, smaller GOP = faster seek/recovery after packet loss.
+func getGOPSize() int {
+	if val := os.Getenv("HELIX_GOP_SIZE"); val != "" {
+		if gop, err := strconv.Atoi(val); err == nil && gop > 0 {
+			return gop
+		}
+	}
+	return 120 // Default: 2 seconds at 60fps
 }
 
 // Binary message types for streaming protocol (matching frontend websocket-stream.ts)
@@ -260,10 +274,14 @@ func (v *VideoStreamer) selectEncoder() string {
 		return "qsv"
 	}
 
-	// Try VA-API (Intel/AMD)
+	// Try VA-API (Intel/AMD) - check both new (vah264enc) and old (vaapih264enc) plugins
 	if checkGstElement("vah264enc") {
-		v.logger.Info("using VA-API encoder")
+		v.logger.Info("using VA-API encoder (gst-va plugin)")
 		return "vaapi"
+	}
+	if checkGstElement("vaapih264enc") {
+		v.logger.Info("using VA-API encoder (gst-vaapi plugin)")
+		return "vaapi-legacy"
 	}
 
 	// Try VA-API Low Power mode (some Intel chips)
@@ -328,18 +346,30 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// PipeWire connection doesn't have access to portal ScreenCast nodes.
 		switch v.videoMode {
 		case VideoModeZeroCopy:
-			// pipewirezerocopysrc: True zero-copy via EGL→CUDA interop
-			// Outputs video/x-raw(memory:CUDAMemory) for NVIDIA or DMABuf for AMD/Intel
+			// pipewirezerocopysrc: Zero-copy via GPU memory sharing
 			// Requires gst-plugin-pipewire-zerocopy to be installed
 			// Note: framerate is handled internally via max_framerate in PipeWire negotiation
-			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=auto keepalive-time=100", v.nodeID)
+			//
+			// Output mode selection based on encoder:
+			// - nvenc: CUDA memory (auto mode tries CUDA first)
+			// - vaapi/vaapi-legacy/vaapi-lp: DMA-BUF (VA-API accepts DmaBuf directly)
+			// - qsv: auto (QSV handles its own memory)
+			// - x264: system memory (CPU encoder)
+			var outputMode string
+			switch encoder {
+			case "vaapi", "vaapi-legacy", "vaapi-lp":
+				outputMode = "dmabuf" // VA-API encoders accept DMA-BUF directly
+			case "x264":
+				outputMode = "system" // CPU encoder needs system memory
+			default:
+				outputMode = "auto" // NVENC/QSV: auto-detect (CUDA for NVIDIA)
+			}
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=%s keepalive-time=100", v.nodeID, outputMode)
 			// Add fd property if we have portal FD (required for ScreenCast access)
 			if v.pipeWireFd > 0 {
 				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
 			}
 			parts = []string{srcPart}
-			// For NVIDIA, output is already in CUDA memory - no cudaupload needed
-			// For AMD/Intel, output is DMABuf which VA-API can accept directly
 
 		case VideoModeNative:
 			// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
@@ -392,7 +422,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			// nvh264enc accepts CUDA memory directly in these formats
 			// No conversion needed - true zero-copy GPU pipeline
 			parts = append(parts,
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=60 rc-mode=cbr-ld-hq bitrate=%d aud=false", v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		} else {
 			// Standard path: system memory → cudaupload → nvh264enc
@@ -402,7 +432,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
 				"cudaupload",
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=60 rc-mode=cbr-ld-hq bitrate=%d aud=false", v.config.Bitrate),
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 			)
 		}
 
@@ -414,7 +444,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoscale",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 				v.config.Width, v.config.Height, v.config.FPS),
-			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=60 idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", v.config.Bitrate),
+			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=%d idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", getGOPSize(), v.config.Bitrate),
 		)
 
 	case "vaapi":
@@ -427,8 +457,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"vapostproc",
 				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate),
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			)
 		} else {
 			// Standard path: CPU videoconvert
@@ -437,8 +467,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"videoscale",
 				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate),
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			)
 		}
 
@@ -449,8 +479,8 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"vapostproc",
 				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate),
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
 			)
 		} else {
 			parts = append(parts,
@@ -458,8 +488,27 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 				"videoscale",
 				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
-					v.config.Bitrate, v.config.Bitrate),
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=%d rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate, getGOPSize()),
+			)
+		}
+
+	case "vaapi-legacy":
+		// Legacy VA-API (gst-vaapi plugin) - wider compatibility for AMD/Intel
+		// vaapih264enc accepts DMA-BUF directly, no need for vaapipostproc
+		// Use vaapipostproc only if we need colorspace conversion from system memory
+		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
+			// DMA-BUF path: vaapih264enc can accept DMA-BUF directly
+			parts = append(parts,
+				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
+					v.config.Bitrate, getGOPSize()),
+			)
+		} else {
+			// System memory path: use vaapipostproc for GPU upload
+			parts = append(parts,
+				"vaapipostproc",
+				fmt.Sprintf("vaapih264enc tune=low-latency rate-control=cbr bitrate=%d keyframe-period=%d",
+					v.config.Bitrate, getGOPSize()),
 			)
 		}
 
@@ -471,7 +520,7 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 			"videoscale",
 			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 				v.config.Width, v.config.Height, v.config.FPS),
-			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=60 bitrate=%d aud=false", v.config.Bitrate),
+			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=%d bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
 		)
 	}
 

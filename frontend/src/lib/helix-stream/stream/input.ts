@@ -242,11 +242,19 @@ export class StreamInput {
             }
         }
     }
+    private scrollEventCount = 0;
+
     onMouseWheel(event: WheelEvent) {
         // Normalize wheel deltas to pixels, then pass through to backend.
         // Backend handles compositor-specific conversion (Mutter, Sway, etc.)
         let deltaX = event.deltaX;
         let deltaY = event.deltaY;
+
+        // Debug: log first 10 events and every 50th to see actual values
+        this.scrollEventCount++;
+        if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
+            console.log(`[Scroll] Event #${this.scrollEventCount}: deltaX=${deltaX.toFixed(3)}, deltaY=${deltaY.toFixed(3)}, deltaMode=${event.deltaMode}`);
+        }
 
         // Normalize deltaMode to pixels
         if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
@@ -260,16 +268,19 @@ export class StreamInput {
         }
         // DOM_DELTA_PIXEL: already in pixels, use as-is
 
-        // Clamp to i16 range for wire format
-        const clamp = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v)));
-
+        // Send every event with float precision - no accumulation needed
+        // since we now use float32 on the wire
         if (this.config.mouseScrollMode == "highres") {
-            // Negate Y: browser positive = content scrolls down, Moonlight expects opposite
-            this.sendMouseWheelHighRes(clamp(deltaX), clamp(-deltaY))
+            // Pass through directly - browser already handles natural scrolling
+            // direction based on OS settings (no negation needed)
+            if (this.scrollEventCount <= 10 || this.scrollEventCount % 50 === 0) {
+                console.log(`[Scroll] Sending float: X=${deltaX.toFixed(3)}, Y=${deltaY.toFixed(3)}`);
+            }
+            this.sendMouseWheelHighRes(deltaX, deltaY);
         } else if (this.config.mouseScrollMode == "normal") {
-            // Normal mode uses Int8 (-128 to 127)
+            // Normal mode uses Int8 (-128 to 127) - still integer-based
             const clampI8 = (v: number) => Math.max(-128, Math.min(127, Math.round(v / 10)));
-            this.sendMouseWheel(clampI8(deltaX), clampI8(-deltaY))
+            this.sendMouseWheel(clampI8(deltaX), clampI8(deltaY));
         }
     }
 
@@ -342,11 +353,23 @@ export class StreamInput {
     sendMouseWheelHighRes(deltaX: number, deltaY: number) {
         this.buffer.reset()
 
+        // Format: subType(1) + deltaX(4 float32 LE) + deltaY(4 float32 LE)
         this.buffer.putU8(3)
-        this.buffer.putI16(deltaX)
-        this.buffer.putI16(deltaY)
+        // ByteBuffer is big-endian by default, but we need little-endian for floats
+        // Use putF32LE to ensure correct byte order
+        this.putF32LE(deltaX)
+        this.putF32LE(deltaY)
 
         trySendChannel(this.mouseClicks, this.buffer)
+    }
+
+    // Helper to write little-endian float32 (ByteBuffer defaults to big-endian)
+    private putF32LE(value: number) {
+        const view = new DataView(new ArrayBuffer(4))
+        view.setFloat32(0, value, true) // true = little-endian
+        for (let i = 0; i < 4; i++) {
+            this.buffer.putU8(view.getUint8(i))
+        }
     }
     sendMouseWheel(deltaX: number, deltaY: number) {
         this.buffer.reset()

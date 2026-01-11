@@ -61,7 +61,7 @@ if [ -n "$EXPERIMENTAL_DESKTOPS" ]; then
         verify_tarball "$desktop"
     done
 else
-    echo "ℹ️  Experimental desktops skipped (set EXPERIMENTAL_DESKTOPS=\"zorin xfce\" to build)"
+    echo "ℹ️  Experimental desktops skipped (set EXPERIMENTAL_DESKTOPS=\"zorin xfce kde\" to build)"
 fi
 
 # Note: We preserve existing experimental tarballs even when not building them

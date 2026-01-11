@@ -24,10 +24,22 @@ RUN git clone https://git.sr.ht/~emersion/grim /grim && \
     cp build/grim /grim-bin
 
 # ====================================================================
-# Go build stage for screenshot-server and settings-sync-daemon
+# Go build stage for Helix binaries
 # ====================================================================
+# Uses Debian-based golang image for GStreamer development libraries.
+# screenshot-server requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
 ARG GO_CODE_HASH=unknown
+
+# Install GStreamer development libraries for go-gst bindings
+# These are required for CGO compilation of screenshot-server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -36,7 +48,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
@@ -398,6 +410,8 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
     gstreamer1.0-plugins-ugly \
+    gstreamer1.0-vaapi \
+    mesa-va-drivers \
     # wf-recorder for wlroots-native screen capture (uses wlr-screencopy directly)
     # pipewiresrc has compatibility issues with xdg-desktop-portal-wlr
     wf-recorder \
