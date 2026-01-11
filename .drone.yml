@@ -118,7 +118,7 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
@@ -168,7 +168,7 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - apk add --no-cache gcc g++ musl-dev
+      - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server
       - go install ./api/..
