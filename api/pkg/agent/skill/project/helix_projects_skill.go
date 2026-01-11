@@ -99,6 +99,7 @@ func NewHelixProjectsSkill(projectID string, store store.Store) agent.Skill {
 		NewCreateSpecTaskTool(projectID, store),
 		NewGetSpecTaskTool(projectID, store),
 		NewUpdateSpecTaskTool(projectID, store),
+		NewStartSpecTaskTool(projectID, store),
 	}
 	return agent.Skill{
 		Name:         "HelixProjects",

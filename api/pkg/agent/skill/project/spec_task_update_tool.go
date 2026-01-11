@@ -8,9 +8,44 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
+
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 )
+
+// UpdateSpecTaskTool - updates an existing spec task
+
+var updateSpecTaskParameters = jsonschema.Definition{
+	Type: jsonschema.Object,
+	Properties: map[string]jsonschema.Definition{
+		"task_id": {
+			Type:        jsonschema.String,
+			Description: "The ID of the task to update",
+		},
+		"name": {
+			Type:        jsonschema.String,
+			Description: "New name for the task (optional)",
+		},
+		"description": {
+			Type:        jsonschema.String,
+			Description: "New description for the task (optional)",
+		},
+		"status": {
+			Type:        jsonschema.String,
+			Description: "New status: backlog (move back to backlog), done (mark as done)",
+			Enum: []string{
+				types.TaskStatusBacklog.String(), types.TaskStatusDone.String(),
+			},
+		},
+		"priority": {
+			Type:        jsonschema.String,
+			Description: "New priority: low, medium, high, critical (optional)",
+			Enum:        []string{"low", "medium", "high", "critical"},
+		},
+	},
+	Required: []string{"task_id"},
+}
 
 type UpdateSpecTaskTool struct {
 	store     store.Store
