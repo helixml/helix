@@ -42,7 +42,7 @@ type ServerConfig struct {
 
 	// AI Providers management - controls if users can add their own AI provider API keys
 	// Disabled by default for enterprise customers who don't want users adding external API keys
-	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"false"`
+	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`

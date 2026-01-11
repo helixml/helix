@@ -249,7 +249,10 @@ export const InteractionInference: FC<{
                             gap: 1,
                             opacity: isLastInteraction ? 1 : 0,
                             transition: 'opacity 0.2s ease-in-out',
-                            position: 'relative'
+                            position: 'relative',
+                            '&:hover': {
+                              opacity: 1,
+                            },
                           }}
                         >
                           <Tooltip title="Regenerate this response">

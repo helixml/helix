@@ -134,9 +134,10 @@ type SpecTask struct {
 	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
 	// Simple tracking
-	EstimatedHours int        `json:"estimated_hours,omitempty"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	EstimatedHours    int        `json:"estimated_hours,omitempty"`
+	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
 
 	// Metadata
 	CreatedBy string                 `json:"created_by"`

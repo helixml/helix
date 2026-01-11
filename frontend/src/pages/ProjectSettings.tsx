@@ -10,10 +10,7 @@ import {
   CircularProgress,
   Divider,
   List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
+  ListItem,  
   Dialog,
   DialogTitle,
   DialogContent,
@@ -24,12 +21,8 @@ import {
   MenuItem,
   FormControlLabel,
   Checkbox,
-  Tooltip,
-  Chip,
+  Chip
 } from '@mui/material'
-import SaveIcon from '@mui/icons-material/Save'
-import StarIcon from '@mui/icons-material/Star'
-import StarBorderIcon from '@mui/icons-material/StarBorder'
 import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
 import PeopleIcon from '@mui/icons-material/People'

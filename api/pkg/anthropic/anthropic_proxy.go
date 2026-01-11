@@ -298,9 +298,11 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		totalCost = promptCost + completionCost
 	}
 
-	log.Debug().
+	log.Info().
 		Str("owner_id", vals.OwnerID).
 		Str("organization_id", orgID).
+		Str("project_id", vals.ProjectID).
+		Str("spec_task_id", vals.SpecTaskID).
 		Str("model", string(respMessage.Model)).
 		Str("provider", provider.Name).
 		Int("prompt_tokens", int(usage.InputTokens)).

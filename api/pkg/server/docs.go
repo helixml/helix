@@ -11514,6 +11514,82 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{taskId}/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get spec task usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Get spec task usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Aggregation level",
+                        "name": "aggregation_level",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}/zed-instance": {
             "get": {
                 "security": [
@@ -12162,6 +12238,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Spec Task ID",
                         "name": "spec_task_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Aggregation level",
+                        "name": "aggregation_level",
                         "in": "query"
                     }
                 ],

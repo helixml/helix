@@ -41,6 +41,7 @@ import { EllipsisVertical } from 'lucide-react'
 import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService'
 import { useTaskProgress, useUpdateSpecTask } from '../../services/specTaskService'
 import { TypesSpecTaskStatus } from '../../api/api'
+import UsagePulseChart from './UsagePulseChart'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import CloneTaskDialog from '../specTask/CloneTaskDialog'
 import CloneGroupProgressFull from '../specTask/CloneGroupProgress'
@@ -165,9 +166,10 @@ interface TaskCardProps {
   onTaskClick?: (task: SpecTaskWithExtras) => void
   onReviewDocs?: (task: SpecTaskWithExtras) => void
   projectId?: string
-  focusStartPlanning?: boolean // When true, focus the Start Planning button
-  isArchiving?: boolean // When true, show spinner on archive button (parent is archiving this task)
-  hasExternalRepo?: boolean // When true, project uses external repo (ADO) - Accept button becomes "Open PR"
+  focusStartPlanning?: boolean
+  isArchiving?: boolean
+  hasExternalRepo?: boolean
+  showMetrics?: boolean
 }
 
 // Interface for checklist items from API
@@ -472,6 +474,7 @@ export default function TaskCard({
   focusStartPlanning = false,
   isArchiving = false,
   hasExternalRepo = false,
+  showMetrics = true,
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false)
   const [showCloneDialog, setShowCloneDialog] = useState(false)
@@ -643,10 +646,7 @@ export default function TaskCard({
                   setMenuAnchorEl(null)
                   onReviewDocs(task)
                 }}
-              >
-                <ListItemIcon>
-                  <DesignDocsIcon fontSize="small" />
-                </ListItemIcon>
+              >    
                 <ListItemText>Review Spec</ListItemText>
               </MenuItem>
             )}
@@ -761,6 +761,11 @@ export default function TaskCard({
             )}
           </Box>
         </Box>
+
+        {/* Usage pulse chart - shows activity over last 3 days (only for active phases) */}
+        {showMetrics && (task.phase === 'planning' || task.phase === 'review' || task.phase === 'implementation') && (
+          <UsagePulseChart taskId={task.id} accentColor={accentColor} />
+        )}
 
         {/* Gorgeous checklist progress for active tasks */}
         {progressData?.checklist && progressData.checklist.total_tasks > 0 && (

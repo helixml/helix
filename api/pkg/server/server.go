@@ -564,7 +564,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/top-ups/new", system.DefaultWrapper(apiServer.createTopUp)).Methods(http.MethodPost)
 
 	// Usage
-	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getDailyUsage)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getUsage)).Methods(http.MethodGet)
 
 	// Security telemetry monitoring routes
 	// TODO: Fix compilation errors in security_telemetry_handlers.go before enabling
@@ -992,6 +992,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone", apiServer.cloneSpecTask).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/clone-groups", apiServer.listCloneGroups).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{id}/usage", system.Wrapper(apiServer.getSpecTaskUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/clone-groups/{groupId}/progress", apiServer.getCloneGroupProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/repositories/without-projects", apiServer.listReposWithoutProjects).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/quick-create", apiServer.quickCreateProject).Methods(http.MethodPost)

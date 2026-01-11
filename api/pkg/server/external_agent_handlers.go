@@ -27,7 +27,7 @@ import (
 func (apiServer *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.DesktopAgent, userID string) error {
 	userAPIKey, err := apiServer.specDrivenTaskService.GetOrCreateSandboxAPIKey(ctx, &services.SandboxAPIKeyRequest{
 		UserID:     userID,
-		ProjectID:  agent.ProjectPath,
+		ProjectID:  agent.ProjectID,
 		SpecTaskID: agent.SpecTaskID,
 	})
 	if err != nil {
