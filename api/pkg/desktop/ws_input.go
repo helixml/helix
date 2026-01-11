@@ -265,10 +265,10 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 	refWidth := int16(binary.BigEndian.Uint16(data[5:7]))
 	refHeight := int16(binary.BigEndian.Uint16(data[7:9]))
 
-	// Scale from reference coordinates to absolute (use 1920x1080 as default)
-	// TODO: Get actual screen size from compositor
-	absX := float64(x) / float64(refWidth) * 1920
-	absY := float64(y) / float64(refHeight) * 1080
+	// Scale from reference coordinates to actual screen dimensions
+	// Screen dimensions are read from GAMESCOPE_WIDTH/HEIGHT env vars at startup
+	absX := float64(x) / float64(refWidth) * float64(s.screenWidth)
+	absY := float64(y) / float64(refHeight) * float64(s.screenHeight)
 
 	// Try D-Bus RemoteDesktop first (GNOME)
 	if s.conn != nil && s.rdSessionPath != "" {
@@ -288,7 +288,9 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 	// Note: uinput mouse doesn't support absolute positioning well,
 	// but we log it for debugging
 	if s.virtualInput != nil {
-		if err := s.virtualInput.MouseMoveAbsolute(absX/1920, absY/1080, 1920, 1080); err != nil {
+		sw := float64(s.screenWidth)
+		sh := float64(s.screenHeight)
+		if err := s.virtualInput.MouseMoveAbsolute(absX/sw, absY/sh, int(sw), int(sh)); err != nil {
 			s.logger.Debug("virtual mouse absolute failed", "err", err)
 		}
 	}

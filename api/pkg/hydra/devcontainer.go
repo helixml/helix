@@ -53,11 +53,48 @@ func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Clien
 	)
 }
 
+// resolveImageVersion resolves :latest tags to specific versions from version files
+// This avoids race conditions when a new image is being loaded while a container is created
+func resolveImageVersion(image string) string {
+	// Only resolve :latest tags for helix images
+	if !strings.HasSuffix(image, ":latest") {
+		return image
+	}
+
+	// Extract image name (e.g., "helix-ubuntu" from "helix-ubuntu:latest")
+	imageName := strings.TrimSuffix(image, ":latest")
+	if !strings.HasPrefix(imageName, "helix-") {
+		return image
+	}
+
+	// Read version from file (mounted at /opt/images/ in sandbox)
+	versionFile := fmt.Sprintf("/opt/images/%s.version", imageName)
+	version, err := os.ReadFile(versionFile)
+	if err != nil {
+		log.Warn().Err(err).Str("image", imageName).Str("file", versionFile).
+			Msg("Failed to read version file, using :latest")
+		return image
+	}
+
+	tag := strings.TrimSpace(string(version))
+	if tag == "" {
+		log.Warn().Str("image", imageName).Msg("Version file empty, using :latest")
+		return image
+	}
+
+	resolved := imageName + ":" + tag
+	log.Info().Str("original", image).Str("resolved", resolved).Msg("Resolved image version")
+	return resolved
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
+	// Resolve :latest to specific version from version file
+	resolvedImage := resolveImageVersion(req.Image)
+
 	log.Info().
 		Str("session_id", req.SessionID).
-		Str("image", req.Image).
+		Str("image", resolvedImage).
 		Str("container_name", req.ContainerName).
 		Str("container_type", string(req.ContainerType)).
 		Str("gpu_vendor", req.GPUVendor).
@@ -72,7 +109,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	// Build container configuration
 	containerConfig := &container.Config{
-		Image:    req.Image,
+		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
 	}

@@ -51,7 +51,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
   const containers = isAppsMode ? apps : lobbies // Apps or Lobbies
 
   const sessions = data.sessions || []
-  const moonlightClients = data.moonlight_clients || []  // NEW: moonlight-web clients
+  const webrtcClients = data.moonlight_clients || []  // WebRTC streaming clients (API field retains legacy name)
   const memoryData = data.memory
   const containerMemory = isAppsMode ? (memoryData?.apps || []) : (memoryData?.lobbies || [])
   const clientConnections = memoryData?.clients || []
@@ -73,7 +73,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
   const clientRadius = 25
   const containerY = 120  // Apps/Lobbies at top
   const sessionY = 350    // Wolf sessions in middle
-  const clientY = 580     // Moonlight-web clients at bottom
+  const clientY = 580     // WebRTC streaming clients at bottom
 
   // Position containers (apps or lobbies) horizontally
   const containerPositions = new Map<string, { x: number; y: number }>()
@@ -98,10 +98,10 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
     })
   })
 
-  // Position moonlight-web clients horizontally
+  // Position WebRTC streaming clients horizontally
   const clientPositions = new Map<string, { x: number; y: number }>()
-  const clientSpacing = svgWidth / (moonlightClients.length + 1)
-  moonlightClients.forEach((client, idx) => {
+  const clientSpacing = svgWidth / (webrtcClients.length + 1)
+  webrtcClients.forEach((client, idx) => {
     clientPositions.set(client.session_id, {
       x: clientSpacing * (idx + 1),
       y: clientY,
@@ -144,7 +144,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
       <CardHeader
         avatar={<AccountTreeIcon />}
         title="Streaming Pipeline Architecture"
-        subheader={`${isAppsMode ? 'Apps (1:1 direct)' : 'Lobbies (interpipe)'} → Wolf Sessions → Moonlight-web Clients`}
+        subheader={`${isAppsMode ? 'Apps (1:1 direct)' : 'Lobbies (interpipe)'} → Streaming Sessions → WebRTC Clients`}
       />
       <CardContent>
         <svg width={svgWidth} height={svgHeight} style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -189,12 +189,12 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
           })}
 
           {/* Draw session-to-client connection lines */}
-          {moonlightClients.map((client) => {
-            // Find Wolf session for this moonlight client by matching client_unique_id
+          {webrtcClients.map((client) => {
+            // Find streaming session for this WebRTC client by matching client_unique_id
             const matchingSession = sessions.find(s => s.client_unique_id === client.client_unique_id)
 
             if (!matchingSession) {
-              console.warn(`[Dashboard] No Wolf session found for moonlight client ${client.session_id}`)
+              console.warn(`[Dashboard] No streaming session found for WebRTC client ${client.session_id}`)
               return null
             }
 
@@ -371,8 +371,8 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             )
           })}
 
-          {/* Draw moonlight-web clients (WebRTC consumers) */}
-          {moonlightClients.map((client) => {
+          {/* Draw WebRTC streaming clients (video consumers) */}
+          {webrtcClients.map((client) => {
             const pos = clientPositions.get(client.session_id)
             if (!pos) return null
 
@@ -382,7 +382,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
             return (
               <g key={`client-${client.session_id}`}>
-                <Tooltip title={`Client: ${client.session_id} | Moonlight ID: ${client.client_unique_id || 'default'} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
+                <Tooltip title={`Client: ${client.session_id} | Client ID: ${client.client_unique_id || 'default'} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
@@ -440,7 +440,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   fill="white"
                   fontSize="7"
                 >
-                  moonlight-web
+                  streaming-client
                 </text>
               </g>
             )
@@ -483,7 +483,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             <strong>3-Tier Architecture:</strong> {isAppsMode
               ? 'Apps mode - Direct 1:1 connections. Each app has its own GStreamer pipeline directly connected to one Wolf session.'
               : 'Lobbies mode - Dynamic interpipe switching. Lobbies run interpipesink producers, sessions consume via interpipesrc and can dynamically switch between lobbies.'
-            } Moonlight-web Clients (bottom) connect to Wolf sessions via WebRTC (solid green = active WebRTC, dashed yellow = headless keepalive).
+            } Streaming Clients (bottom) connect to sessions via WebRTC (solid green = active WebRTC, dashed yellow = headless keepalive).
           </Typography>
         </Box>
       </CardContent>

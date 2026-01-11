@@ -64,10 +64,10 @@ Examples:
 	}
 
 	cmd.Flags().IntVarP(&duration, "duration", "d", 10, "Benchmark duration in seconds")
-	cmd.Flags().IntVar(&width, "width", 1920, "Video stream width in pixels")
-	cmd.Flags().IntVar(&height, "height", 1080, "Video stream height in pixels")
+	cmd.Flags().IntVar(&width, "width", 3840, "Video stream width in pixels (default: 4K)")
+	cmd.Flags().IntVar(&height, "height", 2160, "Video stream height in pixels (default: 4K)")
 	cmd.Flags().IntVar(&fps, "fps", 60, "Target frames per second")
-	cmd.Flags().IntVar(&bitrate, "bitrate", 10000, "Video bitrate in kbps")
+	cmd.Flags().IntVar(&bitrate, "bitrate", 30000, "Video bitrate in kbps (default: 30Mbps for 4K)")
 	cmd.Flags().BoolVar(&skipVkcube, "skip-vkcube", false, "Skip vkcube check (for static screen testing)")
 	cmd.Flags().StringVar(&videoMode, "video-mode", "", "Video capture mode: shm, native, or zerocopy (default: container env)")
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write raw H.264 video frames to file")
@@ -396,9 +396,21 @@ func printBenchmarkResults(stats *benchmarkStats, _ /* duration */, targetFPS in
 func startVkcube(apiURL, token, sessionID string) error {
 	execURL := fmt.Sprintf("%s/api/v1/external-agents/%s/exec", apiURL, sessionID)
 
+	// vkcube needs Wayland display environment set
+	// --wsi wayland forces Wayland backend (default is X11)
+	// --present_mode 1 = MAILBOX (triple buffered, no tearing, max FPS)
+	// IMMEDIATE (mode 0) is often not supported on virtual displays
 	payload := map[string]interface{}{
-		"command": []string{"vkcube"},
+		"command": []string{
+			"vkcube",
+			"--wsi", "wayland",
+			"--present_mode", "1",
+		},
 		"background": true,
+		"env": map[string]string{
+			"WAYLAND_DISPLAY":  "wayland-0",
+			"XDG_RUNTIME_DIR":  "/run/user/1000",
+		},
 	}
 	jsonData, _ := json.Marshal(payload)
 

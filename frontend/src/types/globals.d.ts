@@ -14,13 +14,6 @@ declare module '../contexts/account' {
   }
 }
 
-// Extend ServerPersonalDevEnvironmentResponse
-declare module '../api/api' {
-  interface ServerPersonalDevEnvironmentResponse {
-    wolf_lobby_pin?: string;
-    wolf_lobby_id?: string;
-  }
-}
 
 // Extend IApp interface
 declare module '../types' {
@@ -74,7 +67,7 @@ declare global {
   }
 }
 
-// Moonlight API bindings stub types
+// Helix stream API bindings stub types
 declare module './lib/helix-stream/api_bindings' {
   export interface App {}
   export interface DeleteHostQuery {}
@@ -102,7 +95,7 @@ declare module './lib/helix-stream/api_bindings' {
   export interface StreamServerMessage {}
 }
 
-// Moonlight component stub types
+// Helix stream component stub types
 declare module './lib/helix-stream/component/host/add_modal' {
   export const AddHostModal: any;
 }
@@ -146,42 +139,6 @@ declare module './lib/helix-stream/component/input' {
   export const SelectComponent: any;
 }
 
-// Moonlight stream stubs
-declare module './lib/moonlight-stream/api_bindings.js' {
-  export * from './lib/helix-stream/api_bindings';
-}
-
-declare module './lib/moonlight-stream/component/error.js' {
-  export const ErrorComponent: any;
-}
-
-declare module './lib/moonlight-stream/component/input.js' {
-  export const InputComponent: any;
-}
-
-declare module './lib/moonlight-stream/component/modal/form.js' {
-  export const FormModal: any;
-}
-
-declare module './lib/moonlight-stream/component/modal/index.js' {
-  export * from './lib/helix-stream/component/modal/index';
-}
-
-declare module './lib/moonlight-stream/component/settings_menu.js' {
-  export * from './lib/helix-stream/component/settings_menu';
-}
-
-declare module './lib/moonlight-stream/config_.js' {
-  export const config: any;
-}
-
-declare module '../api_bindings.js' {
-  export * from './lib/helix-stream/api_bindings';
-}
-
-declare module '../api.js' {
-  export const api: any;
-}
 
 // Missing API types
 declare type AgentSandboxesDebugResponse = any;

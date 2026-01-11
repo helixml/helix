@@ -7,7 +7,6 @@ import {
   VolumeUp,
   VolumeOff,
   BarChart,
-  Keyboard,
   Wifi,
   SignalCellularAlt,
   Speed,
@@ -15,18 +14,17 @@ import {
   Timeline,
   CameraAlt,
 } from '@mui/icons-material';
-import KeyboardObservabilityPanel from './KeyboardObservabilityPanel';
 import { LineChart } from '@mui/x-charts';
 import {
   darkChartStyles,
   chartContainerStyles,
   chartLegendProps,
   axisLabelStyle,
-} from '../wolf/chartStyles';
+} from '../common/chartStyles';
 // getApi import removed - we create API object directly instead of using cached singleton
 import { Stream } from '../../lib/helix-stream/stream/index';
 import { WebSocketStream, codecToWebCodecsString, codecToDisplayName } from '../../lib/helix-stream/stream/websocket-stream';
-import { defaultStreamSettings, StreamingMode } from '../../lib/helix-stream/component/settings_menu';
+import { defaultStreamSettings, StreamingMode, VideoMode } from '../../lib/helix-stream/component/settings_menu';
 import { getSupportedVideoFormats, getWebCodecsSupportedVideoFormats, getStandardVideoFormats } from '../../lib/helix-stream/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
@@ -79,7 +77,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket-only mode
   const sseCanvasRef = useRef<HTMLCanvasElement>(null); // Separate canvas for SSE mode (avoids conflicts)
   const containerRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance from moonlight-web
+  const streamRef = useRef<Stream | WebSocketStream | null>(null); // Stream instance (WebSocket or legacy WebRTC)
   const sseStatsRef = useRef({
     framesDecoded: 0,
     framesDropped: 0,
@@ -101,7 +99,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const pendingReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cancel pending reconnects to prevent duplicate streams
 
   // Generate unique UUID for this component instance (persists across re-renders)
-  // This ensures multiple floating windows get different Moonlight client IDs
+  // This ensures multiple floating windows get different streaming client IDs
   const componentInstanceIdRef = useRef<string>(
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = Math.random() * 16 | 0;
@@ -123,7 +121,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
-  const [showKeyboardPanel, setShowKeyboardPanel] = useState(false);
   const [requestedBitrate, setRequestedBitrate] = useState<number>(10); // Mbps (from backend config)
   const [userBitrate, setUserBitrate] = useState<number | null>(null); // User-selected bitrate (overrides backend)
   const [bitrateMenuAnchor, setBitrateMenuAnchor] = useState<null | HTMLElement>(null);
@@ -197,7 +194,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     visible: boolean;
   }>({ message: '', type: 'success', visible: false });
 
-  // Video start timeout - detect Wolf pipeline failures that cause hangs
+  // Video start timeout - detect GStreamer pipeline failures that cause hangs
   const videoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const VIDEO_START_TIMEOUT_MS = 15000; // 15 seconds to start video after connection
   const clipboardToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -475,6 +472,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       settings.audioSampleQueueSize = 20;
       settings.playAudioLocal = !audioEnabled;
 
+      // Check for videoMode URL param to switch between capture pipelines
+      // Usage: ?videoMode=native or ?videoMode=zerocopy
+      const urlParams = new URLSearchParams(window.location.search);
+      const videoModeParam = urlParams.get('videoMode');
+      if (videoModeParam === 'native' || videoModeParam === 'zerocopy' || videoModeParam === 'shm') {
+        settings.videoMode = videoModeParam;
+        console.log('[DesktopStreamViewer] Using videoMode from URL param:', videoModeParam);
+      }
+
       // Detect actual browser codec support
       // For WebSocket mode: use WebCodecs detection (VideoDecoder.isConfigSupported)
       // For WebRTC mode: use RTCRtpReceiver detection (default behavior)
@@ -638,14 +644,14 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           }
           currentWebSocketStreamIdRef.current = registerConnection('websocket-stream');
 
-          // Start video timeout - if video doesn't start within 15 seconds, Wolf pipeline likely failed
+          // Start video timeout - if video doesn't start within 15 seconds, GStreamer pipeline likely failed
           // This catches GStreamer errors like resolution mismatches that cause silent hangs
           if (videoStartTimeoutRef.current) {
             clearTimeout(videoStartTimeoutRef.current);
           }
           videoStartTimeoutRef.current = setTimeout(() => {
-            console.error('[DesktopStreamViewer] Video start timeout - Wolf pipeline may have failed');
-            setError('Video stream failed to start. The streaming server may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
+            console.error('[DesktopStreamViewer] Video start timeout - GStreamer pipeline may have failed');
+            setError('Video stream failed to start. The desktop may have encountered a pipeline error. Click the Restart button (top right) to restart the session.');
             setIsConnecting(false);
             setIsConnected(false);
             onConnectionChange?.(false);
@@ -3211,7 +3217,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   return (
     <Box
       ref={containerRef}
-      className={`${className} moonlight-stream-viewer`}
+      className={`${className} desktop-stream-viewer`}
       data-video-container="true"
       tabIndex={0}
       onClick={handleContainerClick}
@@ -3282,15 +3288,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             sx={{ color: showCharts ? 'primary.main' : 'white' }}
           >
             <Timeline fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Keyboard state monitor - debug key input issues" arrow slotProps={{ popper: { disablePortal: true, sx: { zIndex: 10000 } } }}>
-          <IconButton
-            size="small"
-            onClick={() => setShowKeyboardPanel(!showKeyboardPanel)}
-            sx={{ color: showKeyboardPanel ? 'primary.main' : 'white' }}
-          >
-            <Keyboard fontSize="small" />
           </IconButton>
         </Tooltip>
         {/* WebRTC toggle disabled - Wolf/Moonlight removed, may add Pion later */}
@@ -4083,13 +4080,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         );
       })()}
 
-      {/* Keyboard State Monitor Panel */}
-      {showKeyboardPanel && sessionId && (
-        <KeyboardObservabilityPanel
-          sandboxInstanceId={sessionId}
-          onClose={() => setShowKeyboardPanel(false)}
-        />
-      )}
 
       {/* Clipboard Toast Notification */}
       <Box

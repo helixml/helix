@@ -577,6 +577,11 @@ export class WebSocketStream {
       initMessage.client_unique_id = this.clientUniqueId
     }
 
+    // Include video_mode if specified (controls backend capture pipeline)
+    if (this.settings.videoMode) {
+      initMessage.video_mode = this.settings.videoMode
+    }
+
     this.ws?.send(JSON.stringify(initMessage))
   }
 

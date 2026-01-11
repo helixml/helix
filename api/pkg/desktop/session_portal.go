@@ -293,6 +293,49 @@ func (s *Server) startPortalSession(ctx context.Context) error {
 		s.logger.Warn("failed to save node ID to file", "err", err)
 	}
 
+	// Call OpenPipeWireRemote to get the PipeWire FD
+	// This FD is required for pipewiresrc to connect to ScreenCast nodes
+	if err := s.openPipeWireRemote(); err != nil {
+		s.logger.Warn("failed to open PipeWire remote (zerocopy may not work)", "err", err)
+		// Don't fail - we can still try without the FD (some setups work without it)
+	}
+
+	return nil
+}
+
+// openPipeWireRemote calls the portal's OpenPipeWireRemote method to get a FD
+// for connecting to the PipeWire session that has ScreenCast access.
+func (s *Server) openPipeWireRemote() error {
+	if s.portalSessionHandle == "" {
+		return fmt.Errorf("no portal session handle")
+	}
+
+	portalObj := s.conn.Object(portalBus, portalPath)
+
+	// OpenPipeWireRemote takes session handle and options dict
+	// Returns a Unix file descriptor via D-Bus fd passing
+	options := map[string]dbus.Variant{}
+
+	var pipeWireFd dbus.UnixFD
+	err := portalObj.Call(
+		portalScreenCastIface+".OpenPipeWireRemote",
+		0,
+		dbus.ObjectPath(s.portalSessionHandle),
+		options,
+	).Store(&pipeWireFd)
+
+	if err != nil {
+		return fmt.Errorf("OpenPipeWireRemote call failed: %w", err)
+	}
+
+	s.pipeWireFd = int(pipeWireFd)
+	s.logger.Info("opened PipeWire remote", "fd", s.pipeWireFd)
+
+	// Save FD to file so other processes can use it
+	if err := os.WriteFile("/tmp/pipewire-fd", []byte(fmt.Sprintf("%d", s.pipeWireFd)), 0644); err != nil {
+		s.logger.Warn("failed to save PipeWire FD to file", "err", err)
+	}
+
 	return nil
 }
 

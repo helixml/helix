@@ -27,17 +27,12 @@ sandbox:
   runnerTokenExistingSecret: ""
   runnerTokenExistingSecretKey: ""  # defaults to "token" if not specified
 
-  # Wolf instance ID (defaults to pod name)
+  # Sandbox instance ID (defaults to pod name)
   # Leave empty to use pod name as instance ID
   instanceId: ""
 
   # Maximum number of concurrent sandboxes (Zed sessions)
   maxSandboxes: 10
-
-  # Moonlight Web credentials (must match control plane MOONLIGHT_CREDENTIALS)
-  moonlightCredentials: "helix"
-  moonlightCredentialsExistingSecret: ""
-  moonlightCredentialsExistingSecretKey: ""
 
   # TURN server configuration for WebRTC NAT traversal
   turn:
@@ -49,16 +44,13 @@ sandbox:
     turnPasswordExistingSecret: ""
     turnPasswordExistingSecretKey: ""
 
-  # Helix hostname displayed in Moonlight clients
+  # Helix hostname displayed in browser
   helixHostname: ""
 
   # GOP size (keyframe interval) - higher = lower bandwidth
   # 120 recommended for remote connections
   gopSize: 120
 
-  # Wolf debug dump configuration
-  wolfMaxDumps: 6
-  wolfMaxDumpsGB: 20
 
 # GPU configuration
 # Supported vendors: "nvidia", "amd", "intel", "none"
@@ -148,30 +140,15 @@ podSecurityContext: {}
 securityContext:
   privileged: true
 
-# Service configuration for Wolf/Moonlight ports
+# Service configuration for sandbox streaming
 service:
   type: LoadBalancer
   annotations: {}
-  # Moonlight protocol ports
-  moonlight:
-    https: 47984
-    http: 47989
-    rtsp: 48010
-  # UDP ports for Moonlight protocol
-  moonlightUdp:
-    discovery: 47415
-    control: 47999
-    video: 48100
-    audio: 48200
-  # Moonlight Web UI
+  # WebSocket streaming port
   web:
     port: 8080
-  # WebRTC UDP port range for Moonlight Web
-  webrtc:
-    portRangeStart: 40000
-    portRangeEnd: 40100
 
-# Persistence for Wolf's Docker storage and debug dumps
+# Persistence for sandbox Docker storage
 persistence:
   # Docker storage for sandbox containers
   dockerStorage:
@@ -181,16 +158,8 @@ persistence:
     accessModes:
       - ReadWriteOnce
 
-  # Debug dumps storage
-  debugDumps:
-    enabled: true
-    size: 25Gi
-    storageClassName: ""
-    accessModes:
-      - ReadWriteOnce
-
-  # Wolf configuration storage
-  wolfConfig:
+  # Sandbox configuration storage
+  sandboxConfig:
     enabled: true
     size: 1Gi
     storageClassName: ""

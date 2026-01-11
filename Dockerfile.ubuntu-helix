@@ -10,8 +10,20 @@
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
+# Uses Debian-based golang image for GStreamer development libraries.
+# screenshot-server requires go-gst bindings (CGO) for in-process GStreamer.
 FROM golang:1.24 AS go-build-env
 ARG GO_CODE_HASH=unknown
+
+# Install GStreamer development libraries for go-gst bindings
+# These are required for CGO compilation of screenshot-server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -20,7 +32,7 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     echo "Go code hash: ${GO_CODE_HASH}" && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.BuildHash=${GO_CODE_HASH}" -o /screenshot-server ./cmd/screenshot-server && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
@@ -43,7 +55,9 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
     gstreamer1.0-plugins-base \
+    libgstreamer-plugins-bad1.0-0 \
     libpipewire-0.3-dev \
     libspa-0.2-dev \
     libegl1-mesa-dev \
@@ -55,7 +69,8 @@ RUN apt-get update && apt-get install -y \
     libwayland-dev \
     libudev-dev \
     libgbm-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so.0 /usr/lib/x86_64-linux-gnu/libgstcuda-1.0.so
 
 # Install Rust 1.85 via rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
@@ -66,9 +81,11 @@ COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
+# Cache registry only - target needs clean rebuild when linking changes
+# FORCE CLEAN: cargo clean required because adding libgstcuda link in build.rs
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target \
     cd gst-pipewire-zerocopy && \
+    cargo clean && \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
 
@@ -220,6 +237,15 @@ fi
 echo "=== WirePlumber suspension fix applied (86400s timeout) ==="
 _WIREPLUMBER_CONFIG
 
+# PipeWire configuration to set video rate to 60fps (default is 25fps)
+# This affects ScreenCast frame delivery rate
+RUN mkdir -p /etc/pipewire/pipewire.conf.d && \
+    echo '# Helix: Set video rate to 60fps for smoother streaming' > /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo 'context.properties = {' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '    default.video.rate.num = 60' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '    default.video.rate.denom = 1' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf && \
+    echo '}' >> /etc/pipewire/pipewire.conf.d/99-helix-video-rate.conf
+
 # Create retro user (from GOW base-app)
 # Ubuntu 25.10 base image has existing user/group with UID/GID 1000, so we remove first
 RUN <<_CREATE_USER
@@ -312,7 +338,11 @@ ENV LANG=en_US.UTF-8 \
     CLUTTER_BACKEND=wayland \
     SDL_VIDEODRIVER=wayland \
     MUTTER_ALLOW_NESTED=1 \
-    MUTTER_DEBUG_KMS_THREAD_TYPE=user
+    MUTTER_DEBUG_KMS_THREAD_TYPE=user \
+    MUTTER_DEBUG=screen-cast \
+    CLUTTER_DEBUG=frame-clock,frame-timings \
+    CLUTTER_PAINT=disable-dynamic-max-render-time \
+    CLUTTER_DEFAULT_FPS=60
 
 # GOW dbus init script
 COPY <<_DBUS_INIT /etc/cont-init.d/99-startdbus.sh
@@ -335,9 +365,8 @@ RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
 ENV RADV_DEBUG=hang
 ENV AMD_DEBUG=sync_compile,check_vm
 
-# Video streaming mode (shm=default, native=DMABuf, zerocopy=plugin)
-# See design/2026-01-10-zero-copy-video-streaming.md
-ENV HELIX_VIDEO_MODE=shm
+# Video streaming mode is set per-stream via URL param (?videoMode=native|zerocopy|shm)
+# Default is 'native' (stock GStreamer pipewiresrc) - see ws_stream.go getVideoMode()
 
 # Passwordless sudo
 RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
@@ -678,6 +707,13 @@ if [ -x /zed-build/zed ]; then
 fi
 
 gow_log "[start] Virtual monitor: ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT}@${GAMESCOPE_REFRESH}"
+
+# Enable experimental features for better frame pacing:
+# - variable-refresh-rate: VRR support (may help with frame sync)
+# - triple-buffering: Additional buffer for smoother frame delivery
+# These are set unconditionally to help diagnose frame rate issues
+gsettings set org.gnome.mutter experimental-features "['variable-refresh-rate', 'triple-buffering']"
+gow_log "[start] Enabled mutter experimental features: variable-refresh-rate, triple-buffering"
 
 # GNOME 49 supports two modes:
 # - PipeWire mode (--headless): No display output, Wolf uses pipewiresrc to capture from PipeWire

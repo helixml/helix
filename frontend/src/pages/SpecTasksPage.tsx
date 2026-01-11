@@ -104,10 +104,11 @@ const SpecTasksPage: FC = () => {
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
   const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
-  // Query wolf instances to check for privileged mode availability
-  const { data: wolfInstances } = useQuery({
-    queryKey: ['wolf-instances'],
+  // Query sandbox instances to check for privileged mode availability
+  const { data: sandboxInstances } = useQuery({
+    queryKey: ['sandbox-instances'],
     queryFn: async () => {
+      // API endpoint still named WolfInstances for backwards compatibility
       const response = await api.getApiClient().v1WolfInstancesList();
       return response.data;
     },
@@ -116,8 +117,8 @@ const SpecTasksPage: FC = () => {
 
   // Check if any sandbox has privileged mode enabled
   const hasPrivilegedSandbox = useMemo(() => {
-    return wolfInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
-  }, [wolfInstances]);
+    return sandboxInstances?.some(instance => instance.privileged_mode_enabled) ?? false;
+  }, [sandboxInstances]);
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -637,7 +638,6 @@ const SpecTasksPage: FC = () => {
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
         sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id,
         displayWidth: exploratoryDisplaySettings.width,
         displayHeight: exploratoryDisplaySettings.height,
         displayFps: exploratoryDisplaySettings.fps,
@@ -660,7 +660,6 @@ const SpecTasksPage: FC = () => {
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
         sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id,
         displayWidth: exploratoryDisplaySettings.width,
         displayHeight: exploratoryDisplaySettings.height,
         displayFps: exploratoryDisplaySettings.fps,
@@ -924,7 +923,6 @@ const SpecTasksPage: FC = () => {
                   floatingModal.showFloatingModal({
                     type: 'exploratory_session',
                     sessionId: exploratorySessionData.id,
-                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id,
                     displayWidth: exploratoryDisplaySettings.width,
                     displayHeight: exploratoryDisplaySettings.height,
                     displayFps: exploratoryDisplaySettings.fps,

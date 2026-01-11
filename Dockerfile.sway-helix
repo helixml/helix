@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
     gstreamer1.0-plugins-base \
     libpipewire-0.3-dev \
     libspa-0.2-dev \
@@ -82,8 +83,8 @@ COPY desktop/wayland-display-core ./wayland-display-core/
 COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 
 # Build the plugin (creates libgstpipewirezerocopy.so)
+# Note: Not caching target directory to ensure fresh rebuild when dependencies change
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target \
     cd gst-pipewire-zerocopy && \
     cargo build --release && \
     cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
@@ -390,6 +391,16 @@ RUN apt-get update && apt-get install -y \
     kitty \
     scrot xclip \
     vulkan-tools \
+    # GStreamer for video streaming (pipewiresrc → h264 encoding → RTP)
+    gstreamer1.0-tools \
+    gstreamer1.0-pipewire \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    # wf-recorder for wlroots-native screen capture (uses wlr-screencopy directly)
+    # pipewiresrc has compatibility issues with xdg-desktop-portal-wlr
+    wf-recorder \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ghostty terminal

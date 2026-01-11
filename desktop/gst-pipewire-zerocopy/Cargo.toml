@@ -1,6 +1,6 @@
 [package]
 name = "gst-plugin-pipewire-zerocopy"
-version = "0.1.1"  # Force rebuild: set_active + 30s timeout
+version = "0.1.6"  # Fixed: min max_framerate to 0/1 to allow disabling limiter
 edition = "2021"
 license = "MIT"
 description = "GStreamer PipeWire source with zero-copy GPU buffer handling"

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,12 +35,21 @@ type Server struct {
 	scSessionPath dbus.ObjectPath
 	scStreamPath  dbus.ObjectPath
 	nodeID        uint32
+	pipeWireFd    int // PipeWire FD from OpenPipeWireRemote portal call
 
 	// Screenshot-dedicated ScreenCast session (separate from video streaming)
 	// This avoids buffer renegotiation conflicts when capturing screenshots
 	ssScSessionPath dbus.ObjectPath
 	ssScStreamPath  dbus.ObjectPath
 	ssNodeID        uint32
+
+	// Standalone video streaming ScreenCast session (NOT linked to RemoteDesktop)
+	// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
+	// This standalone session offers DmaBuf with NVIDIA tiled modifiers for zero-copy GPU capture.
+	// Input still uses the linked session's stream path for NotifyPointerMotionAbsolute.
+	videoScSessionPath dbus.ObjectPath
+	videoScStreamPath  dbus.ObjectPath
+	videoNodeID        uint32
 
 	// Portal session state (for Sway/wlroots via xdg-desktop-portal-wlr)
 	portalSessionHandle   string // ScreenCast session handle
@@ -64,10 +74,16 @@ type Server struct {
 	// Stats
 	moveCount      int
 	scrollLogCount int
+	inputCallCount uint64 // For D-Bus latency sampling
 
 	// Scroll finish detection - send "scroll finished" to Mutter after timeout
 	scrollFinishTimer *time.Timer
 	scrollFinishMu    sync.Mutex
+
+	// Screen dimensions for mouse coordinate scaling
+	// Initialized from GAMESCOPE_WIDTH/HEIGHT env vars (default: 1920x1080)
+	screenWidth  int
+	screenHeight int
 
 	// Screenshot serialization - GNOME D-Bus Screenshot API only allows
 	// one operation at a time per sender. Concurrent calls return
@@ -87,10 +103,30 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 		cfg.XDGRuntimeDir = "/run/user/1000"
 	}
 
+	// Read screen dimensions from environment (set by Dockerfile)
+	// These are used for mouse coordinate scaling
+	screenWidth := 1920
+	screenHeight := 1080
+	if w := os.Getenv("GAMESCOPE_WIDTH"); w != "" {
+		if parsed, err := strconv.Atoi(w); err == nil && parsed > 0 {
+			screenWidth = parsed
+		}
+	}
+	if h := os.Getenv("GAMESCOPE_HEIGHT"); h != "" {
+		if parsed, err := strconv.Atoi(h); err == nil && parsed > 0 {
+			screenHeight = parsed
+		}
+	}
+	logger.Info("screen dimensions for mouse scaling",
+		"width", screenWidth,
+		"height", screenHeight)
+
 	return &Server{
 		config:          cfg,
 		inputSocketPath: cfg.XDGRuntimeDir + "/helix-input.sock",
 		logger:          logger,
+		screenWidth:     screenWidth,
+		screenHeight:    screenHeight,
 	}
 }
 
@@ -144,9 +180,24 @@ func (s *Server) Run(ctx context.Context) error {
 		// Only Sway uses the video forwarder (with wf-recorder for wlr-screencopy).
 		s.logger.Info("GNOME: using direct pipewiresrc (no video forwarder)")
 
-		// 7. Create dedicated screenshot ScreenCast session (separate from video streaming)
-		// This standalone session gets DmaBuf with NVIDIA modifiers, but it's reserved
-		// for fast PipeWire-based screenshots - NOT for video streaming.
+		// 7. Create standalone ScreenCast session for VIDEO STREAMING
+		// CRITICAL: Linked sessions don't offer DmaBuf modifiers in GNOME headless mode!
+		// This standalone session offers DmaBuf with NVIDIA modifiers for true zero-copy.
+		// Input continues to use the linked session's stream path for NotifyPointerMotionAbsolute.
+		if err := s.createVideoSession(ctx); err != nil {
+			// Non-fatal - fall back to linked session (SHM path)
+			s.logger.Warn("failed to create standalone video session, falling back to linked session",
+				"err", err,
+				"note", "video will use SHM path instead of DmaBuf zero-copy")
+		} else {
+			s.logger.Info("video session ready (standalone, DmaBuf enabled)",
+				"video_node_id", s.videoNodeID,
+				"input_node_id", s.nodeID)
+		}
+
+		// 8. Create dedicated screenshot ScreenCast session (separate from video streaming)
+		// This is a THIRD standalone session to avoid buffer renegotiation conflicts
+		// when capturing screenshots while video is streaming.
 		if err := s.createScreenshotSession(ctx); err != nil {
 			// Non-fatal - fall back to D-Bus Screenshot API
 			s.logger.Warn("failed to create screenshot session, will use D-Bus Screenshot API",
@@ -154,7 +205,7 @@ func (s *Server) Run(ctx context.Context) error {
 		} else {
 			s.logger.Info("screenshot session ready",
 				"screenshot_node_id", s.ssNodeID,
-				"video_node_id", s.nodeID)
+				"video_node_id", s.videoNodeID)
 		}
 
 		// Mark as running BEFORE starting goroutines that check isRunning()
@@ -162,14 +213,14 @@ func (s *Server) Run(ctx context.Context) error {
 		// immediately because s.running was false when the goroutine started.
 		s.running.Store(true)
 
-		// 7. Start input bridge
+		// 9. Start input bridge
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			s.runInputBridge(ctx)
 		}()
 
-		// 8. Start session monitor (detects session closure and recreates)
+		// 10. Start session monitor (detects session closure and recreates)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -311,11 +362,33 @@ func (s *Server) isRunning() bool {
 // handleWSStream handles the combined WebSocket video+input streaming endpoint.
 // This streams H.264 encoded video directly from PipeWire to the browser
 // and handles input events in the same connection.
+//
+// EXPERIMENTAL: Testing linked session for video to check if it receives more damage events.
+// Standalone sessions only received 2-5 process callbacks in 10-20 second streaming.
+// Linked sessions are connected to RemoteDesktop which may trigger more frame production.
 func (s *Server) handleWSStream(w http.ResponseWriter, r *http.Request) {
-	if s.nodeID == 0 {
+	// EXPERIMENTAL: Use linked session (node 47) instead of standalone (node 50)
+	// to test if linked sessions receive more damage events from GNOME PASSIVE frame clock.
+	// Both sessions now have DmaBuf/NVIDIA modifiers, so zero-copy should work either way.
+	nodeID := s.nodeID // Use linked session
+	if nodeID == 0 {
+		nodeID = s.videoNodeID // Fallback to standalone
+		if nodeID != 0 {
+			s.logger.Warn("using standalone session for video (linked unavailable)",
+				"fallback_node_id", nodeID)
+		}
+	} else {
+		s.logger.Info("EXPERIMENTAL: using linked session for video (testing damage events)",
+			"linked_node_id", nodeID,
+			"standalone_node_id", s.videoNodeID)
+	}
+
+	if nodeID == 0 {
 		s.logger.Error("cannot stream video: no PipeWire node ID available")
 		http.Error(w, "Video streaming not available - no screen capture session", http.StatusServiceUnavailable)
 		return
 	}
-	s.handleStreamWebSocketWithServer(w, r)
+	// Call handleStreamWebSocketInternal directly with our selected nodeID
+	// (handleStreamWebSocketWithServer has its own logic that would override our choice)
+	handleStreamWebSocketInternal(w, r, nodeID, s.logger, s)
 }

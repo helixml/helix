@@ -1,4 +1,5 @@
 // Package desktop provides WebSocket video streaming using GStreamer and PipeWire.
+// Uses go-gst bindings with appsink for in-order frame delivery.
 package desktop
 
 import (
@@ -7,10 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,22 +37,19 @@ const (
 	VideoModeZeroCopy VideoMode = "zerocopy"
 )
 
-// getVideoMode returns the configured video mode
-// If configOverride is provided (non-empty), it takes precedence over env var
+// getVideoMode returns the configured video mode from the stream config
+// Set via URL param: ?videoMode=native|zerocopy|shm
 func getVideoMode(configOverride string) VideoMode {
-	mode := configOverride
-	if mode == "" {
-		mode = os.Getenv("HELIX_VIDEO_MODE")
-	}
-	switch strings.ToLower(mode) {
+	switch strings.ToLower(configOverride) {
 	case "native", "dmabuf":
 		return VideoModeNative
 	case "zerocopy", "zero-copy", "plugin":
 		return VideoModeZeroCopy
-	case "shm", "":
+	case "shm":
 		return VideoModeSHM
 	default:
-		return VideoModeSHM
+		// Default to zerocopy (custom pipewirezerocopysrc plugin)
+		return VideoModeZeroCopy
 	}
 }
 
@@ -104,25 +99,22 @@ type StreamConfig struct {
 	VideoMode string `json:"video_mode,omitempty"`
 }
 
-// VideoStreamer captures video from PipeWire and streams to WebSocket
-// Uses RTP over UDP for reliable frame boundaries (matching Rust implementation).
+// VideoStreamer captures video from PipeWire and streams to WebSocket.
+// Uses go-gst bindings with appsink for guaranteed in-order frame delivery.
 type VideoStreamer struct {
 	nodeID             uint32
+	pipeWireFd         int       // PipeWire FD from portal (required for ScreenCast access)
 	shmSocketPath      string    // If set, use shmsrc instead of pipewiresrc
 	preEncodedH264Path string    // If set, read pre-encoded H.264 from FIFO (Sway/wf-recorder)
 	videoMode          VideoMode // Video capture mode (shm, native, zerocopy)
 	config             StreamConfig
 	ws                 *websocket.Conn
 	logger             *slog.Logger
-	cmd                *exec.Cmd
+	gstPipeline        *GstPipeline // GStreamer pipeline with appsink
 	running            atomic.Bool
 	cancel             context.CancelFunc
-	mu                 sync.Mutex
-
-	// RTP over UDP - provides natural packet framing like Rust WebRTC mode
-	rtpPort   int               // UDP port for RTP packets
-	rtpConn   *net.UDPConn      // UDP listener for RTP packets
-	rtpDepack *H264Depacketizer // RTP H.264 depacketizer
+	mu                 sync.Mutex // Protects Start/Stop
+	wsMu               sync.Mutex // Protects WebSocket writes (gorilla/websocket requires serialized writes)
 
 	// Frame tracking
 	frameCount uint64
@@ -133,13 +125,15 @@ type VideoStreamer struct {
 }
 
 // NewVideoStreamer creates a new video streamer
-func NewVideoStreamer(nodeID uint32, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
+// pipeWireFd is the FD from OpenPipeWireRemote portal call - required for ScreenCast access
+func NewVideoStreamer(nodeID uint32, pipeWireFd int, config StreamConfig, ws *websocket.Conn, logger *slog.Logger) *VideoStreamer {
 	v := &VideoStreamer{
-		nodeID:    nodeID,
-		videoMode: getVideoMode(config.VideoMode),
-		config:    config,
-		ws:        ws,
-		logger:    logger,
+		nodeID:     nodeID,
+		pipeWireFd: pipeWireFd,
+		videoMode:  getVideoMode(config.VideoMode),
+		config:     config,
+		ws:         ws,
+		logger:     logger,
 	}
 	v.videoEnabled.Store(true) // Video enabled by default
 	return v
@@ -179,8 +173,8 @@ func (v *VideoStreamer) SetVideoEnabled(enabled bool) {
 	v.logger.Info("video streaming", "enabled", enabled)
 }
 
-// Start begins capturing and streaming video
-// Uses RTP over UDP for reliable frame boundaries (matching Rust implementation).
+// Start begins capturing and streaming video.
+// Uses go-gst bindings with appsink for guaranteed in-order frame delivery.
 func (v *VideoStreamer) Start(ctx context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -192,24 +186,11 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 	ctx, v.cancel = context.WithCancel(ctx)
 	v.startTime = time.Now()
 
-	// Create UDP listener for RTP packets
-	// Use port 0 to let OS assign an available port
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("resolve UDP address: %w", err)
-	}
-	v.rtpConn, err = net.ListenUDP("udp", addr)
-	if err != nil {
-		return fmt.Errorf("create UDP listener: %w", err)
-	}
-	v.rtpPort = v.rtpConn.LocalAddr().(*net.UDPAddr).Port
-	v.rtpDepack = NewH264Depacketizer()
-
 	// Determine encoder based on available hardware
 	encoder := v.selectEncoder()
 
-	// Build GStreamer pipeline args (now outputs RTP to UDP)
-	pipelineArgs := v.buildPipelineArgs(encoder)
+	// Build GStreamer pipeline string (outputs to appsink)
+	pipelineStr := v.buildPipelineString(encoder)
 
 	// Log with appropriate source info
 	sourceInfo := fmt.Sprintf("pipewire:%d", v.nodeID)
@@ -223,20 +204,19 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		"resolution", fmt.Sprintf("%dx%d", v.config.Width, v.config.Height),
 		"fps", v.config.FPS,
 		"bitrate", v.config.Bitrate,
-		"rtp_port", v.rtpPort,
-		"pipeline", strings.Join(pipelineArgs, " "),
+		"pipeline", pipelineStr,
 	)
 
-	// Start gst-launch with pipeline args
-	args := append([]string{"-q"}, pipelineArgs...)
-	v.cmd = exec.CommandContext(ctx, "gst-launch-1.0", args...)
+	// Create GStreamer pipeline with appsink
+	var err error
+	v.gstPipeline, err = NewGstPipeline(pipelineStr)
+	if err != nil {
+		return fmt.Errorf("create GStreamer pipeline: %w", err)
+	}
 
-	// Capture stderr for debugging
-	v.cmd.Stderr = os.Stderr
-
-	if err := v.cmd.Start(); err != nil {
-		v.rtpConn.Close()
-		return fmt.Errorf("start gst-launch: %w", err)
+	// Start the pipeline
+	if err := v.gstPipeline.Start(ctx); err != nil {
+		return fmt.Errorf("start GStreamer pipeline: %w", err)
 	}
 
 	v.running.Store(true)
@@ -251,8 +231,8 @@ func (v *VideoStreamer) Start(ctx context.Context) error {
 		v.logger.Error("failed to send ConnectionComplete", "err", err)
 	}
 
-	// Read RTP packets from UDP and send complete Access Units to WebSocket
-	go v.readRTPAndSend(ctx)
+	// Read frames from appsink and send to WebSocket
+	go v.readFramesAndSend(ctx)
 
 	// Handle ping/pong
 	go v.heartbeat(ctx)
@@ -297,13 +277,14 @@ func (v *VideoStreamer) selectEncoder() string {
 	return "x264"
 }
 
-// checkGstElement checks if a GStreamer element is available
+// checkGstElement checks if a GStreamer element is available.
+// Uses go-gst bindings to query the element factory.
 func checkGstElement(element string) bool {
-	cmd := exec.Command("gst-inspect-1.0", element)
-	return cmd.Run() == nil
+	InitGStreamer()
+	return CheckGstElement(element)
 }
 
-// buildPipelineArgs creates GStreamer pipeline arguments as a flat slice
+// buildPipelineString creates a GStreamer pipeline string ending with appsink.
 //
 // Video modes (HELIX_VIDEO_MODE env var):
 // - shm: Current default, uses pipewiresrc → system memory → encoder (1-2 CPU copies)
@@ -314,21 +295,20 @@ func checkGstElement(element string) bool {
 // - NVIDIA: cudaupload gets frames into CUDA memory, nvh264enc does colorspace on GPU
 // - AMD/Intel VA-API: vah264enc handles GPU upload internally
 // - Software: CPU-based videoconvert + x264enc (slowest fallback)
-func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
-	var args []string
+func (v *VideoStreamer) buildPipelineString(encoder string) string {
+	var parts []string
 
-	// Pre-encoded H.264 path (Sway/wf-recorder) - skip all encoding, just parse and RTP-ize
+	// Pre-encoded H.264 path (Sway/wf-recorder) - skip all encoding, just parse
 	if v.preEncodedH264Path != "" {
 		// Read pre-encoded H.264 annex-b stream from FIFO
-		// wf-recorder has already done the encoding, we just need to parse and RTP-packetize
-		args = []string{
-			"filesrc", fmt.Sprintf("location=%s", v.preEncodedH264Path),
-			"!", "h264parse", "config-interval=-1",
-			"!", "video/x-h264,stream-format=byte-stream,alignment=au",
-			"!", "rtph264pay", "pt=96", "mtu=65000",
-			"!", "udpsink", "host=127.0.0.1", fmt.Sprintf("port=%d", v.rtpPort), "sync=false",
+		// wf-recorder has already done the encoding, we just need to parse
+		parts = []string{
+			fmt.Sprintf("filesrc location=%s", v.preEncodedH264Path),
+			"h264parse config-interval=-1",
+			"video/x-h264,stream-format=byte-stream,alignment=au",
+			"appsink name=videosink emit-signals=true max-buffers=2 drop=true sync=false",
 		}
-		return args
+		return strings.Join(parts, " ! ")
 	}
 
 	// Step 1: Build source section based on video mode
@@ -336,24 +316,28 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 	if v.shmSocketPath != "" {
 		// Use shmsrc to read from video forwarder's shared memory socket
 		// This avoids PipeWire node conflicts when the forwarder is running
-		args = []string{
-			"shmsrc", fmt.Sprintf("socket-path=%s", v.shmSocketPath), "is-live=true", "do-timestamp=true",
-			"!", fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
+		parts = []string{
+			fmt.Sprintf("shmsrc socket-path=%s is-live=true do-timestamp=true", v.shmSocketPath),
+			fmt.Sprintf("video/x-raw,format=BGRx,width=%d,height=%d,framerate=0/1",
 				v.config.Width, v.config.Height),
 		}
 	} else {
 		// Choose source based on video mode
+		// For ScreenCast nodes, pipeWireFd from OpenPipeWireRemote is REQUIRED
+		// Without it, pipewiresrc gets "target not found" because the default
+		// PipeWire connection doesn't have access to portal ScreenCast nodes.
 		switch v.videoMode {
 		case VideoModeZeroCopy:
 			// pipewirezerocopysrc: True zero-copy via EGL→CUDA interop
 			// Outputs video/x-raw(memory:CUDAMemory) for NVIDIA or DMABuf for AMD/Intel
 			// Requires gst-plugin-pipewire-zerocopy to be installed
-			args = []string{
-				"pipewirezerocopysrc",
-				fmt.Sprintf("pipewire-node-id=%d", v.nodeID),
-				"output-mode=auto", // auto-detect CUDA or DMABuf
-				"keepalive-time=100", // GNOME 49+ damage-based ScreenCast support
+			// Note: framerate is handled internally via max_framerate in PipeWire negotiation
+			srcPart := fmt.Sprintf("pipewirezerocopysrc pipewire-node-id=%d output-mode=auto keepalive-time=100", v.nodeID)
+			// Add fd property if we have portal FD (required for ScreenCast access)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" pipewire-fd=%d", v.pipeWireFd)
 			}
+			parts = []string{srcPart}
 			// For NVIDIA, output is already in CUDA memory - no cudaupload needed
 			// For AMD/Intel, output is DMABuf which VA-API can accept directly
 
@@ -361,21 +345,39 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 			// Native DMA-BUF path: pipewiresrc negotiates DMA-BUF with compositor
 			// Works on GStreamer 1.24+ with proper driver support
 			// Falls back gracefully to system memory if DMA-BUF unavailable
-			args = []string{
-				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+			// Add fd property if we have portal FD (required for ScreenCast access)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{
+				srcPart,
 				// Let pipewiresrc negotiate best format - prefer DMA-BUF if available
-				"!", "video/x-raw",
+				// Explicit framerate prevents Mutter from defaulting to lower rate
+				fmt.Sprintf("video/x-raw,framerate=%d/1", v.config.FPS),
 			}
 
 		default: // VideoModeSHM
 			// Standard pipewiresrc path - most compatible
 			// Uses damage-based capture (only sends frames when screen changes)
-			args = []string{
-				"pipewiresrc", fmt.Sprintf("path=%d", v.nodeID), "do-timestamp=true",
-				"!", "video/x-raw,format=BGRx",
+			srcPart := fmt.Sprintf("pipewiresrc path=%d do-timestamp=true", v.nodeID)
+			// Add fd property if we have portal FD (required for ScreenCast access)
+			if v.pipeWireFd > 0 {
+				srcPart += fmt.Sprintf(" fd=%d", v.pipeWireFd)
+			}
+			parts = []string{
+				srcPart,
+				// Explicit framerate prevents Mutter from defaulting to lower rate
+				fmt.Sprintf("video/x-raw,format=BGRx,framerate=%d/1", v.config.FPS),
 			}
 		}
 	}
+
+	// Add leaky queue to decouple pipewiresrc from encoding pipeline
+	// max-size-buffers=3 prevents buffer starvation - pipewiresrc needs buffers returned
+	// quickly or it can't allocate new ones for the next frame
+	// leaky=downstream drops oldest frames if encoding falls behind (low latency)
+	parts = append(parts, "queue max-size-buffers=3 leaky=downstream")
 
 	// Step 2: Add encoder-specific conversion and encoding pipeline
 	// Each encoder type has its own GPU-optimized path
@@ -386,54 +388,33 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 		// For zerocopy mode: frames already in CUDA memory, skip cudaupload
 		// For other modes: use cudaupload to get frames into CUDA memory
 		if v.videoMode == VideoModeZeroCopy && v.shmSocketPath == "" {
-			// pipewirezerocopysrc outputs CUDA memory directly
-			args = append(args,
-				"!", "cudaconvertscale", // GPU-side scaling + format conversion
-				"!", fmt.Sprintf("video/x-raw(memory:CUDAMemory),width=%d,height=%d,framerate=%d/1",
-					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "nvh264enc",
-				"preset=low-latency-hq",
-				"zerolatency=true",
-				"gop-size=15",
-				"rc-mode=cbr-ld-hq",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				"aud=false",
+			// pipewirezerocopysrc outputs video/x-raw(memory:CUDAMemory) in BGRA/RGBA
+			// nvh264enc accepts CUDA memory directly in these formats
+			// No conversion needed - true zero-copy GPU pipeline
+			parts = append(parts,
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=60 rc-mode=cbr-ld-hq bitrate=%d aud=false", v.config.Bitrate),
 			)
 		} else {
 			// Standard path: system memory → cudaupload → nvh264enc
-			args = append(args,
-				"!", "videorate",
-				"!", "videoscale",
-				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+			parts = append(parts,
+				"videorate",
+				"videoscale",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "cudaupload",
-				"!", "nvh264enc",
-				"preset=low-latency-hq",
-				"zerolatency=true",
-				"gop-size=15",
-				"rc-mode=cbr-ld-hq",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				"aud=false",
+				"cudaupload",
+				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=60 rc-mode=cbr-ld-hq bitrate=%d aud=false", v.config.Bitrate),
 			)
 		}
 
 	case "qsv":
 		// Intel Quick Sync Video
 		// QSV has its own memory system, uses CPU conversion for now
-		// TODO: Use qsvvpp for GPU-side conversion when available
-		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+		parts = append(parts,
+			"videoconvert",
+			"videoscale",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 				v.config.Width, v.config.Height, v.config.FPS),
-			"!", "qsvh264enc",
-			"b-frames=0",
-			"gop-size=15",
-			"idr-interval=1",
-			"ref-frames=1",
-			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-			"rate-control=cbr",
-			"target-usage=6",
+			fmt.Sprintf("qsvh264enc b-frames=0 gop-size=60 idr-interval=1 ref-frames=1 bitrate=%d rate-control=cbr target-usage=6", v.config.Bitrate),
 		)
 
 	case "vaapi":
@@ -442,107 +423,83 @@ func (v *VideoStreamer) buildPipelineArgs(encoder string) []string {
 		// For shm mode: uses CPU-based videoconvert (vapostproc not widely available)
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
 			// Try to use vapostproc for GPU-side processing (available on newer systems)
-			// Falls back gracefully if vapostproc not available
-			args = append(args,
-				"!", "vapostproc",
-				"!", fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+			parts = append(parts,
+				"vapostproc",
+				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "vah264enc",
-				"aud=false",
-				"b-frames=0",
-				"ref-frames=1",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-				"key-int-max=1024",
-				"rate-control=cqp",
-				"target-usage=6",
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate),
 			)
 		} else {
 			// Standard path: CPU videoconvert
-			args = append(args,
-				"!", "videoconvert",
-				"!", "videoscale",
-				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+			parts = append(parts,
+				"videoconvert",
+				"videoscale",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "vah264enc",
-				"aud=false",
-				"b-frames=0",
-				"ref-frames=1",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-				"key-int-max=1024",
-				"rate-control=cqp",
-				"target-usage=6",
+				fmt.Sprintf("vah264enc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate),
 			)
 		}
 
 	case "vaapi-lp":
 		// VA-API Low Power mode (Intel-specific)
 		if (v.videoMode == VideoModeZeroCopy || v.videoMode == VideoModeNative) && v.shmSocketPath == "" {
-			args = append(args,
-				"!", "vapostproc",
-				"!", fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
+			parts = append(parts,
+				"vapostproc",
+				fmt.Sprintf("video/x-raw(memory:VAMemory),width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "vah264lpenc",
-				"aud=false",
-				"b-frames=0",
-				"ref-frames=1",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-				"key-int-max=1024",
-				"rate-control=cqp",
-				"target-usage=6",
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate),
 			)
 		} else {
-			args = append(args,
-				"!", "videoconvert",
-				"!", "videoscale",
-				"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+			parts = append(parts,
+				"videoconvert",
+				"videoscale",
+				fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 					v.config.Width, v.config.Height, v.config.FPS),
-				"!", "vah264lpenc",
-				"aud=false",
-				"b-frames=0",
-				"ref-frames=1",
-				fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-				fmt.Sprintf("cpb-size=%d", v.config.Bitrate),
-				"key-int-max=1024",
-				"rate-control=cqp",
-				"target-usage=6",
+				fmt.Sprintf("vah264lpenc aud=false b-frames=0 ref-frames=1 bitrate=%d cpb-size=%d key-int-max=1024 rate-control=cqp target-usage=6",
+					v.config.Bitrate, v.config.Bitrate),
 			)
 		}
 
 	default:
 		// Software x264 fallback - CPU-based conversion
 		// This is the slowest path but works on any system
-		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
+		parts = append(parts,
+			"videoconvert",
+			"videoscale",
+			fmt.Sprintf("video/x-raw,width=%d,height=%d,framerate=%d/1",
 				v.config.Width, v.config.Height, v.config.FPS),
-			"!", "x264enc",
-			"pass=qual",
-			"tune=zerolatency",
-			"speed-preset=superfast",
-			"b-adapt=false",
-			"bframes=0",
-			"ref=1",
-			fmt.Sprintf("bitrate=%d", v.config.Bitrate),
-			"aud=false",
+			fmt.Sprintf("x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 key-int-max=60 bitrate=%d aud=false", v.config.Bitrate),
 		)
 	}
 
-	// Step 3: Add h264parse and RTP output
+	// Step 3: Add h264parse and appsink
 	// h264parse with config-interval=-1 inserts SPS/PPS before every keyframe
-	// rtph264pay creates RTP packets with marker bits for frame boundaries
-	// udpsink sends to our local UDP listener for clean packet framing
-	args = append(args,
-		"!", "h264parse", "config-interval=-1",
-		"!", "video/x-h264,stream-format=byte-stream,alignment=au",
-		"!", "rtph264pay", "pt=96", "mtu=65000", // Large MTU to minimize fragmentation
-		"!", "udpsink", "host=127.0.0.1", fmt.Sprintf("port=%d", v.rtpPort), "sync=false",
+	// appsink delivers complete H.264 access units to our Go callback
+	parts = append(parts,
+		"h264parse config-interval=-1",
+		"video/x-h264,stream-format=byte-stream,alignment=au",
+		"appsink name=videosink emit-signals=true max-buffers=2 drop=true sync=false",
 	)
 
-	return args
+	return strings.Join(parts, " ! ")
+}
+
+// writeMessage is a thread-safe wrapper for WebSocket writes.
+// gorilla/websocket requires that all writes to the same connection be serialized.
+func (v *VideoStreamer) writeMessage(messageType int, data []byte) error {
+	v.wsMu.Lock()
+	defer v.wsMu.Unlock()
+	return v.ws.WriteMessage(messageType, data)
+}
+
+// writeJSON is a thread-safe wrapper for WebSocket JSON writes.
+func (v *VideoStreamer) writeJSON(data interface{}) error {
+	v.wsMu.Lock()
+	defer v.wsMu.Unlock()
+	return v.ws.WriteJSON(data)
 }
 
 // sendStreamInit sends the initialization message to client
@@ -558,7 +515,7 @@ func (v *VideoStreamer) sendStreamInit() error {
 	binary.BigEndian.PutUint32(msg[8:12], 0) // sample rate
 	msg[12] = 0                              // touch supported
 
-	return v.ws.WriteMessage(websocket.BinaryMessage, msg)
+	return v.writeMessage(websocket.BinaryMessage, msg)
 }
 
 // connectionCompleteMsg is the JSON structure expected by frontend websocket-stream.ts
@@ -578,53 +535,54 @@ func (v *VideoStreamer) sendConnectionComplete() error {
 	msg.ConnectionComplete.Capabilities.Touch = false
 	msg.ConnectionComplete.Width = v.config.Width
 	msg.ConnectionComplete.Height = v.config.Height
-	return v.ws.WriteJSON(msg)
+	return v.writeJSON(msg)
 }
 
-// readRTPAndSend reads RTP packets from UDP and sends complete Access Units to WebSocket.
-// This approach matches the Rust implementation where RTP marker bits indicate frame boundaries.
-// Much more reliable than manual NAL parsing of raw byte streams.
-func (v *VideoStreamer) readRTPAndSend(ctx context.Context) {
+// readFramesAndSend reads video frames from appsink and sends to WebSocket.
+// Frames are delivered in encode order via channel - no UDP reordering possible.
+func (v *VideoStreamer) readFramesAndSend(ctx context.Context) {
 	defer v.Stop()
 
-	// Large buffer for RTP packets - 65KB covers most cases
-	buf := make([]byte, 65536)
+	// Latency tracking
+	var frameCount uint64
+	var totalSendTime time.Duration
+	var lastLogTime = time.Now()
+
+	frameCh := v.gstPipeline.Frames()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
-
-		// Set read deadline to allow checking context cancellation
-		v.rtpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-		n, _, err := v.rtpConn.ReadFromUDP(buf)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				continue // Timeout - check context and try again
+		case frame, ok := <-frameCh:
+			if !ok {
+				// Pipeline stopped
+				v.logger.Info("appsink channel closed")
+				return
 			}
-			v.logger.Error("UDP read error", "err", err)
-			return
-		}
 
-		if n == 0 {
-			continue
-		}
-
-		// Process RTP packet through depacketizer
-		accessUnit, isKeyframe, complete, err := v.rtpDepack.ProcessPacket(buf[:n])
-		if err != nil {
-			v.logger.Warn("RTP depacketization error", "err", err)
-			continue
-		}
-
-		// When we have a complete Access Unit, send it
-		if complete && len(accessUnit) > 0 {
-			if err := v.sendVideoFrame(accessUnit, isKeyframe); err != nil {
+			// Measure WebSocket send time
+			sendStart := time.Now()
+			if err := v.sendVideoFrame(frame.Data, frame.IsKeyframe, frame.PTS); err != nil {
 				v.logger.Error("send frame error", "err", err)
 				return
+			}
+			sendTime := time.Since(sendStart)
+			totalSendTime += sendTime
+			frameCount++
+
+			// Log latency stats every 5 seconds
+			if time.Since(lastLogTime) >= 5*time.Second && frameCount > 0 {
+				avgSend := totalSendTime / time.Duration(frameCount)
+				v.logger.Info("VIDEO LATENCY STATS",
+					"frames", frameCount,
+					"avg_send_us", avgSend.Microseconds(),
+					"frame_size_bytes", len(frame.Data),
+					"is_keyframe", frame.IsKeyframe)
+				// Reset counters
+				frameCount = 0
+				totalSendTime = 0
+				lastLogTime = time.Now()
 			}
 		}
 	}
@@ -632,14 +590,16 @@ func (v *VideoStreamer) readRTPAndSend(ctx context.Context) {
 
 // sendVideoFrame sends a video frame to the WebSocket
 // isKeyframe should be true for Access Units containing SPS+PPS+IDR
-func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool) error {
+// pts is the presentation timestamp in microseconds from GStreamer
+func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool, pts uint64) error {
 	// Skip sending if video is paused (screenshot mode)
 	if !v.videoEnabled.Load() {
 		return nil
 	}
 
 	v.frameCount++
-	pts := uint64(time.Since(v.startTime).Microseconds())
+
+	// PTS is already in microseconds from GStreamer (converted in gst_pipeline.go)
 
 	// VideoFrame format: type(1) + codec(1) + flags(1) + pts(8) + width(2) + height(2) + data(...)
 	header := make([]byte, 15)
@@ -657,7 +617,7 @@ func (v *VideoStreamer) sendVideoFrame(data []byte, isKeyframe bool) error {
 	copy(msg[:15], header)
 	copy(msg[15:], data)
 
-	return v.ws.WriteMessage(websocket.BinaryMessage, msg)
+	return v.writeMessage(websocket.BinaryMessage, msg)
 }
 
 // heartbeat sends periodic WebSocket pings to keep connection alive
@@ -673,7 +633,7 @@ func (v *VideoStreamer) heartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Use WebSocket ping frame, not binary message
-			if err := v.ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := v.writeMessage(websocket.PingMessage, nil); err != nil {
 				v.logger.Debug("ping failed", "err", err)
 				return
 			}
@@ -696,16 +656,9 @@ func (v *VideoStreamer) Stop() {
 		v.cancel()
 	}
 
-	// Close UDP listener for RTP
-	if v.rtpConn != nil {
-		v.rtpConn.Close()
-		v.rtpConn = nil
-	}
-
-	if v.cmd != nil && v.cmd.Process != nil {
-		v.cmd.Process.Kill()
-		// Wait for process to exit to avoid zombie processes
-		v.cmd.Wait()
+	// Stop GStreamer pipeline
+	if v.gstPipeline != nil {
+		v.gstPipeline.Stop()
 	}
 
 	v.logger.Info("video capture stopped",
@@ -721,8 +674,19 @@ func HandleStreamWebSocket(w http.ResponseWriter, r *http.Request, nodeID uint32
 }
 
 // handleStreamWebSocketWithServer handles the /ws/stream endpoint with Server access for input
+// Uses standalone video session (s.videoNodeID) for DmaBuf zero-copy.
+// Falls back to linked session (s.nodeID) if standalone isn't available (SHM path).
 func (s *Server) handleStreamWebSocketWithServer(w http.ResponseWriter, r *http.Request) {
-	handleStreamWebSocketInternal(w, r, s.nodeID, s.logger, s)
+	// Prefer standalone video session (has DmaBuf modifiers for zero-copy)
+	nodeID := s.videoNodeID
+	if nodeID == 0 {
+		nodeID = s.nodeID // Fallback to linked session (SHM path)
+		if nodeID != 0 {
+			s.logger.Warn("using linked session for video (SHM path, no DmaBuf)",
+				"fallback_node_id", nodeID)
+		}
+	}
+	handleStreamWebSocketInternal(w, r, nodeID, s.logger, s)
 }
 
 // handleStreamWebSocketInternal is the shared implementation
@@ -790,7 +754,7 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 			logger.Error("failed to restart video forwarder", "err", err)
 			// Fall back to direct PipeWire (may not work on Sway, but try anyway)
 			logger.Info("falling back to PipeWire video source", "node_id", nodeID)
-			streamer = NewVideoStreamer(nodeID, config, ws, logger)
+			streamer = NewVideoStreamer(nodeID, server.pipeWireFd, config, ws, logger)
 		} else {
 			forwarderPath := server.videoForwarder.ShmSocketPath()
 			logger.Info("using pre-encoded H.264 source (Sway/wf-recorder)", "fifo", forwarderPath)
@@ -800,8 +764,13 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 		// For GNOME: Connect directly to pipewiresrc
 		// The shmsink/shmsrc approach has reliability issues with reconnection,
 		// so we skip the video forwarder and connect directly to PipeWire.
-		logger.Info("using PipeWire video source (direct)", "node_id", nodeID)
-		streamer = NewVideoStreamer(nodeID, config, ws, logger)
+		// Pass the portal FD from OpenPipeWireRemote - required for ScreenCast access
+		pipeWireFd := 0
+		if server != nil {
+			pipeWireFd = server.pipeWireFd
+		}
+		logger.Info("using PipeWire video source (direct)", "node_id", nodeID, "pipewire_fd", pipeWireFd)
+		streamer = NewVideoStreamer(nodeID, pipeWireFd, config, ws, logger)
 	}
 
 	ctx, cancel := context.WithCancel(r.Context())
@@ -837,7 +806,8 @@ func handleStreamWebSocketInternal(w http.ResponseWriter, r *http.Request, nodeI
 					// Add server time (microseconds since epoch)
 					serverTime := uint64(time.Now().UnixMicro())
 					binary.BigEndian.PutUint64(pong[13:21], serverTime)
-					if err := ws.WriteMessage(websocket.BinaryMessage, pong); err != nil {
+					// Use streamer's mutex-protected write to avoid concurrent write panic
+					if err := streamer.writeMessage(websocket.BinaryMessage, pong); err != nil {
 						logger.Debug("failed to send pong", "err", err)
 					}
 				}

@@ -91,9 +91,9 @@ services:
       - RAG_PGVECTOR_PROVIDER=helix
       # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
-      # Wolf integration for external agents
+      # Sandbox integration for external agents
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_MODE=${WOLF_MODE:-lobbies} # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
+      - WOLF_MODE=${WOLF_MODE:-lobbies}
       - EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES=${EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES:-10}
       - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
       # API URL for sandbox containers to connect back (RevDial, etc.)
@@ -102,9 +102,6 @@ services:
       - HELIX_DEV_MODE=true # Enable dev file bind-mounts for hot-reloading
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
-      # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
-      - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
       # TURN server configuration for WebRTC
       - TURN_ENABLED=true
       - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api} # Use 'api' hostname for local relay (auto-detects public IP)
@@ -112,7 +109,7 @@ services:
       - TURN_REALM=helix.ai
       - TURN_USERNAME=helix
       - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-      # which desktop shall we ask Wolf to run for code agents?
+      # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
     volumes:
       - ./go.mod:/app/go.mod
@@ -121,8 +118,8 @@ services:
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
-      # Wolf socket removed - API uses RevDial to communicate with Wolf
-      # (Wolf runs in separate sandbox container, socket not accessible)
+      # Sandbox socket - API uses RevDial to communicate with sandbox
+      # (sandbox runs in separate container, socket not accessible from API)
     depends_on:
       - postgres
       - postgres-mcp
@@ -250,8 +247,8 @@ services:
     # ports:
     #   - 7317:7317
 
-  # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
-  # Replaces separate wolf and moonlight-web services with a single unified container
+  # Unified Helix Sandbox - Docker-in-Docker with direct WebSocket video streaming
+  # Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
   # Built with: ./stack build-sandbox
   # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
   sandbox-nvidia:
@@ -273,7 +270,7 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
-      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - WOLF_INSTANCE_ID=local
@@ -281,37 +278,20 @@ services:
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-      # Wolf configuration (legacy env vars for compatibility)
+      # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
-      - HOST_APPS_STATE_FOLDER=/etc/wolf
-      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_LOG_LEVEL=DEBUG
       - GST_DEBUG=3
-      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-      - WOLF_INTERNAL_IP=172.19.0.50
-      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      - WOLF_USE_ZERO_COPY=TRUE
       - GOP_SIZE=${GOP_SIZE:-240}
-      # Moonlight Web configuration
-      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-      # Wolf debug dumps: 6 dumps max, 20GB quota
-      - WOLF_MAX_DUMPS=6
-      - WOLF_MAX_DUMPS_GB=20
     privileged: true # Required for Docker-in-Docker
     volumes:
-      # Wolf configuration and state
+      # Desktop configuration and state
       - ./wolf/:/etc/wolf/cfg/:rw
-      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
@@ -329,8 +309,6 @@ services:
       - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
-      # Moonlight Web configuration
-      - ./moonlight-web-config:/app/server:rw
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -347,7 +325,7 @@ services:
       - /dev/uinput
       - /dev/uhid
     ports:
-      # Moonlight protocol ports (Wolf)
+      # Streaming protocol ports
       - "47984:47984" # HTTPS
       - "47989:47989" # HTTP (pairing, serverinfo)
       - "48010:48010" # RTSP
@@ -355,7 +333,7 @@ services:
       - "47999:47999/udp" # Control
       - "48100:48100/udp" # Video RTP
       - "48200:48200/udp" # Audio RTP
-      # Moonlight Web UI + WebRTC
+      # WebRTC streaming
       - "8081:8080" # Web interface
       - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     runtime: nvidia
@@ -378,7 +356,8 @@ services:
       retries: 3
       start_period: 10s
 
-  # Unified Helix Sandbox for AMD/Intel GPUs - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+  # Unified Helix Sandbox for AMD/Intel GPUs - Docker-in-Docker with direct WebSocket video streaming
+  # Desktop containers stream video directly via WebSocket (no Wolf/Moonlight)
   # Uses device pass-through instead of nvidia runtime
   sandbox-amd-intel:
     profiles: [code-amd-intel]
@@ -397,7 +376,7 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
-      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - WOLF_INSTANCE_ID=local
@@ -405,37 +384,20 @@ services:
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-      # Wolf configuration (legacy env vars for compatibility)
+      # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
-      - HOST_APPS_STATE_FOLDER=/etc/wolf
-      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_LOG_LEVEL=DEBUG
       - GST_DEBUG=3
-      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-      - WOLF_INTERNAL_IP=172.19.0.50
-      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      - WOLF_USE_ZERO_COPY=TRUE
       - GOP_SIZE=${GOP_SIZE:-240}
-      # Moonlight Web configuration
-      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-      # Wolf debug dumps: 6 dumps max, 20GB quota
-      - WOLF_MAX_DUMPS=6
-      - WOLF_MAX_DUMPS_GB=20
     privileged: true # Required for Docker-in-Docker
     volumes:
-      # Wolf configuration and state
+      # Desktop configuration and state
       - ./wolf/:/etc/wolf/cfg/:rw
-      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
@@ -453,8 +415,6 @@ services:
       - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
-      # Moonlight Web configuration
-      - ./moonlight-web-config:/app/server:rw
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -471,7 +431,7 @@ services:
       - /dev/uinput
       - /dev/uhid
     ports:
-      # Moonlight protocol ports (Wolf)
+      # Streaming protocol ports
       - "47984:47984" # HTTPS
       - "47989:47989" # HTTP (pairing, serverinfo)
       - "48010:48010" # RTSP
@@ -479,7 +439,7 @@ services:
       - "47999:47999/udp" # Control
       - "48100:48100/udp" # Video RTP
       - "48200:48200/udp" # Audio RTP
-      # Moonlight Web UI + WebRTC
+      # WebRTC streaming
       - "8081:8080" # Web interface
       - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     # No nvidia runtime for AMD - uses device pass-through instead
@@ -520,7 +480,7 @@ services:
       - HELIX_KEEP_DEAD_CONTAINERS=${HELIX_KEEP_DEAD_CONTAINERS:-false}
       # Sandbox data path for workspaces (must match volume mount)
       - SANDBOX_DATA_PATH=/data
-      # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+      # RevDial configuration (connect sandbox to API)
       - HELIX_API_URL=http://api:8080
       - HELIX_API_BASE_URL=http://api:8080
       - WOLF_INSTANCE_ID=local
@@ -528,37 +488,20 @@ services:
       # Hydra multi-Docker isolation (per-scope dockerd for each agent session)
       - HYDRA_ENABLED=${HYDRA_ENABLED:-true}
       - HYDRA_PRIVILEGED_MODE_ENABLED=${HYDRA_PRIVILEGED_MODE_ENABLED:-false}
-      # Wolf configuration (legacy env vars for compatibility)
+      # Runtime configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
-      - HOST_APPS_STATE_FOLDER=/etc/wolf
-      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      - WOLF_LOG_LEVEL=DEBUG
       - GST_DEBUG=3
-      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-      - WOLF_INTERNAL_IP=172.19.0.50
-      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
-      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      - WOLF_USE_ZERO_COPY=FALSE
       - GOP_SIZE=${GOP_SIZE:-240}
-      # Moonlight Web configuration
-      - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-1234}
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
-      - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-      # Wolf debug dumps: 6 dumps max, 20GB quota
-      - WOLF_MAX_DUMPS=6
-      - WOLF_MAX_DUMPS_GB=20
     privileged: true # Required for Docker-in-Docker
     volumes:
-      # Wolf configuration and state
+      # Desktop configuration and state
       - ./wolf:/etc/wolf/cfg/:rw
-      # Wolf config template - bind-mounted for faster iteration (no rebuild needed)
+      # Config template - bind-mounted for faster iteration (no rebuild needed)
       - ./wolf/config.toml.template:/opt/wolf-defaults/config.toml.template:ro
       - /tmp/sockets:/tmp/sockets:rw
       - wolf-docker-storage:/var/lib/docker
-      - wolf-debug-dumps:/var/wolf-debug-dumps # Wolf hourly debug dumps
+      - wolf-debug-dumps:/var/wolf-debug-dumps # Sandbox debug dumps
       # Hydra nested dockerd storage - MUST be a real volume (not overlay)
       # Docker overlay2 cannot create overlay mounts on top of overlay filesystem
       - hydra-storage:/hydra-data
@@ -575,8 +518,6 @@ services:
       - ./wolf/kde-config:/helix-dev/kde-config:rw
       - ./wolf/shared:/helix-dev/shared:ro
       - ./wolf/sway-config/setup-telemetry-firewall.sh:/etc/cont-init.d/09-setup-telemetry-firewall.sh
-      # Moonlight Web configuration
-      - ./moonlight-web-config:/app/server:rw
       # Sandbox data volume for workspaces - mounted at same path in sandbox and dev containers
       # This enables Hydra bind-mount compatibility (see design/2025-12-01-hydra-bind-mount-symlink.md)
       - sandbox-data:/data
@@ -593,7 +534,7 @@ services:
       - /dev/uinput
       - /dev/uhid
     ports:
-      # Moonlight protocol ports (Wolf)
+      # Streaming protocol ports
       - "47984:47984" # HTTPS
       - "47989:47989" # HTTP (pairing, serverinfo)
       - "48010:48010" # RTSP
@@ -601,7 +542,7 @@ services:
       - "47999:47999/udp" # Control
       - "48100:48100/udp" # Video RTP
       - "48200:48200/udp" # Audio RTP
-      # Moonlight Web UI + WebRTC
+      # WebRTC streaming
       - "8081:8080" # Web interface
       - "40000-40100:40000-40100/udp" # WebRTC UDP ports
     # No nvidia runtime for software rendering
@@ -757,8 +698,8 @@ volumes:
   helix-typesense-db:
   helix-socket:
   wolf-socket:
-  wolf-docker-storage: # Wolf's isolated dockerd storage (sandboxes + devcontainers)
-  wolf-debug-dumps: # Wolf hourly debug dumps (WOLF_MAX_DUMPS controls retention)
+  wolf-docker-storage: # Sandbox isolated dockerd storage (sandboxes + devcontainers)
+  wolf-debug-dumps: # Sandbox debug dumps
   sandbox-data: # Workspace data for dev containers - mounted at /data in sandbox and dev containers
   hydra-storage: # Hydra nested dockerd storage - must be real volume (overlay2 can't stack on overlay)
   zed-work:

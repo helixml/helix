@@ -11,69 +11,10 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    # Moonlight protocol ports (TCP)
-    - port: {{ .Values.service.moonlight.https }}
-      targetPort: https
-      protocol: TCP
-      name: https
-    - port: {{ .Values.service.moonlight.http }}
-      targetPort: http
-      protocol: TCP
-      name: http
-    - port: {{ .Values.service.moonlight.rtsp }}
-      targetPort: rtsp
-      protocol: TCP
-      name: rtsp
-
-    # Moonlight protocol ports (UDP)
-    - port: {{ .Values.service.moonlightUdp.discovery }}
-      targetPort: discovery
-      protocol: UDP
-      name: discovery
-    - port: {{ .Values.service.moonlightUdp.control }}
-      targetPort: control
-      protocol: UDP
-      name: control
-    - port: {{ .Values.service.moonlightUdp.video }}
-      targetPort: video
-      protocol: UDP
-      name: video
-    - port: {{ .Values.service.moonlightUdp.audio }}
-      targetPort: audio
-      protocol: UDP
-      name: audio
-
-    # Moonlight Web UI
+    # WebSocket streaming port
     - port: {{ .Values.service.web.port }}
       targetPort: web
       protocol: TCP
       name: web
-
-  selector:
-    {{- include "helix-sandbox.selectorLabels" . | nindent 4 }}
----
-# Separate service for WebRTC UDP ports (optional, for direct WebRTC without TURN)
-# This is typically exposed via LoadBalancer for lower latency streaming
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "helix-sandbox.fullname" . }}-webrtc
-  labels:
-    {{- include "helix-sandbox.labels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-spec:
-  type: {{ .Values.service.type }}
-  ports:
-    {{- $start := int .Values.service.webrtc.portRangeStart }}
-    {{- $end := int .Values.service.webrtc.portRangeEnd }}
-    {{- range $i := until (add (sub $end $start) 1 | int) }}
-    - port: {{ add $start $i }}
-      targetPort: {{ add $start $i }}
-      protocol: UDP
-      name: webrtc-{{ $i }}
-    {{- end }}
   selector:
     {{- include "helix-sandbox.selectorLabels" . | nindent 4 }}

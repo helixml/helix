@@ -4,6 +4,12 @@
 // Note: SSE video is now controlled by qualityMode='sse', not streamingMode
 export type StreamingMode = 'websocket' | 'webrtc';
 
+// Video capture mode for the backend
+// - 'native': Stock GStreamer pipewiresrc (simpler, potentially lower latency)
+// - 'zerocopy': Custom pipewirezerocopysrc plugin (zero-copy GPU path)
+// - 'shm': Shared memory mode (fallback)
+export type VideoMode = 'native' | 'zerocopy' | 'shm';
+
 // Stream settings interface
 export interface StreamSettings {
   videoSize: '720p' | '1080p' | '1440p' | '4k' | '5k' | 'native' | 'custom';
@@ -18,6 +24,8 @@ export interface StreamSettings {
   controllerConfig: any;
   // Transport mode: 'websocket' (L7-only, works everywhere) or 'webrtc' (requires TURN)
   streamingMode: StreamingMode;
+  // Video capture mode: 'native' (stock pipewiresrc) or 'zerocopy' (custom zero-copy plugin)
+  videoMode?: VideoMode;
 }
 
 export const defaultStreamSettings = (): StreamSettings => ({

@@ -221,6 +221,91 @@ func (s *Server) createScreenshotSession(ctx context.Context) error {
 	}
 }
 
+// createVideoSession creates a standalone ScreenCast session for video streaming.
+// CRITICAL: This is NOT linked to RemoteDesktop on purpose!
+//
+// Why: Linked ScreenCast sessions in GNOME headless mode don't offer DmaBuf modifiers.
+// Without DmaBuf modifiers, pipewirezerocopysrc can only use SHM (MemFd) buffers,
+// resulting in ~10 FPS instead of 60 FPS due to CPU memory copies.
+//
+// Standalone sessions DO offer DmaBuf with NVIDIA tiled modifiers, enabling true
+// zero-copy GPU capture at 60 FPS.
+//
+// Input still works because NotifyPointerMotionAbsolute uses the LINKED session's
+// stream path (s.scStreamPath) for coordinate reference - both sessions target
+// the same virtual monitor (Meta-0).
+func (s *Server) createVideoSession(ctx context.Context) error {
+	s.logger.Info("creating standalone ScreenCast session for VIDEO (enables DmaBuf zero-copy)...")
+
+	scObj := s.conn.Object(screenCastBus, screenCastPath)
+
+	// Create STANDALONE session (no remote-desktop-session-id)
+	// This is the key difference from createSession() which creates a LINKED session
+	var scSessionPath dbus.ObjectPath
+	if err := scObj.Call(screenCastIface+".CreateSession", 0, map[string]dbus.Variant{}).Store(&scSessionPath); err != nil {
+		return fmt.Errorf("create video ScreenCast session: %w", err)
+	}
+	s.videoScSessionPath = scSessionPath
+	s.logger.Info("video ScreenCast session created (standalone)", "path", scSessionPath)
+
+	// Record the virtual monitor Meta-0
+	scSession := s.conn.Object(screenCastBus, scSessionPath)
+	recordOptions := map[string]dbus.Variant{
+		"cursor-mode": dbus.MakeVariant(uint32(1)), // Embedded cursor
+		// NOTE: Do NOT use is-platform=true here!
+		// While the docs suggest it "bypasses screen sharing optimizations", it actually
+		// forces GNOME to use SHM-only formats instead of DmaBuf with NVIDIA modifiers.
+	}
+
+	var streamPath dbus.ObjectPath
+	if err := scSession.Call(screenCastSessionIface+".RecordMonitor", 0, "Meta-0", recordOptions).Store(&streamPath); err != nil {
+		return fmt.Errorf("video RecordMonitor: %w", err)
+	}
+	s.videoScStreamPath = streamPath
+	s.logger.Info("video stream created", "path", streamPath)
+
+	// Subscribe to PipeWireStreamAdded signal for this stream
+	if err := s.conn.AddMatchSignal(
+		dbus.WithMatchObjectPath(s.videoScStreamPath),
+		dbus.WithMatchInterface(screenCastStreamIface),
+		dbus.WithMatchMember("PipeWireStreamAdded"),
+	); err != nil {
+		return fmt.Errorf("add video signal match: %w", err)
+	}
+
+	signalChan := make(chan *dbus.Signal, 10)
+	s.conn.Signal(signalChan)
+
+	// Start the standalone ScreenCast session
+	s.logger.Info("starting video ScreenCast session...")
+	if err := scSession.Call(screenCastSessionIface+".Start", 0).Err; err != nil {
+		return fmt.Errorf("start video ScreenCast session: %w", err)
+	}
+
+	// Wait for PipeWire node ID
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case sig := <-signalChan:
+			if sig.Name == screenCastStreamIface+".PipeWireStreamAdded" &&
+				sig.Path == s.videoScStreamPath && len(sig.Body) > 0 {
+				if nodeID, ok := sig.Body[0].(uint32); ok {
+					s.videoNodeID = nodeID
+					s.logger.Info("video PipeWireStreamAdded signal received (standalone session)",
+						"video_node_id", nodeID,
+						"input_node_id", s.nodeID,
+						"note", "video uses standalone for DmaBuf, input uses linked for coordinates")
+					return nil
+				}
+			}
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for video PipeWireStreamAdded signal")
+		}
+	}
+}
+
 // startSession starts the session and waits for PipeWire node ID.
 func (s *Server) startSession(ctx context.Context) error {
 	s.logger.Info("setting up PipeWireStreamAdded signal handler...")

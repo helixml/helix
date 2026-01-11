@@ -147,6 +147,19 @@ func (s *Server) injectInput(event *InputEvent) {
 
 	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
 
+	// Measure D-Bus call latency (sample every 100 calls)
+	start := time.Now()
+	defer func() {
+		s.inputCallCount++
+		if s.inputCallCount%100 == 0 {
+			latency := time.Since(start)
+			s.logger.Info("dbus input latency (sampled)",
+				"type", event.Type,
+				"latency_us", latency.Microseconds(),
+				"call_count", s.inputCallCount)
+		}
+	}()
+
 	var err error
 	switch event.Type {
 	case "mouse_move_abs":

@@ -1665,20 +1665,6 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 		return
 	}
 
-	// Check if this is a PipeWire/GNOME session (Ubuntu desktop)
-	// For Sway sessions, return an error - Sway has different streaming handling
-	var desktopType string
-	if session.Metadata.ExternalAgentConfig != nil {
-		desktopType = session.Metadata.ExternalAgentConfig.GetEffectiveDesktopType()
-	} else {
-		desktopType = "ubuntu" // Default to ubuntu if no config
-	}
-	if desktopType != "ubuntu" {
-		log.Warn().Str("session_id", sessionID).Str("desktop_type", desktopType).Msg("Direct stream WebSocket not supported for non-Ubuntu sessions")
-		http.Error(res, "Direct video streaming only supported for Ubuntu/GNOME sessions", http.StatusNotImplemented)
-		return
-	}
-
 	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 

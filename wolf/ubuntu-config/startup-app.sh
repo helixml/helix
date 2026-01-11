@@ -640,6 +640,18 @@ VIDEO_SOURCE_MODE="$VIDEO_SOURCE_MODE"
 # This switches KMS thread from real-time to user priority, fixing frame scheduling issues
 export MUTTER_DEBUG_KMS_THREAD_TYPE=user
 
+# Enable Mutter/Clutter debug logging for frame production analysis
+# This helps identify where the 16ms+ delay occurs in the frame chain:
+#   Actor damage → clutter_frame_clock_schedule_update → pw_stream_trigger_process
+#   → on_stream_process → dispatch → paint → on_after_paint → PipeWire buffer
+# Key log messages:
+#   "Request processing on stream %u" - when pw_stream_trigger_process called
+#   "Processing stream %u" - when on_stream_process callback fires
+#   "Recording frame on stream %u" - when frame is captured
+#   "Skipped recording frame, too early" - when frame is throttled
+export MUTTER_DEBUG=screen-cast
+export CLUTTER_DEBUG=frame-clock,frame-timings
+
 echo "[gnome-session] Starting inside dbus-run-session..."
 echo "[gnome-session] Video source mode: \$VIDEO_SOURCE_MODE"
 

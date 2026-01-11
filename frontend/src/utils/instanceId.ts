@@ -4,7 +4,7 @@
  * Generated once when the app loads and persists for the entire browser session.
  * Used to differentiate multiple browser tabs/windows viewing the same resources.
  *
- * Example use case: Multiple tabs streaming the same Moonlight session need unique
+ * Example use case: Multiple tabs streaming the same desktop session need unique
  * client identifiers to avoid conflicts.
  */
 

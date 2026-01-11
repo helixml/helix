@@ -107,7 +107,7 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                         </Typography>
                       </Box>
                       {option.value === AGENT_TYPE_ZED_EXTERNAL && (
-                        <Tooltip title="External agents provide full development environments with code editing via browser or Moonlight client">
+                        <Tooltip title="External agents provide full development environments with code editing via browser streaming">
                           <InfoIcon color="action" fontSize="small" />
                         </Tooltip>
                       )}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -12,9 +13,10 @@ import (
 
 // ExecRequest represents a command execution request
 type ExecRequest struct {
-	Command    []string `json:"command"`    // Command and arguments
-	Background bool     `json:"background"` // Run in background (don't wait for completion)
-	Timeout    int      `json:"timeout"`    // Timeout in seconds (default: 30, ignored if background)
+	Command    []string          `json:"command"`    // Command and arguments
+	Background bool              `json:"background"` // Run in background (don't wait for completion)
+	Timeout    int               `json:"timeout"`    // Timeout in seconds (default: 30, ignored if background)
+	Env        map[string]string `json:"env"`        // Environment variables to set
 }
 
 // ExecResponse represents a command execution response
@@ -71,9 +73,22 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 
 	var resp ExecResponse
 
+	// Build environment with requested env vars
+	var cmdEnv []string
+	if len(req.Env) > 0 {
+		// Start with current environment and add/override requested vars
+		cmdEnv = os.Environ()
+		for k, v := range req.Env {
+			cmdEnv = append(cmdEnv, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+
 	if req.Background {
 		// Run in background - start and return PID
 		cmd := exec.Command(req.Command[0], req.Command[1:]...)
+		if cmdEnv != nil {
+			cmd.Env = cmdEnv
+		}
 		if err := cmd.Start(); err != nil {
 			resp.Success = false
 			resp.Error = err.Error()
@@ -94,6 +109,9 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 
 		cmd := exec.CommandContext(ctx, req.Command[0], req.Command[1:]...)
+		if cmdEnv != nil {
+			cmd.Env = cmdEnv
+		}
 		output, err := cmd.CombinedOutput()
 
 		resp.Output = strings.TrimSpace(string(output))

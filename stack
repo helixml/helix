@@ -1057,6 +1057,11 @@ function build-desktop() {
   local QWEN_CODE_HASH=$(cat "./qwen-code-build/.git-commit-hash" 2>/dev/null || echo "unknown")
   echo "📌 qwen-code commit: ${QWEN_CODE_HASH:0:8}"
 
+  # Get Go code hash for Docker cache busting (api/ directory)
+  # This ensures Go rebuild when desktop.go or other Go files change
+  local GO_CODE_HASH=$(find api -name '*.go' -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -c1-12)
+  echo "📌 Go code hash: ${GO_CODE_HASH}"
+
   # Capture image hash BEFORE build to detect if it actually changed
   local IMAGE_HASH_BEFORE=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}' 2>/dev/null || echo "")
   local COMMIT_HASH=$(git rev-parse --short HEAD)
@@ -1073,6 +1078,7 @@ function build-desktop() {
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -1081,6 +1087,7 @@ function build-desktop() {
   elif [ "$DESKTOP_NAME" = "sway" ]; then
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
@@ -1089,6 +1096,7 @@ function build-desktop() {
     # Non-sway desktops: just latest and commit hash tags (also with qwen-code)
     docker build --provenance=false -f "$DOCKERFILE" \
       --build-arg QWEN_CODE_HASH="${QWEN_CODE_HASH}" \
+      --build-arg GO_CODE_HASH="${GO_CODE_HASH}" \
       -t "${IMAGE_NAME}:latest" \
       -t "${IMAGE_NAME}:${COMMIT_HASH}" \
       .

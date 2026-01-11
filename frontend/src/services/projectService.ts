@@ -267,7 +267,7 @@ export const useStartProjectExploratorySession = (projectId: string) => {
     },
     onSuccess: async () => {
       // Wait for refetch to complete before resolving mutation
-      // This ensures floating modal has fresh session data (wolf_lobby_id, etc.)
+      // This ensures floating modal has fresh session data
       await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });
@@ -316,7 +316,7 @@ export const useResumeProjectExploratorySession = (projectId: string) => {
     },
     onSuccess: async () => {
       // Wait for refetch to complete before resolving mutation
-      // This ensures floating modal has fresh session data (wolf_lobby_id, etc.)
+      // This ensures floating modal has fresh session data
       await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });

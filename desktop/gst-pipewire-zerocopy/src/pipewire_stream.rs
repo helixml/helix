@@ -86,7 +86,9 @@ impl PipeWireStream {
     /// * `dmabuf_caps` - GPU-supported DMA-BUF capabilities queried from EGL.
     ///                   If provided, we'll offer formats with modifiers for zero-copy.
     ///                   If None, we only offer SHM formats (MemFd).
-    pub fn connect(node_id: u32, pipewire_fd: Option<i32>, dmabuf_caps: Option<DmaBufCapabilities>) -> Result<Self, String> {
+    /// * `target_fps` - Target frames per second. The max_framerate sent to Mutter will be
+    ///                  target_fps * 2 to avoid the 16ms/17ms timing boundary issue.
+    pub fn connect(node_id: u32, pipewire_fd: Option<i32>, dmabuf_caps: Option<DmaBufCapabilities>, target_fps: u32) -> Result<Self, String> {
         // Use larger buffer to reduce backpressure from GStreamer consumer
         // This helps prevent frame drops when GNOME delivers frames faster than we consume them
         let (frame_tx, frame_rx) = mpsc::sync_channel(8);
@@ -97,10 +99,21 @@ impl PipeWireStream {
         let error = Arc::new(Mutex::new(None));
         let error_clone = error.clone();
 
+        // Request max_framerate=0 to DISABLE Mutter's frame rate limiter entirely.
+        // Mutter's frame pacing logic in meta-screen-cast-stream-src.c:1322-1345 checks:
+        //   if (priv->video_format.max_framerate.num > 0 && priv->last_frame_timestamp_us != 0)
+        // When max_framerate.num == 0, the limiter is bypassed completely.
+        //
+        // Previous approach (target_fps * 2 = 120) didn't work because Mutter ignores our
+        // offer and negotiates its own value (60/1), causing ~50% of frames to be skipped
+        // as "too early" due to 16ms/17ms timing boundary issues.
+        let negotiated_max_fps = 0;
+        eprintln!("[PIPEWIRE_DEBUG] target_fps={}, negotiated_max_fps={} (0=disabled)", target_fps, negotiated_max_fps);
+
         let thread = thread::Builder::new()
             .name("pipewire-stream".to_string())
             .spawn(move || {
-                if let Err(e) = run_pipewire_loop(node_id, pipewire_fd, dmabuf_caps, frame_tx, shutdown_clone, video_info_clone) {
+                if let Err(e) = run_pipewire_loop(node_id, pipewire_fd, dmabuf_caps, negotiated_max_fps, frame_tx, shutdown_clone, video_info_clone) {
                     tracing::error!("PipeWire loop error: {}", e);
                     *error_clone.lock() = Some(e);
                 }
@@ -197,6 +210,7 @@ fn run_pipewire_loop(
     node_id: u32,
     pipewire_fd: Option<i32>,
     dmabuf_caps: Option<DmaBufCapabilities>,
+    negotiated_max_fps: u32,
     frame_tx: mpsc::SyncSender<FrameData>,
     shutdown: Arc<AtomicBool>,
     video_info: Arc<Mutex<VideoParams>>,
@@ -511,15 +525,15 @@ fn run_pipewire_loop(
             eprintln!("[PIPEWIRE_DEBUG] DMA-BUF available with {} modifiers, offering DmaBuf ONLY (no SHM fallback)",
                 caps.modifiers.len());
             // Offer format WITH modifiers ONLY (DMA-BUF, no SHM fallback)
-            let format_with_mod = build_video_format_params_with_modifiers(&caps.modifiers);
+            let format_with_mod = build_video_format_params_with_modifiers(&caps.modifiers, negotiated_max_fps);
             vec![format_with_mod]
         } else {
             eprintln!("[PIPEWIRE_DEBUG] DMA-BUF not available, offering SHM only");
-            vec![build_video_format_params_no_modifier()]
+            vec![build_video_format_params_no_modifier(negotiated_max_fps)]
         }
     } else {
         eprintln!("[PIPEWIRE_DEBUG] No DMA-BUF caps provided, offering SHM only");
-        vec![build_video_format_params_no_modifier()]
+        vec![build_video_format_params_no_modifier(negotiated_max_fps)]
     };
 
     // Convert to Pod references
@@ -807,17 +821,25 @@ fn build_fixated_format_param(format: u32, width: u32, height: u32, modifier: u6
         value: Value::Fraction(Fraction { num: 0, denom: 1 }),
     });
 
-    // MaxFramerate: CRITICAL for damage-based streaming!
+    // MaxFramerate: Used by GNOME for frame pacing in damage-based streaming.
     // When framerate=0/1 (damage-based), GNOME uses max_framerate for frame pacing.
-    // Without this, GNOME may use a very low default or unlimited (causing buffer issues).
-    // Set to 60/1 for 60 FPS maximum delivery rate.
+    //
+    // HYPOTHESIS (2026-01-11): We observed ~50% of frames being skipped as "too early"
+    // in Mutter logs. The logs showed frames at alternating 16ms and 17ms intervals,
+    // with 16ms frames being rejected. With max_framerate=60/1, min_interval = 16.666ms,
+    // so 16ms frames would fail the check: time_since_last < min_interval.
+    //
+    // Testing: Using 120/1 instead of 60/1 gives min_interval = 8.33ms.
+    // If this hypothesis is correct, both 16ms and 17ms intervals should pass,
+    // potentially doubling effective frame rate from ~30fps to ~60fps.
+    //
     // See: mutter's meta-screen-cast-stream-src.c frame pacing logic:
     //   if (priv->video_format.max_framerate.num > 0)
     //     min_interval_us = G_USEC_PER_SEC * denom / num;
     properties.push(Property {
         key: FormatProperties::VideoMaxFramerate.as_raw(),
         flags: PropertyFlags::empty(),
-        value: Value::Fraction(Fraction { num: 60, denom: 1 }),
+        value: Value::Fraction(Fraction { num: 120, denom: 1 }),
     });
 
     // Create the format object - use Format (not EnumFormat) for confirmation
@@ -913,10 +935,11 @@ fn build_single_format_pod(format: u32, with_modifier: bool) -> Vec<u8> {
 
     // MaxFramerate: Range for damage-based streaming
     // When GNOME picks framerate=0/1, it uses maxFramerate for frame pacing
+    // Use 120/1 default to avoid "too early" skipping (see build_fixated_format_pod comment)
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 60, denom: 1 },
+            default: Fraction { num: 120, denom: 1 },
             min: Fraction { num: 1, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
@@ -946,7 +969,11 @@ fn build_single_format_pod(format: u32, with_modifier: bool) -> Vec<u8> {
 
 /// Build video format params with GPU-queried modifiers for DMA-BUF zero-copy.
 /// This is the primary format pod - offers DMA-BUF with actual GPU-supported modifiers.
-fn build_video_format_params_with_modifiers(modifiers: &[u64]) -> Vec<u8> {
+///
+/// # Arguments
+/// * `modifiers` - GPU-supported DMA-BUF modifiers from EGL
+/// * `negotiated_max_fps` - Max framerate to negotiate with Mutter (should be target_fps * 2)
+fn build_video_format_params_with_modifiers(modifiers: &[u64], negotiated_max_fps: u32) -> Vec<u8> {
     use spa::param::video::VideoFormat;
     let spa_bgra = VideoFormat::BGRA.as_raw();
     let spa_rgba = VideoFormat::RGBA.as_raw();
@@ -1048,12 +1075,14 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64]) -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
     });
 
-    // MaxFramerate: Range for damage-based streaming
+    // MaxFramerate: Request 0/1 to DISABLE Mutter's frame rate limiter entirely.
+    // When max_framerate.num == 0, the check in meta-screen-cast-stream-src.c:1322 is skipped.
+    // CRITICAL: min must be 0/1 to allow 0 to be negotiated - if min is 1/1, Mutter clamps to 1fps!
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 60, denom: 1 },
-            min: Fraction { num: 1, denom: 1 },
+            default: Fraction { num: negotiated_max_fps, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },  // Allow 0 to disable limiter!
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1074,7 +1103,7 @@ fn build_video_format_params_with_modifiers(modifiers: &[u64]) -> Vec<u8> {
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod with {} GPU modifiers ({} bytes)", modifiers.len(), bytes.len());
+            eprintln!("[PIPEWIRE_DEBUG] Built format pod with {} GPU modifiers, max_fps={} ({} bytes)", modifiers.len(), negotiated_max_fps, bytes.len());
             bytes
         }
         Err(e) => {
@@ -1200,11 +1229,11 @@ fn build_video_format_params() -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
     });
 
-    // MaxFramerate: Range for damage-based streaming
+    // MaxFramerate: Range for damage-based streaming (120/1 default to test hypothesis)
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 60, denom: 1 },
+            default: Fraction { num: 120, denom: 1 },
             min: Fraction { num: 1, denom: 1 },
             max: Fraction { num: 360, denom: 1 },
         },
@@ -1239,7 +1268,10 @@ fn build_video_format_params() -> Vec<u8> {
 /// Build video format params WITHOUT modifier (for SHM fallback).
 /// This is the second format pod in priority order - used when DmaBuf negotiation fails.
 /// OBS does the same: builds format pods first WITH modifiers, then WITHOUT.
-fn build_video_format_params_no_modifier() -> Vec<u8> {
+///
+/// # Arguments
+/// * `negotiated_max_fps` - Max framerate to negotiate with Mutter (should be target_fps * 2)
+fn build_video_format_params_no_modifier(negotiated_max_fps: u32) -> Vec<u8> {
     use spa::param::video::VideoFormat;
     let spa_bgra = VideoFormat::BGRA.as_raw();
     let spa_rgba = VideoFormat::RGBA.as_raw();
@@ -1315,12 +1347,13 @@ fn build_video_format_params_no_modifier() -> Vec<u8> {
         value: Value::Choice(ChoiceValue::Fraction(framerate_choice)),
     });
 
-    // MaxFramerate: Range for damage-based streaming
+    // MaxFramerate: Request 0/1 to DISABLE Mutter's frame rate limiter entirely.
+    // CRITICAL: min must be 0/1 to allow 0 to be negotiated - if min is 1/1, Mutter clamps to 1fps!
     let max_framerate_choice = Choice(
         ChoiceFlags::empty(),
         ChoiceEnum::Range {
-            default: Fraction { num: 60, denom: 1 },
-            min: Fraction { num: 1, denom: 1 },
+            default: Fraction { num: negotiated_max_fps, denom: 1 },
+            min: Fraction { num: 0, denom: 1 },  // Allow 0 to disable limiter!
             max: Fraction { num: 360, denom: 1 },
         },
     );
@@ -1341,7 +1374,7 @@ fn build_video_format_params_no_modifier() -> Vec<u8> {
     match PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(obj)) {
         Ok((cursor, _len)) => {
             let bytes = cursor.into_inner();
-            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITHOUT modifier - SHM fallback ({} bytes)", bytes.len());
+            eprintln!("[PIPEWIRE_DEBUG] Built format pod WITHOUT modifier - SHM fallback, max_fps={} (0=disabled) ({} bytes)", negotiated_max_fps, bytes.len());
             bytes
         }
         Err(e) => {

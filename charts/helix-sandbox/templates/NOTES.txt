@@ -4,7 +4,7 @@ GPU Configuration: {{ include "helix-sandbox.gpuVendor" . }}
 {{- if eq (include "helix-sandbox.gpuVendor" .) "none" }}
 Mode: Software Rendering (CPU-only, no GPU)
 {{- else }}
-Render Node: {{ include "helix-sandbox.wolfRenderNode" . }}
+Render Node: {{ include "helix-sandbox.renderNode" . }}
 {{- end }}
 
 Control Plane: {{ .Values.sandbox.apiUrl }}
@@ -17,12 +17,8 @@ To view logs:
 
 {{- if eq .Values.service.type "LoadBalancer" }}
 
-Moonlight ports will be available on the LoadBalancer external IP:
-  - HTTPS: {{ .Values.service.moonlight.https }}
-  - HTTP: {{ .Values.service.moonlight.http }}
-  - RTSP: {{ .Values.service.moonlight.rtsp }}
-  - Web UI: {{ .Values.service.web.port }}
-  - WebRTC UDP: {{ .Values.service.webrtc.portRangeStart }}-{{ .Values.service.webrtc.portRangeEnd }}
+Sandbox streaming available on LoadBalancer external IP:
+  - Web/WebSocket: {{ .Values.service.web.port }}
 
 To get the external IP:
   kubectl get svc {{ include "helix-sandbox.fullname" . }}

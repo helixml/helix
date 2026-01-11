@@ -239,7 +239,6 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const swayVersion = sessionData?.config?.sway_version
   const gpuVendor = sessionData?.config?.gpu_vendor
   const renderNode = sessionData?.config?.render_node
-  const wolfLobbyId = sessionData?.config?.wolf_lobby_id
 
   // Initialize prompt history for the session
   const promptHistory = usePromptHistory({
@@ -956,7 +955,7 @@ I'll give you feedback and we can iterate on any changes needed.`
               {/* ExternalAgentDesktopViewer - flex: 1 fills available space */}
               <ExternalAgentDesktopViewer
                 sessionId={activeSessionId}
-                wolfLobbyId={wolfLobbyId}
+                sandboxId={activeSessionId}
                 mode="stream"
                 onClientIdCalculated={setClientUniqueId}
                 displayWidth={displaySettings.width}
@@ -1283,9 +1282,6 @@ I'll give you feedback and we can iterate on any changes needed.`
                         (using planning_session_id)
                       </Typography>
                     )}
-                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
-                      Moonlight Client ID: {clientUniqueId || 'calculating...'}
-                    </Typography>
                     {swayVersion && (
                       <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', display: 'block' }}>
                         Sway Version:{' '}

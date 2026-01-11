@@ -135,7 +135,7 @@ SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
-MOONLIGHT_CREDENTIALS=""  # Moonlight Web credentials for sandbox nodes (default: helix)
+# MOONLIGHT_CREDENTIALS removed - no longer used (direct WebSocket streaming)
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 
 # Enhanced environment detection
@@ -242,14 +242,13 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
-  --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
+  --sandbox                Install sandbox node (RevDial client with direct WebSocket streaming for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
-  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
+  --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
   --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
-  --moonlight-credentials <creds> Specify the Moonlight Web credentials for sandbox nodes (default: helix, must match control plane MOONLIGHT_CREDENTIALS)
   --privileged-docker        Enable privileged Docker mode in sandbox (allows agents to access host Docker socket for Helix-in-Helix development)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
@@ -310,7 +309,7 @@ Examples:
 14. Install runner excluding GPU 0 (use GPUs 1-7 only):
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
-15. Install sandbox node (Wolf + Moonlight Web + RevDial client):
+15. Install sandbox node (RevDial client with direct WebSocket streaming):
     ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD
 
 EOF
@@ -409,14 +408,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --turn-password)
             TURN_PASSWORD="$2"
-            shift 2
-            ;;
-        --moonlight-credentials=*)
-            MOONLIGHT_CREDENTIALS="${1#*=}"
-            shift
-            ;;
-        --moonlight-credentials)
-            MOONLIGHT_CREDENTIALS="$2"
             shift 2
             ;;
         --privileged-docker)
@@ -1249,7 +1240,7 @@ gather_modifications() {
 
 
     if [ "$SANDBOX" = true ]; then
-        modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
+        modifications+="  - Set up Docker Compose for Sandbox Node (RevDial client with direct WebSocket streaming)\n"
         modifications+="  - Start/upgrade sandbox container and delete old Helix sandbox images\n"
     fi
 
@@ -1311,7 +1302,7 @@ if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
     fi
 fi
 
-# Load uhid kernel module for Helix Code (required for virtual HID devices in Wolf)
+# Load uhid kernel module for Helix Code (required for virtual HID devices in sandbox)
 if [ "$CODE" = true ]; then
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         echo "Skipping uhid module check on Windows Git Bash"
@@ -1330,7 +1321,7 @@ if [ "$CODE" = true ]; then
                     echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
                 fi
             else
-                echo "Warning: Failed to load uhid module - Wolf may not work correctly"
+                echo "Warning: Failed to load uhid module - virtual HID devices may not work correctly"
             fi
         fi
     fi
@@ -1449,17 +1440,6 @@ generate_password() {
         fi
     else
         openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
-    fi
-}
-
-# Function to generate random 4-digit PIN for Moonlight pairing
-generate_moonlight_pin() {
-    if [ "$ENVIRONMENT" = "gitbash" ]; then
-        # Generate random 4-digit number on Git Bash
-        echo $((RANDOM % 9000 + 1000))
-    else
-        # Use /dev/urandom for better randomness on Linux/macOS
-        echo $(($(od -An -N2 -i /dev/urandom) % 9000 + 1000))
     fi
 }
 
@@ -1648,8 +1628,6 @@ EOF
         # Preserve Code credentials if --code flag is set
         if [[ -n "$CODE" ]]; then
             TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
-            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
-            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
         fi
 
     else
@@ -1663,8 +1641,6 @@ EOF
         # Generate Code credentials if --code flag is set
         if [[ -n "$CODE" ]]; then
             TURN_PASSWORD=$(generate_password)
-            MOONLIGHT_CREDENTIALS=$(generate_password)
-            MOONLIGHT_PIN=$(generate_moonlight_pin)
         fi
     fi
 
@@ -1825,7 +1801,7 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
-        # Auto-detect GPU render node for Wolf based on GPU_VENDOR
+        # Auto-detect GPU render node for sandbox based on GPU_VENDOR
         # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
         WOLF_RENDER_NODE="/dev/dri/renderD128"  # Default
 
@@ -1869,7 +1845,7 @@ EOF
         cat << EOF >> "$ENV_FILE"
 
 ## Helix Code Configuration (External Agents / PDEs)
-# Wolf streaming platform
+# Sandbox streaming configuration
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 WOLF_RENDER_NODE=${WOLF_RENDER_NODE}
 # GPU vendor for video pipeline configuration: nvidia, amd, intel, none (software rendering)
@@ -1877,11 +1853,8 @@ GPU_VENDOR=${GPU_VENDOR}
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
-# Helix hostname (displayed in Moonlight client to distinguish between servers)
+# Helix hostname (displayed in browser to distinguish between servers)
 HELIX_HOSTNAME=${TURN_HOST}
-
-# Moonlight Web credentials (secure random, shared between API and moonlight-web)
-MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
 
 # TURN server for WebRTC NAT traversal
 TURN_ENABLED=true
@@ -1891,70 +1864,20 @@ TURN_REALM=${TURN_HOST}
 TURN_USERNAME=helix
 TURN_PASSWORD=${TURN_PASSWORD}
 
-# Moonlight Web pairing (internal, secure random)
-MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
-
-# Wolf GOP size (keyframe interval in frames)
+# GOP size (keyframe interval in frames)
 # 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
 # 60 = keyframe every 1s (balanced)
 # 120 = keyframe every 2s (lower bandwidth, recommended for Helix Code)
 GOP_SIZE=120
 EOF
 
-        # Generate moonlight-web config from template
-        # Create directories for bind-mounted config persistence
-        mkdir -p "$INSTALL_DIR/moonlight-web-config"
+        # Create wolf directory for desktop configuration
         mkdir -p "$INSTALL_DIR/wolf"
+        echo "Desktop config directory created (configs will be generated by containers)"
 
-        echo "Moonlight-web and Wolf config directories created (configs will be generated by containers)"
-        echo "Note: config.json and config.toml will be created by container init scripts on first startup"
-
-        # Always regenerate moonlight-web config.json from template
-        # (config.json has no runtime state - only data.json has pairing state to preserve)
-        MOONLIGHT_CONFIG_CHANGED=false
-        if [ -f "$INSTALL_DIR/moonlight-web-config/config.json" ]; then
-            echo "Removing existing config.json to regenerate from template (data.json preserved for pairing state)"
-            rm -f "$INSTALL_DIR/moonlight-web-config/config.json"
-            MOONLIGHT_CONFIG_CHANGED=true
-        fi
-
-        # Wolf config.toml.template and init script are baked into the container
-        # The container's /etc/cont-init.d/05-init-wolf-config.sh will handle initialization on startup
-        # Template is at: /opt/wolf-defaults/config.toml.template (in container image)
-        # Init script will copy template → /etc/wolf/cfg/config.toml on first run
-        echo "Wolf will use containerized template and init script"
-        WOLF_CONFIG_CHANGED=false
-        if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
-            echo "Note: config.toml will be created by container init script on first startup"
-        else
-            # Update hostname in existing config.toml if it differs
-            if grep -q "hostname = 'Helix ($TURN_HOST)'" "$INSTALL_DIR/wolf/config.toml"; then
-                echo "Wolf config.toml hostname matches, preserving existing config"
-            else
-                echo "Hostname changed - updating Wolf config.toml hostname field"
-                sed -i "s/^hostname = .*/hostname = 'Helix ($TURN_HOST)'/" "$INSTALL_DIR/wolf/config.toml"
-                WOLF_CONFIG_CHANGED=true
-            fi
-        fi
-
-        # Update moonlight-web data.json hostname (preserve pairing state)
-        if [ -f "$INSTALL_DIR/moonlight-web-config/data.json" ]; then
-            if grep -q "\"name\": \"Helix ($TURN_HOST)\"" "$INSTALL_DIR/moonlight-web-config/data.json"; then
-                echo "Moonlight-web data.json hostname matches, preserving existing config"
-            else
-                echo "Hostname changed - updating moonlight-web data.json hostname field"
-                sed -i "s/\"name\": \"Helix ([^\"]*)\"/\"name\": \"Helix ($TURN_HOST)\"/" "$INSTALL_DIR/moonlight-web-config/data.json"
-                MOONLIGHT_CONFIG_CHANGED=true
-            fi
-        fi
-
-
-        # Generate self-signed certificates for Wolf HTTPS only if they don't exist
-        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
-        # CRITICAL: Include SANs for both "localhost" AND "wolf" (Docker hostname)
-        # This allows moonlight-web to connect via "wolf" hostname without cert validation errors
+        # Generate self-signed certificates for sandbox HTTPS only if they don't exist
         if [ ! -f "$INSTALL_DIR/wolf/cert.pem" ] || [ ! -f "$INSTALL_DIR/wolf/key.pem" ]; then
-            echo "Generating Wolf SSL certificates..."
+            echo "Generating sandbox SSL certificates..."
             # Create temp config for SAN (Subject Alternative Names)
             cat > /tmp/wolf-cert-san.conf <<EOF
 [req]
@@ -1977,16 +1900,10 @@ EOF
             openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
                 -days 365 -nodes -config /tmp/wolf-cert-san.conf -extensions v3_req 2>/dev/null
             rm -f /tmp/wolf-cert-san.conf
-            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/ (with SANs: localhost, wolf)"
+            echo "Sandbox SSL certificates created at $INSTALL_DIR/wolf/"
         else
-            echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
+            echo "Sandbox SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
         fi
-
-        # Moonlight-web templates and init script are baked into the container
-        # The container's init-moonlight-config.sh will handle initialization on startup
-        # Templates are at: /app/templates/{data.json.template,config.json.template}
-        # Init script is at: /app/server/init-moonlight-config.sh (baked into container)
-        echo "Moonlight-web will use containerized templates and init script"
     fi
 
     # Continue with the rest of the .env file
@@ -2443,7 +2360,7 @@ fi
 
 # Install sandbox node if requested
 if [ "$SANDBOX" = true ]; then
-    echo -e "\nInstalling Helix Sandbox Node (Wolf + Moonlight Web + RevDial client)..."
+    echo -e "\nInstalling Helix Sandbox Node (RevDial client with direct WebSocket streaming)..."
     echo "=================================================="
     echo
     echo "API Host: $API_HOST"
@@ -2477,13 +2394,9 @@ if [ "$SANDBOX" = true ]; then
         GPU_VENDOR="none"
     fi
 
-    # Generate unique Wolf instance ID (hostname)
+    # Generate unique sandbox instance ID (hostname)
     WOLF_ID=$(hostname)
-    echo "Wolf Instance ID: $WOLF_ID"
-
-    # Generate random 4-digit PIN for auto-pairing (Wolf <-> Moonlight Web)
-    PAIRING_PIN=$(shuf -i 1000-9999 -n 1)
-    echo "Auto-pairing PIN: $PAIRING_PIN"
+    echo "Sandbox Instance ID: $WOLF_ID"
     echo
 
     # Configure NVIDIA runtime if needed
@@ -2506,8 +2419,6 @@ MAX_SANDBOXES="${MAX_SANDBOXES}"
 TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
 TURN_PASSWORD="${TURN_PASSWORD}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
-MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
-PAIRING_PIN="${PAIRING_PIN}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
 # Check if helix_default network exists
@@ -2577,7 +2488,7 @@ fi
 
 echo "Starting Helix Sandbox container..."
 echo "  Control Plane: $HELIX_API_URL"
-echo "  Wolf Instance ID: $WOLF_INSTANCE_ID"
+echo "  Sandbox Instance ID: $WOLF_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
 echo "  TURN Server: $TURN_PUBLIC_IP"
@@ -2610,8 +2521,6 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS \
     -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
     -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
-    -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
-    -e MOONLIGHT_INTERNAL_PAIRING_PIN="$PAIRING_PIN" \
     -e HYDRA_ENABLED=true \
     -e HYDRA_PRIVILEGED_MODE_ENABLED="${PRIVILEGED_DOCKER:-false}" \
     -e SANDBOX_DATA_PATH=/data \
@@ -2697,8 +2606,6 @@ EOF
     # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
     TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
     HELIX_HOSTNAME="$TURN_PUBLIC_IP"
-    # Default Moonlight credentials (must match control plane configuration)
-    MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS:-helix}"
 
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
@@ -2716,8 +2623,6 @@ EOF
     sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${PAIRING_PIN}|${PAIRING_PIN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -2762,17 +2667,13 @@ EOF
     echo "│ ✅ Helix Sandbox Node installed successfully!"
     echo "│"
     echo "│ Connected to: $API_HOST"
-    echo "│ Wolf Instance ID: $WOLF_ID"
+    echo "│ Sandbox Instance ID: $WOLF_ID"
     echo "│ TURN Server: $TURN_PUBLIC_IP"
     echo "│"
     echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
     echo "│"
     echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
     echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
-    echo "│"
-    echo "│ ⚠️  For native Moonlight client connections, also open:"
-    echo "│   - TCP 47984, 47989, 48010: Moonlight protocol"
-    echo "│   - UDP 47415, 47999, 48100, 48200: Moonlight streaming"
     echo "│"
     echo "│ ⚠️  Ensure the control plane has these ports open:"
     echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"

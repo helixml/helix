@@ -15,7 +15,7 @@ See also: `.cursor/rules/*.mdc`
 
 ### Stack Commands
 - **NEVER** run `./stack start` — user runs this (needs interactive terminal)
-- ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-wolf`, `update_openapi`
+- ✅ OK: `./stack build`, `build-zed`, `build-sway`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
 ### Docker
 - **NEVER** use `--no-cache` — trust Docker cache
@@ -28,58 +28,48 @@ See also: `.cursor/rules/*.mdc`
 
 ## Build Pipeline
 
-**Sandbox architecture**: Host → helix-sandbox container (Hydra + Wolf + Moonlight Web + DinD) → helix-sway container (Zed + Qwen Code + daemons)
+**Sandbox architecture**: Host → helix-sandbox container (Hydra + DinD) → helix-ubuntu container (GNOME + Zed + streaming)
 
 ### Component Dependencies
 
 ```
 helix-sandbox (outer container)
 ├── hydra (Go, dev container lifecycle, Docker isolation)
-├── wolf:helix-fixed (streaming server, GStreamer plugins)
-│   ├── Wolf C++ server
-│   ├── gst-wayland-display (Rust, for Sway compositor capture)
-│   └── gst-pipewire-zerocopy (Rust, for GNOME ScreenCast capture)
-├── helix-moonlight-web:helix-fixed (web streaming)
 └── helix-sway.tar / helix-ubuntu.tar (desktop images)
+    ├── Desktop environment (Sway or GNOME)
     ├── Zed IDE
-    └── Qwen Code agent
+    ├── Qwen Code agent
+    ├── Go streaming server (api/pkg/desktop/) - WebSocket H.264 streaming
+    └── gst-pipewire-zerocopy (Rust, PipeWire ScreenCast → CUDA → nvh264enc)
 ```
 
 ### When to Rebuild What
 
 | Changed | Command | Notes |
 |---------|---------|-------|
-| Wolf C++ (`~/pm/wolf/src/`) | `./stack build-wolf && ./stack build-sandbox` | Wolf is embedded in sandbox |
-| Wolf Rust plugins (`~/pm/wolf/gst-pipewire-zerocopy/`) | `./stack build-wolf && ./stack build-sandbox` | Same as above |
 | Hydra (`api/pkg/hydra/`) | `./stack build-sandbox` | Hydra binary runs IN sandbox, NOT API |
 | Desktop image (helix-sway) | `./stack build-sway` | Creates tarball in sandbox-images/ |
 | Desktop image (helix-ubuntu) | `./stack build-ubuntu` | Creates tarball in sandbox-images/ |
 | Desktop streaming (`api/pkg/desktop/`) | `./stack build-ubuntu` or `./stack build-sway` | Go code runs IN desktop container, NOT API |
+| Zerocopy plugin (`desktop/gst-pipewire-zerocopy/`) | `./stack build-ubuntu` or `./stack build-sway` | Rust plugin built inside desktop image |
 | Sandbox scripts | `./stack build-sandbox` | Dockerfile.sandbox changes |
 | Zed IDE | `./stack build-zed && ./stack build-sway` | Zed binary → desktop image |
 | Qwen Code | `cd ../qwen-code && git commit -am "msg" && cd ../helix && ./stack build-sway` | Needs git commit |
-| Moonlight Web | `./stack build-moonlight-web && ./stack build-sandbox` | Embedded in sandbox |
 
 ### Build Order for Full Rebuild
 
 ```bash
-# 1. Build Wolf (streaming server + GStreamer plugins)
-./stack build-wolf
-
-# 2. Build Moonlight Web (optional, if changed)
-./stack build-moonlight-web
-
-# 3. Build Zed (if changed)
+# 1. Build Zed (if changed)
 ./stack build-zed
 
-# 4. Build desktop images (creates tarballs)
+# 2. Build desktop images (creates tarballs, includes streaming + zerocopy plugin)
 ./stack build-sway
 ./stack build-ubuntu
 
-# 5. Build sandbox (embeds Wolf, Moonlight Web, and desktop tarballs)
+# 3. Build sandbox (embeds desktop tarballs)
 ./stack build-sandbox
 
-# 6. Restart sandbox to use new image
+# 4. Restart sandbox to use new image
 docker compose down sandbox && docker compose up -d sandbox
 ```
 
@@ -90,11 +80,8 @@ docker compose down sandbox && docker compose up -d sandbox
 cat sandbox-images/helix-sway.version
 cat sandbox-images/helix-ubuntu.version
 
-# Check Wolf image
-docker images wolf:helix-fixed
-
-# Check sandbox has latest Wolf
-docker compose exec -T sandbox ls -la /wolf/wolf
+# Verify image is loaded in sandbox's dockerd
+docker compose exec -T sandbox docker images | grep helix-
 ```
 
 New sessions use updated image; existing containers don't update.
@@ -258,19 +245,18 @@ export HELIX_URL="http://localhost:8080"
 /tmp/helix spectask mcp <session-id>
 ```
 
-### Wolf API (streaming infrastructure)
+### Sandbox Service Names
+The sandbox service name depends on GPU type:
+- `sandbox-nvidia` - Systems with NVIDIA GPU
+- `sandbox` - Systems without GPU (uses software encoding)
+
+Use the correct service name when running docker compose exec commands:
 ```bash
-# List active lobbies (sandbox sessions)
-docker compose exec -T sandbox curl -s --unix-socket /var/run/wolf/wolf.sock \
-  http://localhost/api/v1/lobbies | jq '.[].name'
+# NVIDIA GPU systems
+docker compose exec -T sandbox-nvidia docker images | grep helix-
 
-# List Wolf streaming sessions (active Moonlight connections)
-docker compose exec -T sandbox curl -s --unix-socket /var/run/wolf/wolf.sock \
-  http://localhost/api/v1/sessions | jq
-
-# Get GPU and memory stats
-docker compose exec -T sandbox curl -s --unix-socket /var/run/wolf/wolf.sock \
-  http://localhost/api/v1/system/memory | jq '{gpu: .gpu_stats, lobbies: (.lobbies | length)}'
+# Non-GPU systems
+docker compose exec -T sandbox docker images | grep helix-
 ```
 
 ### Image Versions
@@ -285,14 +271,146 @@ docker compose exec -T sandbox docker images | grep helix-
 
 ### Logs
 ```bash
-# Screenshot server logs (inside sandbox container)
-docker compose exec -T sandbox docker logs {CONTAINER_NAME} 2>&1 | grep -E "screenshot|capture"
+# Desktop container logs (inside sandbox)
+docker compose exec -T sandbox docker logs {CONTAINER_NAME} 2>&1 | grep -E "screenshot|capture|pipewire|zerocopy"
 
-# Wolf logs
-docker compose logs --tail 50 sandbox 2>&1 | grep -E "lobby|session|GPU"
+# Sandbox logs
+docker compose logs --tail 50 sandbox 2>&1 | grep -E "session|GPU|hydra"
 
 # API logs for external agents
-docker compose logs --tail 50 api 2>&1 | grep -E "external-agent|screenshot|Wolf"
+docker compose logs --tail 50 api 2>&1 | grep -E "external-agent|screenshot|session"
+```
+
+### Desktop Container Log File Locations
+Log files inside the desktop container (helix-ubuntu/helix-sway):
+```bash
+# CRITICAL: These logs are NOT in docker logs! They're in /tmp/ inside the container.
+
+# screenshot-server logs (Go streaming server + pipewirezerocopysrc plugin)
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/screenshot-server.log
+
+# RevDial client logs (WebSocket tunnel to API)
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/revdial-client.log
+
+# Settings sync daemon logs
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER} cat /tmp/settings-sync-daemon.log
+
+# Find container name:
+docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep -E "ubuntu-external|sway-external"
+```
+
+**Why /tmp/?** The screenshot-server redirects stdout/stderr to `/tmp/screenshot-server.log` via the startup script. This means `docker logs` only shows gnome-shell/sway output, not our Go/Rust code.
+
+### Debugging pipewirezerocopysrc (Zero-Copy GPU Streaming)
+
+**IMPORTANT**: The `pipewirezerocopysrc` GStreamer element logs go to a SEPARATE file, NOT to docker logs!
+
+**Step 1: Find the container name**
+```bash
+docker compose exec -T sandbox-nvidia docker ps --format "{{.Names}}" | grep ubuntu-external
+```
+
+**Step 2: Check screenshot-server.log (contains pipewirezerocopysrc logs)**
+```bash
+# This is WHERE THE REAL LOGS ARE!
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} cat /tmp/screenshot-server.log 2>&1 | grep -E "PIPEWIRE_DEBUG|PIPEWIRESRC_DEBUG|zerocopy"
+```
+
+**Step 3: Run benchmark with zerocopy mode**
+```bash
+# Start a session AFTER rebuilding helix-ubuntu (new sessions use new images)
+/tmp/helix spectask start --agent $HELIX_UBUNTU_AGENT --project $HELIX_PROJECT -n "test"
+
+# Wait ~15 seconds for GNOME to initialize, then run benchmark
+# CRITICAL: --video-mode zerocopy forces use of pipewirezerocopysrc
+/tmp/helix spectask benchmark ses_01xxx --video-mode zerocopy --duration 15
+```
+
+**Key debug patterns to look for:**
+```
+# Good: Our element is running
+[PIPEWIRE_DEBUG] PipeWire state: Unconnected -> Connecting -> Paused
+
+# Good: NVIDIA tiled modifier detected
+[PIPEWIRE_DEBUG] Format modifier=0x300000000e08014 vendor_id=0x3 is_gpu_tiled=true
+
+# Good: DmaBuf requested
+[PIPEWIRE_DEBUG] Buffer types: 0x8 (DmaBuf (zero-copy))
+
+# Good: Frames flowing
+[PIPEWIRE_FRAME] First frame received from PipeWire
+
+# Bad: Buffer allocation failed
+[PIPEWIRE_DEBUG] PipeWire state: Paused -> Error("error alloc buffers: Invalid argument")
+
+# Bad: Using SHM instead of DmaBuf
+[PIPEWIRE_DEBUG] Buffer types: 0x4 (MemFd (SHM fallback))
+```
+
+**Common mistakes:**
+1. Looking at `docker logs` instead of `/tmp/screenshot-server.log` - our element logs to the file
+2. Running benchmark on a session started BEFORE rebuilding - must start NEW session
+3. Forgetting `--video-mode zerocopy` - without it, uses native pipewiresrc instead
+4. GNOME ScreenCast sends multiple Format callbacks with different modifiers - this is normal
+
+**Modifier debugging:**
+- 0x0 = LINEAR (no tiling, triggers SHM fallback)
+- 0x300000000xxxxx = NVIDIA tiled (vendor ID 0x03 in bits 56-63)
+- 0x00ffffffffffffff = DRM_FORMAT_MOD_INVALID ("any modifier")
+
+## Video Streaming Performance Testing
+
+### 🚨 ALWAYS Use Benchmark CLI for Video Testing 🚨
+
+When testing video streaming performance (FPS, latency, frame drops), **ALWAYS use the benchmark CLI** with vkcube or active screen content:
+
+```bash
+# 1. Start a NEW session (existing sessions won't have your code changes)
+export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
+export HELIX_URL=`grep HELIX_URL .env.usercreds | cut -d= -f2-`
+export HELIX_PROJECT=`grep HELIX_PROJECT .env.usercreds | cut -d= -f2-`
+/tmp/helix spectask start --project $HELIX_PROJECT -n "video test"
+
+# 2. Wait for GNOME to initialize (~15 seconds)
+sleep 15
+
+# 3. Run benchmark with active content (vkcube generates 60 FPS damage)
+# Replace ses_xxx with your actual session ID from step 1
+/tmp/helix spectask benchmark ses_xxx --duration 30
+
+# 4. Check the output for FPS and frame timing
+# Target: 60 FPS with active content, 10 FPS with static screen
+```
+
+### Why vkcube/Active Content Matters
+
+GNOME uses **damage-based ScreenCast** in headless mode:
+- Static screen → ~10 FPS (keepalive timer only)
+- Terminal with output → 15-35 FPS (depends on terminal update rate)
+- vkcube → 60 FPS (constant GPU rendering = constant damage)
+
+**Never test video FPS on a static desktop** - you'll only see 10 FPS which is expected behavior.
+
+### Frame Rate by Damage Source
+
+| Damage Source | Expected FPS | Notes |
+|---------------|--------------|-------|
+| Static screen | 10 | Keepalive timer, NOT a bug |
+| Kitty terminal | ~17 | Kitty has internal frame pacing |
+| gnome-terminal fast output | 35-40 | More damage events |
+| vkcube (GPU rendering) | 55-60 | Constant damage at refresh rate |
+
+### Debug Commands
+
+```bash
+# Check PipeWire node state (inside desktop container)
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} pw-dump | grep -A20 '"state"'
+
+# Check if zero-copy is enabled (look for modifier 0x300000000e08xxx)
+docker compose exec -T sandbox-nvidia docker exec {CONTAINER_NAME} cat /tmp/screenshot-server.log | grep "modifier="
+
+# Force zerocopy mode in benchmark
+/tmp/helix spectask benchmark ses_xxx --video-mode zerocopy --duration 30
 ```
 
 ## CLI Development

@@ -6,7 +6,7 @@ import DesktopStreamViewer from './DesktopStreamViewer';
 interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
-  sandboxId?: string; // For Moonlight streaming mode
+  sandboxId?: string; // For desktop video streaming mode
   onError?: (error: string) => void;
   width?: number;
   height?: number;
@@ -201,7 +201,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // If in streaming mode, render MoonlightWebPlayer instead
+  // If in streaming mode, render DesktopStreamViewer instead
   if (streamingMode === 'stream' && enableStreaming && sandboxId) {
     return (
       <Box

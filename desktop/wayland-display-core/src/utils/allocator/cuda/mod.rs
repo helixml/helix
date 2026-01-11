@@ -263,6 +263,49 @@ impl CUDABufferPool {
         }
     }
 
+    /// Configure pool without CUDA stream (for pipewirezerocopysrc).
+    /// This is simpler than `configure()` and works when we don't have a StreamHandle.
+    /// Buffer pool reuse eliminates per-frame allocation overhead (~12ms per 4K frame).
+    pub fn configure_basic(
+        &self,
+        caps: &gst::Caps,
+        size: u32,
+        min_buffers: u32,
+        max_buffers: u32,
+    ) -> Result<(), String> {
+        let config = unsafe {
+            gst::ffi::gst_buffer_pool_get_config(self.pool as *mut gst::ffi::GstBufferPool)
+        };
+        if config.is_null() {
+            return Err("Failed to get buffer pool config".into());
+        }
+
+        // Configure the pool (without CUDA stream - will use default synchronous ops)
+        unsafe {
+            gst::ffi::gst_buffer_pool_config_add_option(
+                config,
+                ffi::GST_BUFFER_POOL_OPTION_VIDEO_META.as_ptr() as *const c_char,
+            );
+            gst::ffi::gst_buffer_pool_config_set_params(
+                config,
+                caps.to_glib_none().0,
+                size,
+                min_buffers,
+                max_buffers,
+            );
+        }
+
+        // Set the configuration
+        let result = unsafe {
+            gst::ffi::gst_buffer_pool_set_config(self.pool as *mut gst::ffi::GstBufferPool, config)
+        };
+        if result == glib_ffi::GFALSE {
+            Err("Failed to set buffer pool config".into())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn get_updated_size(&self) -> Result<u32, String> {
         let config = unsafe {
             gst::ffi::gst_buffer_pool_get_config(self.pool as *mut gst::ffi::GstBufferPool)

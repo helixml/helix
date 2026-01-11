@@ -855,6 +855,19 @@ Examples:
 						case WsMsgVideoFrame:
 							stats.videoFrames++
 							stats.videoBytes += int64(len(data))
+
+							// Track frames per second for instantaneous FPS
+							elapsed := time.Since(stats.startTime)
+							currentSec := int(elapsed.Seconds())
+							if currentSec != stats.currentSecond {
+								// New second - save last second's FPS and reset
+								stats.lastSecondFPS = stats.currentSecondFPS
+								stats.currentSecond = currentSec
+								stats.currentSecondFPS = 1
+							} else {
+								stats.currentSecondFPS++
+							}
+
 							if len(data) >= 15 {
 								codec := data[1]
 								flags := data[2]
@@ -968,7 +981,20 @@ Examples:
 				if elapsed.Seconds() > 0 {
 					videoFps := float64(stats.videoFrames) / elapsed.Seconds()
 					videoBitrate := float64(stats.videoBytes*8) / elapsed.Seconds()
-					fmt.Printf("Frame rate:         %.2f fps\n", videoFps)
+					// Show instantaneous FPS (last complete second) prominently
+					instantFPS := stats.lastSecondFPS
+					if instantFPS == 0 && stats.currentSecondFPS > 0 {
+						// If we haven't completed a second yet, show current
+						instantFPS = stats.currentSecondFPS
+					}
+					fmt.Printf("Instant FPS:        %d fps", instantFPS)
+					if instantFPS > 0 && instantFPS < 50 {
+						fmt.Printf(" ⚠️")
+					} else if instantFPS >= 55 {
+						fmt.Printf(" ✅")
+					}
+					fmt.Println()
+					fmt.Printf("Average FPS:        %.1f fps\n", videoFps)
 					fmt.Printf("Video bitrate:      %s/s\n", formatBits(int64(videoBitrate)))
 				}
 
@@ -1051,6 +1077,10 @@ type videoStreamStats struct {
 	width        int
 	height       int
 	fps          int
+	// Per-second frame tracking for instantaneous FPS
+	currentSecond     int   // Which second bucket we're in
+	currentSecondFPS  int   // Frames received in current second
+	lastSecondFPS     int   // Frames received in previous second (displayed)
 }
 
 // runInteractiveStream runs a combined interactive session with VLC server, keyboard, and mouse support

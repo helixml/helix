@@ -241,6 +241,14 @@ fn gst_dma_video_info_to_video_info(
     let mut video_info: GstVideoInfo = unsafe { std::mem::zeroed() };
     unsafe { gst_video::ffi::gst_video_info_init(&mut video_info) };
 
+    // Debug: log the input DRM info
+    let base_info = dma_video_info.to_video_info();
+    let (width, height) = base_info.as_ref().map(|i| (i.width(), i.height())).unwrap_or((0, 0));
+    eprintln!("[CUDA_ALLOC_DEBUG] gst_dma_video_info_to_video_info input: fourcc=0x{:x} modifier=0x{:x} width={} height={}",
+        dma_video_info.fourcc(),
+        dma_video_info.modifier(),
+        width, height);
+
     let result = unsafe {
         gst_video::ffi::gst_video_info_dma_drm_to_video_info(
             dma_video_info.to_glib_none().0,
@@ -248,8 +256,15 @@ fn gst_dma_video_info_to_video_info(
         )
     };
     if result == glib_ffi::GFALSE {
+        eprintln!("[CUDA_ALLOC_DEBUG] gst_video_info_dma_drm_to_video_info FAILED!");
         return Err("Failed to convert DMA-BUF video info to GStreamer video info".into());
     }
+
+    // Debug: log the converted video info format
+    let format = unsafe { gst_video::ffi::gst_video_format_to_string(video_info.finfo.as_ref().unwrap().format) };
+    let format_str = unsafe { std::ffi::CStr::from_ptr(format).to_string_lossy() };
+    eprintln!("[CUDA_ALLOC_DEBUG] gst_video_info_dma_drm_to_video_info SUCCESS: format={} width={} height={}",
+        format_str, video_info.width, video_info.height);
 
     Ok(video_info)
 }
@@ -399,14 +414,25 @@ fn alloc_cuda_buffer(
     cuda_context: &CUDAContext,
     video_info: &VideoInfoDmaDrm,
 ) -> Result<gst::Buffer, Box<dyn std::error::Error>> {
+    eprintln!("[CUDA_ALLOC_DEBUG] alloc_cuda_buffer: starting allocation");
+
+    // CRITICAL: Push CUDA context before calling CUDA APIs!
+    // This was missing and caused gst_cuda_allocator_alloc() to return NULL.
+    let _cuda_context_guard = CudaContextGuard::new(cuda_context)?;
+    eprintln!("[CUDA_ALLOC_DEBUG] alloc_cuda_buffer: CUDA context pushed");
+
     let mut gst_video_info = gst_dma_video_info_to_video_info(video_info)?;
 
     // Use the stream from the context if available
+    let has_stream = cuda_context.stream().is_some();
     let stream = cuda_context
         .stream()
         .as_ref()
         .map(|s| s.stream)
         .unwrap_or(unsafe { std::mem::zeroed() });
+
+    eprintln!("[CUDA_ALLOC_DEBUG] alloc_cuda_buffer: cuda_context.ptr={:?} has_stream={} calling gst_cuda_allocator_alloc",
+        cuda_context.ptr, has_stream);
 
     let gst_memory = unsafe {
         gst_cuda_allocator_alloc(
@@ -417,9 +443,11 @@ fn alloc_cuda_buffer(
         )
     };
     if gst_memory.is_null() {
+        eprintln!("[CUDA_ALLOC_DEBUG] gst_cuda_allocator_alloc returned NULL!");
         return Err("Failed to allocate GST CUDA memory".into());
     }
 
+    eprintln!("[CUDA_ALLOC_DEBUG] alloc_cuda_buffer: allocation succeeded!");
     let mut buffer = gst::Buffer::new();
     let buffer_ref = buffer.get_mut().unwrap();
     buffer_ref.append_memory(unsafe { gst::Memory::from_glib_full(gst_memory) });

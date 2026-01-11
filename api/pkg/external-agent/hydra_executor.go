@@ -484,20 +484,37 @@ func (h *HydraExecutor) parseContainerType(desktopType string) string {
 }
 
 // getContainerImage returns the appropriate container image for the given type
+// Reads version from /opt/images/<image>.version to avoid race conditions with :latest tag
 func (h *HydraExecutor) getContainerImage(containerType string, agent *types.DesktopAgent) string {
 	// Use custom image if provided
 	if agent.CustomImage != "" {
 		return agent.CustomImage
 	}
 
+	// Map container type to image name
+	var imageName string
 	switch containerType {
 	case "ubuntu":
-		return "helix-ubuntu:latest"
-	case "headless":
-		return "helix-headless:latest"
+		imageName = "helix-ubuntu"
 	default:
-		return h.zedImage // helix-sway:latest
+		imageName = "helix-sway"
 	}
+
+	// Read version from file (mounted at /opt/images/ in sandbox)
+	versionFile := fmt.Sprintf("/opt/images/%s.version", imageName)
+	version, err := os.ReadFile(versionFile)
+	if err != nil {
+		log.Warn().Err(err).Str("image", imageName).Msg("Failed to read version file, falling back to :latest")
+		return imageName + ":latest"
+	}
+
+	tag := strings.TrimSpace(string(version))
+	if tag == "" {
+		log.Warn().Str("image", imageName).Msg("Version file empty, falling back to :latest")
+		return imageName + ":latest"
+	}
+
+	return imageName + ":" + tag
 }
 
 // buildEnvVars builds environment variables for the container

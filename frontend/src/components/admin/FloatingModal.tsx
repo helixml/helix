@@ -432,7 +432,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
             {modalConfig.type === 'exploratory_session' && modalConfig.sessionId && (
               <ExternalAgentDesktopViewer
                 sessionId={modalConfig.sessionId}
-                wolfLobbyId={modalConfig.wolfLobbyId || modalConfig.sessionId}
+                sandboxId={modalConfig.sessionId}
                 height={size.height - 48}
                 displayWidth={modalConfig.displayWidth}
                 displayHeight={modalConfig.displayHeight}

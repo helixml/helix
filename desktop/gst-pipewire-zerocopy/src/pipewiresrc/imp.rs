@@ -234,6 +234,11 @@ pub struct Settings {
     cuda_context: Option<Arc<std::sync::Mutex<CUDAContext>>>,
     /// Raw pointer for GStreamer CUDA context interop - used by Wolf's context sharing
     cuda_raw_ptr: AtomicPtr<GstCudaContext>,
+    /// Target FPS for PipeWire negotiation. The actual max_framerate sent to Mutter
+    /// will be target_fps * 2 to avoid the 16ms/17ms timing boundary issue where
+    /// ~50% of frames are skipped as "too early".
+    /// See: design/2026-01-11-mutter-headless-60fps-investigation.md
+    target_fps: u32,
 }
 
 impl Default for Settings {
@@ -249,6 +254,8 @@ impl Default for Settings {
             resend_last: false,
             cuda_context: None,
             cuda_raw_ptr: AtomicPtr::new(std::ptr::null_mut()),
+            // Default: 60 FPS target (will negotiate as 120 FPS max_framerate = 60 * 2)
+            target_fps: 60,
         }
     }
 }
@@ -263,6 +270,10 @@ pub struct State {
     /// Last buffer for keepalive - resent when PipeWire doesn't deliver frames
     /// (normal for GNOME 49+ damage-based ScreenCast with static screens)
     last_buffer: Option<gst::Buffer>,
+    /// Whether the buffer pool has been configured with video dimensions.
+    /// Pool configuration happens on first frame when dimensions are known.
+    /// This enables buffer reuse, eliminating per-frame allocation overhead.
+    buffer_pool_configured: bool,
 }
 
 impl Default for State {
@@ -275,6 +286,7 @@ impl Default for State {
             actual_output_mode: OutputMode::System,
             frame_count: 0,
             last_buffer: None,
+            buffer_pool_configured: false,
         }
     }
 }
@@ -327,6 +339,14 @@ impl ObjectImpl for PipeWireZeroCopySrc {
                 .default_value(false)
                 .construct()
                 .build(),
+            glib::ParamSpecUInt::builder("target-fps")
+                .nick("Target FPS")
+                .blurb("Target frames per second. PipeWire max_framerate will be set to target_fps * 2 to avoid 16ms/17ms timing boundary issues.")
+                .minimum(1)
+                .maximum(240)
+                .default_value(60)
+                .construct()
+                .build(),
         ]);
         PROPERTIES.as_ref()
     }
@@ -344,6 +364,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
             "cuda-device-id" => s.cuda_device_id = value.get().unwrap(),
             "keepalive-time" => s.keepalive_time_ms = value.get().unwrap(),
             "resend-last" => s.resend_last = value.get().unwrap(),
+            "target-fps" => s.target_fps = value.get().unwrap(),
             _ => {}
         }
     }
@@ -358,6 +379,7 @@ impl ObjectImpl for PipeWireZeroCopySrc {
             "cuda-device-id" => s.cuda_device_id.to_value(),
             "keepalive-time" => s.keepalive_time_ms.to_value(),
             "resend-last" => s.resend_last.to_value(),
+            "target-fps" => s.target_fps.to_value(),
             _ => unreachable!(),
         }
     }
@@ -450,13 +472,13 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         if state_guard.is_some() { return Ok(()); }
 
         // Extract settings - but don't hold the lock while doing CUDA setup
-        let (node_id, pipewire_fd, render_node, output_mode, device_id) = {
+        let (node_id, pipewire_fd, render_node, output_mode, device_id, target_fps) = {
             let settings = self.settings.lock();
             let node_id = settings.pipewire_node_id.ok_or_else(|| gst::error_msg!(gst::LibraryError::Settings, ("pipewire-node-id must be set")))?;
-            (node_id, settings.pipewire_fd, settings.render_node.clone(), settings.output_mode, settings.cuda_device_id)
+            (node_id, settings.pipewire_fd, settings.render_node.clone(), settings.output_mode, settings.cuda_device_id, settings.target_fps)
         };
 
-        eprintln!("[PIPEWIRESRC_DEBUG] start() called: node_id={}, pipewire_fd={:?}, render_node={:?}, output_mode={:?}", node_id, pipewire_fd, render_node, output_mode);
+        eprintln!("[PIPEWIRESRC_DEBUG] start() called: node_id={}, pipewire_fd={:?}, render_node={:?}, output_mode={:?}, target_fps={}", node_id, pipewire_fd, render_node, output_mode, target_fps);
         gst::info!(CAT, imp = self, "Starting for node {}", node_id);
 
         let mut state = State::default();
@@ -570,7 +592,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
             }
         }
 
-        let stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps).map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
+        let stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps).map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
         state.stream = Some(stream);
         *state_guard = Some(state);
         Ok(())
@@ -814,7 +836,49 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                     .map_err(|_| gst::FlowError::Error)?;
                 let fourcc: u32 = drm_format.code as u32;
                 let modifier: u64 = drm_format.modifier.into();
-                let dma_video_info = VideoInfoDmaDrm::new(base_info, fourcc, modifier);
+                let dma_video_info = VideoInfoDmaDrm::new(base_info.clone(), fourcc, modifier);
+
+                // Configure buffer pool on first frame (when dimensions are known)
+                // This enables buffer reuse, eliminating per-frame allocation overhead (~12ms per 4K frame)
+                if !state.buffer_pool_configured {
+                    if let Some(ref pool) = state.buffer_pool {
+                        // Build FIXED caps for the buffer pool
+                        // GStreamer requires fully-specified caps (not ranges/lists) for pool configuration
+                        // Must include framerate to be "fixed" - use 60/1 as standard
+                        let pool_caps = VideoCapsBuilder::new()
+                            .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
+                            .format(video_format)
+                            .width(w as i32)
+                            .height(h as i32)
+                            .framerate(gst::Fraction::new(60, 1))
+                            .build();
+
+                        // Calculate buffer size: width * height * bytes_per_pixel
+                        // BGRA/RGBA = 4 bytes per pixel
+                        let buffer_size = w * h * 4;
+
+                        // Configure pool with 8-16 buffers to prevent buffer starvation
+                        // See design/2026-01-11-mutter-headless-60fps-investigation.md - Buffer Starvation
+                        match pool.configure_basic(&pool_caps, buffer_size, 8, 16) {
+                            Ok(()) => {
+                                eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool configured: {}x{} format={:?} size={}MB",
+                                    w, h, video_format, buffer_size / (1024 * 1024));
+                                match pool.activate() {
+                                    Ok(()) => {
+                                        eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool activated - buffer reuse enabled!");
+                                        state.buffer_pool_configured = true;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool activation failed: {} - using per-frame allocation", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[PIPEWIRESRC_DEBUG] Buffer pool configuration failed: {} - using per-frame allocation", e);
+                            }
+                        }
+                    }
+                }
 
                 // Buffer creation timing
                 let t3 = Instant::now();
