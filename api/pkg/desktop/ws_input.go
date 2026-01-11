@@ -126,16 +126,16 @@ func (s *Server) handleWSKeyboard(data []byte) {
 		return
 	}
 
-	// Fallback to uinput virtual keyboard for Sway/wlroots
-	if s.virtualInput != nil {
+	// Fallback to Wayland-native virtual keyboard for Sway/wlroots
+	if s.waylandInput != nil {
 		var err error
 		if isDown {
-			err = s.virtualInput.KeyDownEvdev(evdevCode)
+			err = s.waylandInput.KeyDownEvdev(evdevCode)
 		} else {
-			err = s.virtualInput.KeyUpEvdev(evdevCode)
+			err = s.waylandInput.KeyUpEvdev(evdevCode)
 		}
 		if err != nil {
-			s.logger.Debug("virtual keyboard failed", "evdev", evdevCode, "err", err)
+			s.logger.Debug("Wayland virtual keyboard failed", "evdev", evdevCode, "err", err)
 		}
 	}
 }
@@ -160,12 +160,12 @@ func (s *Server) handleWSMouseButton(data []byte) {
 		button := int(data[2])
 		s.handleMouseButtonClick(button, isDown)
 
-	case 3: // High-res wheel (int16 deltas, big-endian)
-		if len(data) < 5 {
+	case 3: // High-res wheel (float32 deltas, little-endian)
+		if len(data) < 9 {
 			return
 		}
-		deltaX := int16(binary.BigEndian.Uint16(data[1:3]))
-		deltaY := int16(binary.BigEndian.Uint16(data[3:5]))
+		deltaX := math.Float32frombits(binary.LittleEndian.Uint32(data[1:5]))
+		deltaY := math.Float32frombits(binary.LittleEndian.Uint32(data[5:9]))
 		s.handleMouseWheel(float64(deltaX), float64(deltaY))
 
 	case 4: // Normal wheel (int8 deltas)
@@ -211,16 +211,16 @@ func (s *Server) handleMouseButtonClick(button int, isDown bool) {
 		return
 	}
 
-	// Fallback to uinput virtual mouse for Sway/wlroots
-	if s.virtualInput != nil {
+	// Fallback to Wayland-native virtual mouse for Sway/wlroots
+	if s.waylandInput != nil {
 		var err error
 		if isDown {
-			err = s.virtualInput.MouseButtonDown(button)
+			err = s.waylandInput.MouseButtonDown(button)
 		} else {
-			err = s.virtualInput.MouseButtonUp(button)
+			err = s.waylandInput.MouseButtonUp(button)
 		}
 		if err != nil {
-			s.logger.Debug("virtual mouse button failed", "button", button, "err", err)
+			s.logger.Debug("Wayland virtual mouse button failed", "button", button, "err", err)
 		}
 	}
 }
@@ -240,14 +240,21 @@ func (s *Server) handleMouseWheel(deltaX, deltaY float64) {
 	// This enables pixel-perfect scrolling rather than discrete notches
 	gnomeFlags := uint32(0x08)
 
-	if s.conn == nil || s.rdSessionPath == "" {
+	// Try D-Bus RemoteDesktop first (GNOME)
+	if s.conn != nil && s.rdSessionPath != "" {
+		rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
+		err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
+		if err != nil {
+			s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
+		}
 		return
 	}
 
-	rdSession := s.conn.Object(remoteDesktopBus, s.rdSessionPath)
-	err := rdSession.Call(remoteDesktopSessionIface+".NotifyPointerAxis", 0, gnomeDX, gnomeDY, gnomeFlags).Err
-	if err != nil {
-		s.logger.Error("WebSocket scroll D-Bus call failed", "err", err)
+	// Fallback to Wayland-native input for Sway/wlroots
+	if s.waylandInput != nil {
+		if err := s.waylandInput.MouseWheel(deltaX, deltaY); err != nil {
+			s.logger.Debug("Wayland virtual mouse wheel failed", "err", err)
+		}
 	}
 }
 
@@ -284,14 +291,13 @@ func (s *Server) handleWSMouseAbsolute(data []byte) {
 		return
 	}
 
-	// Fallback to uinput for Sway/wlroots
-	// Note: uinput mouse doesn't support absolute positioning well,
-	// but we log it for debugging
-	if s.virtualInput != nil {
+	// Fallback to Wayland-native input for Sway/wlroots
+	// WaylandInput converts absolute to relative movement internally
+	if s.waylandInput != nil {
 		sw := float64(s.screenWidth)
 		sh := float64(s.screenHeight)
-		if err := s.virtualInput.MouseMoveAbsolute(absX/sw, absY/sh, int(sw), int(sh)); err != nil {
-			s.logger.Debug("virtual mouse absolute failed", "err", err)
+		if err := s.waylandInput.MouseMoveAbsolute(absX/sw, absY/sh, int(sw), int(sh)); err != nil {
+			s.logger.Debug("Wayland virtual mouse absolute failed", "err", err)
 		}
 	}
 }
@@ -318,10 +324,10 @@ func (s *Server) handleWSMouseRelative(data []byte) {
 		return
 	}
 
-	// Fallback to uinput virtual mouse for Sway/wlroots
-	if s.virtualInput != nil {
-		if err := s.virtualInput.MouseMove(int32(dx), int32(dy)); err != nil {
-			s.logger.Debug("virtual mouse move failed", "err", err)
+	// Fallback to Wayland-native virtual mouse for Sway/wlroots
+	if s.waylandInput != nil {
+		if err := s.waylandInput.MouseMove(int32(dx), int32(dy)); err != nil {
+			s.logger.Debug("Wayland virtual mouse move failed", "err", err)
 		}
 	}
 }

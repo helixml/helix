@@ -56,8 +56,8 @@ type Server struct {
 	portalRDSessionHandle string // RemoteDesktop session handle (optional)
 	compositorType        string // "gnome", "sway", or "unknown"
 
-	// Virtual input for Sway (uinput-based, no D-Bus RemoteDesktop)
-	virtualInput *VirtualInput
+	// Wayland-native input for Sway (uses zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1)
+	waylandInput *WaylandInput
 
 	// Input socket
 	inputListener   net.Listener
@@ -248,17 +248,16 @@ func (s *Server) Run(ctx context.Context) error {
 			return fmt.Errorf("start portal session: %w", err)
 		}
 
-		// 4. Optional: Create RemoteDesktop session for input (Sway may use uinput instead)
-		if err := s.createPortalRemoteDesktopSession(ctx); err != nil {
-			s.logger.Warn("portal RemoteDesktop not available, using uinput virtual input",
-				"err", err)
-			// Create uinput virtual devices for keyboard/mouse input
-			vi, err := NewVirtualInput(s.logger)
-			if err != nil {
-				s.logger.Warn("failed to create virtual input devices", "err", err)
-			} else {
-				s.virtualInput = vi
-			}
+		// 4. Create Wayland-native virtual input for Sway
+		// Uses zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1 protocols
+		// No /dev/uinput or root privileges required
+		wi, err := NewWaylandInput(s.logger, s.screenWidth, s.screenHeight)
+		if err != nil {
+			s.logger.Error("failed to create Wayland virtual input", "err", err)
+			// This is a critical failure for Sway - input won't work without it
+		} else {
+			s.waylandInput = wi
+			s.logger.Info("Wayland virtual input created for Sway")
 		}
 
 		// 5. Start video forwarder - captures screen and forwards via shared memory
@@ -326,9 +325,9 @@ func (s *Server) Run(ctx context.Context) error {
 		rdSession.Call(remoteDesktopSessionIface+".Stop", 0)
 	}
 
-	// Close virtual input devices
-	if s.virtualInput != nil {
-		s.virtualInput.Close()
+	// Close Wayland input devices
+	if s.waylandInput != nil {
+		s.waylandInput.Close()
 	}
 
 	s.wg.Wait()

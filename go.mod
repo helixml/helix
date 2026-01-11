@@ -11,7 +11,7 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/anthropics/anthropic-sdk-go v1.12.0
 	github.com/avast/retry-go/v4 v4.5.1
-	github.com/bendahl/uinput v1.7.0
+	github.com/bnema/wayland-virtual-input-go v0.2.0
 	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/coreos/go-oidc/v3 v3.13.0
@@ -140,6 +140,7 @@ require (
 	github.com/lestrrat-go/option v1.0.0 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/neurlang/wayland v0.2.1 // indirect
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
@@ -158,6 +159,7 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
+	github.com/yalue/native_endian v1.0.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.38.0 // indirect
