@@ -664,10 +664,11 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 		"WOLF_FREE_MODE=true",
 	}
 
-	// Add API tokens (both names for compatibility)
+	// Add runner API token (for internal API calls from the container)
+	// NOTE: USER_API_TOKEN is provided via agent.Env (the user's actual API key)
+	// Do NOT set USER_API_TOKEN here - it would override the user's token
 	if h.helixAPIToken != "" {
 		env = append(env, fmt.Sprintf("HELIX_API_TOKEN=%s", h.helixAPIToken))
-		env = append(env, fmt.Sprintf("USER_API_TOKEN=%s", h.helixAPIToken))
 	}
 
 	// Agent identification
@@ -749,6 +750,10 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	case "intel":
 		env = append(env, "GOW_REQUIRED_DEVICES=/dev/dri/card*:/dev/dri/renderD*")
 	}
+
+	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
+	// These come LAST so they can override defaults (e.g., use user's token instead of runner token)
+	env = append(env, agent.Env...)
 
 	return env
 }
