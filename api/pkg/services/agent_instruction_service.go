@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"text/template"
 	"time"
 
@@ -12,17 +13,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// sanitizeForBranchName is defined in design_docs_helpers.go
-
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
-	store store.Store
+	store         store.Store
+	messageSender SpecTaskMessageSender
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender) *AgentInstructionService {
 	return &AgentInstructionService{
-		store: store,
+		store:         store,
+		messageSender: messageSender,
 	}
 }
 
@@ -369,6 +370,11 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("session_id", sessionID).
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
+
+	_, err := s.messageSender(ctx, task, message, userID)
+	if err != nil {
+		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
+	}
 
 	return s.sendMessage(ctx, sessionID, userID, message)
 }

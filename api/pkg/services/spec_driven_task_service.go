@@ -1100,7 +1100,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store)
+			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent)
 
 			// Send approval instruction asynchronously (don't block the response)
 			s.wg.Add(1)
