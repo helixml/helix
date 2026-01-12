@@ -155,8 +155,36 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// Build container image
 	image := h.getContainerImage(containerType, agent)
 
+	// CRITICAL: Fetch user for git credentials
+	// Enterprise ADO deployments reject commits from non-corporate email addresses
+	var gitUserName, gitUserEmail string
+	if agent.UserID != "" {
+		user, err := h.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
+		if err != nil {
+			log.Error().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
+		} else if user != nil {
+			gitUserName = user.FullName
+			gitUserEmail = user.Email
+			// Fall back to username if full name is empty
+			if gitUserName == "" {
+				gitUserName = user.Username
+			}
+		}
+	}
+	if gitUserEmail == "" {
+		log.Warn().Str("user_id", agent.UserID).Msg("GIT_USER_EMAIL not available - commits may be rejected by enterprise git")
+	}
+
 	// Build environment variables
 	env := h.buildEnvVars(agent, containerType, workspaceDir)
+
+	// Add git user config (required for enterprise git)
+	if gitUserName != "" {
+		env = append(env, fmt.Sprintf("GIT_USER_NAME=%s", gitUserName))
+	}
+	if gitUserEmail != "" {
+		env = append(env, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
 
 	// Build mounts
 	mounts := h.buildMounts(agent, workspaceDir, containerType)
