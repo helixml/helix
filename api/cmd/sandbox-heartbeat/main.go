@@ -166,7 +166,7 @@ func sendHeartbeat(apiURL, runnerToken, wolfInstanceID string, privilegedModeEna
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/wolf-instances/%s/heartbeat", apiURL, wolfInstanceID)
+	url := fmt.Sprintf("%s/api/v1/sandboxes/%s/heartbeat", apiURL, wolfInstanceID)
 	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create heartbeat request")

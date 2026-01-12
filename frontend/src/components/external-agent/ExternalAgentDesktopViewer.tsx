@@ -37,7 +37,15 @@ const useSandboxState = (sessionId: string) => {
             setSandboxState('running');
           } else if (status === 'starting') {
             setSandboxState('starting');
-          } else if (desiredState === 'stopped' || !hasContainer) {
+          } else if (desiredState === 'stopped') {
+            // Explicitly stopped - show paused UI
+            setSandboxState('absent');
+          } else if (!hasContainer && desiredState === 'running') {
+            // Container not created yet but we want it running - show starting
+            // This happens immediately after "Start Planning" before container spins up
+            setSandboxState('starting');
+          } else if (!hasContainer) {
+            // No container and no desire to run - paused
             setSandboxState('absent');
           } else {
             // Default to running if we have a container

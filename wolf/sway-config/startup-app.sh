@@ -457,6 +457,24 @@ EOF
     echo "assign [app_id=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "assign [class=\"firefox\"] workspace number 3" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+
+    # =====================================================================
+    # Window appearance - clean borderless look
+    # =====================================================================
+    echo "# Remove window borders and title bars for clean look" >> $HOME/.config/sway/config
+    echo "default_border none" >> $HOME/.config/sway/config
+    echo "default_floating_border none" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
+    # =====================================================================
+    # Status bar - use waybar instead of default swaybar
+    # =====================================================================
+    echo "# Hide default swaybar (we use waybar instead)" >> $HOME/.config/sway/config
+    echo "bar {" >> $HOME/.config/sway/config
+    echo "    mode invisible" >> $HOME/.config/sway/config
+    echo "}" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+
     echo "# Start PipeWire and XDG portal for screen capture" >> $HOME/.config/sway/config
     echo "exec pipewire > /tmp/pipewire.log 2>&1" >> $HOME/.config/sway/config
     echo "exec pipewire-pulse > /tmp/pipewire-pulse.log 2>&1" >> $HOME/.config/sway/config
@@ -464,6 +482,8 @@ EOF
     echo "exec /usr/libexec/xdg-desktop-portal > /tmp/portal.log 2>&1" >> $HOME/.config/sway/config
     echo "# Start ydotoold for input injection (ydotool daemon)" >> $HOME/.config/sway/config
     echo "exec ydotoold > /tmp/ydotoold.log 2>&1" >> $HOME/.config/sway/config
+    echo "# Start waybar status bar" >> $HOME/.config/sway/config
+    echo "exec waybar > /tmp/waybar.log 2>&1" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config

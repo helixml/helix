@@ -104,7 +104,7 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 	}
 
 	// Read screen dimensions from environment (set by Dockerfile)
-	// These are used for mouse coordinate scaling
+	// These are the PHYSICAL dimensions - but for mouse scaling we need LOGICAL dimensions
 	screenWidth := 1920
 	screenHeight := 1080
 	if w := os.Getenv("GAMESCOPE_WIDTH"); w != "" {
@@ -117,9 +117,26 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 			screenHeight = parsed
 		}
 	}
+
+	// Apply display scaling to get logical dimensions
+	// HELIX_ZOOM_LEVEL is a percentage (100 = 1x, 200 = 2x, etc.)
+	// Mouse coordinates from the frontend are in logical (visible) space
+	zoomLevel := 100
+	if z := os.Getenv("HELIX_ZOOM_LEVEL"); z != "" {
+		if parsed, err := strconv.Atoi(z); err == nil && parsed > 0 {
+			zoomLevel = parsed
+		}
+	}
+	if zoomLevel > 100 {
+		scale := float64(zoomLevel) / 100.0
+		screenWidth = int(float64(screenWidth) / scale)
+		screenHeight = int(float64(screenHeight) / scale)
+	}
+
 	logger.Info("screen dimensions for mouse scaling",
 		"width", screenWidth,
-		"height", screenHeight)
+		"height", screenHeight,
+		"zoom_level", zoomLevel)
 
 	return &Server{
 		config:          cfg,
