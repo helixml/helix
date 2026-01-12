@@ -465,6 +465,13 @@ for `wlr-screencopy-unstable-v1`. It's supported by Sway 1.10+ and KWin 6.2+.
 For now, wlr-screencopy works and is widely supported. ext-image-copy-capture-v1
 can be added as an enhancement when we need damage-based streaming.
 
+**Getting ext-image-copy-capture-v1 Support:**
+Ubuntu Sway Remix provides PPAs with newer Sway versions that include ext-image-copy-capture-v1:
+- Stable PPA: `ppa:ubuntusway-dev/stable`
+- Unstable PPA: `ppa:ubuntusway-dev/unstable`
+
+These PPAs provide Sway 1.10+ which supports the ext-image-copy-capture-v1 protocol.
+
 ## Related Issues
 
 - wf-recorder may silently fall back to libx264 if h264_nvenc unavailable
