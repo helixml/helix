@@ -7,6 +7,7 @@
 //! - We respond to context queries from downstream elements
 //! - Fallback: if no context pushed, acquire via new_from_gstreamer()
 
+use crate::ext_image_copy_capture::ExtImageCopyCaptureStream;
 use crate::pipewire_stream::{DmaBufCapabilities, FrameData, PipeWireStream, RecvError};
 use crate::wlr_export_dmabuf::WlrExportDmabufStream;
 use crate::wlr_screencopy::WlrScreencopyStream;
@@ -344,14 +345,17 @@ impl Default for Settings {
 }
 
 /// Unified stream abstraction for different capture backends.
-/// Supports PipeWire (GNOME), wlr-export-dmabuf (GPU), and wlr-screencopy (SHM).
+/// Supports PipeWire (GNOME), wlr-export-dmabuf (GPU), wlr-screencopy (SHM),
+/// and ext-image-copy-capture (modern Wayland protocol for Sway 1.10+).
 pub enum FrameStream {
     /// PipeWire ScreenCast stream (GNOME, xdg-desktop-portal)
     PipeWire(PipeWireStream),
     /// wlr-export-dmabuf stream (Sway/wlroots with GPU memory)
     WlrExport(WlrExportDmabufStream),
-    /// wlr-screencopy stream (Sway/wlroots with SHM - simplest, most reliable)
+    /// wlr-screencopy stream (Sway/wlroots with SHM - legacy fallback)
     WlrScreencopy(WlrScreencopyStream),
+    /// ext-image-copy-capture stream (Sway 1.10+, modern protocol with damage tracking)
+    ExtImageCopyCapture(ExtImageCopyCaptureStream),
 }
 
 impl FrameStream {
@@ -361,6 +365,7 @@ impl FrameStream {
             FrameStream::PipeWire(stream) => stream.recv_frame_timeout(timeout),
             FrameStream::WlrExport(stream) => stream.recv_frame_timeout(timeout),
             FrameStream::WlrScreencopy(stream) => stream.recv_frame_timeout(timeout),
+            FrameStream::ExtImageCopyCapture(stream) => stream.recv_frame_timeout(timeout),
         }
     }
 }
@@ -864,23 +869,42 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
 
         // Determine capture mode based on compositor and output_mode property.
         //
-        // For Sway (wlroots): Use wlr-screencopy protocol directly (bypasses PipeWire).
-        // PipeWire + xdg-desktop-portal-wlr has format negotiation issues, so we use
-        // the native wlr-screencopy Wayland protocol which is simpler and more reliable.
+        // For Sway (wlroots): Prefer ext-image-copy-capture (Sway 1.10+), then wlr-screencopy.
+        // Both bypass PipeWire entirely and use native Wayland protocols.
+        // ext-image-copy-capture is the modern protocol with damage tracking support.
+        // PipeWire + xdg-desktop-portal-wlr has format negotiation issues.
         //
         // For GNOME: Use PipeWire ScreenCast via xdg-desktop-portal.
         // - output_mode=system: PipeWire SHM
         // - output_mode=cuda/dmabuf/auto: PipeWire DMA-BUF
-        // Check if wlr-screencopy is available (Sway or other wlroots-based compositors)
+        //
+        // Check available capture protocols (prefer newer/better ones first)
+        let ext_image_copy_available = ExtImageCopyCaptureStream::is_available();
         let wlr_screencopy_available = WlrScreencopyStream::is_available();
         let use_shm = output_mode == OutputMode::System;
 
-        let frame_stream = if wlr_screencopy_available {
-            // wlroots compositor (Sway, etc.): Use wlr-screencopy directly
+        let frame_stream = if ext_image_copy_available {
+            // Sway 1.10+: Use ext-image-copy-capture (modern protocol with damage tracking)
             // This bypasses PipeWire entirely and uses the native Wayland protocol.
-            // PipeWire + xdg-desktop-portal-wlr has format negotiation issues.
             eprintln!(
-                "[PIPEWIRESRC_DEBUG] wlroots compositor detected: using wlr-screencopy (bypassing PipeWire)"
+                "[PIPEWIRESRC_DEBUG] ext-image-copy-capture available: using modern Wayland protocol"
+            );
+            gst::info!(
+                CAT,
+                imp = self,
+                "Sway 1.10+: using ext-image-copy-capture for SHM capture (damage tracking enabled)"
+            );
+
+            state.actual_output_mode = OutputMode::System;
+
+            let ext_stream = ExtImageCopyCaptureStream::connect(target_fps)
+                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("ext-image-copy-capture: {}", e)))?;
+            FrameStream::ExtImageCopyCapture(ext_stream)
+        } else if wlr_screencopy_available {
+            // wlroots compositor (Sway <1.10): Use wlr-screencopy as fallback
+            // This bypasses PipeWire entirely and uses the native Wayland protocol.
+            eprintln!(
+                "[PIPEWIRESRC_DEBUG] wlroots compositor detected: using wlr-screencopy (legacy fallback)"
             );
             gst::info!(
                 CAT,

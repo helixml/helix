@@ -225,10 +225,22 @@ RUN <<_INSTALL_BASE
   echo "**** Setup Firefox PPA ****"
   add-apt-repository -y ppa:mozillateam/ppa
 
+  echo "**** Setup Ubuntu Sway Remix PPA (for Sway 1.10+ with ext-image-copy-capture) ****"
+  # This PPA provides newer Sway builds with ext-image-copy-capture-v1 protocol support.
+  # See: https://launchpad.net/~ubuntusway-dev/+archive/ubuntu/stable
+  add-apt-repository -y ppa:ubuntusway-dev/stable
+
   echo "**** Configure APT pins ****"
   cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
 Package: *
 Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+PINEOF
+
+  # Prefer Sway packages from Ubuntu Sway PPA
+  cat > /etc/apt/preferences.d/ubuntu-sway << 'PINEOF'
+Package: sway sway-*
+Pin: release o=LP-PPA-ubuntusway-dev-stable
 Pin-Priority: 1001
 PINEOF
 

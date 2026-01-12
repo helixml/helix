@@ -434,43 +434,81 @@ Sway (via wlr-screencopy):
 - Simpler than PipeWire + portal
 - Works reliably on all wlroots compositors
 
-## Future: ext-image-copy-capture-v1
+## ext-image-copy-capture-v1 Implementation (2026-01-12)
 
-The `ext-image-copy-capture-v1` protocol is a more modern, standardized replacement
-for `wlr-screencopy-unstable-v1`. It's supported by Sway 1.10+ and KWin 6.2+.
+The `ext-image-copy-capture-v1` protocol is now implemented as the preferred capture
+backend for Sway 1.10+. It's a modern, standardized replacement for `wlr-screencopy-unstable-v1`.
 
-**Key Benefits:**
+### Key Benefits
+
 1. **Damage tracking** - Only sends changed regions, reducing bandwidth for static screens
-2. **Cross-compositor** - Works on Sway, KDE Plasma, and other compositors
-3. **Standardized** - Part of wayland-protocols-extra (not wlroots-specific)
+2. **Cross-compositor** - Works on Sway, KDE Plasma, COSMIC, and other compositors
+3. **Standardized** - Part of wayland-protocols staging (not wlroots-specific)
 4. **Session-based** - Persistent capture sessions with better state management
 
-**Damage Tracking Benefits:**
-- Static desktops produce fewer frames
-- Slow network connections can catch up during idle periods
-- Reduced CPU/GPU usage when screen is static
-- Better for metered connections
-
-**Protocol Comparison:**
+### Protocol Comparison
 
 | Feature | wlr-screencopy | ext-image-copy-capture |
 |---------|---------------|----------------------|
 | Compositor | wlroots only | Sway 1.10+, KDE 6.2+ |
 | Damage | No | Yes |
 | Session | Per-frame | Persistent |
-| Stability | Unstable | Stable |
+| Stability | Unstable | Stable (staging) |
 | Memory | SHM or DMA-BUF | SHM or DMA-BUF |
 
-**Implementation Priority:**
-For now, wlr-screencopy works and is widely supported. ext-image-copy-capture-v1
-can be added as an enhancement when we need damage-based streaming.
+### Files Added/Modified
 
-**Getting ext-image-copy-capture-v1 Support:**
-Ubuntu Sway Remix provides PPAs with newer Sway versions that include ext-image-copy-capture-v1:
-- Stable PPA: `ppa:ubuntusway-dev/stable`
-- Unstable PPA: `ppa:ubuntusway-dev/unstable`
+- `desktop/gst-pipewire-zerocopy/src/ext_image_copy_capture.rs` - New module implementing the protocol
+- `desktop/gst-pipewire-zerocopy/Cargo.toml` - Added `wayland-protocols` with `staging` feature
+- `desktop/gst-pipewire-zerocopy/src/lib.rs` - Added module declaration
+- `desktop/gst-pipewire-zerocopy/src/pipewiresrc/imp.rs` - Added detection and fallback logic
+- `Dockerfile.sway-helix` - Added Ubuntu Sway Remix PPA for Sway 1.10+
 
-These PPAs provide Sway 1.10+ which supports the ext-image-copy-capture-v1 protocol.
+### Capture Backend Priority
+
+The GStreamer element now checks for capture backends in this order:
+
+1. **ext-image-copy-capture** (Sway 1.10+) - Modern protocol with damage tracking
+2. **wlr-screencopy** (Sway <1.10) - Legacy wlroots protocol
+3. **PipeWire SHM** (GNOME) - For xdg-desktop-portal
+4. **PipeWire DMA-BUF** (GNOME + GPU) - Zero-copy for GNOME
+
+### Ubuntu Sway Remix PPA
+
+The Dockerfile now includes the Ubuntu Sway Remix stable PPA to get Sway 1.10+:
+```dockerfile
+add-apt-repository -y ppa:ubuntusway-dev/stable
+```
+
+This provides:
+- Sway 1.10+ with ext-image-copy-capture-v1 support
+- Updated wlroots with the staging protocol implementation
+
+### Protocol Flow
+
+```
+1. Bind ext_image_capture_source_manager_v1 and ext_image_copy_capture_manager_v1
+2. Create output source via source_manager.create_source(output)
+3. Create session via capture_manager.create_session(source, options)
+4. Receive format events (shm_format, dmabuf_format)
+5. Create frame via session.create_frame()
+6. Attach buffer and call frame.capture()
+7. Receive ready event when capture completes
+8. Repeat from step 5 for continuous capture
+```
+
+### Final Architecture
+
+```
+GNOME (zero-copy via PipeWire DMA-BUF):
+  Mutter ScreenCast → PipeWire → pipewirezerocopysrc → EGL → CUDA → NVENC
+
+Sway 1.10+ (via ext-image-copy-capture):
+  Sway → ext-image-copy-capture (SHM) → pipewirezerocopysrc → cudaupload → NVENC
+
+Sway <1.10 (via wlr-screencopy, legacy fallback):
+  Sway → wlr-screencopy (SHM) → pipewirezerocopysrc → cudaupload → NVENC
+```
 
 ## Related Issues
 

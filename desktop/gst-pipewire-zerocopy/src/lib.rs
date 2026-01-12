@@ -2,9 +2,15 @@
 //!
 //! Captures PipeWire ScreenCast DMA-BUFs and converts them to CUDA buffers
 //! using the proven code from gst-wayland-display.
+//!
+//! Supports multiple capture backends:
+//! - PipeWire ScreenCast (GNOME via xdg-desktop-portal)
+//! - wlr-screencopy (Sway/wlroots via native Wayland protocol)
+//! - ext-image-copy-capture (Sway 1.10+ via modern Wayland protocol)
 
 use gst::glib;
 
+mod ext_image_copy_capture;
 mod pipewire_stream;
 mod pipewiresrc;
 mod wlr_export_dmabuf;
