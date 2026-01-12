@@ -563,7 +563,37 @@ RUN apt-get update && apt-get install -y \
     && wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && dpkg -i /tmp/google-chrome.deb || apt-get install -f -y \
     && rm /tmp/google-chrome.deb \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Configure Chrome enterprise policies (suppress all first-run dialogs)
+    && mkdir -p /etc/opt/chrome/policies/managed \
+    && echo '{ \
+      "DefaultBrowserSettingEnabled": false, \
+      "MetricsReportingEnabled": false, \
+      "BrowserSignin": 0, \
+      "PromotionalTabsEnabled": false, \
+      "ShowFirstRunBubble": false, \
+      "WelcomePageOnOSUpgradeEnabled": false, \
+      "SyncDisabled": true, \
+      "ImportBookmarks": false, \
+      "ImportHistory": false, \
+      "ImportSavedPasswords": false, \
+      "ImportSearchEngine": false, \
+      "RestoreOnStartup": 5, \
+      "PasswordManagerEnabled": true \
+    }' > /etc/opt/chrome/policies/managed/helix.json \
+    # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
+    && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop \
+    # Create wrapper script so --password-store=basic is always used (even from command line)
+    && mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable \
+    && chmod +x /usr/bin/google-chrome-stable
+
+# Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
+RUN mkdir -p /etc/skel/.config/google-chrome && \
+    touch /etc/skel/.config/google-chrome/"First Run" && \
+    mkdir -p /etc/skel/.config/google-chrome/Default && \
+    echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
+      > /etc/skel/.config/google-chrome/Default/Preferences
 
 # Install chrome-devtools-mcp globally (requires Node.js 22+ for best support)
 # Using npx at runtime instead for latest version compatibility

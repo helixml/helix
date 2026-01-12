@@ -920,7 +920,11 @@ RUN apt-get update && \
       "first_run_tabs": ["about:blank"] \
     }' > /opt/google/chrome/master_preferences && \
     # Patch Chrome desktop file to bypass keyring (prevents password prompt in containers)
-    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop
+    sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --password-store=basic|' /usr/share/applications/google-chrome.desktop && \
+    # Create wrapper script so --password-store=basic is always used (even from command line)
+    mv /usr/bin/google-chrome-stable /usr/bin/google-chrome-stable.real && \
+    echo '#!/bin/bash\nexec /usr/bin/google-chrome-stable.real --password-store=basic "$@"' > /usr/bin/google-chrome-stable && \
+    chmod +x /usr/bin/google-chrome-stable
 
 # Pre-create Chrome "First Run" sentinel file to skip first-run dialogs
 # Chrome checks for this file to determine if it's the first launch
