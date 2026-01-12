@@ -1411,6 +1411,7 @@ trigger:
   branch:
     - main
     - feature/sway-ubuntu-25.10
+    - auotmate-builds
 
 volumes:
   - name: dockersocket
@@ -1695,5 +1696,6 @@ steps:
       branch:
         - main
         - feature/sway-ubuntu-25.10
+        - auotmate-builds
     depends_on:
       - build-sandbox
