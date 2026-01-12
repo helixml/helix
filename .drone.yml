@@ -1433,15 +1433,15 @@ steps:
     image: alpine/git:latest
     commands:
       - mkdir -p /drone/src/external /drone/src/cache
-      # Read pinned versions
+      # Read pinned versions (use absolute path since later commands cd elsewhere)
       - |
-        . ./sandbox-versions.txt
+        . /drone/src/sandbox-versions.txt
         echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
         echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
         echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
       # Clone Zed only if not cached
       - |
-        . ./sandbox-versions.txt
+        . /drone/src/sandbox-versions.txt
         if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ]; then
           echo "Zed binary cached for $${ZED_COMMIT:0:12}, skipping clone"
         else
@@ -1455,7 +1455,7 @@ steps:
         fi
       # Clone qwen-code only if not cached
       - |
-        . ./sandbox-versions.txt
+        . /drone/src/sandbox-versions.txt
         if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT:0:12}/dist/index.js" ]; then
           echo "qwen-code cached for $${QWEN_COMMIT:0:12}, skipping clone"
         else
