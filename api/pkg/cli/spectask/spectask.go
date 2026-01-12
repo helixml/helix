@@ -43,6 +43,7 @@ func New() *cobra.Command {
 	cmd.AddCommand(newKeyboardTestCommand())
 	cmd.AddCommand(newScrollTestCommand())
 	cmd.AddCommand(newBenchmarkCommand())
+	cmd.AddCommand(newLatencyCommand())
 
 	return cmd
 }
