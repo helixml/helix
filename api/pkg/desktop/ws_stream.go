@@ -384,21 +384,16 @@ func (v *VideoStreamer) buildPipelineString(encoder string) string {
 		// NVIDIA NVENC encoding
 		// Note: Wolf uses cudaconvertscale but Ubuntu 25.10 GStreamer doesn't have it.
 		// nvh264enc accepts BGRA/BGRx CUDAMemory directly and does conversion internally.
-		if v.videoMode == VideoModeZeroCopy {
-			// Zero-copy GPU path: pipewirezerocopysrc outputs CUDAMemory → nvh264enc
-			// Works for both GNOME and Sway (Sway requires WLR_DRM_NO_MODIFIERS=1 for LINEAR layout)
-			parts = append(parts,
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
-			)
-		} else {
-			// Standard path: system memory → cudaupload → nvh264enc
-			// Helix always matches desktop/client resolution, so no scaling needed
-			// nvh264enc handles format conversion internally (BGRA/BGRx → NV12)
-			parts = append(parts,
-				"cudaupload",
-				fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
-			)
-		}
+		//
+		// Always use cudaupload before nvh264enc:
+		// - GNOME: pipewirezerocopysrc outputs CUDAMemory → cudaupload is no-op
+		// - Sway: pipewirezerocopysrc outputs system memory (SHM) → cudaupload transfers to GPU
+		//
+		// This unified path works for both compositors without conditional logic.
+		parts = append(parts,
+			"cudaupload",
+			fmt.Sprintf("nvh264enc preset=low-latency-hq zerolatency=true gop-size=%d rc-mode=cbr-ld-hq bitrate=%d aud=false", getGOPSize(), v.config.Bitrate),
+		)
 
 	case "qsv":
 		// Intel Quick Sync Video

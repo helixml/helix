@@ -690,46 +690,35 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
         }
 
         // Choose capture backend based on compositor:
-        // - Sway/wlroots: Use wlr-export-dmabuf protocol (native, no PipeWire dependency)
-        // - GNOME/others: Use PipeWire ScreenCast (xdg-desktop-portal)
+        // - Sway/wlroots: Use PipeWire with SHM (no DMA-BUF) via xdg-desktop-portal-wlr
+        // - GNOME/others: Use PipeWire with DMA-BUF for zero-copy
         //
-        // wlr-export-dmabuf provides true zero-copy DMA-BUF capture on Sway without
-        // needing xdg-desktop-portal-wlr or wf-recorder as intermediaries.
-        let frame_stream = if WlrExportDmabufStream::is_available() {
-            eprintln!("[PIPEWIRESRC_DEBUG] Sway/wlroots detected, trying wlr-export-dmabuf...");
-            gst::info!(CAT, imp = self, "Sway/wlroots detected, using wlr-export-dmabuf");
+        // For Sway, we must use SHM because:
+        // 1. xdg-desktop-portal-wlr doesn't support NVIDIA tiled modifiers
+        // 2. DMA-BUF format negotiation fails (param_changed never called)
+        // 3. wlr-export-dmabuf works but CUDA can't import Sway's modifiers (0x606xxx)
+        // 4. WLR_DRM_NO_MODIFIERS=1 fixes CUDA but crashes Zed
+        //
+        // SHM path: PipeWire SHM → system memory → cudaupload → nvh264enc
+        // This is still hardware encoding, just with one CPU copy.
+        let is_sway = WlrExportDmabufStream::is_available();
 
-            match WlrExportDmabufStream::connect(dmabuf_caps.clone(), target_fps) {
-                Ok(stream) => {
-                    eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf connected successfully!");
-                    gst::info!(CAT, imp = self, "Connected to wlr-export-dmabuf");
+        let frame_stream = if is_sway {
+            eprintln!("[PIPEWIRESRC_DEBUG] Sway/wlroots detected, using PipeWire with SHM (no DMA-BUF)");
+            gst::info!(CAT, imp = self, "Sway detected: using PipeWire SHM for hardware encoding");
 
-                    // Sway/wlroots: Use system memory output, not CUDA direct import.
-                    // Sway uses NVIDIA tiled modifiers (0x606xxx) that CUDA's
-                    // cuGraphicsEGLRegisterImage() cannot import (CUDA_ERROR_INVALID_VALUE).
-                    // System memory path: wlr-export-dmabuf → mmap → cudaupload → nvh264enc
-                    // This is still hardware encoding, just with one CPU copy.
-                    // Setting WLR_DRM_NO_MODIFIERS=1 to force LINEAR would work for CUDA,
-                    // but causes Zed to crash (PortalNotFound error during GPU init).
-                    state.actual_output_mode = OutputMode::System;
-                    eprintln!("[PIPEWIRESRC_DEBUG] Sway: using System memory mode (cudaupload will transfer to GPU)");
-                    gst::info!(CAT, imp = self, "Sway: using System memory for hardware encoding (cudaupload path)");
+            // Force system memory output mode for Sway
+            state.actual_output_mode = OutputMode::System;
+            eprintln!("[PIPEWIRESRC_DEBUG] Sway: System memory mode (cudaupload will transfer to GPU)");
 
-                    FrameStream::WlrExport(stream)
-                }
-                Err(e) => {
-                    eprintln!("[PIPEWIRESRC_DEBUG] wlr-export-dmabuf failed: {}, falling back to PipeWire", e);
-                    gst::warning!(CAT, imp = self, "wlr-export-dmabuf failed: {}, falling back to PipeWire", e);
-
-                    // Fallback to PipeWire (may work via xdg-desktop-portal-wlr)
-                    let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
-                        .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire fallback: {}", e)))?;
-                    FrameStream::PipeWire(pw_stream)
-                }
-            }
+            // Pass None for dmabuf_caps to force SHM-only format negotiation
+            // This makes PipeWire offer SHM formats that xdg-desktop-portal-wlr accepts
+            let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, None, target_fps)
+                .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire SHM: {}", e)))?;
+            FrameStream::PipeWire(pw_stream)
         } else {
-            eprintln!("[PIPEWIRESRC_DEBUG] Not Sway/wlroots, using PipeWire ScreenCast");
-            gst::info!(CAT, imp = self, "Using PipeWire ScreenCast");
+            eprintln!("[PIPEWIRESRC_DEBUG] GNOME detected, using PipeWire with DMA-BUF");
+            gst::info!(CAT, imp = self, "Using PipeWire ScreenCast with DMA-BUF");
 
             let pw_stream = PipeWireStream::connect(node_id, pipewire_fd, dmabuf_caps, target_fps)
                 .map_err(|e| gst::error_msg!(gst::LibraryError::Init, ("PipeWire: {}", e)))?;
