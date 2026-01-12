@@ -1383,3 +1383,281 @@ services:
 # volumes:
 #   - name: spectask-test-results
 #     temp: {}
+
+---
+# ====================================================================
+# Sandbox Build Pipeline
+# ====================================================================
+# Builds the complete sandbox stack:
+#   1. Zed binary (Rust, from helixml/zed)
+#   2. qwen-code (Node.js, from helixml/qwen-code)
+#   3. Desktop images (helix-sway, helix-ubuntu)
+#   4. Sandbox image (embeds desktop tarballs)
+#
+# Versioning:
+#   - Tags: use git tag (e.g., v1.2.3)
+#   - Branches: use commit hash (e.g., abc123f)
+#
+# No GPU required - builds work on standard runners.
+# ====================================================================
+kind: pipeline
+type: docker
+name: build-sandbox
+
+trigger:
+  event:
+    - tag
+    - push
+  branch:
+    - main
+    - feature/sway-ubuntu-25.10
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: sandbox-build-cache
+    host:
+      path: /var/cache/drone/sandbox-build
+  - name: cargo-cache
+    host:
+      path: /var/cache/drone/cargo
+  - name: npm-cache
+    host:
+      path: /var/cache/drone/npm
+
+steps:
+  # Step 1: Clone external repositories (both public)
+  - name: clone-dependencies
+    image: alpine/git:latest
+    commands:
+      - mkdir -p /drone/src/external
+      # Clone Zed repo (public)
+      - |
+        if [ ! -d "/drone/src/external/zed" ]; then
+          echo "Cloning Zed repository..."
+          git clone --depth 1 --branch feature/external-thread-sync \
+            https://github.com/helixml/zed.git /drone/src/external/zed
+        else
+          echo "Zed repository already exists, pulling latest..."
+          cd /drone/src/external/zed && git pull
+        fi
+      # Clone qwen-code repo (public)
+      - |
+        if [ ! -d "/drone/src/external/qwen-code" ]; then
+          echo "Cloning qwen-code repository..."
+          git clone --depth 1 --branch main \
+            https://github.com/helixml/qwen-code.git /drone/src/external/qwen-code
+        else
+          echo "qwen-code repository already exists, pulling latest..."
+          cd /drone/src/external/qwen-code && git pull
+        fi
+      # Record commit hashes
+      - cd /drone/src/external/zed && git rev-parse HEAD > /drone/src/zed-commit.txt
+      - cd /drone/src/external/qwen-code && git rev-parse HEAD > /drone/src/qwen-code-commit.txt
+      - echo "Zed commit:" && cat /drone/src/zed-commit.txt
+      - echo "qwen-code commit:" && cat /drone/src/qwen-code-commit.txt
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/external
+
+  # Step 2: Build qwen-code
+  - name: build-qwen-code
+    image: node:20-slim
+    commands:
+      - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+      - mkdir -p qwen-code-build
+      - cd /drone/src/external/qwen-code
+      - npm ci --ignore-scripts
+      - npm run bundle
+      - cp -r package.json package-lock.json dist/ /drone/src/qwen-code-build/
+      - cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
+      - echo "qwen-code build complete"
+      - ls -la /drone/src/qwen-code-build/
+    volumes:
+      - name: sandbox-build-cache
+        path: /drone/src/external
+      - name: npm-cache
+        path: /root/.npm
+    depends_on:
+      - clone-dependencies
+
+  # Step 3: Build Zed binary
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        # Check if Zed binary already cached for this commit
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        CACHE_KEY="zed-$${ZED_COMMIT}"
+        if [ -f "/drone/src/cache/$${CACHE_KEY}/zed" ]; then
+          echo "Using cached Zed binary for commit $${ZED_COMMIT}"
+          mkdir -p zed-build
+          cp /drone/src/cache/$${CACHE_KEY}/zed zed-build/zed
+          chmod +x zed-build/zed
+          exit 0
+        fi
+      - echo "Building Zed binary (this may take 15-20 minutes on first run)..."
+      # Build the Zed builder image
+      - docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
+      # Run Zed build in container
+      - mkdir -p zed-build /drone/src/cargo-registry /drone/src/cargo-git /drone/src/rustup
+      - |
+        docker run --rm \
+          -v "$(pwd)/external/zed:/zed:ro" \
+          -v "/drone/src/cargo-registry:/root/.cargo/registry" \
+          -v "/drone/src/cargo-git:/root/.cargo/git" \
+          -v "/drone/src/rustup:/root/.rustup" \
+          -v "$(pwd)/zed-build:/output" \
+          -w /zed \
+          zed-builder:ubuntu25 \
+          bash -c '
+            export CARGO_TARGET_DIR=/zed/target-docker
+            cargo build --release --package zed --package cli
+            cp /zed/target-docker/release/zed /output/zed
+            strip /output/zed
+          '
+      - ls -la zed-build/
+      # Cache the binary
+      - |
+        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
+        mkdir -p /drone/src/cache/zed-$${ZED_COMMIT}
+        cp zed-build/zed /drone/src/cache/zed-$${ZED_COMMIT}/zed
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/external
+      - name: cargo-cache
+        path: /drone/src/cargo-registry
+    depends_on:
+      - clone-dependencies
+
+  # Step 4: Build desktop images
+  - name: build-desktops
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - mkdir -p sandbox-images
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building desktop images with version: $${VERSION}"
+      - |
+        QWEN_HASH=$$(cat qwen-code-commit.txt)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+      # Build helix-sway
+      - |
+        echo "Building helix-sway..."
+        docker build --provenance=false \
+          -f Dockerfile.sway-helix \
+          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
+          --build-arg GO_CODE_HASH=$${GO_HASH} \
+          -t helix-sway:$${VERSION} \
+          -t helix-sway:latest \
+          .
+        docker save helix-sway:$${VERSION} > sandbox-images/helix-sway.tar
+        echo "$${VERSION}" > sandbox-images/helix-sway.version
+        echo "helix-sway built: $$(du -h sandbox-images/helix-sway.tar | cut -f1)"
+      # Build helix-ubuntu
+      - |
+        echo "Building helix-ubuntu..."
+        docker build --provenance=false \
+          -f Dockerfile.ubuntu-helix \
+          --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
+          --build-arg GO_CODE_HASH=$${GO_HASH} \
+          -t helix-ubuntu:$${VERSION} \
+          -t helix-ubuntu:latest \
+          .
+        docker save helix-ubuntu:$${VERSION} > sandbox-images/helix-ubuntu.tar
+        echo "$${VERSION}" > sandbox-images/helix-ubuntu.version
+        echo "helix-ubuntu built: $$(du -h sandbox-images/helix-ubuntu.tar | cut -f1)"
+      - ls -lh sandbox-images/
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-qwen-code
+      - build-zed
+
+  # Step 5: Build sandbox image
+  - name: build-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
+      - |
+        docker build -f Dockerfile.sandbox \
+          -t helix-sandbox:latest \
+          -t helix-sandbox:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT} \
+          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION} \
+          .
+      - echo "Sandbox image built successfully"
+      - docker images helix-sandbox
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-desktops
+
+  # Step 6: Push to registry (only on tag or main branch)
+  - name: push-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+          IS_RELEASE="true"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+          IS_RELEASE="false"
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+      - echo "Logging in to registry..."
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - echo "Pushing helix-sandbox:$${COMMIT}..."
+      - docker push registry.helixml.tech/helix/helix-sandbox:$${COMMIT}
+      - |
+        if [ "$${IS_RELEASE}" = "true" ]; then
+          echo "Pushing release tag: $${VERSION}..."
+          docker push registry.helixml.tech/helix/helix-sandbox:$${VERSION}
+          echo "Tagging and pushing latest..."
+          docker tag helix-sandbox:$${VERSION} registry.helixml.tech/helix/helix-sandbox:latest
+          docker push registry.helixml.tech/helix/helix-sandbox:latest
+        fi
+      - echo "Push complete!"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
+        - feature/sway-ubuntu-25.10
+    depends_on:
+      - build-sandbox
