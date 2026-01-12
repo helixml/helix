@@ -1427,44 +1427,63 @@ volumes:
       path: /var/cache/drone/npm
 
 steps:
-  # Step 1: Clone external repositories (both public)
+  # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
   - name: clone-dependencies
     image: alpine/git:latest
     commands:
-      - mkdir -p /drone/src/external
-      # Clone Zed repo (public)
+      - mkdir -p /drone/src/external /drone/src/cache
+      # Read pinned versions
       - |
-        if [ ! -d "/drone/src/external/zed" ]; then
-          echo "Cloning Zed repository..."
-          git clone --depth 1 --branch feature/external-thread-sync \
-            https://github.com/helixml/zed.git /drone/src/external/zed
-        else
-          echo "Zed repository already exists, pulling latest..."
-          cd /drone/src/external/zed && git pull
-        fi
-      # Clone qwen-code repo (public)
+        . ./sandbox-versions.txt
+        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_COMMIT}"
+        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
+        echo "$${QWEN_COMMIT}" > /drone/src/qwen-code-commit.txt
+      # Clone Zed only if not cached
       - |
-        if [ ! -d "/drone/src/external/qwen-code" ]; then
-          echo "Cloning qwen-code repository..."
-          git clone --depth 1 --branch main \
-            https://github.com/helixml/qwen-code.git /drone/src/external/qwen-code
+        . ./sandbox-versions.txt
+        if [ -f "/drone/src/cache/zed-$${ZED_COMMIT:0:12}/zed" ]; then
+          echo "Zed binary cached for $${ZED_COMMIT:0:12}, skipping clone"
         else
-          echo "qwen-code repository already exists, pulling latest..."
-          cd /drone/src/external/qwen-code && git pull
+          echo "Cloning Zed at commit $${ZED_COMMIT}..."
+          rm -rf /drone/src/external/zed
+          mkdir -p /drone/src/external/zed
+          cd /drone/src/external/zed
+          git init
+          git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
+          git checkout FETCH_HEAD
         fi
-      # Record commit hashes
-      - cd /drone/src/external/zed && git rev-parse HEAD > /drone/src/zed-commit.txt
-      - cd /drone/src/external/qwen-code && git rev-parse HEAD > /drone/src/qwen-code-commit.txt
+      # Clone qwen-code only if not cached
+      - |
+        . ./sandbox-versions.txt
+        if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT:0:12}/dist/index.js" ]; then
+          echo "qwen-code cached for $${QWEN_COMMIT:0:12}, skipping clone"
+        else
+          echo "Cloning qwen-code at commit $${QWEN_COMMIT}..."
+          rm -rf /drone/src/external/qwen-code
+          mkdir -p /drone/src/external/qwen-code
+          cd /drone/src/external/qwen-code
+          git init
+          git fetch --depth 1 https://github.com/helixml/qwen-code.git $${QWEN_COMMIT}
+          git checkout FETCH_HEAD
+        fi
       - echo "Zed commit:" && cat /drone/src/zed-commit.txt
       - echo "qwen-code commit:" && cat /drone/src/qwen-code-commit.txt
     volumes:
       - name: sandbox-build-cache
-        path: /drone/src/external
+        path: /drone/src/cache
 
-  # Step 2: Build qwen-code
+  # Step 2: Build qwen-code (with caching)
   - name: build-qwen-code
     image: node:20-slim
     commands:
+      - |
+        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
+        if [ -f "/drone/src/cache/qwen-$${QWEN_COMMIT}/dist/index.js" ]; then
+          echo "Using cached qwen-code for commit $${QWEN_COMMIT}"
+          mkdir -p qwen-code-build
+          cp -r /drone/src/cache/qwen-$${QWEN_COMMIT}/* qwen-code-build/
+          exit 0
+        fi
       - apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
       - mkdir -p qwen-code-build
       - cd /drone/src/external/qwen-code
@@ -1474,9 +1493,14 @@ steps:
       - cat /drone/src/qwen-code-commit.txt > /drone/src/qwen-code-build/.git-commit-hash
       - echo "qwen-code build complete"
       - ls -la /drone/src/qwen-code-build/
+      # Cache the build
+      - |
+        QWEN_COMMIT=$$(cat /drone/src/qwen-code-commit.txt | head -c 12)
+        mkdir -p /drone/src/cache/qwen-$${QWEN_COMMIT}
+        cp -r /drone/src/qwen-code-build/* /drone/src/cache/qwen-$${QWEN_COMMIT}/
     volumes:
       - name: sandbox-build-cache
-        path: /drone/src/external
+        path: /drone/src/cache
       - name: npm-cache
         path: /root/.npm
     depends_on:
@@ -1529,19 +1553,20 @@ steps:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
-        path: /drone/src/external
+        path: /drone/src/cache
       - name: cargo-cache
         path: /drone/src/cargo-registry
     depends_on:
       - clone-dependencies
 
-  # Step 4: Build desktop images
+  # Step 4: Build and push desktop images to registry
   - name: build-desktops
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
     commands:
-      - mkdir -p sandbox-images
       - |
         # Determine version tag
         if [ -n "${DRONE_TAG}" ]; then
@@ -1549,38 +1574,49 @@ steps:
         else
           VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         fi
-        echo "Building desktop images with version: $${VERSION}"
-      - |
-        QWEN_HASH=$$(cat qwen-code-commit.txt)
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
         GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
-        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-      # Build helix-sway
+        echo "Building desktop images with version: $${VERSION}"
+        echo "QWEN_HASH=$${QWEN_HASH} GO_HASH=$${GO_HASH}"
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      # Build and push helix-sway
       - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-sway..."
         docker build --provenance=false \
           -f Dockerfile.sway-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
           --build-arg GO_CODE_HASH=$${GO_HASH} \
-          -t helix-sway:$${VERSION} \
-          -t helix-sway:latest \
+          -t registry.helixml.tech/helix/helix-sway:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-sway:latest \
           .
-        docker save helix-sway:$${VERSION} > sandbox-images/helix-sway.tar
-        echo "$${VERSION}" > sandbox-images/helix-sway.version
-        echo "helix-sway built: $$(du -h sandbox-images/helix-sway.tar | cut -f1)"
-      # Build helix-ubuntu
+        docker push registry.helixml.tech/helix/helix-sway:$${VERSION}
+        echo "helix-sway:$${VERSION} pushed to registry"
+      # Build and push helix-ubuntu
       - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        QWEN_HASH=$$(cat qwen-code-commit.txt | head -c 12)
+        GO_HASH=$$(echo ${DRONE_COMMIT_SHA} | head -c 12)
         echo "Building helix-ubuntu..."
         docker build --provenance=false \
           -f Dockerfile.ubuntu-helix \
           --build-arg QWEN_CODE_HASH=$${QWEN_HASH} \
           --build-arg GO_CODE_HASH=$${GO_HASH} \
-          -t helix-ubuntu:$${VERSION} \
-          -t helix-ubuntu:latest \
+          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION} \
+          -t registry.helixml.tech/helix/helix-ubuntu:latest \
           .
-        docker save helix-ubuntu:$${VERSION} > sandbox-images/helix-ubuntu.tar
+        docker push registry.helixml.tech/helix/helix-ubuntu:$${VERSION}
+        echo "helix-ubuntu:$${VERSION} pushed to registry"
+      # Write version refs for sandbox
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        mkdir -p sandbox-images
+        echo "registry.helixml.tech/helix/helix-sway:$${VERSION}" > sandbox-images/helix-sway.ref
+        echo "registry.helixml.tech/helix/helix-ubuntu:$${VERSION}" > sandbox-images/helix-ubuntu.ref
+        echo "$${VERSION}" > sandbox-images/helix-sway.version
         echo "$${VERSION}" > sandbox-images/helix-ubuntu.version
-        echo "helix-ubuntu built: $$(du -h sandbox-images/helix-ubuntu.tar | cut -f1)"
-      - ls -lh sandbox-images/
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
