@@ -161,8 +161,9 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if agent.UserID != "" {
 		user, err := h.store.GetUser(ctx, &store.GetUserQuery{ID: agent.UserID})
 		if err != nil {
-			log.Error().Err(err).Str("user_id", agent.UserID).Msg("Failed to get user for git config")
-		} else if user != nil {
+			return nil, fmt.Errorf("failed to get user for git config: %w", err)
+		}
+		if user != nil {
 			gitUserName = user.FullName
 			gitUserEmail = user.Email
 			// Fall back to username if full name is empty
@@ -172,7 +173,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 	if gitUserEmail == "" {
-		log.Warn().Str("user_id", agent.UserID).Msg("GIT_USER_EMAIL not available - commits may be rejected by enterprise git")
+		return nil, fmt.Errorf("GIT_USER_EMAIL not available for user %s - enterprise git requires user email", agent.UserID)
 	}
 
 	// Build environment variables
@@ -184,6 +185,65 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	}
 	if gitUserEmail != "" {
 		env = append(env, fmt.Sprintf("GIT_USER_EMAIL=%s", gitUserEmail))
+	}
+
+	// Fetch SpecTask info for git hooks and docker compose project naming
+	var specDirName string
+	var taskNumber int
+	if agent.SpecTaskID != "" {
+		specTask, err := h.store.GetSpecTask(ctx, agent.SpecTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get spec task for design doc path")
+		} else if specTask != nil {
+			taskNumber = specTask.TaskNumber
+			if specTask.DesignDocPath != "" {
+				specDirName = specTask.DesignDocPath
+			}
+			log.Debug().
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("spec_dir_name", specDirName).
+				Int("task_number", taskNumber).
+				Msg("Spec task info for git hooks and docker compose project naming")
+		}
+	}
+	if specDirName != "" {
+		env = append(env, fmt.Sprintf("HELIX_SPEC_DIR_NAME=%s", specDirName))
+	}
+	if taskNumber > 0 {
+		env = append(env, fmt.Sprintf("HELIX_TASK_NUMBER=%d", taskNumber))
+	}
+
+	// Build repository info for startup script to clone
+	// Format: "id:name:type,id:name:type,..." (same as wolf_executor)
+	if len(agent.RepositoryIDs) > 0 {
+		var repoSpecs []string
+		for _, repoID := range agent.RepositoryIDs {
+			repo, err := h.store.GetGitRepository(ctx, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to get repository metadata")
+				continue
+			}
+			// Format: id:name:type
+			repoSpec := fmt.Sprintf("%s:%s:%s", repo.ID, repo.Name, repo.RepoType)
+			repoSpecs = append(repoSpecs, repoSpec)
+		}
+		if len(repoSpecs) > 0 {
+			env = append(env, fmt.Sprintf("HELIX_REPOSITORIES=%s", strings.Join(repoSpecs, ",")))
+		}
+	}
+
+	// Get actual primary repository name (not just the ID)
+	if agent.PrimaryRepositoryID != "" {
+		repo, err := h.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", agent.PrimaryRepositoryID).Msg("Failed to get primary repository name")
+		} else if repo != nil {
+			env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", repo.Name))
+			log.Info().
+				Str("primary_repo_id", agent.PrimaryRepositoryID).
+				Str("primary_repo_name", repo.Name).
+				Msg("Primary repository for design docs worktree")
+		}
 	}
 
 	// Build mounts
@@ -654,9 +714,7 @@ func (h *HydraExecutor) buildEnvVars(agent *types.DesktopAgent, containerType, w
 	if agent.ProjectID != "" {
 		env = append(env, fmt.Sprintf("HELIX_PROJECT_ID=%s", agent.ProjectID))
 	}
-	if agent.PrimaryRepositoryID != "" {
-		env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", agent.PrimaryRepositoryID))
-	}
+	// NOTE: HELIX_PRIMARY_REPO_NAME is set in StartDesktop after fetching actual repo name
 
 	// Display settings for non-headless containers
 	if containerType != "headless" {
