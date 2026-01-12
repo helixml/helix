@@ -81,72 +81,112 @@ iptables -P FORWARD ACCEPT
 echo "✅ iptables FORWARD policy set to ACCEPT"
 
 # Function to load a desktop image into sandbox's dockerd
+# Supports two modes:
+#   1. Registry pull (preferred): Read .ref file, pull from registry
+#   2. Tarball load (fallback): Load from embedded .tar file
+#
+# Registry override: Set HELIX_SANDBOX_REGISTRY to use custom registry
+#   e.g., HELIX_SANDBOX_REGISTRY=internal-registry.corp.example.com
+#
 # Usage: load_desktop_image <name> <required>
 #   name: desktop name (sway, zorin, ubuntu)
-#   required: "true" if missing tarball is a warning, "false" for info
+#   required: "true" if missing image is a warning, "false" for info
 load_desktop_image() {
     local NAME="$1"
     local REQUIRED="${2:-false}"
     local IMAGE_NAME="helix-${NAME}"
+    local REF_FILE="/opt/images/${IMAGE_NAME}.ref"
     local TARBALL="/opt/images/${IMAGE_NAME}.tar"
     local VERSION_FILE="/opt/images/${IMAGE_NAME}.version"
-    local HASH_FILE="/opt/images/${IMAGE_NAME}.tar.hash"
     local LOG_FILE="/tmp/docker-load-${NAME}.log"
 
+    # Read expected version
+    local VERSION="latest"
+    if [ -f "$VERSION_FILE" ]; then
+        VERSION=$(cat "$VERSION_FILE")
+    fi
+
+    # =========================================================================
+    # Mode 1: Registry pull (if .ref file exists)
+    # =========================================================================
+    if [ -f "$REF_FILE" ]; then
+        local REGISTRY_REF=$(cat "$REF_FILE")
+        echo "📦 ${IMAGE_NAME} registry ref: ${REGISTRY_REF}"
+
+        # Support registry override for enterprise deployments
+        if [ -n "$HELIX_SANDBOX_REGISTRY" ]; then
+            # Replace registry host in ref
+            # e.g., registry.helixml.tech/helix/helix-sway:v1.2.3 -> internal.corp/helix/helix-sway:v1.2.3
+            local ORIGINAL_REF="$REGISTRY_REF"
+            REGISTRY_REF=$(echo "$REGISTRY_REF" | sed "s|^[^/]*/|${HELIX_SANDBOX_REGISTRY}/|")
+            echo "   Registry override: ${ORIGINAL_REF} -> ${REGISTRY_REF}"
+        fi
+
+        # Check if image already exists locally
+        local IMAGE_ID=$(docker images "$REGISTRY_REF" --format '{{.ID}}' 2>/dev/null || echo "")
+        if [ -n "$IMAGE_ID" ]; then
+            echo "✅ ${REGISTRY_REF} already pulled (ID: ${IMAGE_ID})"
+            # Write the ref to a runtime file for Hydra to use
+            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            return 0
+        fi
+
+        # Pull from registry
+        echo "🔄 Pulling ${REGISTRY_REF} from registry..."
+        if docker pull "$REGISTRY_REF" 2>&1 | tee "$LOG_FILE"; then
+            echo "✅ ${REGISTRY_REF} pulled successfully"
+            # Write the ref to a runtime file for Hydra to use
+            echo "$REGISTRY_REF" > "/opt/images/${IMAGE_NAME}.runtime-ref"
+            # Tag as local name for backward compatibility
+            docker tag "$REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
+            docker tag "$REGISTRY_REF" "${IMAGE_NAME}:latest" 2>/dev/null || true
+            echo "📋 Available tags:"
+            docker images --filter "reference=${IMAGE_NAME}*" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
+            return 0
+        else
+            echo "⚠️  Failed to pull ${REGISTRY_REF} - trying tarball fallback..."
+        fi
+    fi
+
+    # =========================================================================
+    # Mode 2: Tarball load (fallback)
+    # =========================================================================
     if [ ! -f "$TARBALL" ]; then
         if [ "$REQUIRED" = "true" ]; then
-            echo "⚠️  ${IMAGE_NAME} tarball not found (sandboxes may fail to start)"
+            echo "⚠️  ${IMAGE_NAME} not available (no .ref or .tar file)"
+            echo "   Sandboxes using this desktop type may fail to start"
         else
-            echo "ℹ️  ${IMAGE_NAME} tarball not found (${NAME^} desktop not available)"
+            echo "ℹ️  ${IMAGE_NAME} not available (${NAME^} desktop not configured)"
         fi
         return 0
     fi
 
-    # Read expected version from embedded metadata
-    local VERSION="latest"
-    if [ -f "$VERSION_FILE" ]; then
-        VERSION=$(cat "$VERSION_FILE")
-        echo "📦 ${IMAGE_NAME} version: ${VERSION}"
+    echo "📦 ${IMAGE_NAME} version: ${VERSION} (tarball mode)"
+
+    # Check if versioned image already loaded
+    local CURRENT_ID=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
+    if [ -n "$CURRENT_ID" ]; then
+        echo "✅ ${IMAGE_NAME}:${VERSION} already loaded (ID: $CURRENT_ID) - skipping docker load"
+        return 0
     fi
 
-    # Check if versioned image already loaded (optimization to skip expensive docker load)
-    local SHOULD_LOAD=true
-    local EXPECTED_HASH=""
-    if [ -f "$HASH_FILE" ]; then
-        EXPECTED_HASH=$(cat "$HASH_FILE")
-    fi
-
-    # Check for versioned tag first (more reliable than :latest)
-    local CURRENT_HASH=$(docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' 2>/dev/null || echo "")
-
-    if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
-        echo "✅ ${IMAGE_NAME}:${VERSION} already loaded (hash: $CURRENT_HASH) - skipping docker load"
-        SHOULD_LOAD=false
-    else
-        echo "📦 Loading ${IMAGE_NAME}:${VERSION} into sandbox's dockerd (current: ${CURRENT_HASH:-none}, expected: ${EXPECTED_HASH:-unknown})..."
-    fi
-
-    if [ "$SHOULD_LOAD" = true ]; then
-        if docker load -i "$TARBALL" 2>&1 | tee "$LOG_FILE"; then
-            # Verify versioned tag exists after load
-            if docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' | grep -q .; then
-                echo "✅ ${IMAGE_NAME}:${VERSION} loaded successfully"
-            else
-                # Tarball may be from before versioning - tag it now
-                echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${VERSION}"
-                docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
-            fi
-
-            # Log available tags for debugging (helps verify docker ps will show names)
-            echo "📋 Available tags for ${IMAGE_NAME}:"
-            docker images "${IMAGE_NAME}" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
+    echo "📦 Loading ${IMAGE_NAME}:${VERSION} from tarball..."
+    if docker load -i "$TARBALL" 2>&1 | tee "$LOG_FILE"; then
+        # Verify versioned tag exists after load
+        if docker images "${IMAGE_NAME}:${VERSION}" --format '{{.ID}}' | grep -q .; then
+            echo "✅ ${IMAGE_NAME}:${VERSION} loaded successfully"
         else
-            echo "⚠️  Failed to load ${IMAGE_NAME} tarball (may be corrupted or out of memory)"
-            echo "   Container will continue startup - transfer fresh image with './stack build-${NAME}'"
+            # Tarball may be from before versioning - tag it now
+            echo "🏷️  Tagging ${IMAGE_NAME}:latest as ${IMAGE_NAME}:${VERSION}"
+            docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
         fi
-    fi
 
-    echo "✅ ${IMAGE_NAME}:${VERSION} ready for Hydra executor"
+        echo "📋 Available tags for ${IMAGE_NAME}:"
+        docker images "${IMAGE_NAME}" --format '   {{.Repository}}:{{.Tag}} ({{.ID}})'
+    else
+        echo "⚠️  Failed to load ${IMAGE_NAME} tarball (may be corrupted or out of memory)"
+        echo "   Container will continue startup - transfer fresh image with './stack build-${NAME}'"
+    fi
 }
 
 # Load desktop images (sway is required, others are optional)
@@ -160,16 +200,14 @@ load_desktop_image "kde" "false"
 # This removes old versions of helix-sway, helix-ubuntu, etc. that are no longer
 # needed after upgrading to new versions.
 #
-# How versioning works:
-# - Each desktop image is tagged with the first 6 chars of its Docker image ID
-#   (content-addressable hash), e.g., helix-sway:5874ee
-# - The .version file contains this same hash (e.g., "5874ee")
-# - When a new sandbox image is deployed, it contains new tarballs with new hashes
-# - Old images (e.g., helix-sway:abc123) remain in nested Docker and waste space
+# CRITICAL: Pull new images BEFORE pruning old ones!
+# This preserves shared layers and avoids re-downloading the full image.
+# The load_desktop_image function above handles this correctly.
 #
 # Cleanup logic:
-# - Read the expected hash from each .version file
-# - Keep images matching that hash OR tagged as :latest
+# - Read expected version from .version files
+# - Read registry refs from .runtime-ref files (written by load_desktop_image)
+# - Keep images matching expected version, :latest, or registry refs
 # - Remove all other versions (old image hashes)
 # ================================================================================
 echo ""
@@ -184,19 +222,24 @@ if [ "$STOPPED_COUNT" -gt 0 ]; then
     docker container prune -f >/dev/null 2>&1 || true
 fi
 
-# Next, build a list of expected versions from the embedded .version files
-# These are the versions we just loaded (or already had loaded)
-# This also tells us which desktop types exist (no hardcoded list needed)
+# Build a list of expected versions and registry refs
 declare -A EXPECTED_VERSIONS
+declare -A REGISTRY_REFS
 DESKTOP_NAMES=""
 for version_file in /opt/images/helix-*.version; do
     if [ -f "$version_file" ]; then
-        # Extract image name from filename (e.g., helix-sway from helix-sway.version)
         IMAGE_NAME=$(basename "$version_file" .version)
         EXPECTED_VERSIONS[$IMAGE_NAME]=$(cat "$version_file")
         echo "   Expected version for $IMAGE_NAME: ${EXPECTED_VERSIONS[$IMAGE_NAME]}"
-        # Build list of desktop names for grep pattern
-        DESKTOP_NAME="${IMAGE_NAME#helix-}"  # Remove "helix-" prefix
+
+        # Check for registry ref (written during registry pull)
+        REF_FILE="/opt/images/${IMAGE_NAME}.runtime-ref"
+        if [ -f "$REF_FILE" ]; then
+            REGISTRY_REFS[$IMAGE_NAME]=$(cat "$REF_FILE")
+            echo "   Registry ref for $IMAGE_NAME: ${REGISTRY_REFS[$IMAGE_NAME]}"
+        fi
+
+        DESKTOP_NAME="${IMAGE_NAME#helix-}"
         if [ -z "$DESKTOP_NAMES" ]; then
             DESKTOP_NAMES="$DESKTOP_NAME"
         else
