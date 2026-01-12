@@ -120,7 +120,7 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      - CGO_ENABLED=0 ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
       event:
         - push
@@ -170,10 +170,10 @@ steps:
     commands:
       - apk add --no-cache gcc g++ musl-dev pkgconf glib-dev gstreamer-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
-      # Build API server
-      - go install ./api/..
+      # Build API server (CGO disabled for GStreamer stubs)
+      - CGO_ENABLED=0 go install ./api/..
       # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - CGO_ENABLED=0 ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
