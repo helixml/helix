@@ -97,6 +97,48 @@ with Sway's portal stream. If format negotiation still hangs, investigate why.
 If Option 1 fails, **consider Option 2** for true zero-copy without PipeWire
 dependency on Sway.
 
+## Test Results (2026-01-12)
+
+### Video Streaming: SUCCESS
+
+The unified pipewirezerocopysrc path works with Sway's xdg-desktop-portal-wlr!
+
+```
+Session: ses_01kes2xcp7k3c71ep6mjbk5hgh (Sway)
+Video frames: 455 in 10s
+Average FPS: 45.5 fps
+Instant FPS: up to 83 fps
+Resolution: 1920x1080
+Codec: H.264
+```
+
+### Latency Measurements
+
+```
+Tests: 10 @ 500ms interval
+Completed: 9 (1 timeout)
+
+Key-to-Eyeball Latency:
+  Min:     52ms   (good!)
+  Median:  171ms
+  Average: 322ms
+  Max:     816ms  (needs investigation)
+  Std Dev: 296ms  (high variance)
+```
+
+The high variance (52ms - 816ms) suggests intermittent delays. Possible causes:
+1. xdg-desktop-portal-wlr frame delivery timing
+2. PipeWire buffer accumulation
+3. keepalive-time=100 affecting frame timing
+4. Format negotiation overhead on some frames
+
+### Next Steps
+
+1. Investigate latency variance - why do some frames take 800ms?
+2. Compare with GNOME latency to isolate Sway-specific issues
+3. Check PipeWire node stats during streaming
+4. Consider reducing keepalive-time for Sway
+
 ## Testing Plan
 
 1. **Verify current Sway encoding:**
