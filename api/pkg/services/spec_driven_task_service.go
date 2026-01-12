@@ -994,13 +994,17 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 }
 
 // ApproveSpecs handles human approval of generated specs
-func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.SpecApprovalResponse) error {
-	task, err := s.store.GetSpecTask(ctx, req.TaskID)
+func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.SpecTask) error {
+	task, err := s.store.GetSpecTask(ctx, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
-	if req.Approved {
+	if task.SpecApproval == nil {
+		return fmt.Errorf("spec approval not found")
+	}
+
+	if task.SpecApproval.Approved {
 		// Get project and repository info
 		project, err := s.store.GetProject(ctx, task.ProjectID)
 		if err != nil {
@@ -1084,10 +1088,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		// Specs approved - move to implementation
 		task.Status = types.TaskStatusImplementation
 		task.BranchName = branchName
-		task.SpecApprovedBy = req.ApprovedBy
-		task.SpecApprovedAt = &req.ApprovedAt
-		now := time.Now()
-		task.StartedAt = &now
+		task.StartedAt = ptr.To(time.Now())
 
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
@@ -1099,7 +1100,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store)
+			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent)
 
 			// Send approval instruction asynchronously (don't block the response)
 			s.wg.Add(1)
@@ -1187,7 +1188,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 						Str("comments", comments).
 						Msg("Specs require revision - sent revision instruction to agent via WebSocket")
 				}
-			}(task, req.Comments)
+			}(task, task.SpecApproval.Comments)
 		} else if !s.testMode {
 			log.Warn().
 				Str("task_id", task.ID).
@@ -1195,9 +1196,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		// Log audit event for review comment (revision request)
-		if s.auditLogService != nil && req.Comments != "" {
+		if s.auditLogService != nil && task.SpecApproval.Comments != "" {
 			// reviewID=planningSessionID, commentID=empty (revision not a specific comment), commentText, userID, userEmail
-			s.auditLogService.LogReviewComment(ctx, task, task.PlanningSessionID, "", req.Comments, req.ApprovedBy, "")
+			s.auditLogService.LogReviewComment(ctx, task, task.PlanningSessionID, "", task.SpecApproval.Comments, task.SpecApproval.ApprovedBy, "")
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -308,30 +309,21 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set fields from context and path
-	req.TaskID = taskID
-	req.ApprovedBy = user.ID
-	req.ApprovedAt = time.Now()
+	existingTask.SpecApprovedBy = user.ID
+	existingTask.SpecApprovedAt = ptr.To(time.Now())
+	existingTask.Status = types.TaskStatusSpecApproved
+	existingTask.SpecApproval = &req
 
-	// Process approval
-	err = s.specDrivenTaskService.ApproveSpecs(ctx, &req)
+	err = s.Store.UpdateSpecTask(ctx, existingTask)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to process spec approval")
-		http.Error(w, fmt.Sprintf("failed to process approval: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Return updated task
-	task, err := s.Store.GetSpecTask(ctx, taskID)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get updated task")
-		http.Error(w, "failed to get updated task", http.StatusInternalServerError)
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update task")
+		http.Error(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Log audit event for spec approval
 	if req.Approved && s.auditLogService != nil {
-		s.auditLogService.LogTaskApproved(ctx, task, user.ID, user.Email)
+		s.auditLogService.LogTaskApproved(ctx, existingTask, user.ID, user.Email)
 	}
 
 	log.Info().
@@ -341,7 +333,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		Msg("Spec approval processed")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	json.NewEncoder(w).Encode(existingTask)
 }
 
 // getTaskSpecs godoc
@@ -841,23 +833,6 @@ func getImplementationStatus(taskStatus types.SpecTaskStatus) string {
 	default:
 		return "pending"
 	}
-}
-
-func isSpecificationStatus(status types.SpecTaskStatus) bool {
-	specificationStatuses := []types.SpecTaskStatus{
-		types.TaskStatusBacklog,
-		types.TaskStatusSpecGeneration,
-		types.TaskStatusSpecReview,
-		types.TaskStatusSpecRevision,
-		types.TaskStatusSpecApproved,
-		types.TaskStatusSpecFailed,
-	}
-	for _, s := range specificationStatuses {
-		if s == status {
-			return true
-		}
-	}
-	return false
 }
 
 func isImplementationStatus(status types.SpecTaskStatus) bool {

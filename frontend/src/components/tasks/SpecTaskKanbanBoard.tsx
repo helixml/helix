@@ -96,13 +96,12 @@ function mapStatusToPhase(status: string): { phase: SpecTaskPhase; planningStatu
     planningStatus = 'active';
   }
   // Spec review/revision phase
-  else if (status === 'spec_review' || status === 'spec_revision') {
+  else if (status === 'spec_review' || status === 'spec_revision' || status === 'spec_approved') {
     phase = 'review';
     planningStatus = 'pending_review';
   }
   // Implementation phase (all implementation-related statuses)
   else if (
-    status === 'spec_approved' ||
     status === 'implementation_queued' ||
     status === 'implementation' ||
     status === 'implementing' ||
