@@ -115,11 +115,12 @@ type SpecTask struct {
 	WorkspaceConfig datatypes.JSON `json:"workspace_config,omitempty" gorm:"type:jsonb"`
 
 	// Approval tracking
-	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
-	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
-	SpecRevisionCount int        `json:"spec_revision_count"`                                   // Number of spec revisions requested
-	JustDoItMode      bool       `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
-	UseHostDocker     bool       `json:"use_host_docker" gorm:"default:false"`                  // Use host Docker socket (requires privileged sandbox)
+	SpecApprovedBy    string                `json:"spec_approved_by,omitempty"` // User who approved specs
+	SpecApprovedAt    *time.Time            `json:"spec_approved_at,omitempty"`
+	SpecApproval      *SpecApprovalResponse `json:"spec_approval,omitempty" gorm:"type:jsonb;serializer:json"`
+	SpecRevisionCount int                   `json:"spec_revision_count"`                                   // Number of spec revisions requested
+	JustDoItMode      bool                  `json:"just_do_it_mode" gorm:"column:yolo_mode;default:false"` // Skip spec planning, go straight to implementation
+	UseHostDocker     bool                  `json:"use_host_docker" gorm:"default:false"`                  // Use host Docker socket (requires privileged sandbox)
 
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
@@ -240,7 +241,8 @@ const (
 	TaskStatusSpecGeneration SpecTaskStatus = "spec_generation" // Helix agent generating specs
 	TaskStatusSpecReview     SpecTaskStatus = "spec_review"     // Human reviewing generated specs
 	TaskStatusSpecRevision   SpecTaskStatus = "spec_revision"   // Human requested spec changes
-	TaskStatusSpecApproved   SpecTaskStatus = "spec_approved"   // Specs approved, ready for implementation
+
+	TaskStatusSpecApproved SpecTaskStatus = "spec_approved" // Specs approved, ready for implementation
 
 	// Phase 2: Implementation (Zed Agent)
 	TaskStatusImplementationQueued SpecTaskStatus = "implementation_queued" // Waiting for Zed agent pickup
