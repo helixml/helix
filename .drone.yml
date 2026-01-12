@@ -1528,13 +1528,13 @@ steps:
       # Build the Zed builder image
       - docker build -t zed-builder:ubuntu25 -f Dockerfile.zed-build .
       # Run Zed build in container
-      - mkdir -p zed-build /drone/src/cargo-registry /drone/src/cargo-git /drone/src/rustup
+      # Note: Don't mount .rustup - it's already installed in the image
+      - mkdir -p zed-build /drone/src/cargo-registry /drone/src/cargo-git
       - |
         docker run --rm \
-          -v "$(pwd)/external/zed:/zed:ro" \
+          -v "/drone/src/external/zed:/zed:ro" \
           -v "/drone/src/cargo-registry:/root/.cargo/registry" \
           -v "/drone/src/cargo-git:/root/.cargo/git" \
-          -v "/drone/src/rustup:/root/.rustup" \
           -v "$(pwd)/zed-build:/output" \
           -w /zed \
           zed-builder:ubuntu25 \
